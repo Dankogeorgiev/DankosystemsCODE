@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Данко Системс — Следене на мостри</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">DS</span>
+      <div>
+        <h1>Данко Системс</h1>
+        <p class="subtitle">Следене на изпълнението на мострите</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
+      <button id="btn-export" class="btn">Експорт</button>
+      <label class="btn" for="import-file">Импорт</label>
+      <input type="file" id="import-file" accept="application/json" hidden />
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Списък с мостри -->
+    <aside class="sidebar">
+      <div class="search-box">
+        <input type="search" id="search" placeholder="Търси по клиент или мостра..." />
+      </div>
+      <ul id="sample-list" class="sample-list"></ul>
+      <p id="empty-list" class="empty-hint">Все още няма мостри.<br>Натисни „+ Нова мостра“.</p>
+    </aside>
+
+    <!-- Детайли / форма -->
+    <section class="content">
+      <div id="welcome" class="welcome">
+        <h2>Добре дошъл 👋</h2>
+        <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
+      </div>
+
+      <form id="sample-form" class="sample-form" hidden>
+        <div class="form-toolbar">
+          <div class="progress">
+            <div class="progress-bar"><span id="progress-fill"></span></div>
+            <span id="progress-text">0 / 6 операции</span>
+          </div>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-print" class="btn">Печат / PDF</button>
+            <button type="button" id="btn-delete" class="btn btn-danger">Изтрий</button>
+          </div>
+        </div>
+
+        <!-- 1. Име на клиента -->
+        <fieldset class="card">
+          <legend><span class="num">1</span> Име на клиента</legend>
+          <input type="text" id="clientName" placeholder="Напр. ЕТ „Пример“ ООД" />
+        </fieldset>
+
+        <!-- 2. Информация за клиента -->
+        <fieldset class="card">
+          <legend><span class="num">2</span> Информация за клиента</legend>
+          <textarea id="clientInfo" rows="4" placeholder="Контакти, адрес, лице за връзка, специфични изисквания..."></textarea>
+        </fieldset>
+
+        <!-- 3. Информация за мострата -->
+        <fieldset class="card">
+          <legend><span class="num">3</span> Информация за мострата</legend>
+          <textarea id="sampleInfo" rows="4" placeholder="Наименование, количество, размери, срок, описание..."></textarea>
+        </fieldset>
+
+        <!-- 4. Чертежи за производство -->
+        <fieldset class="card">
+          <legend><span class="num">4</span> Чертежи за производство</legend>
+          <label class="btn btn-small" for="drawings-file">+ Прикачи файл</label>
+          <input type="file" id="drawings-file" accept="image/*,application/pdf" multiple hidden />
+          <p class="hint">Поддържат се изображения и PDF. Файловете се пазят локално в браузъра.</p>
+          <ul id="drawings-list" class="files-list"></ul>
+        </fieldset>
+
+        <!-- 5. Необходими материали -->
+        <fieldset class="card">
+          <legend><span class="num">5</span> Необходими материали</legend>
+          <table class="materials-table">
+            <thead>
+              <tr><th>Материал</th><th class="col-qty">Количество</th><th class="col-note">Забележка</th><th class="col-x"></th></tr>
+            </thead>
+            <tbody id="materials-body"></tbody>
+          </table>
+          <button type="button" id="btn-add-material" class="btn btn-small">+ Добави ред</button>
+        </fieldset>
+
+        <!-- 6. Поръчка на материали -->
+        <fieldset class="card">
+          <legend><span class="num">6</span> Поръчка на материали</legend>
+          <div class="grid-2">
+            <label>Статус
+              <select id="orderStatus">
+                <option value="">— избери —</option>
+                <option value="not-ordered">Непоръчани</option>
+                <option value="ordered">Поръчани</option>
+                <option value="received">Получени</option>
+              </select>
+            </label>
+            <label>Доставчик
+              <input type="text" id="orderSupplier" placeholder="Име на доставчик" />
+            </label>
+          </div>
+          <label>Забележки по поръчката
+            <textarea id="orderNote" rows="3" placeholder="Дата на поръчка, очаквана доставка, цени..."></textarea>
+          </label>
+        </fieldset>
+
+        <!-- 7. Производствен процес -->
+        <fieldset class="card">
+          <legend><span class="num">7</span> Производствен процес</legend>
+          <p class="hint">Отбележи готовите операции и кой е отговорникът.</p>
+          <div id="process-list" class="process-list"></div>
+        </fieldset>
+
+        <!-- 8. Анализ на производството -->
+        <fieldset class="card">
+          <legend><span class="num">8</span> Анализ на производството</legend>
+          <textarea id="analysis" rows="5" placeholder="Какво направи впечатление? Проблеми, предложения за подобрение, забележки за качеството..."></textarea>
+        </fieldset>
+
+        <p class="save-status" id="save-status"></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
