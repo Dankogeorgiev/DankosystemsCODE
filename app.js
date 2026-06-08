@@ -25,6 +25,14 @@ function load() {
   } catch {
     samples = [];
   }
+  // Допълване на липсващи полета за по-стари записи.
+  samples.forEach(s => {
+    if (s.deadline === undefined) s.deadline = "";
+    if (s.completed === undefined) s.completed = false;
+    s.order = s.order || {};
+    if (s.order.date === undefined) s.order.date = "";
+    if (s.order.eta === undefined) s.order.eta = "";
+  });
 }
 function persist() {
   try {
@@ -49,9 +57,11 @@ function newSample() {
     clientName: "",
     clientInfo: "",
     sampleInfo: "",
+    deadline: "",          // краен срок на мострата (YYYY-MM-DD)
+    completed: false,      // статус „Завършена“
     drawings: [],          // {name, type, dataUrl}
     materials: [],         // {name, qty, note}
-    order: { status: "", supplier: "", note: "" },
+    order: { status: "", supplier: "", date: "", eta: "", note: "" },
     process: {},           // key -> {done, responsible}
     analysis: "",
   };
@@ -79,11 +89,16 @@ function renderList() {
   filtered.forEach(s => {
     const li = document.createElement("li");
     if (s.id === currentId) li.classList.add("active");
+    if (s.completed) li.classList.add("completed");
     const done = OPERATIONS.filter(op => s.process[op.key]?.done).length;
+    const badge = s.completed
+      ? `<span class="badge badge-done">Завършена</span>`
+      : "";
+    const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
     li.innerHTML = `
-      <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"}</div>
+      <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
       <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание на мострата"}</div>
-      <div class="s-progress">${done}/${OPERATIONS.length} операции · ${formatDate(s.updatedAt)}</div>`;
+      <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
     li.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
     ul.appendChild(li);
   });
@@ -93,6 +108,7 @@ function renderList() {
 function renderForm() {
   const form = document.getElementById("sample-form");
   const welcome = document.getElementById("welcome");
+  document.getElementById("report").hidden = true;
   const s = getCurrent();
 
   if (!s) {
@@ -106,8 +122,12 @@ function renderForm() {
   document.getElementById("clientName").value = s.clientName;
   document.getElementById("clientInfo").value = s.clientInfo;
   document.getElementById("sampleInfo").value = s.sampleInfo;
+  document.getElementById("deadline").value = s.deadline || "";
+  document.getElementById("completed").checked = !!s.completed;
   document.getElementById("orderStatus").value = s.order.status;
   document.getElementById("orderSupplier").value = s.order.supplier;
+  document.getElementById("orderDate").value = s.order.date || "";
+  document.getElementById("orderEta").value = s.order.eta || "";
   document.getElementById("orderNote").value = s.order.note;
   document.getElementById("analysis").value = s.analysis;
 
@@ -210,6 +230,67 @@ function bindSimpleField(id, apply) {
   });
 }
 
+/* ---------- Обща справка ---------- */
+const ORDER_LABELS = {
+  "": "—",
+  "not-ordered": "Непоръчани",
+  "ordered": "Поръчани",
+  "received": "Получени",
+};
+
+function renderReport() {
+  document.getElementById("welcome").hidden = true;
+  document.getElementById("sample-form").hidden = true;
+  document.getElementById("report").hidden = false;
+  currentId = null;
+  renderList();
+
+  const total = samples.length;
+  const completed = samples.filter(s => s.completed).length;
+  const inProgress = total - completed;
+  const overdue = samples.filter(s => isOverdue(s)).length;
+  document.getElementById("report-summary").innerHTML = `
+    <div class="stat"><span class="stat-num">${total}</span> мостри общо</div>
+    <div class="stat"><span class="stat-num">${inProgress}</span> в процес</div>
+    <div class="stat"><span class="stat-num">${completed}</span> завършени</div>
+    <div class="stat ${overdue ? "stat-warn" : ""}"><span class="stat-num">${overdue}</span> просрочени</div>`;
+
+  const body = document.getElementById("report-body");
+  body.innerHTML = "";
+  if (!total) {
+    body.innerHTML = `<tr><td colspan="6" class="report-empty">Няма въведени мостри.</td></tr>`;
+    return;
+  }
+  samples.forEach(s => {
+    const done = OPERATIONS.filter(op => s.process[op.key]?.done).length;
+    const pct = Math.round((done / OPERATIONS.length) * 100);
+    const overdueCls = isOverdue(s) ? "cell-overdue" : "";
+    const statusBadge = s.completed
+      ? `<span class="badge badge-done">Завършена</span>`
+      : `<span class="badge badge-progress">В процес</span>`;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(s.clientName) || "—"}</td>
+      <td>${escapeHtml(firstLine(s.sampleInfo)) || "—"}</td>
+      <td class="${overdueCls}">${s.deadline ? formatDate(s.deadline) : "—"}</td>
+      <td>${ORDER_LABELS[s.order.status] ?? "—"}</td>
+      <td>
+        <div class="mini-bar"><span style="width:${pct}%"></span></div>
+        <span class="mini-num">${done}/${OPERATIONS.length}</span>
+      </td>
+      <td>${statusBadge}</td>`;
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
+    body.appendChild(tr);
+  });
+}
+
+function isOverdue(s) {
+  if (s.completed || !s.deadline) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return new Date(s.deadline) < today;
+}
+
 /* ---------- Експорт / Импорт ---------- */
 function exportData() {
   const blob = new Blob([JSON.stringify(samples, null, 2)], { type: "application/json" });
@@ -256,6 +337,12 @@ function init() {
   renderForm();
 
   document.getElementById("btn-new").addEventListener("click", newSample);
+  document.getElementById("btn-report").addEventListener("click", renderReport);
+  document.getElementById("btn-report-close").addEventListener("click", () => {
+    document.getElementById("report").hidden = true;
+    renderForm();
+  });
+  document.getElementById("btn-report-print").addEventListener("click", () => window.print());
   document.getElementById("btn-export").addEventListener("click", exportData);
   document.getElementById("import-file").addEventListener("change", e => {
     if (e.target.files[0]) importData(e.target.files[0]);
@@ -278,12 +365,19 @@ function init() {
   bindSimpleField("clientName", (s, v) => s.clientName = v);
   bindSimpleField("clientInfo", (s, v) => s.clientInfo = v);
   bindSimpleField("sampleInfo", (s, v) => s.sampleInfo = v);
-  bindSimpleField("orderStatus", (s, v) => s.order.status = v);
+  bindSimpleField("deadline", (s, v) => s.deadline = v);
   bindSimpleField("orderSupplier", (s, v) => s.order.supplier = v);
+  bindSimpleField("orderDate", (s, v) => s.order.date = v);
+  bindSimpleField("orderEta", (s, v) => s.order.eta = v);
   bindSimpleField("orderNote", (s, v) => s.order.note = v);
   bindSimpleField("analysis", (s, v) => s.analysis = v);
   document.getElementById("orderStatus").addEventListener("change", () => {
     const s = getCurrent(); if (s) { s.order.status = document.getElementById("orderStatus").value; touch(s); }
+  });
+  document.getElementById("completed").addEventListener("change", () => {
+    const s = getCurrent(); if (!s) return;
+    s.completed = document.getElementById("completed").checked;
+    touch(s); renderList();
   });
 
   // Материали
