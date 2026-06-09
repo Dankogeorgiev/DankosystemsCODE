@@ -149,7 +149,11 @@ function renderList() {
   const term = document.getElementById("search").value.trim().toLowerCase();
   ul.innerHTML = "";
 
-  const filtered = samples.filter(s => !term || searchText(s).includes(term));
+  const tf = document.getElementById("type-filter").value;
+  const filtered = samples.filter(s => {
+    if (tf !== "all" && (s.type || "sample") !== tf) return false;
+    return !term || searchText(s).includes(term);
+  });
 
   document.getElementById("empty-list").style.display = filtered.length ? "none" : "block";
 
@@ -774,6 +778,7 @@ function wireHandlers() {
     e.target.value = "";
   });
   document.getElementById("search").addEventListener("input", renderList);
+  document.getElementById("type-filter").addEventListener("change", renderList);
   document.getElementById("btn-print").addEventListener("click", () => window.print());
   document.getElementById("btn-delete").addEventListener("click", deleteSample);
 
