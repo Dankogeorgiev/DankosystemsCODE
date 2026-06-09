@@ -31,6 +31,7 @@ function rowToSample(row) {
   s.id = row.id;
   s.updatedAt = row.updated_at;
   // Допълване на липсващи полета (за по-стари записи).
+  if (s.type === undefined) s.type = "sample";
   if (s.deadline === undefined) s.deadline = "";
   if (s.completed === undefined) s.completed = !!row.completed;
   if (s.packaging === undefined) s.packaging = "";
@@ -88,8 +89,9 @@ function clearStatusIf(txt) {
 }
 
 /* ---------- Създаване / изтриване ---------- */
-function blankSample() {
+function blankSample(type = "sample") {
   const s = {
+    type,                  // "sample" (мостра) или "order" (нестандартна поръчка)
     createdAt: new Date().toISOString(),
     clientName: "", clientInfo: "", sampleInfo: "",
     deadline: "", completed: false,
@@ -101,8 +103,8 @@ function blankSample() {
   return s;
 }
 
-async function newSample() {
-  const draft = blankSample();
+async function newSample(type = "sample") {
+  const draft = blankSample(type);
   const { data, error } = await sb.from("samples")
     .insert({ data: draft, completed: false }).select().single();
   if (error) { alert("Грешка при създаване: " + error.message); return; }
@@ -145,8 +147,9 @@ function renderList() {
     const badge = s.completed ? `<span class="badge badge-done">Завършена</span>` : "";
     const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
     li.innerHTML = `
+      <div class="s-type">${typeBadge(s)}</div>
       <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
-      <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание на мострата"}</div>
+      <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание"}</div>
       <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
     li.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
     ul.appendChild(li);
@@ -278,6 +281,11 @@ function bindSimpleField(id, apply) {
 }
 
 /* ---------- Обща справка ---------- */
+function typeBadge(s) {
+  return s.type === "order"
+    ? `<span class="badge badge-order">Поръчка</span>`
+    : `<span class="badge badge-sample">Мостра</span>`;
+}
 function materialsSummary(s) {
   const mats = s.materials || [];
   if (!mats.length) return "—";
@@ -317,7 +325,7 @@ function renderReport() {
       : `<span class="badge badge-progress">В процес</span>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(s.clientName) || "—"}</td>
+      <td>${typeBadge(s)} ${escapeHtml(s.clientName) || "—"}</td>
       <td>${escapeHtml(firstLine(s.sampleInfo)) || "—"}</td>
       <td class="${overdueCls}">${s.deadline ? formatDate(s.deadline) : "—"}</td>
       <td>${materialsSummary(s)}</td>
@@ -493,7 +501,8 @@ function wireHandlers() {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("btn-logout").addEventListener("click", () => sb.auth.signOut());
 
-  document.getElementById("btn-new").addEventListener("click", newSample);
+  document.getElementById("btn-new").addEventListener("click", () => newSample("sample"));
+  document.getElementById("btn-new-order").addEventListener("click", () => newSample("order"));
   document.getElementById("btn-report").addEventListener("click", renderReport);
   document.getElementById("btn-report-close").addEventListener("click", () => {
     document.getElementById("report").hidden = true; renderForm();

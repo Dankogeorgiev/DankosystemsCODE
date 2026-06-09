@@ -100,6 +100,8 @@ body {
 .btn-primary:hover { background: var(--brand-dark); }
 .btn-danger { color: var(--danger); border-color: #f3c2c2; }
 .btn-danger:hover { background: #fdecec; }
+.btn-accent { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+.btn-accent:hover { background: #6d28d9; }
 .btn-small { padding: 5px 10px; font-size: 13px; }
 
 /* Layout */
@@ -152,6 +154,9 @@ body {
 }
 .badge-done { background: #dcfce7; color: var(--ok); }
 .badge-progress { background: #e0ecff; color: var(--brand); }
+.badge-sample { background: #e0ecff; color: #1d4ed8; }
+.badge-order { background: #f3e8ff; color: #7c3aed; }
+.s-type { margin-bottom: 4px; }
 
 /* Превключвател „Завършена“ */
 .done-toggle {
