@@ -11,5 +11,5 @@
 // ============================================================
 window.DANKO_CONFIG = {
   SUPABASE_URL: "https://hwbblteomrrahfrsyuow.supabase.co",
-  SUPABASE_ANON_KEY: "ПОПЪЛНИ_ANON_KEY_ТУК",
+  SUPABASE_ANON_KEY: "sb_publishable_c5aOG4PykNHjAJDV82-wiQ_Y9yS9ba2",
 };
