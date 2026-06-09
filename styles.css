@@ -82,10 +82,8 @@ body {
 .app-header h1 { margin: 0; font-size: 18px; }
 .subtitle { margin: 0; color: var(--muted); font-size: 12px; }
 .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.module-tabs { display: flex; gap: 4px; margin-right: 6px; }
-.tab { cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px; border-radius: 8px; font-family: inherit; font-size: 14px; }
-.tab.active { background: var(--brand); color: #fff; border-color: var(--brand); }
-.action-group { display: inline-flex; gap: 8px; }
+.btn-claim { background: #dc2626; color: #fff; border-color: #dc2626; }
+.btn-claim:hover { background: #b91c1c; }
 .badge-claim { background: #fee2e2; color: #dc2626; }
 .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px; margin: 8px 0; }
 .checks label { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 14px; margin: 0; }

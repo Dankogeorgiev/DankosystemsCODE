@@ -23,7 +23,6 @@ let appStarted = false;
 
 let samples = [];
 let currentId = null;
-let currentModule = "production"; // "production" | "claims"
 let saveTimer = null;
 const pending = new Map(); // id -> sample (изчакват запис)
 
@@ -137,9 +136,6 @@ async function deleteSample() {
 }
 
 /* ---------- Списък ---------- */
-function inModule(s) {
-  return currentModule === "claims" ? s.type === "claim" : s.type !== "claim";
-}
 function searchText(s) {
   if (s.type === "claim") {
     const items = (s.items || []).map(it => `${it.name} ${it.description}`).join(" ");
@@ -153,8 +149,7 @@ function renderList() {
   const term = document.getElementById("search").value.trim().toLowerCase();
   ul.innerHTML = "";
 
-  const filtered = samples.filter(s =>
-    inModule(s) && (!term || searchText(s).includes(term)));
+  const filtered = samples.filter(s => !term || searchText(s).includes(term));
 
   document.getElementById("empty-list").style.display = filtered.length ? "none" : "block";
 
@@ -501,8 +496,6 @@ async function newClaim() {
   if (error) { alert("Грешка при създаване: " + error.message); return; }
   const s = rowToSample(data);
   samples.unshift(s);
-  currentModule = "claims";
-  applyModuleUI();
   currentId = s.id;
   renderList();
   renderForm();
@@ -609,24 +602,6 @@ function renderClaimRegister() {
     tr.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
     body.appendChild(tr);
   });
-}
-
-/* Превключване между модули */
-function applyModuleUI() {
-  const isClaims = currentModule === "claims";
-  document.getElementById("tab-production").classList.toggle("active", !isClaims);
-  document.getElementById("tab-claims").classList.toggle("active", isClaims);
-  document.getElementById("prod-actions").hidden = isClaims;
-  document.getElementById("claim-actions").hidden = !isClaims;
-  document.getElementById("search").placeholder = isClaims
-    ? "Търси по клиент или №..." : "Търси по клиент или мостра...";
-}
-function switchModule(mod) {
-  currentModule = mod;
-  currentId = null;
-  applyModuleUI();
-  renderList();
-  renderForm();
 }
 
 /* ---------- Експорт / Импорт ---------- */
@@ -755,7 +730,6 @@ async function onSignedIn(s) {
   await loadSamples();
   await offerLocalImport();
   subscribeRealtime();
-  applyModuleUI();
   renderList();
   renderForm();
 }
@@ -827,8 +801,6 @@ function wireHandlers() {
   });
 
   /* --- Рекламации --- */
-  document.getElementById("tab-production").addEventListener("click", () => switchModule("production"));
-  document.getElementById("tab-claims").addEventListener("click", () => switchModule("claims"));
   document.getElementById("btn-new-claim").addEventListener("click", newClaim);
   document.getElementById("btn-claim-report").addEventListener("click", renderClaimRegister);
   document.getElementById("btn-claim-report-close").addEventListener("click", () => {
