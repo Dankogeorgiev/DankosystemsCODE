@@ -278,7 +278,8 @@ input:focus, textarea:focus, select:focus {
 .col-qty { width: 110px; }
 .col-status { width: 130px; }
 .col-x { width: 36px; }
-.mat-cat { font-weight: 600; color: var(--ink); padding: 8px 6px; white-space: nowrap; }
+.mat-cat-header td { font-weight: 700; color: var(--brand); background: #eef4ff; padding: 8px 8px; border-top: 1px solid var(--line); border-radius: 6px; }
+.mat-add-row td { padding: 2px 6px 12px; }
 .mat-status { padding: 6px 8px; font-weight: 600; }
 .mat-status.is-ordered { color: var(--ok); border-color: #bbf7d0; background: #f0fdf4; }
 .mat-status.is-not { color: #b45309; border-color: #fde68a; background: #fffbeb; }

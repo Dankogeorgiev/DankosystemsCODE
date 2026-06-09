@@ -103,10 +103,6 @@ function blankSample(type = "sample") {
     process: {}, analysis: "",
   };
   OPERATIONS.forEach(op => { s.process[op.key] = { done: false, responsible: "" }; });
-  if (type === "order") {
-    s.materials = ORDER_MATERIAL_CATEGORIES.map(c =>
-      ({ name: c, qty: "", status: "not-ordered", note: "" }));
-  }
   return s;
 }
 
@@ -219,11 +215,45 @@ async function removeDrawing(s, i) {
   renderDrawings(s);
 }
 
-function ensureOrderCategories(s) {
-  const byName = {};
-  (s.materials || []).forEach(m => { byName[m.name] = m; });
-  s.materials = ORDER_MATERIAL_CATEGORIES.map(c =>
-    byName[c] || { name: c, qty: "", status: "not-ordered", note: "" });
+// Прехвърля по-стари поръчки към новия модел (категория + отделни редове).
+function migrateOrderMaterials(s) {
+  (s.materials || []).forEach(m => {
+    if (!m.category) {
+      if (ORDER_MATERIAL_CATEGORIES.includes(m.name)) { m.category = m.name; m.name = ""; }
+      else { m.category = "Други покупни"; }
+    }
+  });
+}
+
+// Създава един ред с полета (материал, количество, статус, забележка, изтриване).
+function buildMaterialRow(s, m, i) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><input type="text" class="mat-name" value="${escapeAttr(m.name)}" placeholder="Материал" /></td>
+    <td><input type="text" class="mat-qty" value="${escapeAttr(m.qty)}" placeholder="бр. / кг / м" /></td>
+    <td><select class="mat-status ${m.status === "ordered" ? "is-ordered" : "is-not"}">
+      <option value="not-ordered"${m.status === "ordered" ? "" : " selected"}>Непоръчан</option>
+      <option value="ordered"${m.status === "ordered" ? " selected" : ""}>Поръчан</option>
+    </select></td>
+    <td><input type="text" class="mat-note" value="${escapeAttr(m.note)}" placeholder="Доставчик, кога ще дойде..." /></td>
+    <td><button type="button" class="remove-row" title="Изтрий реда">×</button></td>`;
+  const name = tr.querySelector(".mat-name");
+  const q = tr.querySelector(".mat-qty");
+  const note = tr.querySelector(".mat-note");
+  const statusSel = tr.querySelector(".mat-status");
+  name.addEventListener("input", () => { m.name = name.value; touch(s); });
+  q.addEventListener("input", () => { m.qty = q.value; touch(s); });
+  note.addEventListener("input", () => { m.note = note.value; touch(s); });
+  statusSel.addEventListener("change", () => {
+    m.status = statusSel.value;
+    statusSel.classList.toggle("is-ordered", m.status === "ordered");
+    statusSel.classList.toggle("is-not", m.status !== "ordered");
+    touch(s);
+  });
+  tr.querySelector(".remove-row").addEventListener("click", () => {
+    s.materials.splice(i, 1); touch(s); renderMaterials(s);
+  });
+  return tr;
 }
 
 function renderMaterials(s) {
@@ -231,45 +261,33 @@ function renderMaterials(s) {
   const addBtn = document.getElementById("btn-add-material");
   const isOrder = s.type === "order";
   tbody.innerHTML = "";
-  if (isOrder) ensureOrderCategories(s);
-  addBtn.style.display = isOrder ? "none" : "";
 
-  s.materials.forEach((m, i) => {
-    const tr = document.createElement("tr");
-    const firstCell = isOrder
-      ? `<td class="mat-cat">${escapeHtml(m.name)}</td>`
-      : `<td><input type="text" value="${escapeAttr(m.name)}" placeholder="Материал" /></td>`;
-    const lastCell = isOrder
-      ? `<td></td>`
-      : `<td><button type="button" class="remove-row" title="Изтрий реда">×</button></td>`;
-    tr.innerHTML = `
-      ${firstCell}
-      <td><input type="text" class="mat-qty" value="${escapeAttr(m.qty)}" placeholder="бр. / кг / м" /></td>
-      <td><select class="mat-status ${m.status === "ordered" ? "is-ordered" : "is-not"}">
-        <option value="not-ordered"${m.status === "ordered" ? "" : " selected"}>Непоръчан</option>
-        <option value="ordered"${m.status === "ordered" ? " selected" : ""}>Поръчан</option>
-      </select></td>
-      <td><input type="text" class="mat-note" value="${escapeAttr(m.note)}" placeholder="Доставчик, кога ще дойде..." /></td>
-      ${lastCell}`;
-    const nameInput = tr.querySelector("td:first-child input");
-    const q = tr.querySelector(".mat-qty");
-    const note = tr.querySelector(".mat-note");
-    const statusSel = tr.querySelector(".mat-status");
-    if (nameInput) nameInput.addEventListener("input", () => { m.name = nameInput.value; touch(s); });
-    q.addEventListener("input", () => { m.qty = q.value; touch(s); });
-    note.addEventListener("input", () => { m.note = note.value; touch(s); });
-    statusSel.addEventListener("change", () => {
-      m.status = statusSel.value;
-      statusSel.classList.toggle("is-ordered", m.status === "ordered");
-      statusSel.classList.toggle("is-not", m.status !== "ordered");
-      touch(s);
+  if (isOrder) {
+    addBtn.style.display = "none";
+    migrateOrderMaterials(s);
+    ORDER_MATERIAL_CATEGORIES.forEach(cat => {
+      const header = document.createElement("tr");
+      header.className = "mat-cat-header";
+      header.innerHTML = `<td colspan="5">${escapeHtml(cat)}</td>`;
+      tbody.appendChild(header);
+
+      s.materials.forEach((m, i) => {
+        if (m.category === cat) tbody.appendChild(buildMaterialRow(s, m, i));
+      });
+
+      const addRow = document.createElement("tr");
+      addRow.className = "mat-add-row";
+      addRow.innerHTML = `<td colspan="5"><button type="button" class="btn btn-small mat-add">+ Добави</button></td>`;
+      addRow.querySelector(".mat-add").addEventListener("click", () => {
+        s.materials.push({ category: cat, name: "", qty: "", status: "not-ordered", note: "" });
+        touch(s); renderMaterials(s);
+      });
+      tbody.appendChild(addRow);
     });
-    const rm = tr.querySelector(".remove-row");
-    if (rm) rm.addEventListener("click", () => {
-      s.materials.splice(i, 1); touch(s); renderMaterials(s);
-    });
-    tbody.appendChild(tr);
-  });
+  } else {
+    addBtn.style.display = "";
+    s.materials.forEach((m, i) => tbody.appendChild(buildMaterialRow(s, m, i)));
+  }
 }
 
 function renderProcess(s) {
