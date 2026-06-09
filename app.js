@@ -405,9 +405,18 @@ async function handleLogin(e) {
   const btn = document.getElementById("login-submit");
   setLoginError("");
   btn.disabled = true; btn.textContent = "Влизане…";
-  const { error } = await sb.auth.signInWithPassword({ email, password });
+  let error;
+  try {
+    ({ error } = await sb.auth.signInWithPassword({ email, password }));
+  } catch (ex) {
+    error = ex;
+  }
   btn.disabled = false; btn.textContent = "Вход";
-  if (error) setLoginError(translateAuthError(error.message));
+  if (error) {
+    setLoginError(translateAuthError(error.message));
+    // Показваме и точните детайли (за диагностика).
+    alert("Детайли за грешката при вход:\n\n" + (error.message || error.toString()));
+  }
   // При успех onAuthStateChange ще стартира приложението.
 }
 function setLoginError(txt) { document.getElementById("login-error").textContent = txt; }
