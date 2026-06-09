@@ -403,23 +403,20 @@ async function handleLogin(e) {
   const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
   const btn = document.getElementById("login-submit");
-  setLoginError("⏳ Опит за вход…");
+  setLoginError("");
   btn.disabled = true; btn.textContent = "Влизане…";
   let res;
   try {
     res = await sb.auth.signInWithPassword({ email, password });
   } catch (ex) {
     btn.disabled = false; btn.textContent = "Вход";
-    setLoginError("⚠ ИЗКЛЮЧЕНИЕ: " + (ex && ex.message ? ex.message : String(ex)));
+    setLoginError("Проблем с връзката. Опитай отново.");
     return;
   }
   btn.disabled = false; btn.textContent = "Вход";
   if (res.error) {
-    setLoginError("⚠ ГРЕШКА (" + (res.error.status || "?") + "): " + res.error.message);
-  } else if (!res.data || !res.data.session) {
-    setLoginError("⚠ Няма сесия. Отговор: " + JSON.stringify(res.data));
-  } else {
-    setLoginError("✓ Успешен вход! Зареждам…");
+    setLoginError(translateAuthError(res.error.message));
+  } else if (res.data && res.data.session) {
     await onSignedIn(res.data.session);
   }
 }
@@ -433,9 +430,6 @@ function translateAuthError(msg = "") {
 function showLogin() {
   document.getElementById("login").hidden = false;
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = true);
-  // Временно: автоматично попълване за тест (ще го махнем, щом входът тръгне).
-  document.getElementById("login-email").value = "dankog@gmail.com";
-  document.getElementById("login-password").value = "danko123456";
 }
 
 async function onSignedIn(s) {
