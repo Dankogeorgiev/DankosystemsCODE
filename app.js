@@ -429,6 +429,9 @@ function translateAuthError(msg = "") {
 function showLogin() {
   document.getElementById("login").hidden = false;
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = true);
+  // Временно: автоматично попълване за тест (ще го махнем, щом входът тръгне).
+  document.getElementById("login-email").value = "dankog@gmail.com";
+  document.getElementById("login-password").value = "danko123456";
 }
 
 async function onSignedIn(s) {
