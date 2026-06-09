@@ -10,6 +10,6 @@
 // предназначен за браузъра; достъпът се пази от правилата в базата).
 // ============================================================
 window.DANKO_CONFIG = {
-  SUPABASE_URL: "ПОПЪЛНИ_URL_ТУК",
+  SUPABASE_URL: "https://hwbblteomrrahfrsyuow.supabase.co",
   SUPABASE_ANON_KEY: "ПОПЪЛНИ_ANON_KEY_ТУК",
 };
