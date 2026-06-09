@@ -23,6 +23,7 @@ let appStarted = false;
 
 let samples = [];
 let currentId = null;
+let currentModule = "production"; // "production" | "claims"
 let saveTimer = null;
 const pending = new Map(); // id -> sample (изчакват запис)
 
@@ -35,6 +36,7 @@ function rowToSample(row) {
   s.updatedAt = row.updated_at;
   // Допълване на липсващи полета (за по-стари записи).
   if (s.type === undefined) s.type = "sample";
+  if (s.type === "claim") { ensureClaimDefaults(s); return s; }
   if (s.deadline === undefined) s.deadline = "";
   if (s.completed === undefined) s.completed = !!row.completed;
   if (s.packaging === undefined) s.packaging = "";
@@ -82,13 +84,16 @@ async function flushSaves() {
   renderList();
 }
 function setStatus(txt, isErr) {
-  const el = document.getElementById("save-status");
-  el.textContent = txt;
-  el.style.color = isErr ? "#dc2626" : "";
+  ["save-status", "claim-save-status"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = txt; el.style.color = isErr ? "#dc2626" : ""; }
+  });
 }
 function clearStatusIf(txt) {
-  const el = document.getElementById("save-status");
-  if (el.textContent === txt) el.textContent = "";
+  ["save-status", "claim-save-status"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.textContent === txt) el.textContent = "";
+  });
 }
 
 /* ---------- Създаване / изтриване ---------- */
@@ -132,13 +137,24 @@ async function deleteSample() {
 }
 
 /* ---------- Списък ---------- */
+function inModule(s) {
+  return currentModule === "claims" ? s.type === "claim" : s.type !== "claim";
+}
+function searchText(s) {
+  if (s.type === "claim") {
+    const items = (s.items || []).map(it => `${it.name} ${it.description}`).join(" ");
+    return `${s.client?.company || ""} ${s.regNo || ""} ${items}`.toLowerCase();
+  }
+  return (s.clientName + " " + s.sampleInfo).toLowerCase();
+}
+
 function renderList() {
   const ul = document.getElementById("sample-list");
   const term = document.getElementById("search").value.trim().toLowerCase();
   ul.innerHTML = "";
 
   const filtered = samples.filter(s =>
-    !term || (s.clientName + " " + s.sampleInfo).toLowerCase().includes(term));
+    inModule(s) && (!term || searchText(s).includes(term)));
 
   document.getElementById("empty-list").style.display = filtered.length ? "none" : "block";
 
@@ -146,14 +162,25 @@ function renderList() {
     const li = document.createElement("li");
     if (s.id === currentId) li.classList.add("active");
     if (s.completed) li.classList.add("completed");
-    const done = OPERATIONS.filter(op => s.process[op.key]?.done).length;
-    const badge = s.completed ? `<span class="badge badge-done">Завършена</span>` : "";
-    const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
-    li.innerHTML = `
-      <div class="s-type">${typeBadge(s)}</div>
-      <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
-      <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание"}</div>
-      <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
+    if (s.type === "claim") {
+      const badge = s.completed ? `<span class="badge badge-done">Приключена</span>` : "";
+      const subj = (s.items || []).map(it => it.description || it.name).filter(Boolean)[0] || "Без описание";
+      const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
+      li.innerHTML = `
+        <div class="s-type"><span class="badge badge-claim">Рекламация №${escapeHtml(String(s.regNo || "—"))}</span> ${badge}</div>
+        <div class="s-name">${escapeHtml(s.client?.company) || "(без клиент)"}</div>
+        <div class="s-sub">${escapeHtml(firstLine(subj))}</div>
+        <div class="s-progress">${s.date ? formatDate(s.date) : ""}${dl}</div>`;
+    } else {
+      const done = OPERATIONS.filter(op => s.process[op.key]?.done).length;
+      const badge = s.completed ? `<span class="badge badge-done">Завършена</span>` : "";
+      const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
+      li.innerHTML = `
+        <div class="s-type">${typeBadge(s)}</div>
+        <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
+        <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание"}</div>
+        <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
+    }
     li.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
     ul.appendChild(li);
   });
@@ -161,13 +188,22 @@ function renderList() {
 
 /* ---------- Форма ---------- */
 function renderForm() {
-  const form = document.getElementById("sample-form");
+  const sForm = document.getElementById("sample-form");
+  const cForm = document.getElementById("claim-form");
   const welcome = document.getElementById("welcome");
   document.getElementById("report").hidden = true;
+  document.getElementById("claim-report").hidden = true;
   const s = getCurrent();
 
-  if (!s) { form.hidden = true; welcome.hidden = false; return; }
+  if (!s) { sForm.hidden = true; cForm.hidden = true; welcome.hidden = false; return; }
   welcome.hidden = true;
+  if (s.type === "claim") { sForm.hidden = true; renderClaimForm(s); return; }
+  cForm.hidden = true;
+  renderSampleForm(s);
+}
+
+function renderSampleForm(s) {
+  const form = document.getElementById("sample-form");
   form.hidden = false;
 
   document.getElementById("section3-label").textContent =
@@ -189,8 +225,12 @@ function renderForm() {
   setStatus("");
 }
 
+function drawingsListId(s) {
+  return s.type === "claim" ? "claim-drawings-list" : "drawings-list";
+}
+
 function renderDrawings(s) {
-  const ul = document.getElementById("drawings-list");
+  const ul = document.getElementById(drawingsListId(s));
   ul.innerHTML = "";
   s.drawings.forEach((f, i) => {
     const src = f.url || f.dataUrl || "";
@@ -344,14 +384,17 @@ function materialsSummary(s) {
 function renderReport() {
   document.getElementById("welcome").hidden = true;
   document.getElementById("sample-form").hidden = true;
+  document.getElementById("claim-form").hidden = true;
+  document.getElementById("claim-report").hidden = true;
   document.getElementById("report").hidden = false;
   currentId = null;
   renderList();
 
-  const total = samples.length;
-  const completed = samples.filter(s => s.completed).length;
+  const prod = samples.filter(s => s.type !== "claim");
+  const total = prod.length;
+  const completed = prod.filter(s => s.completed).length;
   const inProgress = total - completed;
-  const overdue = samples.filter(isOverdue).length;
+  const overdue = prod.filter(isOverdue).length;
   document.getElementById("report-summary").innerHTML = `
     <div class="stat"><span class="stat-num">${total}</span> мостри общо</div>
     <div class="stat"><span class="stat-num">${inProgress}</span> в процес</div>
@@ -364,7 +407,7 @@ function renderReport() {
     body.innerHTML = `<tr><td colspan="6" class="report-empty">Няма въведени мостри.</td></tr>`;
     return;
   }
-  samples.forEach(s => {
+  prod.forEach(s => {
     const done = OPERATIONS.filter(op => s.process[op.key]?.done).length;
     const pct = Math.round((done / OPERATIONS.length) * 100);
     const overdueCls = isOverdue(s) ? "cell-overdue" : "";
@@ -390,6 +433,200 @@ function isOverdue(s) {
   if (s.completed || !s.deadline) return false;
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return new Date(s.deadline) < today;
+}
+
+/* ===================== РЕКЛАМАЦИИ ===================== */
+const CLAIM_DEMANDS = {
+  acceptWithReserve: "приема с резерви", returned: "отказан и върнат",
+  personal: "персонално решение", rework: "преработка от производителя",
+  refund: "възстановяване на сума", other: "друго",
+};
+
+function getByPath(obj, path) {
+  return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function setByPath(obj, path, value) {
+  const keys = path.split(".");
+  const last = keys.pop();
+  let o = obj;
+  keys.forEach(k => { if (typeof o[k] !== "object" || o[k] === null) o[k] = {}; o = o[k]; });
+  o[last] = value;
+}
+
+function blankClaim(regNo) {
+  return {
+    type: "claim",
+    createdAt: new Date().toISOString(),
+    regNo,
+    date: "", deadline: "", completedDate: "",
+    client: { company: "", person: "", contacts: "", ref: "" },
+    orderNo: "", totalQty: "", drawingNo: "", loadingDate: "",
+    acceptedBy: "",
+    items: [],
+    drawings: [],
+    claimsClient: { acceptWithReserve: false, returned: false, personal: false, rework: false, refund: false, other: false },
+    otherText: "", clientComment: "",
+    problem: { what: "", why: "", where: "", when: "", who: "", how: "", extra: "" },
+    rootCause: "",
+    causes: { man: false, machine: false, material: false, method: false, external: false, transport: false },
+    actions: [
+      { person: "Стефан", action: "", date: "" },
+      { person: "Деян", action: "", date: "" },
+      { person: "Таня", action: "", date: "" },
+      { person: "Данко", action: "", date: "" },
+    ],
+    resolution: "", value: "", completed: false,
+  };
+}
+
+function ensureClaimDefaults(s) {
+  const d = blankClaim(s.regNo || 0);
+  // плитко сливане на липсващи ключове
+  for (const k in d) if (s[k] === undefined) s[k] = d[k];
+  s.client = Object.assign({}, d.client, s.client);
+  s.claimsClient = Object.assign({}, d.claimsClient, s.claimsClient);
+  s.problem = Object.assign({}, d.problem, s.problem);
+  s.causes = Object.assign({}, d.causes, s.causes);
+  s.items = s.items || [];
+  s.actions = s.actions || d.actions;
+  s.drawings = s.drawings || [];
+}
+
+async function newClaim() {
+  const maxNo = samples.filter(s => s.type === "claim")
+    .reduce((m, s) => Math.max(m, Number(s.regNo) || 0), 0);
+  const draft = blankClaim(maxNo + 1);
+  const { data, error } = await sb.from("samples")
+    .insert({ data: draft, completed: false }).select().single();
+  if (error) { alert("Грешка при създаване: " + error.message); return; }
+  const s = rowToSample(data);
+  samples.unshift(s);
+  currentModule = "claims";
+  applyModuleUI();
+  currentId = s.id;
+  renderList();
+  renderForm();
+}
+
+function renderClaimForm(s) {
+  const form = document.getElementById("claim-form");
+  form.hidden = false;
+  document.getElementById("claim-regno").textContent = s.regNo || "—";
+
+  form.querySelectorAll("[data-field]").forEach(el => {
+    const val = getByPath(s, el.dataset.field);
+    if (el.type === "checkbox") el.checked = !!val;
+    else el.value = val == null ? "" : val;
+  });
+
+  renderClaimItems(s);
+  renderClaimActions(s);
+  renderDrawings(s);
+  setStatus("");
+}
+
+function renderClaimItems(s) {
+  const tbody = document.getElementById("claim-items-body");
+  tbody.innerHTML = "";
+  s.items.forEach((it, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" value="${escapeAttr(it.articleNo)}" placeholder="Арт. №" /></td>
+      <td><input type="text" value="${escapeAttr(it.name)}" placeholder="Наименование" /></td>
+      <td><input type="text" value="${escapeAttr(it.description)}" placeholder="Описание на проблема" /></td>
+      <td><input type="text" value="${escapeAttr(it.qty)}" placeholder="бр." /></td>
+      <td><input type="text" value="${escapeAttr(it.value)}" placeholder="стойност" /></td>
+      <td><button type="button" class="remove-row" title="Изтрий">×</button></td>`;
+    const [a, n, d, q, v] = tr.querySelectorAll("input");
+    a.addEventListener("input", () => { it.articleNo = a.value; touch(s); });
+    n.addEventListener("input", () => { it.name = n.value; touch(s); });
+    d.addEventListener("input", () => { it.description = d.value; touch(s); });
+    q.addEventListener("input", () => { it.qty = q.value; touch(s); });
+    v.addEventListener("input", () => { it.value = v.value; touch(s); });
+    tr.querySelector(".remove-row").addEventListener("click", () => {
+      s.items.splice(i, 1); touch(s); renderClaimItems(s);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function renderClaimActions(s) {
+  const tbody = document.getElementById("claim-actions-body");
+  tbody.innerHTML = "";
+  s.actions.forEach((ac, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" value="${escapeAttr(ac.person)}" placeholder="Име" /></td>
+      <td><input type="text" value="${escapeAttr(ac.action)}" placeholder="Предприети действия" /></td>
+      <td><input type="date" value="${escapeAttr(ac.date)}" /></td>
+      <td><button type="button" class="remove-row" title="Изтрий">×</button></td>`;
+    const [p, a, dt] = tr.querySelectorAll("input");
+    p.addEventListener("input", () => { ac.person = p.value; touch(s); });
+    a.addEventListener("input", () => { ac.action = a.value; touch(s); });
+    dt.addEventListener("input", () => { ac.date = dt.value; touch(s); });
+    tr.querySelector(".remove-row").addEventListener("click", () => {
+      s.actions.splice(i, 1); touch(s); renderClaimActions(s);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function claimDemandsText(s) {
+  const picked = Object.keys(CLAIM_DEMANDS).filter(k => s.claimsClient?.[k]).map(k => CLAIM_DEMANDS[k]);
+  return picked.join(", ") || "—";
+}
+
+function renderClaimRegister() {
+  document.getElementById("welcome").hidden = true;
+  document.getElementById("sample-form").hidden = true;
+  document.getElementById("claim-form").hidden = true;
+  document.getElementById("report").hidden = true;
+  document.getElementById("claim-report").hidden = false;
+  currentId = null;
+  renderList();
+
+  const body = document.getElementById("claim-report-body");
+  const claims = samples.filter(s => s.type === "claim").sort((a, b) => (a.regNo || 0) - (b.regNo || 0));
+  body.innerHTML = "";
+  if (!claims.length) {
+    body.innerHTML = `<tr><td colspan="9" class="report-empty">Няма въведени рекламации.</td></tr>`;
+    return;
+  }
+  claims.forEach(s => {
+    const subj = (s.items || []).map(it => it.description || it.name).filter(Boolean).join("; ") || "—";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(String(s.regNo || "—"))}</td>
+      <td>${s.date ? formatDate(s.date) : "—"}</td>
+      <td>${escapeHtml(s.client?.company) || "—"}</td>
+      <td>${escapeHtml(subj)}</td>
+      <td>${escapeHtml(claimDemandsText(s))}</td>
+      <td>${escapeHtml(s.acceptedBy) || "—"}</td>
+      <td>${escapeHtml(firstLine(s.resolution)) || "—"}</td>
+      <td>${s.completedDate ? formatDate(s.completedDate) : "—"}</td>
+      <td>${escapeHtml(s.value) || "—"}</td>`;
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
+    body.appendChild(tr);
+  });
+}
+
+/* Превключване между модули */
+function applyModuleUI() {
+  const isClaims = currentModule === "claims";
+  document.getElementById("tab-production").classList.toggle("active", !isClaims);
+  document.getElementById("tab-claims").classList.toggle("active", isClaims);
+  document.getElementById("prod-actions").hidden = isClaims;
+  document.getElementById("claim-actions").hidden = !isClaims;
+  document.getElementById("search").placeholder = isClaims
+    ? "Търси по клиент или №..." : "Търси по клиент или мостра...";
+}
+function switchModule(mod) {
+  currentModule = mod;
+  currentId = null;
+  applyModuleUI();
+  renderList();
+  renderForm();
 }
 
 /* ---------- Експорт / Импорт ---------- */
@@ -518,6 +755,7 @@ async function onSignedIn(s) {
   await loadSamples();
   await offerLocalImport();
   subscribeRealtime();
+  applyModuleUI();
   renderList();
   renderForm();
 }
@@ -587,6 +825,44 @@ function wireHandlers() {
     handleDrawingFiles([...e.target.files]);
     e.target.value = "";
   });
+
+  /* --- Рекламации --- */
+  document.getElementById("tab-production").addEventListener("click", () => switchModule("production"));
+  document.getElementById("tab-claims").addEventListener("click", () => switchModule("claims"));
+  document.getElementById("btn-new-claim").addEventListener("click", newClaim);
+  document.getElementById("btn-claim-report").addEventListener("click", renderClaimRegister);
+  document.getElementById("btn-claim-report-close").addEventListener("click", () => {
+    document.getElementById("claim-report").hidden = true; renderForm();
+  });
+  document.getElementById("btn-claim-report-print").addEventListener("click", () => window.print());
+  document.getElementById("btn-claim-print").addEventListener("click", () => window.print());
+  document.getElementById("btn-claim-delete").addEventListener("click", deleteSample);
+  document.getElementById("btn-add-claim-item").addEventListener("click", () => {
+    const s = getCurrent(); if (!s) return;
+    s.items.push({ articleNo: "", name: "", description: "", qty: "", value: "" });
+    touch(s); renderClaimItems(s);
+  });
+  document.getElementById("btn-add-claim-action").addEventListener("click", () => {
+    const s = getCurrent(); if (!s) return;
+    s.actions.push({ person: "", action: "", date: "" });
+    touch(s); renderClaimActions(s);
+  });
+  document.getElementById("claim-drawings-file").addEventListener("change", e => {
+    handleDrawingFiles([...e.target.files]);
+    e.target.value = "";
+  });
+  // Едно слушане за всички полета на бланката (data-field).
+  const claimFieldHandler = e => {
+    const el = e.target.closest("[data-field]");
+    if (!el) return;
+    const s = getCurrent(); if (!s) return;
+    const val = el.type === "checkbox" ? el.checked : el.value;
+    setByPath(s, el.dataset.field, val);
+    touch(s);
+    if (el.dataset.field === "completed") renderList();
+  };
+  document.getElementById("claim-form").addEventListener("input", claimFieldHandler);
+  document.getElementById("claim-form").addEventListener("change", claimFieldHandler);
 }
 
 async function init() {

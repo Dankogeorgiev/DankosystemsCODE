@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Данко Системс — Следене на мостри</title>
-  <link rel="stylesheet" href="styles.css?v=20" />
+  <link rel="stylesheet" href="styles.css?v=21" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 20</p>
+      <p class="login-version">версия 21</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=20" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=21" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -45,9 +45,19 @@
       </div>
     </div>
     <div class="header-actions">
-      <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
-      <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
-      <button id="btn-report" class="btn">Обща справка</button>
+      <div class="module-tabs">
+        <button id="tab-production" class="tab active">Производство</button>
+        <button id="tab-claims" class="tab">Рекламации</button>
+      </div>
+      <span id="prod-actions" class="action-group">
+        <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
+        <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
+        <button id="btn-report" class="btn">Обща справка</button>
+      </span>
+      <span id="claim-actions" class="action-group" hidden>
+        <button id="btn-new-claim" class="btn btn-primary">+ Нова рекламация</button>
+        <button id="btn-claim-report" class="btn">Регистър</button>
+      </span>
       <button id="btn-export" class="btn">Експорт</button>
       <label class="btn" for="import-file">Импорт</label>
       <input type="file" id="import-file" accept="application/json" hidden />
@@ -69,7 +79,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=20" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=21" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -188,11 +198,155 @@
 
         <p class="save-status" id="save-status"></p>
       </form>
+
+      <!-- Регистър на рекламациите -->
+      <div id="claim-report" class="report" hidden>
+        <div class="report-head">
+          <h2>Регистър на предявените рекламации</h2>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-claim-report-print" class="btn">Печат / PDF</button>
+            <button type="button" id="btn-claim-report-close" class="btn">Затвори</button>
+          </div>
+        </div>
+        <table class="report-table claim-register">
+          <thead>
+            <tr>
+              <th>№</th><th>Дата</th><th>Клиент</th><th>Предмет</th>
+              <th>Претенции</th><th>Приел</th><th>Решение</th>
+              <th>Приключена</th><th>Стойност</th>
+            </tr>
+          </thead>
+          <tbody id="claim-report-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Бланка: Доклад за несъответствие / рекламация -->
+      <form id="claim-form" class="sample-form" hidden>
+        <div class="form-toolbar">
+          <div class="claim-regno">Рекламация № <strong id="claim-regno">—</strong></div>
+          <div class="toolbar-actions">
+            <label class="done-toggle"><input type="checkbox" data-field="completed" id="claim-completed" /> Приключена</label>
+            <button type="button" id="btn-claim-print" class="btn">Печат / PDF</button>
+            <button type="button" id="btn-claim-delete" class="btn btn-danger">Изтрий</button>
+          </div>
+        </div>
+
+        <!-- Основни данни -->
+        <fieldset class="card">
+          <legend>Доклад за несъответствие / рекламация</legend>
+          <div class="grid-3">
+            <label>Дата на предявяване<input type="date" data-field="date" /></label>
+            <label>Срок за решение<input type="date" data-field="deadline" /></label>
+            <label>Дата на приключване<input type="date" data-field="completedDate" /></label>
+          </div>
+        </fieldset>
+
+        <!-- I. Информация за рекламацията -->
+        <fieldset class="card">
+          <legend>I. Информация за предявената рекламация</legend>
+          <h4 class="sub">Данни на клиента</h4>
+          <div class="grid-2">
+            <label>Фирма<input type="text" data-field="client.company" /></label>
+            <label>Отговорно лице<input type="text" data-field="client.person" /></label>
+            <label>Контакти<input type="text" data-field="client.contacts" /></label>
+            <label>Ref. №<input type="text" data-field="client.ref" /></label>
+          </div>
+          <div class="grid-2">
+            <label>Номер на поръчка<input type="text" data-field="orderNo" /></label>
+            <label>Общо количество по поръчка<input type="text" data-field="totalQty" /></label>
+            <label>Номер на чертеж<input type="text" data-field="drawingNo" /></label>
+            <label>Дата на товарене<input type="date" data-field="loadingDate" /></label>
+          </div>
+          <label>Приел рекламацията<input type="text" data-field="acceptedBy" /></label>
+        </fieldset>
+
+        <!-- Предмет на рекламацията -->
+        <fieldset class="card">
+          <legend>Предмет на рекламацията</legend>
+          <table class="materials-table">
+            <thead>
+              <tr><th>Артикулен №</th><th>Наименование</th><th>Описание на проблема</th><th class="col-qty">Количество</th><th class="col-qty">Стойност</th><th class="col-x"></th></tr>
+            </thead>
+            <tbody id="claim-items-body"></tbody>
+          </table>
+          <button type="button" id="btn-add-claim-item" class="btn btn-small">+ Добави артикул</button>
+        </fieldset>
+
+        <!-- Снимка / Чертеж -->
+        <fieldset class="card">
+          <legend>Снимка / Чертеж</legend>
+          <label class="btn btn-small" for="claim-drawings-file">+ Прикачи файл</label>
+          <input type="file" id="claim-drawings-file" accept="image/*,application/pdf" multiple hidden />
+          <ul id="claim-drawings-list" class="files-list"></ul>
+        </fieldset>
+
+        <!-- Претенции на клиента -->
+        <fieldset class="card">
+          <legend>Претенции, предявени от клиента</legend>
+          <div class="checks">
+            <label><input type="checkbox" data-field="claimsClient.acceptWithReserve" /> приема артикула с известни резерви</label>
+            <label><input type="checkbox" data-field="claimsClient.returned" /> отказан и върнат</label>
+            <label><input type="checkbox" data-field="claimsClient.personal" /> персонално решение</label>
+            <label><input type="checkbox" data-field="claimsClient.rework" /> преработка от производителя</label>
+            <label><input type="checkbox" data-field="claimsClient.refund" /> възстановяване на сума</label>
+            <label><input type="checkbox" data-field="claimsClient.other" /> друго</label>
+          </div>
+          <label>Друго / уточнение<input type="text" data-field="otherText" /></label>
+          <label>Коментар от клиента<textarea rows="3" data-field="clientComment"></textarea></label>
+        </fieldset>
+
+        <!-- II. Решение на проблема -->
+        <fieldset class="card">
+          <legend>II. Решение на проблема — дефиниране</legend>
+          <label>Какъв е проблемът?<textarea rows="2" data-field="problem.what"></textarea></label>
+          <label>Защо има проблем?<textarea rows="2" data-field="problem.why"></textarea></label>
+          <label>Къде е проблемът?<textarea rows="2" data-field="problem.where"></textarea></label>
+          <label>Кога е възникнал проблемът?<textarea rows="2" data-field="problem.when"></textarea></label>
+          <label>Кой е засегнат от проблема?<textarea rows="2" data-field="problem.who"></textarea></label>
+          <label>Как е открит проблемът?<textarea rows="2" data-field="problem.how"></textarea></label>
+          <label>Допълнителна информация<textarea rows="2" data-field="problem.extra"></textarea></label>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend>Основни причини и мерки за превенция</legend>
+          <textarea rows="3" data-field="rootCause" placeholder="Описание на основните причини + възможни мерки за превенция..."></textarea>
+          <h4 class="sub">Възможни причини</h4>
+          <div class="checks">
+            <label><input type="checkbox" data-field="causes.man" /> човек</label>
+            <label><input type="checkbox" data-field="causes.machine" /> машина</label>
+            <label><input type="checkbox" data-field="causes.material" /> материал</label>
+            <label><input type="checkbox" data-field="causes.method" /> метод / технология</label>
+            <label><input type="checkbox" data-field="causes.external" /> външни фактори</label>
+            <label><input type="checkbox" data-field="causes.transport" /> транспорт</label>
+          </div>
+        </fieldset>
+
+        <!-- Предприети действия -->
+        <fieldset class="card">
+          <legend>Предприети действия</legend>
+          <table class="materials-table">
+            <thead>
+              <tr><th>Отговорно лице</th><th>Предприети действия</th><th class="col-qty">Дата</th><th class="col-x"></th></tr>
+            </thead>
+            <tbody id="claim-actions-body"></tbody>
+          </table>
+          <button type="button" id="btn-add-claim-action" class="btn btn-small">+ Добави ред</button>
+        </fieldset>
+
+        <!-- Решение -->
+        <fieldset class="card">
+          <legend>Удовлетворяване на рекламацията</legend>
+          <label>Начин, по който е удовлетворена рекламацията<textarea rows="3" data-field="resolution"></textarea></label>
+          <label>Стойност на рекламацията<input type="text" data-field="value" placeholder="напр. 104,55 евро" /></label>
+        </fieldset>
+
+        <p class="save-status" id="claim-save-status"></p>
+      </form>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=20"></script>
-  <script src="app.js?v=20"></script>
+  <script src="config.js?v=21"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>
