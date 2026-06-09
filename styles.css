@@ -67,6 +67,8 @@ body {
   z-index: 10;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
+.brand-logo { height: 48px; width: auto; border-radius: 8px; display: block; }
+.brand-fallback { display: none; align-items: center; gap: 12px; }
 .logo {
   display: grid;
   place-items: center;
