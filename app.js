@@ -420,8 +420,8 @@ async function handleLogin(e) {
     setLoginError("⚠ Няма сесия. Отговор: " + JSON.stringify(res.data));
   } else {
     setLoginError("✓ Успешен вход! Зареждам…");
+    await onSignedIn(res.data.session);
   }
-  // При успех onAuthStateChange ще стартира приложението.
 }
 function setLoginError(txt) { document.getElementById("login-error").textContent = txt; }
 function translateAuthError(msg = "") {
@@ -439,8 +439,9 @@ function showLogin() {
 }
 
 async function onSignedIn(s) {
-  session = s;
+  if (appStarted) return;
   appStarted = true;
+  session = s;
   document.getElementById("login").hidden = true;
   document.getElementById("config-error").hidden = true;
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
@@ -543,9 +544,10 @@ async function init() {
   const { data: { session: s } } = await sb.auth.getSession();
   if (s) await onSignedIn(s); else showLogin();
 
-  sb.auth.onAuthStateChange((_event, s2) => {
-    if (s2 && !appStarted) onSignedIn(s2);
-    else if (!s2 && appStarted) onSignedOut();
+  // Само за изход. Входът се обработва директно в handleLogin/init,
+  // за да се избегне известно "заключване" при тежки заявки в това събитие.
+  sb.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT" && appStarted) onSignedOut();
   });
 }
 
