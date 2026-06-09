@@ -33,9 +33,11 @@ function rowToSample(row) {
   // Допълване на липсващи полета (за по-стари записи).
   if (s.deadline === undefined) s.deadline = "";
   if (s.completed === undefined) s.completed = !!row.completed;
-  s.order = s.order || {};
-  ["status", "supplier", "date", "eta", "note"].forEach(k => { if (s.order[k] === undefined) s.order[k] = ""; });
   s.materials = s.materials || [];
+  s.materials.forEach(m => {
+    if (m.status === undefined) m.status = "not-ordered";
+    if (m.note === undefined) m.note = "";
+  });
   s.drawings = s.drawings || [];
   s.process = s.process || {};
   OPERATIONS.forEach(op => { if (!s.process[op.key]) s.process[op.key] = { done: false, responsible: "" }; });
@@ -89,7 +91,6 @@ function blankSample() {
     clientName: "", clientInfo: "", sampleInfo: "",
     deadline: "", completed: false,
     drawings: [], materials: [],
-    order: { status: "", supplier: "", date: "", eta: "", note: "" },
     process: {}, analysis: "",
   };
   OPERATIONS.forEach(op => { s.process[op.key] = { done: false, responsible: "" }; });
@@ -164,11 +165,6 @@ function renderForm() {
   document.getElementById("sampleInfo").value = s.sampleInfo;
   document.getElementById("deadline").value = s.deadline || "";
   document.getElementById("completed").checked = !!s.completed;
-  document.getElementById("orderStatus").value = s.order.status;
-  document.getElementById("orderSupplier").value = s.order.supplier;
-  document.getElementById("orderDate").value = s.order.date || "";
-  document.getElementById("orderEta").value = s.order.eta || "";
-  document.getElementById("orderNote").value = s.order.note;
   document.getElementById("analysis").value = s.analysis;
 
   renderDrawings(s);
@@ -212,12 +208,23 @@ function renderMaterials(s) {
     tr.innerHTML = `
       <td><input type="text" value="${escapeAttr(m.name)}" placeholder="Материал" /></td>
       <td><input type="text" value="${escapeAttr(m.qty)}" placeholder="бр. / кг / м" /></td>
-      <td><input type="text" value="${escapeAttr(m.note)}" placeholder="Забележка" /></td>
+      <td><select class="mat-status ${m.status === "ordered" ? "is-ordered" : "is-not"}">
+        <option value="not-ordered"${m.status === "ordered" ? "" : " selected"}>Непоръчан</option>
+        <option value="ordered"${m.status === "ordered" ? " selected" : ""}>Поръчан</option>
+      </select></td>
+      <td><input type="text" value="${escapeAttr(m.note)}" placeholder="Доставчик, кога ще дойде..." /></td>
       <td><button type="button" class="remove-row" title="Изтрий реда">×</button></td>`;
     const [n, q, note] = tr.querySelectorAll("input");
+    const statusSel = tr.querySelector(".mat-status");
     n.addEventListener("input", () => { m.name = n.value; touch(s); });
     q.addEventListener("input", () => { m.qty = q.value; touch(s); });
     note.addEventListener("input", () => { m.note = note.value; touch(s); });
+    statusSel.addEventListener("change", () => {
+      m.status = statusSel.value;
+      statusSel.classList.toggle("is-ordered", m.status === "ordered");
+      statusSel.classList.toggle("is-not", m.status !== "ordered");
+      touch(s);
+    });
     tr.querySelector(".remove-row").addEventListener("click", () => {
       s.materials.splice(i, 1); touch(s); renderMaterials(s);
     });
@@ -264,7 +271,12 @@ function bindSimpleField(id, apply) {
 }
 
 /* ---------- Обща справка ---------- */
-const ORDER_LABELS = { "": "—", "not-ordered": "Непоръчани", "ordered": "Поръчани", "received": "Получени" };
+function materialsSummary(s) {
+  const mats = s.materials || [];
+  if (!mats.length) return "—";
+  const ordered = mats.filter(m => m.status === "ordered").length;
+  return `${ordered}/${mats.length} поръчани`;
+}
 
 function renderReport() {
   document.getElementById("welcome").hidden = true;
@@ -301,7 +313,7 @@ function renderReport() {
       <td>${escapeHtml(s.clientName) || "—"}</td>
       <td>${escapeHtml(firstLine(s.sampleInfo)) || "—"}</td>
       <td class="${overdueCls}">${s.deadline ? formatDate(s.deadline) : "—"}</td>
-      <td>${ORDER_LABELS[s.order.status] ?? "—"}</td>
+      <td>${materialsSummary(s)}</td>
       <td><div class="mini-bar"><span style="width:${pct}%"></span></div>
           <span class="mini-num">${done}/${OPERATIONS.length}</span></td>
       <td>${statusBadge}</td>`;
@@ -493,14 +505,7 @@ function wireHandlers() {
   bindSimpleField("clientInfo", (s, v) => s.clientInfo = v);
   bindSimpleField("sampleInfo", (s, v) => s.sampleInfo = v);
   bindSimpleField("deadline", (s, v) => s.deadline = v);
-  bindSimpleField("orderSupplier", (s, v) => s.order.supplier = v);
-  bindSimpleField("orderDate", (s, v) => s.order.date = v);
-  bindSimpleField("orderEta", (s, v) => s.order.eta = v);
-  bindSimpleField("orderNote", (s, v) => s.order.note = v);
   bindSimpleField("analysis", (s, v) => s.analysis = v);
-  document.getElementById("orderStatus").addEventListener("change", () => {
-    const s = getCurrent(); if (s) { s.order.status = document.getElementById("orderStatus").value; touch(s); }
-  });
   document.getElementById("completed").addEventListener("change", () => {
     const s = getCurrent(); if (!s) return;
     s.completed = document.getElementById("completed").checked;
@@ -508,7 +513,7 @@ function wireHandlers() {
   });
   document.getElementById("btn-add-material").addEventListener("click", () => {
     const s = getCurrent(); if (!s) return;
-    s.materials.push({ name: "", qty: "", note: "" });
+    s.materials.push({ name: "", qty: "", status: "not-ordered", note: "" });
     touch(s); renderMaterials(s);
   });
   document.getElementById("drawings-file").addEventListener("change", e => {

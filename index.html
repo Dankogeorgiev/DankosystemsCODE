@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Данко Системс — Следене на мостри</title>
-  <link rel="stylesheet" href="styles.css?v=15" />
+  <link rel="stylesheet" href="styles.css?v=16" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 15</p>
+      <p class="login-version">версия 16</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=15" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=16" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -68,7 +68,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=15" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=16" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -90,7 +90,7 @@
               <th>Клиент</th>
               <th>Мостра</th>
               <th>Краен срок</th>
-              <th>Поръчка</th>
+              <th>Материали</th>
               <th>Напредък</th>
               <th>Статус</th>
             </tr>
@@ -147,52 +147,24 @@
           <legend><span class="num">5</span> Необходими материали</legend>
           <table class="materials-table">
             <thead>
-              <tr><th>Материал</th><th class="col-qty">Количество</th><th class="col-note">Забележка</th><th class="col-x"></th></tr>
+              <tr><th>Материал</th><th class="col-qty">Количество</th><th class="col-status">Статус</th><th class="col-note">Забележка</th><th class="col-x"></th></tr>
             </thead>
             <tbody id="materials-body"></tbody>
           </table>
           <button type="button" id="btn-add-material" class="btn btn-small">+ Добави ред</button>
+          <p class="hint">В „Забележка“ можеш да впишеш доставчик и кога ще дойде материалът.</p>
         </fieldset>
 
-        <!-- 6. Поръчка на материали -->
+        <!-- 6. Производствен процес -->
         <fieldset class="card">
-          <legend><span class="num">6</span> Поръчка на материали</legend>
-          <div class="grid-2">
-            <label>Статус
-              <select id="orderStatus">
-                <option value="">— избери —</option>
-                <option value="not-ordered">Непоръчани</option>
-                <option value="ordered">Поръчани</option>
-                <option value="received">Получени</option>
-              </select>
-            </label>
-            <label>Доставчик
-              <input type="text" id="orderSupplier" placeholder="Име на доставчик" />
-            </label>
-          </div>
-          <div class="grid-2">
-            <label>Дата на поръчката
-              <input type="date" id="orderDate" />
-            </label>
-            <label>Очаквана доставка
-              <input type="date" id="orderEta" />
-            </label>
-          </div>
-          <label>Забележки по поръчката
-            <textarea id="orderNote" rows="3" placeholder="Цени, номер на поръчка, други бележки..."></textarea>
-          </label>
-        </fieldset>
-
-        <!-- 7. Производствен процес -->
-        <fieldset class="card">
-          <legend><span class="num">7</span> Производствен процес</legend>
+          <legend><span class="num">6</span> Производствен процес</legend>
           <p class="hint">Отбележи готовите операции и кой е отговорникът.</p>
           <div id="process-list" class="process-list"></div>
         </fieldset>
 
-        <!-- 8. Анализ на производството -->
+        <!-- 7. Анализ на производството -->
         <fieldset class="card">
-          <legend><span class="num">8</span> Анализ на производството</legend>
+          <legend><span class="num">7</span> Анализ на производството</legend>
           <textarea id="analysis" rows="5" placeholder="Какво направи впечатление? Проблеми, предложения за подобрение, забележки за качеството..."></textarea>
         </fieldset>
 
@@ -202,7 +174,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=15"></script>
-  <script src="app.js?v=15"></script>
+  <script src="config.js?v=16"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

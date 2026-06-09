@@ -270,8 +270,12 @@ input:focus, textarea:focus, select:focus {
 }
 .materials-table td { padding: 4px 6px; }
 .materials-table input { padding: 6px 8px; }
-.col-qty { width: 120px; }
+.col-qty { width: 110px; }
+.col-status { width: 130px; }
 .col-x { width: 36px; }
+.mat-status { padding: 6px 8px; font-weight: 600; }
+.mat-status.is-ordered { color: var(--ok); border-color: #bbf7d0; background: #f0fdf4; }
+.mat-status.is-not { color: #b45309; border-color: #fde68a; background: #fffbeb; }
 .remove-row {
   background: none; border: none; color: var(--danger);
   cursor: pointer; font-size: 18px; line-height: 1;
