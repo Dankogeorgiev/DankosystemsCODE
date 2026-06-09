@@ -278,6 +278,7 @@ input:focus, textarea:focus, select:focus {
 .col-qty { width: 110px; }
 .col-status { width: 130px; }
 .col-x { width: 36px; }
+.mat-cat { font-weight: 600; color: var(--ink); padding: 8px 6px; white-space: nowrap; }
 .mat-status { padding: 6px 8px; font-weight: 600; }
 .mat-status.is-ordered { color: var(--ok); border-color: #bbf7d0; background: #f0fdf4; }
 .mat-status.is-not { color: #b45309; border-color: #fde68a; background: #fffbeb; }

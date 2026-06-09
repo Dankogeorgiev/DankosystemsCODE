@@ -14,6 +14,9 @@ const OPERATIONS = [
 
 const BUCKET = "drawings";
 
+// Категории материали за нестандартни поръчки (фиксирани редове).
+const ORDER_MATERIAL_CATEGORIES = ["Профили", "Ламарини", "Крепежи", "Цвят по RAL", "Други покупни"];
+
 let sb = null;            // Supabase клиент
 let session = null;
 let appStarted = false;
@@ -100,6 +103,10 @@ function blankSample(type = "sample") {
     process: {}, analysis: "",
   };
   OPERATIONS.forEach(op => { s.process[op.key] = { done: false, responsible: "" }; });
+  if (type === "order") {
+    s.materials = ORDER_MATERIAL_CATEGORIES.map(c =>
+      ({ name: c, qty: "", status: "not-ordered", note: "" }));
+  }
   return s;
 }
 
@@ -167,6 +174,8 @@ function renderForm() {
   welcome.hidden = true;
   form.hidden = false;
 
+  document.getElementById("section3-label").textContent =
+    s.type === "order" ? "Информация за поръчката" : "Информация за мострата";
   document.getElementById("clientName").value = s.clientName;
   document.getElementById("clientInfo").value = s.clientInfo;
   document.getElementById("sampleInfo").value = s.sampleInfo;
@@ -210,23 +219,43 @@ async function removeDrawing(s, i) {
   renderDrawings(s);
 }
 
+function ensureOrderCategories(s) {
+  const byName = {};
+  (s.materials || []).forEach(m => { byName[m.name] = m; });
+  s.materials = ORDER_MATERIAL_CATEGORIES.map(c =>
+    byName[c] || { name: c, qty: "", status: "not-ordered", note: "" });
+}
+
 function renderMaterials(s) {
   const tbody = document.getElementById("materials-body");
+  const addBtn = document.getElementById("btn-add-material");
+  const isOrder = s.type === "order";
   tbody.innerHTML = "";
+  if (isOrder) ensureOrderCategories(s);
+  addBtn.style.display = isOrder ? "none" : "";
+
   s.materials.forEach((m, i) => {
     const tr = document.createElement("tr");
+    const firstCell = isOrder
+      ? `<td class="mat-cat">${escapeHtml(m.name)}</td>`
+      : `<td><input type="text" value="${escapeAttr(m.name)}" placeholder="Материал" /></td>`;
+    const lastCell = isOrder
+      ? `<td></td>`
+      : `<td><button type="button" class="remove-row" title="Изтрий реда">×</button></td>`;
     tr.innerHTML = `
-      <td><input type="text" value="${escapeAttr(m.name)}" placeholder="Материал" /></td>
-      <td><input type="text" value="${escapeAttr(m.qty)}" placeholder="бр. / кг / м" /></td>
+      ${firstCell}
+      <td><input type="text" class="mat-qty" value="${escapeAttr(m.qty)}" placeholder="бр. / кг / м" /></td>
       <td><select class="mat-status ${m.status === "ordered" ? "is-ordered" : "is-not"}">
         <option value="not-ordered"${m.status === "ordered" ? "" : " selected"}>Непоръчан</option>
         <option value="ordered"${m.status === "ordered" ? " selected" : ""}>Поръчан</option>
       </select></td>
-      <td><input type="text" value="${escapeAttr(m.note)}" placeholder="Доставчик, кога ще дойде..." /></td>
-      <td><button type="button" class="remove-row" title="Изтрий реда">×</button></td>`;
-    const [n, q, note] = tr.querySelectorAll("input");
+      <td><input type="text" class="mat-note" value="${escapeAttr(m.note)}" placeholder="Доставчик, кога ще дойде..." /></td>
+      ${lastCell}`;
+    const nameInput = tr.querySelector("td:first-child input");
+    const q = tr.querySelector(".mat-qty");
+    const note = tr.querySelector(".mat-note");
     const statusSel = tr.querySelector(".mat-status");
-    n.addEventListener("input", () => { m.name = n.value; touch(s); });
+    if (nameInput) nameInput.addEventListener("input", () => { m.name = nameInput.value; touch(s); });
     q.addEventListener("input", () => { m.qty = q.value; touch(s); });
     note.addEventListener("input", () => { m.note = note.value; touch(s); });
     statusSel.addEventListener("change", () => {
@@ -235,7 +264,8 @@ function renderMaterials(s) {
       statusSel.classList.toggle("is-not", m.status !== "ordered");
       touch(s);
     });
-    tr.querySelector(".remove-row").addEventListener("click", () => {
+    const rm = tr.querySelector(".remove-row");
+    if (rm) rm.addEventListener("click", () => {
       s.materials.splice(i, 1); touch(s); renderMaterials(s);
     });
     tbody.appendChild(tr);
