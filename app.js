@@ -403,18 +403,23 @@ async function handleLogin(e) {
   const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
   const btn = document.getElementById("login-submit");
-  setLoginError("");
+  setLoginError("⏳ Опит за вход…");
   btn.disabled = true; btn.textContent = "Влизане…";
-  let error;
+  let res;
   try {
-    ({ error } = await sb.auth.signInWithPassword({ email, password }));
+    res = await sb.auth.signInWithPassword({ email, password });
   } catch (ex) {
-    error = ex;
+    btn.disabled = false; btn.textContent = "Вход";
+    setLoginError("⚠ ИЗКЛЮЧЕНИЕ: " + (ex && ex.message ? ex.message : String(ex)));
+    return;
   }
   btn.disabled = false; btn.textContent = "Вход";
-  if (error) {
-    const raw = error.message || String(error);
-    setLoginError("⚠ " + raw);
+  if (res.error) {
+    setLoginError("⚠ ГРЕШКА (" + (res.error.status || "?") + "): " + res.error.message);
+  } else if (!res.data || !res.data.session) {
+    setLoginError("⚠ Няма сесия. Отговор: " + JSON.stringify(res.data));
+  } else {
+    setLoginError("✓ Успешен вход! Зареждам…");
   }
   // При успех onAuthStateChange ще стартира приложението.
 }
