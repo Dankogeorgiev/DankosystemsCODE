@@ -413,9 +413,8 @@ async function handleLogin(e) {
   }
   btn.disabled = false; btn.textContent = "Вход";
   if (error) {
-    setLoginError(translateAuthError(error.message));
-    // Показваме и точните детайли (за диагностика).
-    alert("Детайли за грешката при вход:\n\n" + (error.message || error.toString()));
+    const raw = error.message || String(error);
+    setLoginError("⚠ " + raw);
   }
   // При успех onAuthStateChange ще стартира приложението.
 }
