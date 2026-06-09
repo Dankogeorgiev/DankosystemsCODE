@@ -33,6 +33,9 @@ function rowToSample(row) {
   // Допълване на липсващи полета (за по-стари записи).
   if (s.deadline === undefined) s.deadline = "";
   if (s.completed === undefined) s.completed = !!row.completed;
+  if (s.packaging === undefined) s.packaging = "";
+  if (s.shippingMethod === undefined) s.shippingMethod = "";
+  if (s.shippingAddress === undefined) s.shippingAddress = "";
   s.materials = s.materials || [];
   s.materials.forEach(m => {
     if (m.status === undefined) m.status = "not-ordered";
@@ -91,6 +94,7 @@ function blankSample() {
     clientName: "", clientInfo: "", sampleInfo: "",
     deadline: "", completed: false,
     drawings: [], materials: [],
+    packaging: "", shippingMethod: "", shippingAddress: "",
     process: {}, analysis: "",
   };
   OPERATIONS.forEach(op => { s.process[op.key] = { done: false, responsible: "" }; });
@@ -165,6 +169,9 @@ function renderForm() {
   document.getElementById("sampleInfo").value = s.sampleInfo;
   document.getElementById("deadline").value = s.deadline || "";
   document.getElementById("completed").checked = !!s.completed;
+  document.getElementById("packaging").value = s.packaging || "";
+  document.getElementById("shippingMethod").value = s.shippingMethod || "";
+  document.getElementById("shippingAddress").value = s.shippingAddress || "";
   document.getElementById("analysis").value = s.analysis;
 
   renderDrawings(s);
@@ -505,6 +512,9 @@ function wireHandlers() {
   bindSimpleField("clientInfo", (s, v) => s.clientInfo = v);
   bindSimpleField("sampleInfo", (s, v) => s.sampleInfo = v);
   bindSimpleField("deadline", (s, v) => s.deadline = v);
+  bindSimpleField("packaging", (s, v) => s.packaging = v);
+  bindSimpleField("shippingMethod", (s, v) => s.shippingMethod = v);
+  bindSimpleField("shippingAddress", (s, v) => s.shippingAddress = v);
   bindSimpleField("analysis", (s, v) => s.analysis = v);
   document.getElementById("completed").addEventListener("change", () => {
     const s = getCurrent(); if (!s) return;

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Данко Системс — Следене на мостри</title>
-  <link rel="stylesheet" href="styles.css?v=16" />
+  <link rel="stylesheet" href="styles.css?v=17" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 16</p>
+      <p class="login-version">версия 17</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=16" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=17" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -68,7 +68,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=16" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=17" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -162,9 +162,26 @@
           <div id="process-list" class="process-list"></div>
         </fieldset>
 
-        <!-- 7. Анализ на производството -->
+        <!-- 7. Опаковка -->
         <fieldset class="card">
-          <legend><span class="num">7</span> Анализ на производството</legend>
+          <legend><span class="num">7</span> Опаковка</legend>
+          <textarea id="packaging" rows="3" placeholder="Как да бъде опакована мострата (материали, брой, специални изисквания)..."></textarea>
+        </fieldset>
+
+        <!-- 8. Спедиция -->
+        <fieldset class="card">
+          <legend><span class="num">8</span> Спедиция</legend>
+          <label>Начин на изпращане
+            <textarea id="shippingMethod" rows="2" placeholder="Куриер / личен транспорт / друго — как ще бъде изпратена до клиента..."></textarea>
+          </label>
+          <label>Адрес за доставка
+            <textarea id="shippingAddress" rows="2" placeholder="Адрес на клиента за доставка..."></textarea>
+          </label>
+        </fieldset>
+
+        <!-- 9. Анализ на производството -->
+        <fieldset class="card">
+          <legend><span class="num">9</span> Анализ на производството</legend>
           <textarea id="analysis" rows="5" placeholder="Какво направи впечатление? Проблеми, предложения за подобрение, забележки за качеството..."></textarea>
         </fieldset>
 
@@ -174,7 +191,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=16"></script>
-  <script src="app.js?v=16"></script>
+  <script src="config.js?v=17"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>
