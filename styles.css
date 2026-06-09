@@ -13,6 +13,10 @@
 
 * { box-sizing: border-box; }
 
+/* Атрибутът hidden трябва винаги да скрива елемента, дори когато
+   класът му задава display (.overlay, .app-chrome и др.). */
+[hidden] { display: none !important; }
+
 /* Наслагващи екрани (вход / грешка) */
 .overlay {
   position: fixed; inset: 0;
