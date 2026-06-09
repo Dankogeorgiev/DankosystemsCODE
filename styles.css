@@ -13,6 +13,33 @@
 
 * { box-sizing: border-box; }
 
+/* Наслагващи екрани (вход / грешка) */
+.overlay {
+  position: fixed; inset: 0;
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%);
+  display: grid; place-items: center;
+  z-index: 100; padding: 20px;
+}
+.overlay-box {
+  background: #fff;
+  border-radius: 16px;
+  padding: 28px 26px;
+  width: 100%; max-width: 380px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.3);
+}
+.overlay-box h2 { margin: 0 0 8px; }
+.login-box .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.login-box .login-brand h2 { margin: 0; }
+.login-sub { color: #6b7280; margin: 0 0 18px; font-size: 14px; }
+.login-box label { display: block; font-size: 13px; color: #6b7280; margin-bottom: 12px; }
+.login-box input { margin-top: 4px; }
+.login-error { color: #dc2626; font-size: 13px; min-height: 18px; margin: 0 0 8px; }
+.btn-block { width: 100%; }
+
+/* Потребителска лента в хедъра */
+.user-box { display: flex; align-items: center; gap: 8px; margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--line); }
+#user-email { font-size: 13px; color: var(--muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 body {
   margin: 0;
   font-family: "Segoe UI", Roboto, system-ui, -apple-system, sans-serif;

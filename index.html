@@ -7,7 +7,31 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="app-header">
+  <!-- Грешка в настройките (липсват Supabase данни) -->
+  <div id="config-error" class="overlay" hidden>
+    <div class="overlay-box">
+      <h2>⚙️ Липсва настройка</h2>
+      <p>Връзката с облака още не е настроена. Попълни <code>config.js</code> с данните от твоя Supabase проект (виж <code>SETUP.md</code>).</p>
+    </div>
+  </div>
+
+  <!-- Екран за вход -->
+  <div id="login" class="overlay" hidden>
+    <form id="login-form" class="overlay-box login-box">
+      <div class="login-brand"><span class="logo">DS</span><h2>Данко Системс</h2></div>
+      <p class="login-sub">Влез, за да продължиш</p>
+      <label>Имейл
+        <input type="email" id="login-email" autocomplete="username" required />
+      </label>
+      <label>Парола
+        <input type="password" id="login-password" autocomplete="current-password" required />
+      </label>
+      <p id="login-error" class="login-error"></p>
+      <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
+    </form>
+  </div>
+
+  <header class="app-header app-chrome" hidden>
     <div class="brand">
       <span class="logo">DS</span>
       <div>
@@ -21,10 +45,12 @@
       <button id="btn-export" class="btn">Експорт</button>
       <label class="btn" for="import-file">Импорт</label>
       <input type="file" id="import-file" accept="application/json" hidden />
+      <span class="user-box"><span id="user-email"></span>
+        <button id="btn-logout" class="btn btn-small">Изход</button></span>
     </div>
   </header>
 
-  <main class="layout">
+  <main class="layout app-chrome" hidden>
     <!-- Списък с мостри -->
     <aside class="sidebar">
       <div class="search-box">
@@ -168,6 +194,8 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
