@@ -477,6 +477,37 @@ function isOverdue(s) {
   return new Date(s.deadline) < today;
 }
 
+/* ---------- Уведомяване по имейл (отваря имейл програмата) ---------- */
+function getNotifyEmails() {
+  const cfg = (window.DANKO_CONFIG && window.DANKO_CONFIG.NOTIFY_EMAILS) || [];
+  if (cfg.length) return cfg;
+  try { return JSON.parse(localStorage.getItem("danko_notify_emails")) || []; } catch { return []; }
+}
+function editNotifyEmails() {
+  const cur = getNotifyEmails().join(", ");
+  const v = prompt("Имейли за уведомяване (разделени със запетая):", cur);
+  if (v === null) return;
+  const list = v.split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+  localStorage.setItem("danko_notify_emails", JSON.stringify(list));
+  alert(list.length ? "Запазени получатели:\n" + list.join(", ") : "Списъкът е изчистен.");
+}
+function notifyOverdue() {
+  const overdue = samples.filter(s => s.type !== "claim" && isOverdue(s));
+  if (!overdue.length) { alert("Няма просрочени мостри/поръчки. 🎉"); return; }
+  const emails = getNotifyEmails();
+  if (!emails.length) { alert("Първо задай имейли за уведомяване (бутон „⚙ Имейли“)."); return; }
+  const lines = overdue.map(s => {
+    const t = s.type === "order" ? "Поръчка" : "Мостра";
+    const name = s.clientName || "(без клиент)";
+    const desc = firstLine(s.sampleInfo) || "";
+    return `• [${t}] ${name}${desc ? " — " + desc : ""} — срок: ${formatDate(s.deadline)}`;
+  });
+  const subject = `Просрочени мостри/поръчки (${overdue.length}) — Данко Системс`;
+  const body = `Здравейте,\n\nСледните позиции са с изтекъл краен срок:\n\n${lines.join("\n")}\n\nМоля, предприемете действия.\n\nДанко Системс`;
+  window.location.href = `mailto:${encodeURIComponent(emails.join(","))}` +
+    `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 /* ===================== РЕКЛАМАЦИИ ===================== */
 const CLAIM_DEMANDS = {
   acceptWithReserve: "приема с резерви", returned: "отказан и върнат",
@@ -815,6 +846,8 @@ function wireHandlers() {
     document.getElementById("report").hidden = true; renderForm();
   });
   document.getElementById("btn-report-print").addEventListener("click", () => window.print());
+  document.getElementById("btn-notify-overdue").addEventListener("click", notifyOverdue);
+  document.getElementById("btn-notify-emails").addEventListener("click", editNotifyEmails);
   document.getElementById("btn-export").addEventListener("click", exportData);
   document.getElementById("import-file").addEventListener("change", e => {
     if (e.target.files[0]) importData(e.target.files[0]);

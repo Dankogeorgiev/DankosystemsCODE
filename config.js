@@ -12,4 +12,9 @@
 window.DANKO_CONFIG = {
   SUPABASE_URL: "https://hwbblteomrrahfrsyuow.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_c5aOG4PykNHjAJDV82-wiQ_Y9yS9ba2",
+
+  // Имейли за уведомяване (по избор). Ако оставиш списъка празен, всеки
+  // задава своя списък през бутона „⚙ Имейли“. Пример:
+  // NOTIFY_EMAILS: ["ivan@danko.bg", "maria@danko.bg"],
+  NOTIFY_EMAILS: [],
 };
