@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Данко Системс — Следене на мостри</title>
-  <link rel="stylesheet" href="styles.css?v=25" />
+  <link rel="stylesheet" href="styles.css?v=26" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 25</p>
+      <p class="login-version">версия 26</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=25" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=26" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -77,7 +77,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=25" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=26" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -146,8 +146,8 @@
         <fieldset class="card">
           <legend><span class="num">4</span> Чертежи за производство</legend>
           <label class="btn btn-small" for="drawings-file">+ Прикачи файл</label>
-          <input type="file" id="drawings-file" accept="image/*,application/pdf" multiple hidden />
-          <p class="hint">Поддържат се изображения и PDF. Файловете се пазят локално в браузъра.</p>
+          <input type="file" id="drawings-file" multiple hidden />
+          <p class="hint">Поддържат се всякакви файлове (снимки, PDF, Excel, CAD и др.). Пазят се в облака.</p>
           <ul id="drawings-list" class="files-list"></ul>
         </fieldset>
 
@@ -274,7 +274,7 @@
         <fieldset class="card">
           <legend>Снимка / Чертеж</legend>
           <label class="btn btn-small" for="claim-drawings-file">+ Прикачи файл</label>
-          <input type="file" id="claim-drawings-file" accept="image/*,application/pdf" multiple hidden />
+          <input type="file" id="claim-drawings-file" multiple hidden />
           <ul id="claim-drawings-list" class="files-list"></ul>
         </fieldset>
 
@@ -344,7 +344,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=25"></script>
-  <script src="app.js?v=25"></script>
+  <script src="config.js?v=26"></script>
+  <script src="app.js?v=26"></script>
 </body>
 </html>
