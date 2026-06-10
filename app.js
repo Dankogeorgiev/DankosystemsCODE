@@ -47,6 +47,7 @@ function rowToSample(row) {
     if (m.note === undefined) m.note = "";
   });
   s.drawings = s.drawings || [];
+  s.analysisFiles = s.analysisFiles || [];
   s.process = s.process || {};
   OPERATIONS.forEach(op => { if (!s.process[op.key]) s.process[op.key] = { done: false, responsible: "" }; });
   return s;
@@ -103,6 +104,7 @@ function blankSample(type = "sample") {
     clientName: "", clientInfo: "", sampleInfo: "",
     deadline: "", completed: false,
     drawings: [], materials: [],
+    analysisFiles: [],
     packaging: "", shippingMethod: "", shippingAddress: "",
     process: {}, analysis: "",
   };
@@ -125,7 +127,8 @@ async function newSample(type = "sample") {
 async function deleteSample() {
   const s = getCurrent(); if (!s) return;
   if (!confirm("Сигурен ли си, че искаш да изтриеш тази мостра? Действието е за всички.")) return;
-  const paths = (s.drawings || []).map(d => d.path).filter(Boolean);
+  const paths = [...(s.drawings || []), ...(s.analysisFiles || [])]
+    .map(d => d.path).filter(Boolean);
   if (paths.length) await sb.storage.from(BUCKET).remove(paths);
   const { error } = await sb.from("samples").delete().eq("id", s.id);
   if (error) { alert("Грешка при изтриване: " + error.message); return; }
@@ -220,6 +223,7 @@ function renderSampleForm(s) {
   renderDrawings(s);
   renderMaterials(s);
   renderProcess(s);
+  renderAnalysisFiles(s);
   updateProgress(s);
   setStatus("");
 }
@@ -252,6 +256,52 @@ async function removeDrawing(s, i) {
   s.drawings.splice(i, 1);
   touch(s);
   renderDrawings(s);
+}
+
+/* Файлове с коментар (точка 9 — Анализ и коментари) */
+function renderAnalysisFiles(s) {
+  const wrap = document.getElementById("analysis-files");
+  wrap.innerHTML = "";
+  (s.analysisFiles || []).forEach((f, i) => {
+    const src = f.url || f.dataUrl || "";
+    const item = document.createElement("div");
+    item.className = "afile";
+    const preview = f.type && f.type.startsWith("image/")
+      ? `<img src="${src}" alt="${escapeHtml(f.name)}" />`
+      : `<span class="pdf-icon">📄</span>`;
+    item.innerHTML = `
+      <a class="afile-prev" href="${src}" target="_blank">${preview}</a>
+      <div class="afile-main">
+        <div class="afile-name"><a href="${src}" target="_blank" download="${escapeHtml(f.name)}">${escapeHtml(f.name)}</a></div>
+        <textarea class="afile-comment" rows="2" placeholder="Коментар към файла...">${escapeHtml(f.comment || "")}</textarea>
+      </div>
+      <button type="button" class="remove-file afile-x" title="Премахни">×</button>`;
+    item.querySelector(".afile-comment").addEventListener("input", e => { f.comment = e.target.value; touch(s); });
+    item.querySelector(".afile-x").addEventListener("click", () => removeAnalysisFile(s, i));
+    wrap.appendChild(item);
+  });
+}
+
+async function handleAnalysisFiles(files) {
+  const s = getCurrent(); if (!s) return;
+  s.analysisFiles = s.analysisFiles || [];
+  for (const file of files) {
+    const path = `${s.id}/analysis-${Date.now()}-${safeName(file.name)}`;
+    const { error } = await sb.storage.from(BUCKET).upload(path, file);
+    if (error) { alert("Грешка при качване на „" + file.name + "“: " + error.message); continue; }
+    const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+    s.analysisFiles.push({ name: file.name, type: file.type, path, url: data.publicUrl, comment: "" });
+    renderAnalysisFiles(s);
+    touch(s);
+  }
+}
+
+async function removeAnalysisFile(s, i) {
+  const f = s.analysisFiles[i];
+  if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
+  s.analysisFiles.splice(i, 1);
+  touch(s);
+  renderAnalysisFiles(s);
 }
 
 // Прехвърля по-стари поръчки към новия модел (категория + отделни редове).
@@ -795,6 +845,10 @@ function wireHandlers() {
   });
   document.getElementById("drawings-file").addEventListener("change", e => {
     handleDrawingFiles([...e.target.files]);
+    e.target.value = "";
+  });
+  document.getElementById("analysis-file").addEventListener("change", e => {
+    handleAnalysisFiles([...e.target.files]);
     e.target.value = "";
   });
 

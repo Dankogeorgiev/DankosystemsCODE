@@ -285,6 +285,18 @@ input:focus, textarea:focus, select:focus {
 }
 .pdf-icon { font-size: 34px; display: block; margin: 6px 0; }
 
+/* Файлове с коментар (Анализ и коментари) */
+.attach-btn { margin-top: 10px; display: inline-block; }
+.analysis-files { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.afile { display: flex; gap: 12px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.afile-prev { flex: 0 0 90px; text-align: center; }
+.afile-prev img { max-width: 90px; max-height: 70px; border-radius: 6px; display: block; }
+.afile-main { flex: 1; min-width: 0; }
+.afile-name { font-size: 12px; margin-bottom: 6px; word-break: break-word; }
+.afile-name a { color: var(--brand); text-decoration: none; }
+.afile-comment { width: 100%; }
+.afile-x { position: static; width: 24px; height: 24px; flex: 0 0 24px; }
+
 /* Materials table */
 .materials-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
 .materials-table th {
