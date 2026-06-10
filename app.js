@@ -298,35 +298,28 @@ function buildMaterialRow(s, m, i) {
 function renderMaterials(s) {
   const tbody = document.getElementById("materials-body");
   const addBtn = document.getElementById("btn-add-material");
-  const isOrder = s.type === "order";
   tbody.innerHTML = "";
+  addBtn.style.display = "none";
+  migrateOrderMaterials(s);
+  ORDER_MATERIAL_CATEGORIES.forEach(cat => {
+    const header = document.createElement("tr");
+    header.className = "mat-cat-header";
+    header.innerHTML = `<td colspan="5">${escapeHtml(cat)}</td>`;
+    tbody.appendChild(header);
 
-  if (isOrder) {
-    addBtn.style.display = "none";
-    migrateOrderMaterials(s);
-    ORDER_MATERIAL_CATEGORIES.forEach(cat => {
-      const header = document.createElement("tr");
-      header.className = "mat-cat-header";
-      header.innerHTML = `<td colspan="5">${escapeHtml(cat)}</td>`;
-      tbody.appendChild(header);
-
-      s.materials.forEach((m, i) => {
-        if (m.category === cat) tbody.appendChild(buildMaterialRow(s, m, i));
-      });
-
-      const addRow = document.createElement("tr");
-      addRow.className = "mat-add-row";
-      addRow.innerHTML = `<td colspan="5"><button type="button" class="btn btn-small mat-add">+ Добави</button></td>`;
-      addRow.querySelector(".mat-add").addEventListener("click", () => {
-        s.materials.push({ category: cat, name: "", qty: "", status: "not-ordered", note: "" });
-        touch(s); renderMaterials(s);
-      });
-      tbody.appendChild(addRow);
+    s.materials.forEach((m, i) => {
+      if (m.category === cat) tbody.appendChild(buildMaterialRow(s, m, i));
     });
-  } else {
-    addBtn.style.display = "";
-    s.materials.forEach((m, i) => tbody.appendChild(buildMaterialRow(s, m, i)));
-  }
+
+    const addRow = document.createElement("tr");
+    addRow.className = "mat-add-row";
+    addRow.innerHTML = `<td colspan="5"><button type="button" class="btn btn-small mat-add">+ Добави</button></td>`;
+    addRow.querySelector(".mat-add").addEventListener("click", () => {
+      s.materials.push({ category: cat, name: "", qty: "", status: "not-ordered", note: "" });
+      touch(s); renderMaterials(s);
+    });
+    tbody.appendChild(addRow);
+  });
 }
 
 function renderProcess(s) {
