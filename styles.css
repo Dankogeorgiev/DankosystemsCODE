@@ -111,6 +111,38 @@ body {
 .btn-accent:hover { background: #6d28d9; }
 .btn-claim { background: #ea580c; color: #fff; border-color: #ea580c; }
 .btn-claim:hover { background: #c2410c; }
+.btn-tasks { background: #0d9488; color: #fff; border-color: #0d9488; }
+.btn-tasks:hover { background: #0f766e; }
+
+/* Модул „Цехове“ */
+.tasks-overlay { background: rgba(15, 23, 42, .55); align-items: stretch; padding: 20px; }
+.tasks-box { background: var(--bg); border-radius: 14px; width: 100%; max-width: 1150px; margin: auto; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; }
+.tasks-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tasks-head h2 { margin: 0; font-size: 18px; }
+.tasks-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tasks-controls select, .tasks-controls input[type="search"] { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+.tasks-controls .spacer { flex: 1; }
+#tasks-view, #workers-view, #report-view { overflow: auto; padding: 14px 18px; }
+.tasks-table th, .tasks-table td { font-size: 13px; }
+.tasks-table .num { text-align: right; }
+.t-code { font-size: 11px; color: var(--muted); }
+.t-assignee { padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; max-width: 150px; }
+.t-actions { white-space: nowrap; display: flex; gap: 4px; }
+.task-done { background: #f0fdf4; }
+.task-progress { background: #fffbeb; }
+.rem-done { color: var(--ok); font-weight: 700; }
+
+.workers-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.workers-head h3 { margin: 0; flex: 1; }
+.worker-shop { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: var(--panel); }
+.worker-shop h4 { margin: 0 0 8px; }
+.worker-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { background: #eef4ff; border-radius: 99px; padding: 3px 6px 3px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.chip-x { border: none; background: #c7d2fe; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; }
+.worker-add { display: flex; gap: 6px; }
+.worker-add input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; flex: 0 0 220px; }
+.report-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.report-filters input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .btn-small { padding: 5px 10px; font-size: 13px; }
 
 /* Layout */

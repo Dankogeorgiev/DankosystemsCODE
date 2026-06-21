@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Данко Системс — Следене на мостри</title>
-  <link rel="stylesheet" href="styles.css?v=28" />
+  <link rel="stylesheet" href="styles.css?v=29" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 28</p>
+      <p class="login-version">версия 29</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=28" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=29" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -50,6 +50,7 @@
       <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
       <button id="btn-report" class="btn">Обща справка</button>
       <button id="btn-claim-report" class="btn">Регистър рекламации</button>
+      <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
       <button id="btn-export" class="btn">Експорт</button>
       <label class="btn" for="import-file">Импорт</label>
       <input type="file" id="import-file" accept="application/json" hidden />
@@ -77,7 +78,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=28" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=29" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -349,8 +350,49 @@
     </section>
   </main>
 
+  <!-- Модал: Производство по цехове -->
+  <div id="tasks-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>🏭 Производство по цехове</h2>
+        <button id="tasks-close" class="btn">Затвори</button>
+      </div>
+
+      <div class="tasks-controls">
+        <select id="task-workshop" title="Цех"></select>
+        <select id="task-worker-filter" title="Работник"><option value="">Всички работници</option></select>
+        <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
+        <span class="spacer"></span>
+        <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
+        <label class="btn btn-small" for="erp-file">⤓ Импорт ERP</label>
+        <input type="file" id="erp-file" accept=".xlsx,.xls" hidden />
+        <button id="btn-workers" class="btn btn-small">👤 Работници</button>
+        <button id="btn-task-report" class="btn btn-small">📊 Отчет</button>
+      </div>
+
+      <div id="tasks-view">
+        <table class="report-table tasks-table">
+          <thead>
+            <tr>
+              <th>Клиент</th><th>Продукт</th><th>Операция</th>
+              <th class="num">Кол.</th><th class="num">Произв.</th><th class="num">Остатък</th>
+              <th>Срок</th><th>Отговорник</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="tasks-body"></tbody>
+        </table>
+        <p id="tasks-empty" class="report-empty" hidden>Няма задачи за този филтър.</p>
+      </div>
+
+      <div id="workers-view" hidden></div>
+      <div id="report-view" hidden></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=28"></script>
-  <script src="app.js?v=28"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="config.js?v=29"></script>
+  <script src="app.js?v=29"></script>
+  <script src="tasks.js?v=29"></script>
 </body>
 </html>
