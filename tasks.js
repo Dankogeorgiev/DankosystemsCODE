@@ -81,9 +81,30 @@ function renderWorkerFilter() {
   sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
 }
 
+/* ---------- Лента с работници (икони) ---------- */
+function renderWorkerBar() {
+  const bar = document.getElementById("worker-bar");
+  if (!bar) return;
+  const ws = currentWorkshop();
+  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const active = document.getElementById("task-worker-filter").value;
+  if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави работници от бутона „👤 Работници“</span>`; return; }
+  bar.innerHTML = `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
+    names.map(n => {
+      const init = (n.trim()[0] || "?").toUpperCase();
+      return `<button class="wchip ${n === active ? "active" : ""}" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml(init)}</span>${escapeHtml(n)}</button>`;
+    }).join("");
+  bar.querySelectorAll(".wchip").forEach(b => b.addEventListener("click", () => {
+    const filter = document.getElementById("task-worker-filter");
+    filter.value = (filter.value === b.dataset.name) ? "" : b.dataset.name;
+    renderTasks();
+  }));
+}
+
 /* ---------- Списък със задачи ---------- */
 function renderTasks() {
   showSub("tasks");
+  renderWorkerBar();
   const tbody = document.getElementById("tasks-body");
   const ws = currentWorkshop();
   const worker = document.getElementById("task-worker-filter").value;
