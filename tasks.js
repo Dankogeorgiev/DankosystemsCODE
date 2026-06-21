@@ -120,10 +120,26 @@ function renderTasks() {
 
   document.getElementById("tasks-empty").hidden = rows.length > 0;
 
+  // Дневно обобщение, когато е избран конкретен работник
+  const daily = document.getElementById("tasks-daily");
+  if (worker) {
+    const today = todayStr();
+    let total = 0, cnt = 0;
+    rows.forEach(t => (t.logs || []).forEach(l => {
+      if (l.date === today && l.worker === worker) { total += Number(l.qty) || 0; cnt++; }
+    }));
+    daily.hidden = false;
+    daily.innerHTML = `👷 <strong>${escapeHtml(worker)}</strong> — днес произведено: <strong>${total}</strong> бр. (${cnt} вписвания)`;
+  } else {
+    daily.hidden = true;
+  }
+
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
     const st = taskStatus(t);
+    const today = todayStr();
+    const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
     const wsWorkers = WORKERS[t.workshop] || [];
     const opts = [`<option value="">— отговорник —</option>`]
       .concat(wsWorkers.map(n => `<option ${n === t.assignee ? "selected" : ""}>${escapeHtml(n)}</option>`));
@@ -136,33 +152,37 @@ function renderTasks() {
       <td>${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
       <td>${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num">${qty || "—"}</td>
-      <td class="num"><strong>${prod}</strong></td>
+      <td class="num"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}">${rem}</td>
       <td>${escapeHtml(t.due) || "—"}</td>
       <td><select class="t-assignee">${opts.join("")}</select></td>
       <td class="t-actions">
-        <button type="button" class="btn btn-small t-add">＋ произв.</button>
+        <input type="number" class="t-today" min="0" placeholder="днес" />
+        <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
         <button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="remove-row t-del" title="Изтрий">×</button>
       </td>`;
     tr.querySelector(".t-assignee").addEventListener("change", e => { t.assignee = e.target.value; tSaveTask(t); });
-    tr.querySelector(".t-add").addEventListener("click", () => logProduction(t));
+    const input = tr.querySelector(".t-today");
+    const submit = () => logProduction(t, input.value);
+    tr.querySelector(".t-add").addEventListener("click", submit);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     tr.querySelector(".t-edit").addEventListener("click", () => editTask(t));
     tr.querySelector(".t-del").addEventListener("click", () => deleteTask(t));
     tbody.appendChild(tr);
   });
 }
 
-async function logProduction(t) {
-  const qtyStr = prompt(`Произведени бройки СЕГА за:\n${t.product || t.client}\n(остатък: ${Math.max((Number(t.qty)||0)-(Number(t.produced)||0),0)})`, "");
-  if (qtyStr === null) return;
-  const add = Number(qtyStr.replace(",", "."));
-  if (!add || add <= 0) { alert("Въведи валиден брой."); return; }
-  let worker = t.assignee;
-  if (!worker) worker = prompt("Кой работник? (име)", "") || "";
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+async function logProduction(t, qtyVal) {
+  const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
+  if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
+  let worker = t.assignee || document.getElementById("task-worker-filter").value;
+  if (!worker) worker = prompt("Кой работник?", "") || "";
   t.produced = (Number(t.produced) || 0) + add;
   t.logs = t.logs || [];
-  t.logs.push({ date: new Date().toISOString().slice(0, 10), worker, qty: add });
+  t.logs.push({ date: todayStr(), worker, qty: add });
   await tSaveTask(t);
   renderTasks();
 }
