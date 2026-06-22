@@ -25,9 +25,39 @@ const DEFAULT_EMPLOYEES = {
 
 let TASKS = [];
 let WORKERS = {};            // { "Лазери": ["Иван", ...], ... }
+let ROLES = { admins: [], byEmail: {} };   // имейл за вход -> { workshop }
 let workersSeededV1 = false;
 let tasksLoaded = false;
 let tasksSubscribed = false;
+
+function amWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
+
+async function tLoadRoles() {
+  const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
+  ROLES = (data && data.data) || { admins: [], byEmail: {} };
+  ROLES.byEmail = ROLES.byEmail || {};
+}
+async function tSaveRoles() {
+  const { error } = await sb.from("app_config")
+    .upsert({ id: "roles", data: ROLES, updated_at: new Date().toISOString() });
+  if (error) alert("Грешка при запис на достъпа: " + error.message);
+}
+function emailForWorkshop(ws) {
+  const hit = Object.entries(ROLES.byEmail || {}).find(([, v]) => v && v.workshop === ws);
+  return hit ? hit[0] : "";
+}
+async function setWorkshopEmail(ws, email) {
+  ROLES.byEmail = ROLES.byEmail || {};
+  // махаме стария имейл за този цех
+  Object.keys(ROLES.byEmail).forEach(e => { if (ROLES.byEmail[e].workshop === ws) delete ROLES.byEmail[e]; });
+  const e = (email || "").toLowerCase();
+  if (e) ROLES.byEmail[e] = { workshop: ws };
+  await tSaveRoles();
+}
+function slugWs(ws) {
+  const map = { "Лазери": "laseri", "Преси": "presi", "Абкант": "abkant", "Заваръчно": "zavarka", "Занитване": "zanitvane", "Бояджийно": "boyadjiino" };
+  return map[ws] || "cex";
+}
 
 /* ---------- Зареждане / запис ---------- */
 async function tLoadWorkers() {
@@ -97,10 +127,21 @@ async function openTasks() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   document.getElementById("tasks-modal").hidden = false;
   showSub("tasks");
-  if (!tasksLoaded) { await tLoadWorkers(); await tLoadTasks(); tasksLoaded = true; subscribeTasks(); }
+  if (!tasksLoaded) { await tLoadWorkers(); await tLoadRoles(); await tLoadTasks(); tasksLoaded = true; subscribeTasks(); }
+  applyTasksAccess();
   renderWorkshopSelect();
   renderWorkerFilter();
   renderTasks();
+}
+
+function applyTasksAccess() {
+  const w = amWorker();
+  ["btn-add-task", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
+  });
+  const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
+  document.querySelector(".tasks-head h2").textContent = w
+    ? "🏭 " + (MY_ACCESS.workshop || "Цех") : "🏭 Производство по цехове";
 }
 function showSub(which) {
   document.getElementById("tasks-view").hidden = which !== "tasks";
@@ -115,6 +156,13 @@ function currentWorkshop() {
 }
 function renderWorkshopSelect() {
   const sel = document.getElementById("task-workshop");
+  if (amWorker()) {
+    sel.innerHTML = `<option>${escapeHtml(MY_ACCESS.workshop)}</option>`;
+    sel.value = MY_ACCESS.workshop;
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
   const cur = sel.value;
   sel.innerHTML = `<option value="__all">Всички цехове</option>` +
     workshopList().map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
@@ -208,16 +256,16 @@ function renderTasks() {
       <td class="t-actions">
         <input type="number" class="t-today" min="0" placeholder="днес" />
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
-        <button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
-        <button type="button" class="remove-row t-del" title="Изтрий">×</button>
+        ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
+        <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
       </td>`;
     tr.querySelector(".t-assignee").addEventListener("change", e => { t.assignee = e.target.value; tSaveTask(t); });
     const input = tr.querySelector(".t-today");
     const submit = () => logProduction(t, input.value);
     tr.querySelector(".t-add").addEventListener("click", submit);
     input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-    tr.querySelector(".t-edit").addEventListener("click", () => editTask(t));
-    tr.querySelector(".t-del").addEventListener("click", () => deleteTask(t));
+    const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
+    const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     tbody.appendChild(tr);
   });
 }
@@ -350,10 +398,16 @@ function renderWorkers() {
     const box = document.createElement("div");
     box.className = "worker-shop";
     const names = WORKERS[ws] || [];
+    const wsEmail = emailForWorkshop(ws);
     box.innerHTML = `<h4>${escapeHtml(ws)}</h4>
       <div class="worker-chips">${names.map((n, i) =>
         `<span class="chip">${escapeHtml(n)} <button data-i="${i}" class="chip-x">×</button></span>`).join("") || "<em>няма</em>"}</div>
-      <div class="worker-add"><input type="text" placeholder="Име на служител" /><button class="btn btn-small">+ Добави</button></div>`;
+      <div class="worker-add"><input type="text" placeholder="Име на служител" /><button class="btn btn-small">+ Добави</button></div>
+      <div class="ws-access">🔐 Имейл за вход (цех): <input type="text" class="ws-email" value="${escapeAttr(wsEmail)}" placeholder="напр. ${slugWs(ws)}@danko.local" /></div>`;
+    const emailInp = box.querySelector(".ws-email");
+    emailInp.addEventListener("change", async () => {
+      await setWorkshopEmail(ws, emailInp.value.trim());
+    });
     box.querySelectorAll(".chip-x").forEach(btn => btn.addEventListener("click", async () => {
       WORKERS[ws].splice(Number(btn.dataset.i), 1); await tSaveWorkers(); renderWorkers();
     }));

@@ -154,6 +154,8 @@ body {
 .chip-x { border: none; background: #c7d2fe; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; }
 .worker-add { display: flex; gap: 6px; }
 .worker-add input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; flex: 0 0 220px; }
+.ws-access { margin-top: 10px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ws-access input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; flex: 0 0 240px; }
 .report-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .report-filters input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .btn-small { padding: 5px 10px; font-size: 13px; }

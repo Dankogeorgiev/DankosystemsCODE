@@ -24,7 +24,35 @@ let appStarted = false;
 let samples = [];
 let currentId = null;
 let saveTimer = null;
+let MY_ACCESS = { isAdmin: true };   // { isAdmin, workshop, email }
 const pending = new Map(); // id -> sample (изчакват запис)
+
+/* ---------- Достъп (роли) ---------- */
+async function loadAccess(email) {
+  let cfg = {};
+  try {
+    const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
+    cfg = (data && data.data) || {};
+  } catch {}
+  const byEmail = cfg.byEmail || {};
+  const e = (email || "").toLowerCase();
+  MY_ACCESS = byEmail[e]
+    ? { isAdmin: false, workshop: byEmail[e].workshop, email: e }
+    : { isAdmin: true, email: e };
+}
+function applyAccess() {
+  const adminOnly = document.querySelectorAll(
+    '#btn-new,#btn-new-order,#btn-new-claim,#btn-report,#btn-claim-report,#btn-export,label[for="import-file"]');
+  if (MY_ACCESS.isAdmin) {
+    adminOnly.forEach(el => el.style.display = "");
+    document.querySelector(".layout").style.display = "";
+    return;
+  }
+  // Цехов достъп: скриваме всичко освен „Цехове“ и отваряме модула заключен.
+  adminOnly.forEach(el => el.style.display = "none");
+  document.querySelector(".layout").style.display = "none";
+  if (typeof openTasks === "function") openTasks();
+}
 
 function getCurrent() { return samples.find(s => s.id === currentId); }
 
@@ -805,11 +833,13 @@ async function onSignedIn(s) {
   document.getElementById("config-error").hidden = true;
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
   document.getElementById("user-email").textContent = s.user?.email || "";
+  await loadAccess(s.user?.email || "");
   await loadSamples();
   await offerLocalImport();
   subscribeRealtime();
   renderList();
   renderForm();
+  applyAccess();
 }
 
 function onSignedOut() {
