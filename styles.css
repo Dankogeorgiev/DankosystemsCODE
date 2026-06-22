@@ -135,14 +135,14 @@ body {
 .tasks-table { table-layout: fixed; width: 100%; }
 .tasks-table th, .tasks-table td { vertical-align: top; word-break: break-word; }
 .tasks-table th:nth-child(1), .tasks-table td:nth-child(1) { width: 11%; }   /* Клиент */
-.tasks-table th:nth-child(2), .tasks-table td:nth-child(2) { width: 17%; }   /* Продукт */
-.tasks-table th:nth-child(3), .tasks-table td:nth-child(3) { width: 11%; }   /* Операция */
-.tasks-table th:nth-child(4), .tasks-table td:nth-child(4) { width: 9%; }    /* Кол. */
-.tasks-table th:nth-child(5), .tasks-table td:nth-child(5) { width: 9%; }    /* Произв. */
-.tasks-table th:nth-child(6), .tasks-table td:nth-child(6) { width: 9%; }    /* Остатък */
+.tasks-table th:nth-child(2), .tasks-table td:nth-child(2) { width: 15%; }   /* Продукт */
+.tasks-table th:nth-child(3), .tasks-table td:nth-child(3) { width: 10%; }   /* Операция */
+.tasks-table th:nth-child(4), .tasks-table td:nth-child(4) { width: 10%; }   /* Кол. */
+.tasks-table th:nth-child(5), .tasks-table td:nth-child(5) { width: 10%; }   /* Произв. */
+.tasks-table th:nth-child(6), .tasks-table td:nth-child(6) { width: 10%; }   /* Остатък */
 .tasks-table th:nth-child(7), .tasks-table td:nth-child(7) { width: 9%; }    /* Срок */
-.tasks-table th:nth-child(8), .tasks-table td:nth-child(8) { width: 12%; }   /* Отговорник */
-.tasks-table td.num, .tasks-table th.num { text-align: right; white-space: nowrap; padding-right: 14px; }
+.tasks-table th:nth-child(8), .tasks-table td:nth-child(8) { width: 11%; }   /* Отговорник */
+.tasks-table td.num, .tasks-table th.num { text-align: center; white-space: nowrap; }
 .tasks-table .num { text-align: right; }
 .t-code { font-size: 11px; color: var(--muted); }
 .t-assignee { padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; max-width: 150px; }
