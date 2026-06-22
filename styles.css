@@ -132,7 +132,7 @@ body {
 .wchip.active .wav { background: rgba(255,255,255,.3); }
 #tasks-view, #workers-view, #report-view { overflow: auto; padding: 14px 18px; }
 .tasks-table th, .tasks-table td { font-size: 13px; }
-.tasks-table { table-layout: fixed; width: 70%; min-width: 980px; }
+.tasks-table { table-layout: fixed; width: 100%; }
 .tasks-table th, .tasks-table td { vertical-align: top; word-break: break-word; }
 .tasks-table td.num, .tasks-table th.num { text-align: center; white-space: nowrap; }
 .t-code { font-size: 11px; color: var(--muted); }
