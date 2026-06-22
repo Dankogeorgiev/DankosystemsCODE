@@ -1,6 +1,6 @@
 /* Данко Системс — Модул „Цехове / Производствени задачи“
    Използва глобалния Supabase клиент (sb) и помощните функции от app.js.
-   Данните се пазят в таблица `tasks`, работниците — в `app_config`. */
+   Данните се пазят в таблица `tasks`, служителите — в `app_config`. */
 
 const TASK_DEFAULT_WORKSHOPS = ["Лазер", "Заварки", "Занитване", "Абкант", "Боядисване", "Сглобяване"];
 let TASKS = [];
@@ -17,7 +17,7 @@ async function tLoadWorkers() {
 async function tSaveWorkers() {
   const { error } = await sb.from("app_config")
     .upsert({ id: "workers", data: { workshops: WORKERS }, updated_at: new Date().toISOString() });
-  if (error) alert("Грешка при запис на работниците: " + error.message);
+  if (error) alert("Грешка при запис на служителите: " + error.message);
 }
 async function tLoadTasks() {
   const { data, error } = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
@@ -76,19 +76,19 @@ function renderWorkerFilter() {
   const cur = sel.value;
   const ws = currentWorkshop();
   const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
-  sel.innerHTML = `<option value="">Всички работници</option>` +
+  sel.innerHTML = `<option value="">Всички служители</option>` +
     names.map(n => `<option>${escapeHtml(n)}</option>`).join("");
   sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
 }
 
-/* ---------- Лента с работници (икони) ---------- */
+/* ---------- Лента с служители (икони) ---------- */
 function renderWorkerBar() {
   const bar = document.getElementById("worker-bar");
   if (!bar) return;
   const ws = currentWorkshop();
   const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
   const active = document.getElementById("task-worker-filter").value;
-  if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави работници от бутона „👤 Работници“</span>`; return; }
+  if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>`; return; }
   bar.innerHTML = `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
     names.map(n => {
       const init = (n.trim()[0] || "?").toUpperCase();
@@ -120,7 +120,7 @@ function renderTasks() {
 
   document.getElementById("tasks-empty").hidden = rows.length > 0;
 
-  // Дневно обобщение, когато е избран конкретен работник
+  // Дневно обобщение, когато е избран конкретен служител
   const daily = document.getElementById("tasks-daily");
   if (worker) {
     const today = todayStr();
@@ -179,7 +179,7 @@ async function logProduction(t, qtyVal) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
   if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
   let worker = t.assignee || document.getElementById("task-worker-filter").value;
-  if (!worker) worker = prompt("Кой работник?", "") || "";
+  if (!worker) worker = prompt("Кой служител?", "") || "";
   t.produced = (Number(t.produced) || 0) + add;
   t.logs = t.logs || [];
   t.logs.push({ date: todayStr(), worker, qty: add });
@@ -274,7 +274,7 @@ async function importERP(file) {
   alert(`Готово! Заредени ${newTasks.length} задачи.`);
 }
 
-/* ---------- Работници ---------- */
+/* ---------- Служители ---------- */
 function toggleWorkers() {
   const v = document.getElementById("workers-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
@@ -283,7 +283,7 @@ function toggleWorkers() {
 function renderWorkers() {
   showSub("workers");
   const v = document.getElementById("workers-view");
-  v.innerHTML = `<div class="workers-head"><h3>Работници по цехове</h3>
+  v.innerHTML = `<div class="workers-head"><h3>Служители по цехове</h3>
     <button id="w-add-shop" class="btn btn-small">+ Нов цех</button>
     <button id="w-back" class="btn btn-small">← Назад</button></div>
     <div id="workers-list"></div>`;
@@ -303,7 +303,7 @@ function renderWorkers() {
     box.innerHTML = `<h4>${escapeHtml(ws)}</h4>
       <div class="worker-chips">${names.map((n, i) =>
         `<span class="chip">${escapeHtml(n)} <button data-i="${i}" class="chip-x">×</button></span>`).join("") || "<em>няма</em>"}</div>
-      <div class="worker-add"><input type="text" placeholder="Име на работник" /><button class="btn btn-small">+ Добави</button></div>`;
+      <div class="worker-add"><input type="text" placeholder="Име на служител" /><button class="btn btn-small">+ Добави</button></div>`;
     box.querySelectorAll(".chip-x").forEach(btn => btn.addEventListener("click", async () => {
       WORKERS[ws].splice(Number(btn.dataset.i), 1); await tSaveWorkers(); renderWorkers();
     }));
@@ -359,8 +359,8 @@ function computeReport() {
   const wRows = Object.entries(byWorker).sort((a, b) => b[1].qty - a[1].qty);
   const sRows = Object.entries(byShop).sort((a, b) => b[1] - a[1]);
   out.innerHTML = `
-    <h4>По работник</h4>
-    <table class="report-table"><thead><tr><th>Работник</th><th>Цех</th><th class="num">Произведено</th></tr></thead>
+    <h4>По служител</h4>
+    <table class="report-table"><thead><tr><th>Служител</th><th>Цех</th><th class="num">Произведено</th></tr></thead>
     <tbody>${wRows.map(([w, d]) => `<tr><td>${escapeHtml(w)}</td><td>${escapeHtml(d.shop)}</td><td class="num">${d.qty}</td></tr>`).join("") || `<tr><td colspan="3" class="report-empty">Няма данни за периода.</td></tr>`}</tbody></table>
     <h4 style="margin-top:18px">По цех</h4>
     <table class="report-table"><thead><tr><th>Цех</th><th class="num">Произведено</th></tr></thead>
