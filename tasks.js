@@ -2,27 +2,76 @@
    Използва глобалния Supabase клиент (sb) и помощните функции от app.js.
    Данните се пазят в таблица `tasks`, служителите — в `app_config`. */
 
-const TASK_DEFAULT_WORKSHOPS = ["Лазер", "Заварки", "Занитване", "Абкант", "Боядисване", "Сглобяване"];
+const TASK_DEFAULT_WORKSHOPS = ["Лазери", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
+
+// Свързване на старите имена (от ERP/предишни версии) към текущите цехове.
+const WORKSHOP_RENAME = {
+  "Лазер": "Лазери", "Заварки": "Заваръчно", "Боядисване": "Бояджийно",
+};
+// Имена на ERP листове -> цех.
+const SHEET_TO_WORKSHOP = {
+  "лазер": "Лазери", "заварки": "Заваръчно", "занитване": "Занитване",
+  "абкант": "Абкант", "боядисване": "Бояджийно", "сглобяване": "Сглобяване",
+};
+// Служители по цехове (зареждат се еднократно).
+const DEFAULT_EMPLOYEES = {
+  "Лазери": ["Кръстьо Средев", "Димитър Павлов", "Костадин Алтаванов"],
+  "Преси": ["Васил Иванов", "Захари Маджаров", "Симеон Танев"],
+  "Абкант": ["Светлозар Попов", "Шеиб Джибиров", "Атанас Клисаров", "Янко Матев"],
+  "Заваръчно": ["Николай Караиванов", "Панайот Петров", "Красимир Камовски", "Веселин Иванов", "Димитър Димитров"],
+  "Занитване": ["Богданка Камжалова", "Нели Кехайова", "Величка Мотова"],
+  "Бояджийно": ["Атанас Натов", "Алим Тирозов", "Димитър Пиронков", "Райчо Чолаков", "Иван Москов", "Борислав Ангелов"],
+};
+
 let TASKS = [];
-let WORKERS = {};            // { "Лазер": ["Иван", ...], ... }
+let WORKERS = {};            // { "Лазери": ["Иван", ...], ... }
+let workersSeededV1 = false;
 let tasksLoaded = false;
 let tasksSubscribed = false;
 
 /* ---------- Зареждане / запис ---------- */
 async function tLoadWorkers() {
-  const { data, error } = await sb.from("app_config").select("*").eq("id", "workers").maybeSingle();
-  WORKERS = (!error && data && data.data && data.data.workshops) ? data.data.workshops : {};
+  const { data } = await sb.from("app_config").select("*").eq("id", "workers").maybeSingle();
+  const cfg = (data && data.data) || {};
+  WORKERS = cfg.workshops || {};
+  workersSeededV1 = !!cfg.seeded_v1;
+
+  if (!workersSeededV1) {
+    // Свързване на старите имена на цехове към новите
+    for (const [oldN, newN] of Object.entries(WORKSHOP_RENAME)) {
+      if (WORKERS[oldN]) {
+        WORKERS[newN] = WORKERS[newN] || [];
+        WORKERS[oldN].forEach(n => { if (!WORKERS[newN].includes(n)) WORKERS[newN].push(n); });
+        delete WORKERS[oldN];
+      }
+    }
+    // Еднократно въвеждане на служителите по цехове
+    for (const [ws, names] of Object.entries(DEFAULT_EMPLOYEES)) {
+      WORKERS[ws] = WORKERS[ws] || [];
+      names.forEach(n => { if (!WORKERS[ws].includes(n)) WORKERS[ws].push(n); });
+    }
+    // Премахване на празни стари цехове, които не са в списъка
+    Object.keys(WORKERS).forEach(w => {
+      if (!TASK_DEFAULT_WORKSHOPS.includes(w) && (WORKERS[w] || []).length === 0) delete WORKERS[w];
+    });
+    workersSeededV1 = true;
+    await tSaveWorkers();
+  }
   TASK_DEFAULT_WORKSHOPS.forEach(w => { if (!WORKERS[w]) WORKERS[w] = []; });
 }
 async function tSaveWorkers() {
   const { error } = await sb.from("app_config")
-    .upsert({ id: "workers", data: { workshops: WORKERS }, updated_at: new Date().toISOString() });
+    .upsert({ id: "workers", data: { workshops: WORKERS, seeded_v1: workersSeededV1 }, updated_at: new Date().toISOString() });
   if (error) alert("Грешка при запис на служителите: " + error.message);
 }
 async function tLoadTasks() {
   const { data, error } = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
   if (error) { alert("Грешка при зареждане на задачите: " + error.message); return; }
-  TASKS = (data || []).map(r => ({ ...r.data, id: r.id }));
+  TASKS = (data || []).map(r => {
+    const t = { ...r.data, id: r.id };
+    if (WORKSHOP_RENAME[t.workshop]) t.workshop = WORKSHOP_RENAME[t.workshop];
+    return t;
+  });
 }
 async function tSaveTask(t) {
   t.updatedAt = new Date().toISOString();
@@ -232,7 +281,8 @@ async function importERP(file) {
 
   const newTasks = [];
   wb.SheetNames.forEach(sheetName => {
-    const ws = sheetName.charAt(0).toUpperCase() + sheetName.slice(1);
+    const key = sheetName.trim().toLowerCase();
+    const ws = SHEET_TO_WORKSHOP[key] || (sheetName.charAt(0).toUpperCase() + sheetName.slice(1));
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
     rows.slice(1).forEach(r => {
       const client = (r[0] || "").toString().trim();
