@@ -26,6 +26,7 @@ const DEFAULT_EMPLOYEES = {
 let TASKS = [];
 let WORKERS = {};            // { "Лазери": ["Иван", ...], ... }
 let ROLES = { admins: [], byEmail: {} };   // имейл за вход -> { workshop }
+let MY_WORKER = null;        // избран служител при цехов достъп
 let workersSeededV1 = false;
 let tasksLoaded = false;
 let tasksSubscribed = false;
@@ -140,8 +141,31 @@ function applyTasksAccess() {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
+  // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
+  document.getElementById("task-worker-filter").style.display = w ? "none" : "";
+  document.getElementById("task-search").style.display = w ? "none" : "";
+  document.getElementById("worker-bar").style.display = w ? "none" : "";
   document.querySelector(".tasks-head h2").textContent = w
     ? "🏭 " + (MY_ACCESS.workshop || "Цех") : "🏭 Производство по цехове";
+}
+
+function renderIdentityPicker() {
+  document.getElementById("tasks-daily").hidden = true;
+  document.querySelector(".tasks-table").style.display = "none";
+  document.getElementById("tasks-empty").hidden = true;
+  const box = document.getElementById("identity-picker");
+  box.hidden = false;
+  const names = WORKERS[MY_ACCESS.workshop] || [];
+  box.innerHTML = `<h3>Кой си ти?</h3>
+    <div class="identity-list">${names.map(n =>
+      `<button class="identity-btn" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml((n.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(n)}</button>`
+    ).join("") || "<em>Няма въведени служители за този цех.</em>"}</div>`;
+  box.querySelectorAll(".identity-btn").forEach(b => b.addEventListener("click", () => {
+    MY_WORKER = b.dataset.name;
+    box.hidden = true;
+    document.querySelector(".tasks-table").style.display = "";
+    renderTasks();
+  }));
 }
 function showSub(which) {
   document.getElementById("tasks-view").hidden = which !== "tasks";
@@ -201,16 +225,27 @@ function renderWorkerBar() {
 /* ---------- Списък със задачи ---------- */
 function renderTasks() {
   showSub("tasks");
+
+  // Цехов достъп: първо избор „кой си ти“
+  if (amWorker() && !MY_WORKER) { renderIdentityPicker(); return; }
+  document.getElementById("identity-picker").hidden = true;
+
   renderWorkerBar();
   const tbody = document.getElementById("tasks-body");
   const ws = currentWorkshop();
-  const worker = document.getElementById("task-worker-filter").value;
+  const isW = amWorker();
+  const worker = isW ? MY_WORKER : document.getElementById("task-worker-filter").value;
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
   tbody.innerHTML = "";
 
   const rows = TASKS.filter(t => {
     if (ws !== "__all" && t.workshop !== ws) return false;
-    if (worker && t.assignee !== worker) return false;
+    if (isW) {
+      // моите + незаетите задачи; чуждите се скриват
+      if (t.assignee && t.assignee !== MY_WORKER) return false;
+    } else if (worker && t.assignee !== worker) {
+      return false;
+    }
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
     return true;
   });
@@ -226,7 +261,11 @@ function renderTasks() {
       if (l.date === today && l.worker === worker) { total += Number(l.qty) || 0; cnt++; }
     }));
     daily.hidden = false;
-    daily.innerHTML = `👷 <strong>${escapeHtml(worker)}</strong> — днес произведено: <strong>${total}</strong> бр. (${cnt} вписвания)`;
+    const change = isW ? ` <button id="who-change" class="btn btn-small">Смени служител</button>` : "";
+    const lbl = isW ? "Ти си" : "👷";
+    daily.innerHTML = `${lbl} <strong>${escapeHtml(worker)}</strong> — днес произведено: <strong>${total}</strong> бр. (${cnt} вписвания)${change}`;
+    const cb = daily.querySelector("#who-change");
+    if (cb) cb.addEventListener("click", () => { MY_WORKER = null; renderTasks(); });
   } else {
     daily.hidden = true;
   }
@@ -275,8 +314,14 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 async function logProduction(t, qtyVal) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
   if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
-  let worker = t.assignee || document.getElementById("task-worker-filter").value;
-  if (!worker) worker = prompt("Кой служител?", "") || "";
+  let worker;
+  if (amWorker()) {
+    worker = MY_WORKER;
+    if (!t.assignee) t.assignee = MY_WORKER;   // поемаме незаета задача
+  } else {
+    worker = t.assignee || document.getElementById("task-worker-filter").value;
+    if (!worker) worker = prompt("Кой служител?", "") || "";
+  }
   t.produced = (Number(t.produced) || 0) + add;
   t.logs = t.logs || [];
   t.logs.push({ date: todayStr(), worker, qty: add });

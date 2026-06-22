@@ -141,6 +141,13 @@ body {
 .t-today { width: 60px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; }
 .t-today-info { font-size: 11px; color: var(--ok); font-weight: 600; }
 .tasks-daily { background: #ecfeff; border: 1px solid #a5f3fc; color: #0f766e; padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
+.tasks-daily #who-change { margin-left: 10px; }
+.identity-picker { max-width: 720px; margin: 30px auto; text-align: center; }
+.identity-picker h3 { font-size: 22px; margin-bottom: 20px; }
+.identity-list { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+.identity-btn { display: flex; align-items: center; gap: 10px; padding: 14px 22px; font-size: 17px; border: 2px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; font-family: inherit; }
+.identity-btn:hover { border-color: var(--brand); background: #eef4ff; }
+.identity-btn .wav { width: 34px; height: 34px; font-size: 15px; }
 .task-done { background: #f0fdf4; }
 .task-progress { background: #fffbeb; }
 .rem-done { color: var(--ok); font-weight: 700; }
