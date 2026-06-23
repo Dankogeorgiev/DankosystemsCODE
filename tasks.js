@@ -407,6 +407,26 @@ async function deleteTask(t) {
   renderTasks();
 }
 
+async function deleteWorkshop(ws) {
+  if (amWorker()) return;
+  const ids = TASKS.filter(t => t.workshop === ws).map(t => t.id);
+  if (!confirm(`Да изтрия цех „${ws}“ и неговите ${ids.length} задачи?`)) return;
+  for (let i = 0; i < ids.length; i += 100) {
+    const { error } = await sb.from("tasks").delete().in("id", ids.slice(i, i + 100));
+    if (error) { alert("Грешка: " + error.message); return; }
+  }
+  delete WORKERS[ws];
+  await tSaveWorkers();
+  let rolesChanged = false;
+  Object.keys(ROLES.byEmail || {}).forEach(e => {
+    if (ROLES.byEmail[e].workshop === ws) { delete ROLES.byEmail[e]; rolesChanged = true; }
+  });
+  if (rolesChanged) await tSaveRoles();
+  await tLoadTasks();
+  renderWorkshopSelect(); renderWorkerFilter(); renderWorkers();
+  alert(`Цех „${ws}“ е изтрит.`);
+}
+
 async function clearWorkshopTasks() {
   if (amWorker()) return;
   const ws = currentWorkshop();
@@ -534,11 +554,14 @@ function renderWorkers() {
     box.className = "worker-shop";
     const names = WORKERS[ws] || [];
     const wsEmail = emailForWorkshop(ws);
-    box.innerHTML = `<h4>${escapeHtml(ws)}</h4>
+    const isDefault = TASK_DEFAULT_WORKSHOPS.includes(ws);
+    box.innerHTML = `<h4>${escapeHtml(ws)} ${isDefault ? "" : `<button class="btn btn-small btn-danger del-shop">🗑 Изтрий цеха</button>`}</h4>
       <div class="worker-chips">${names.map((n, i) =>
         `<span class="chip">${escapeHtml(n)} <button data-i="${i}" class="chip-x">×</button></span>`).join("") || "<em>няма</em>"}</div>
       <div class="worker-add"><input type="text" placeholder="Име на служител" /><button class="btn btn-small">+ Добави</button></div>
       <div class="ws-access">🔐 Имейл за вход (цех): <input type="text" class="ws-email" value="${escapeAttr(wsEmail)}" placeholder="напр. ${slugWs(ws)}@danko.local" /></div>`;
+    const delShop = box.querySelector(".del-shop");
+    if (delShop) delShop.addEventListener("click", () => deleteWorkshop(ws));
     const emailInp = box.querySelector(".ws-email");
     emailInp.addEventListener("change", async () => {
       await setWorkshopEmail(ws, emailInp.value.trim());
