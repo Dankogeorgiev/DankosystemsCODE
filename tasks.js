@@ -356,7 +356,9 @@ function renderTasks() {
       <td class="num"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}">${rem}</td>
       <td>${escapeHtml(t.due) || "—"}</td>
-      <td><select class="t-assignee">${opts.join("")}</select></td>
+      ${amWorker()
+        ? `<td class="t-assignee-ro">${escapeHtml(t.assignee) || "—"}</td>`
+        : `<td><select class="t-assignee">${opts.join("")}</select></td>`}
       <td class="t-actions">
         <input type="number" class="t-today" min="0" placeholder="днес" />
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
@@ -371,7 +373,8 @@ function renderTasks() {
     });
     filesCell.querySelectorAll(".tf-x").forEach(b =>
       b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
-    tr.querySelector(".t-assignee").addEventListener("change", e => { t.assignee = e.target.value; tSaveTask(t); });
+    const asg = tr.querySelector("select.t-assignee");
+    if (asg) asg.addEventListener("change", () => { if (amWorker()) return; t.assignee = asg.value; tSaveTask(t); });
     const input = tr.querySelector(".t-today");
     const submit = () => logProduction(t, input.value);
     tr.querySelector(".t-add").addEventListener("click", submit);
