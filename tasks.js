@@ -152,7 +152,7 @@ async function openTasks() {
 
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
@@ -407,6 +407,25 @@ async function deleteTask(t) {
   renderTasks();
 }
 
+async function clearWorkshopTasks() {
+  if (amWorker()) return;
+  const ws = currentWorkshop();
+  if (ws === "__all") { alert("Първо избери конкретен цех от менюто горе."); return; }
+  const list = TASKS.filter(t => t.workshop === ws);
+  if (!list.length) { alert("Няма задачи за цех „" + ws + "“."); return; }
+  if (!confirm(`Да изтрия ВСИЧКИ ${list.length} задачи за цех „${ws}“?\n(Вписаното производство за тях също се изтрива.)`)) return;
+  const ids = list.map(t => t.id);
+  const paths = list.flatMap(t => (t.files || []).map(f => f.path)).filter(Boolean);
+  if (paths.length) await sb.storage.from(BUCKET).remove(paths);
+  for (let i = 0; i < ids.length; i += 100) {
+    const { error } = await sb.from("tasks").delete().in("id", ids.slice(i, i + 100));
+    if (error) { alert("Грешка при изтриване: " + error.message); break; }
+  }
+  await tLoadTasks();
+  renderTasks();
+  alert(`Готово — изтрити ${ids.length} задачи за „${ws}“.`);
+}
+
 async function addTaskManual() {
   if (amWorker()) return;
   let ws = currentWorkshop();
@@ -465,14 +484,16 @@ async function importERP(file) {
 
   if (!newTasks.length) { alert("Във файла няма редове за импорт."); return; }
 
-  const replace = confirm(
-    `Намерени са ${newTasks.length} задачи в ${wb.SheetNames.length} цеха.\n\n` +
-    `OK = ИЗТРИЙ старите задачи и зареди новите (препоръчано при нов експорт)\n` +
-    `Cancel = ДОБАВИ новите към съществуващите`);
+  const shopsInFile = [...new Set(newTasks.map(t => t.workshop))];
+  if (!confirm(
+    `Намерени са ${newTasks.length} задачи за ${shopsInFile.length} цех(а):\n${shopsInFile.join(", ")}.\n\n` +
+    `Старите задачи за ТЕЗИ цехове ще се ЗАМЕНЯТ с новите. Другите цехове остават непроменени.\n\nПродължи?`)) return;
 
-  if (replace) {
-    const { error: delErr } = await sb.from("tasks").delete().gte("created_at", "1900-01-01");
-    if (delErr) { alert("Грешка при изчистване: " + delErr.message); return; }
+  // изтриваме старите задачи само за цеховете, които са във файла
+  const toDelete = TASKS.filter(t => shopsInFile.includes(t.workshop)).map(t => t.id);
+  for (let i = 0; i < toDelete.length; i += 100) {
+    const { error } = await sb.from("tasks").delete().in("id", toDelete.slice(i, i + 100));
+    if (error) { alert("Грешка при изчистване: " + error.message); return; }
   }
   // вмъкване на партиди по 200
   for (let i = 0; i < newTasks.length; i += 200) {
@@ -625,6 +646,7 @@ function tInit() {
     e.target.value = ""; taskFileTarget = null;
   });
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
+  document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
 }
 document.addEventListener("DOMContentLoaded", tInit);
