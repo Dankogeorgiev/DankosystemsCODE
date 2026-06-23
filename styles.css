@@ -137,6 +137,10 @@ body {
 .tasks-table th, .tasks-table td { vertical-align: top; word-break: break-word; }
 .tasks-table td.num, .tasks-table th.num { text-align: center; white-space: nowrap; }
 .t-code { font-size: 11px; color: var(--muted); }
+.t-files { white-space: normal; }
+.t-files .tf { display: inline-flex; align-items: center; margin-right: 4px; }
+.t-files .tf a { text-decoration: none; font-size: 17px; }
+.tf-x { border: none; background: #fecaca; color: #b91c1c; border-radius: 50%; width: 16px; height: 16px; cursor: pointer; font-size: 11px; line-height: 1; margin-left: 2px; }
 .t-assignee { padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; max-width: 150px; }
 .t-actions { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
 .t-today { width: 60px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; }

@@ -27,6 +27,7 @@ let TASKS = [];
 let WORKERS = {};            // { "Лазери": ["Иван", ...], ... }
 let ROLES = { admins: [], byEmail: {} };   // имейл за вход -> { workshop }
 let MY_WORKER = null;        // избран служител при цехов достъп
+let taskFileTarget = null;   // задача, към която се качва чертеж
 let workersSeededV1 = false;
 let tasksLoaded = false;
 let tasksSubscribed = false;
@@ -287,6 +288,7 @@ function renderTasks() {
     tr.innerHTML = `
       <td>${escapeHtml(t.client) || "—"}</td>
       <td>${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
+      <td class="t-files">${taskFilesCell(t)}</td>
       <td>${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num">${qty || "—"}</td>
       <td class="num"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
@@ -299,6 +301,14 @@ function renderTasks() {
         ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
       </td>`;
+    const filesCell = tr.querySelector(".t-files");
+    const addBtn = filesCell.querySelector(".tf-add");
+    if (addBtn) addBtn.addEventListener("click", () => {
+      taskFileTarget = t;
+      document.getElementById("task-file").click();
+    });
+    filesCell.querySelectorAll(".tf-x").forEach(b =>
+      b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
     tr.querySelector(".t-assignee").addEventListener("change", e => { t.assignee = e.target.value; tSaveTask(t); });
     const input = tr.querySelector(".t-today");
     const submit = () => logProduction(t, input.value);
@@ -311,6 +321,36 @@ function renderTasks() {
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+/* ---------- Чертежи към задача ---------- */
+function taskFilesCell(t) {
+  const files = t.files || [];
+  const links = files.map((f, i) => {
+    const x = amWorker() ? "" : `<button class="tf-x" data-i="${i}" title="Премахни">×</button>`;
+    return `<span class="tf"><a href="${f.url}" target="_blank" title="${escapeAttr(f.name)}">📎</a>${x}</span>`;
+  }).join("");
+  const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${files.length ? "+" : "Прикачи"}</button>`;
+  return (links || (amWorker() ? "—" : "")) + add;
+}
+async function handleTaskFiles(t, files) {
+  t.files = t.files || [];
+  for (const file of files) {
+    const path = `tasks/${t.id}/${Date.now()}-${safeName(file.name)}`;
+    const { error } = await sb.storage.from(BUCKET).upload(path, file);
+    if (error) { alert("Грешка при качване на „" + file.name + "“: " + error.message); continue; }
+    const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+    t.files.push({ name: file.name, type: file.type, path, url: data.publicUrl });
+  }
+  await tSaveTask(t);
+  renderTasks();
+}
+async function removeTaskFile(t, i) {
+  const f = (t.files || [])[i];
+  if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
+  t.files.splice(i, 1);
+  await tSaveTask(t);
+  renderTasks();
+}
 
 async function logProduction(t, qtyVal) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
@@ -551,6 +591,10 @@ function tInit() {
   document.getElementById("btn-add-task").addEventListener("click", addTaskManual);
   document.getElementById("erp-file").addEventListener("change", e => {
     if (e.target.files[0]) importERP(e.target.files[0]); e.target.value = "";
+  });
+  document.getElementById("task-file").addEventListener("change", e => {
+    if (taskFileTarget && e.target.files.length) handleTaskFiles(taskFileTarget, [...e.target.files]);
+    e.target.value = ""; taskFileTarget = null;
   });
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
