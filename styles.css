@@ -136,6 +136,10 @@ body {
 .tasks-table { table-layout: fixed; width: 100%; }
 .tasks-table th, .tasks-table td { vertical-align: top; word-break: break-word; }
 .tasks-table td.num, .tasks-table th.num { text-align: center; white-space: nowrap; }
+.tasks-table thead th[data-sort] { cursor: pointer; user-select: none; }
+.tasks-table thead th[data-sort]:hover { color: var(--brand); }
+.tasks-table thead th.sort-active { color: var(--brand); }
+.sort-ind { font-size: 11px; }
 .t-code { font-size: 11px; color: var(--muted); }
 .t-files { white-space: normal; }
 .t-files .tf { display: inline-flex; align-items: center; margin-right: 4px; }

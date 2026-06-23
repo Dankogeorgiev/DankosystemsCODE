@@ -40,7 +40,35 @@ let WORKERS = {};            // { "Лазери": ["Иван", ...], ... }
 let ROLES = { admins: [], byEmail: {} };   // имейл за вход -> { workshop }
 let MY_WORKER = null;        // избран служител при цехов достъп
 let taskFileTarget = null;   // задача, към която се качва чертеж
+let sortState = { key: null, dir: 1 };
 let workersSeededV1 = false;
+
+function dueSortVal(due) {
+  const m = String(due || "").match(/(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/);
+  if (!m) return 99999999;
+  let [, d, mo, y] = m; if (y.length === 2) y = "20" + y;
+  return Number(y) * 10000 + Number(mo) * 100 + Number(d);
+}
+const SORT_KEYS = {
+  client: t => (t.client || "").toLowerCase(),
+  product: t => (t.product || "").toLowerCase(),
+  files: t => (t.files || []).length,
+  operation: t => (t.operation || "").toLowerCase(),
+  qty: t => Number(t.qty) || 0,
+  produced: t => Number(t.produced) || 0,
+  remaining: t => Math.max((Number(t.qty) || 0) - (Number(t.produced) || 0), 0),
+  due: t => dueSortVal(t.due),
+  assignee: t => (t.assignee || "").toLowerCase(),
+};
+function updateSortIndicators() {
+  document.querySelectorAll('.tasks-table thead th[data-sort]').forEach(th => {
+    const active = th.dataset.sort === sortState.key;
+    th.classList.toggle("sort-active", active);
+    let ind = th.querySelector(".sort-ind");
+    if (!ind) { ind = document.createElement("span"); ind.className = "sort-ind"; th.appendChild(ind); }
+    ind.textContent = active ? (sortState.dir > 0 ? " ▲" : " ▼") : "";
+  });
+}
 let tasksLoaded = false;
 let tasksSubscribed = false;
 
@@ -274,6 +302,17 @@ function renderTasks() {
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
     return true;
   });
+
+  if (sortState.key && SORT_KEYS[sortState.key]) {
+    const f = SORT_KEYS[sortState.key];
+    rows.sort((a, b) => {
+      const va = f(a), vb = f(b);
+      if (va < vb) return -1 * sortState.dir;
+      if (va > vb) return 1 * sortState.dir;
+      return 0;
+    });
+  }
+  updateSortIndicators();
 
   document.getElementById("tasks-empty").hidden = rows.length > 0;
 
@@ -684,6 +723,14 @@ function tInit() {
   document.getElementById("task-workshop").addEventListener("change", () => { renderWorkerFilter(); renderTasks(); });
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
   document.getElementById("task-search").addEventListener("input", renderTasks);
+  const thead = document.querySelector(".tasks-table thead");
+  if (thead) thead.addEventListener("click", e => {
+    const th = e.target.closest("th[data-sort]"); if (!th) return;
+    const key = th.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else { sortState.key = key; sortState.dir = 1; }
+    renderTasks();
+  });
   document.getElementById("btn-add-task").addEventListener("click", addTaskManual);
   document.getElementById("erp-file").addEventListener("change", e => {
     if (e.target.files[0]) importERP(e.target.files[0]); e.target.value = "";
