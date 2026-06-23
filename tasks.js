@@ -459,6 +459,9 @@ function renderWorkers() {
     const inp = box.querySelector(".worker-add input");
     const addFn = async () => {
       const n = inp.value.trim(); if (!n) return;
+      if ((WORKERS[ws] || []).some(x => x.toLowerCase() === n.toLowerCase())) {
+        alert("„" + n + "“ вече е в този цех."); inp.value = ""; return;
+      }
       WORKERS[ws].push(n); await tSaveWorkers(); renderWorkers();
     };
     box.querySelector(".worker-add button").addEventListener("click", addFn);
