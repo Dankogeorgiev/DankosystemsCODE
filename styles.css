@@ -161,9 +161,10 @@ body {
 .identity-btn { display: flex; align-items: center; gap: 10px; padding: 14px 22px; font-size: 17px; border: 2px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; font-family: inherit; }
 .identity-btn:hover { border-color: var(--brand); background: #eef4ff; }
 .identity-btn .wav { width: 34px; height: 34px; font-size: 15px; }
-.task-done { background: #f0fdf4; }
-.task-progress { background: #fffbeb; }
-.rem-done { color: var(--ok); font-weight: 700; }
+.tasks-table tr.task-done td { background: #86efac; }
+.tasks-table tr.task-done { font-weight: 600; }
+.tasks-table tr.task-progress td { background: #fef9c3; }
+.rem-done { color: #15803d; font-weight: 800; }
 
 .workers-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .workers-head h3 { margin: 0; flex: 1; }
