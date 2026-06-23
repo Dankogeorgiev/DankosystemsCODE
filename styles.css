@@ -141,6 +141,9 @@ body {
 .tasks-table thead th.sort-active { color: var(--brand); }
 .sort-ind { font-size: 11px; }
 .serie { color: #7c3aed; font-weight: 700; font-size: 12px; letter-spacing: .5px; }
+.task-bulk { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.task-bulk select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.t-sel { width: 16px; height: 16px; vertical-align: middle; }
 .t-code { font-size: 11px; color: var(--muted); }
 .t-files { white-space: normal; }
 .t-files .tf { display: inline-flex; align-items: center; margin-right: 4px; }

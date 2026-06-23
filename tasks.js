@@ -40,6 +40,7 @@ let WORKERS = {};            // { "Лазери": ["Иван", ...], ... }
 let ROLES = { admins: [], byEmail: {} };   // имейл за вход -> { workshop }
 let MY_WORKER = null;        // избран служител при цехов достъп
 let taskFileTarget = null;   // задача, към която се качва чертеж
+let selectedTasks = new Set();   // избрани задачи за групово възлагане
 let sortState = { key: null, dir: 1 };
 let workersSeededV1 = false;
 
@@ -348,7 +349,7 @@ function renderTasks() {
     const tr = document.createElement("tr");
     tr.className = "task-" + st;
     tr.innerHTML = `
-      <td>${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td>${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
       <td>${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
       <td class="t-files">${taskFilesCell(t)}</td>
       <td>${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
@@ -375,6 +376,11 @@ function renderTasks() {
       b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
     const asg = tr.querySelector("select.t-assignee");
     if (asg) asg.addEventListener("change", () => { if (amWorker()) return; t.assignee = asg.value; tSaveTask(t); });
+    const sel = tr.querySelector(".t-sel");
+    if (sel) sel.addEventListener("change", () => {
+      if (sel.checked) selectedTasks.add(t.id); else selectedTasks.delete(t.id);
+      const c = document.getElementById("bulk-count"); if (c) c.textContent = selectedTasks.size;
+    });
     const input = tr.querySelector(".t-today");
     const submit = () => logProduction(t, input.value);
     tr.querySelector(".t-add").addEventListener("click", submit);
@@ -383,6 +389,37 @@ function renderTasks() {
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     tbody.appendChild(tr);
   });
+
+  renderBulkBar(rows, ws);
+}
+
+function renderBulkBar(rows, ws) {
+  const bulk = document.getElementById("task-bulk");
+  if (amWorker()) { bulk.hidden = true; return; }
+  bulk.hidden = false;
+  const wsNames = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  bulk.innerHTML = `Маркирани: <strong id="bulk-count">${selectedTasks.size}</strong> ·
+    Възложи на: <select id="bulk-worker"><option value="">— избери —</option>${wsNames.map(n => `<option>${escapeHtml(n)}</option>`).join("")}</select>
+    <button id="bulk-assign" class="btn btn-small btn-primary">Възложи избраните</button>
+    <button id="bulk-selvis" class="btn btn-small">Маркирай показаните (${rows.length})</button>
+    <button id="bulk-clear" class="btn btn-small">Изчисти</button>`;
+  bulk.querySelector("#bulk-selvis").addEventListener("click", () => { rows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
+  bulk.querySelector("#bulk-clear").addEventListener("click", () => { selectedTasks.clear(); renderTasks(); });
+  bulk.querySelector("#bulk-assign").addEventListener("click", () => assignBulk(bulk.querySelector("#bulk-worker").value));
+}
+
+async function assignBulk(worker) {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
+  if (!worker) { alert("Избери служител от менюто „Възложи на“."); return; }
+  const ids = [...selectedTasks];
+  for (const id of ids) {
+    const t = TASKS.find(x => x.id === id);
+    if (t) { t.assignee = worker; await tSaveTask(t); }
+  }
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Възложени ${ids.length} задачи на „${worker}“.`);
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
@@ -723,7 +760,7 @@ function tInit() {
     MY_WORKER = null;
     if (typeof sb !== "undefined" && sb) sb.auth.signOut();
   });
-  document.getElementById("task-workshop").addEventListener("change", () => { renderWorkerFilter(); renderTasks(); });
+  document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); });
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
   document.getElementById("task-search").addEventListener("input", renderTasks);
   const thead = document.querySelector(".tasks-table thead");
