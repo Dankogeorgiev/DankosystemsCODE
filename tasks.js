@@ -333,6 +333,7 @@ function taskFilesCell(t) {
   return (links || (amWorker() ? "—" : "")) + add;
 }
 async function handleTaskFiles(t, files) {
+  if (amWorker()) return;
   t.files = t.files || [];
   for (const file of files) {
     const path = `tasks/${t.id}/${Date.now()}-${safeName(file.name)}`;
@@ -345,6 +346,7 @@ async function handleTaskFiles(t, files) {
   renderTasks();
 }
 async function removeTaskFile(t, i) {
+  if (amWorker()) return;
   const f = (t.files || [])[i];
   if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
   t.files.splice(i, 1);
@@ -371,6 +373,7 @@ async function logProduction(t, qtyVal) {
 }
 
 async function editTask(t) {
+  if (amWorker()) return;
   t.client = prompt("Клиент:", t.client || "") ?? t.client;
   t.product = prompt("Продукт:", t.product || "") ?? t.product;
   t.operation = prompt("Операция:", t.operation || "") ?? t.operation;
@@ -382,6 +385,7 @@ async function editTask(t) {
 }
 
 async function deleteTask(t) {
+  if (amWorker()) return;
   if (!confirm("Изтриване на задачата?")) return;
   const { error } = await sb.from("tasks").delete().eq("id", t.id);
   if (error) { alert("Грешка: " + error.message); return; }
@@ -390,6 +394,7 @@ async function deleteTask(t) {
 }
 
 async function addTaskManual() {
+  if (amWorker()) return;
   let ws = currentWorkshop();
   if (ws === "__all") ws = workshopList()[0];
   const t = {
@@ -406,6 +411,7 @@ async function addTaskManual() {
 
 /* ---------- Импорт от ERP (Excel) ---------- */
 async function importERP(file) {
+  if (amWorker()) return;
   if (typeof XLSX === "undefined") { alert("Библиотеката за Excel не се зареди. Опресни и опитай пак."); return; }
   let wb;
   try {
