@@ -847,6 +847,9 @@ function onSignedOut() {
   session = null;
   samples = [];
   currentId = null;
+  MY_ACCESS = { isAdmin: true };
+  const tm = document.getElementById("tasks-modal"); if (tm) tm.hidden = true;
+  const layout = document.querySelector(".layout"); if (layout) layout.style.display = "";
   showLogin();
 }
 

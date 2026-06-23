@@ -140,6 +140,7 @@ function applyTasksAccess() {
   ["btn-add-task", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
+  const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
@@ -539,6 +540,10 @@ function tInit() {
   btn.addEventListener("click", openTasks);
   document.getElementById("tasks-close").addEventListener("click", () => {
     document.getElementById("tasks-modal").hidden = true;
+  });
+  document.getElementById("tasks-logout").addEventListener("click", () => {
+    MY_WORKER = null;
+    if (typeof sb !== "undefined" && sb) sb.auth.signOut();
   });
   document.getElementById("task-workshop").addEventListener("change", () => { renderWorkerFilter(); renderTasks(); });
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
