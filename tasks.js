@@ -482,28 +482,43 @@ async function importERP(file) {
   } catch (e) { alert("Не може да се прочете файлът: " + e.message); return; }
 
   const newTasks = [];
+  let skipped = 0;
   wb.SheetNames.forEach(sheetName => {
     const ws = mapSheetToWorkshop(sheetName);
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
-    // търсим колона „служител/отговорник/изпълнител“ по заглавния ред
-    const header = (rows[0] || []).map(h => String(h || "").toLowerCase());
-    const aIdx = header.findIndex(h => /служ|отговор/.test(h));
+    const header = (rows[0] || []).map(h => String(h || "").toLowerCase().trim());
+    const find = (re, not) => header.findIndex(h => re.test(h) && !(not && not.test(h)));
+
+    const ci = find(/клиент/);
+    let pi = header.findIndex(h => h === "продукт");
+    if (pi < 0) pi = find(/продукт|изделие|деталий|детайл/, /код/);
+    const codei = find(/код|артикулен/);
+    const opi = find(/операц|артикул/, /код|артикулен/);
+    const qi = find(/количество|^кол/);
+    const prodi = find(/произвед|изработен/);
+    const duei = find(/срок|спедиц/);
+    const ai = find(/служ|отговор/);
+
+    // Лист без разпознати колони (клиент/продукт) — пропускаме (напр. „Bizzio Export“)
+    if (ci < 0 && pi < 0) { skipped++; return; }
+
+    const val = (r, i) => (i >= 0 && r[i] != null ? String(r[i]).trim() : "");
     rows.slice(1).forEach(r => {
-      const client = (r[0] || "").toString().trim();
-      const product = (r[1] || "").toString().trim();
-      const code = (r[2] || "").toString().trim();
-      const operation = (r[5] || "").toString().trim();
-      const qty = r[6] === "" ? "" : Number(r[6]) || 0;
-      const produced = r[7] === "" ? 0 : Number(r[7]) || 0;
-      const due = (r[9] || "").toString().trim();
-      const assignee = aIdx >= 0 ? String(r[aIdx] || "").trim() : "";
+      const client = val(r, ci);
+      const product = val(r, pi);
+      const operation = val(r, opi);
+      const qty = qi >= 0 && r[qi] !== "" ? Number(r[qi]) || 0 : "";
+      const produced = prodi >= 0 && r[prodi] !== "" ? Number(r[prodi]) || 0 : 0;
+      const due = val(r, duei);
+      const code = val(r, codei);
+      const assignee = val(r, ai);
       if (!product && !client && !qty) return; // празен ред
       newTasks.push({
         workshop: ws, client, product, code, operation,
         qty, produced, due, assignee, logs: [], files: [], createdAt: new Date().toISOString(),
       });
-      // ако в графата има служител, който още го няма в цеха — добавяме го
-      if (assignee && !(WORKERS[ws] || []).some(n => n.toLowerCase() === assignee.toLowerCase())) {
+      if (assignee && !/^\d+([.,]\d+)?$/.test(assignee) &&
+          !(WORKERS[ws] || []).some(n => n.toLowerCase() === assignee.toLowerCase())) {
         WORKERS[ws] = WORKERS[ws] || [];
         WORKERS[ws].push(assignee);
       }
