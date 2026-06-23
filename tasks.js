@@ -13,6 +13,18 @@ const SHEET_TO_WORKSHOP = {
   "лазер": "Лазери", "заварки": "Заваръчно", "занитване": "Занитване",
   "абкант": "Абкант", "боядисване": "Бояджийно", "сглобяване": "Сглобяване",
 };
+// Разпознава цеха по началото на името на листа (вкл. съкращения: зан, абк, зав...).
+function mapSheetToWorkshop(name) {
+  const k = (name || "").trim().toLowerCase();
+  if (k.startsWith("лаз")) return "Лазери";
+  if (k.startsWith("прес")) return "Преси";
+  if (k.startsWith("абк")) return "Абкант";
+  if (k.startsWith("зав")) return "Заваръчно";
+  if (k.startsWith("зан")) return "Занитване";
+  if (k.startsWith("бо") || k.startsWith("боя")) return "Бояджийно";
+  if (k.startsWith("сгл")) return "Сглобяване";
+  return SHEET_TO_WORKSHOP[k] || (name.charAt(0).toUpperCase() + name.slice(1));
+}
 // Служители по цехове (зареждат се еднократно).
 const DEFAULT_EMPLOYEES = {
   "Лазери": ["Кръстьо Средев", "Димитър Павлов", "Костадин Алтаванов"],
@@ -102,6 +114,8 @@ async function tLoadTasks() {
   TASKS = (data || []).map(r => {
     const t = { ...r.data, id: r.id };
     if (WORKSHOP_RENAME[t.workshop]) t.workshop = WORKSHOP_RENAME[t.workshop];
+    t.files = t.files || [];
+    t.logs = t.logs || [];
     return t;
   });
 }
@@ -421,9 +435,11 @@ async function importERP(file) {
 
   const newTasks = [];
   wb.SheetNames.forEach(sheetName => {
-    const key = sheetName.trim().toLowerCase();
-    const ws = SHEET_TO_WORKSHOP[key] || (sheetName.charAt(0).toUpperCase() + sheetName.slice(1));
+    const ws = mapSheetToWorkshop(sheetName);
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
+    // търсим колона „служител/отговорник/изпълнител“ по заглавния ред
+    const header = (rows[0] || []).map(h => String(h || "").toLowerCase());
+    const aIdx = header.findIndex(h => /служ|отговор|изпълн/.test(h));
     rows.slice(1).forEach(r => {
       const client = (r[0] || "").toString().trim();
       const product = (r[1] || "").toString().trim();
@@ -432,11 +448,17 @@ async function importERP(file) {
       const qty = r[6] === "" ? "" : Number(r[6]) || 0;
       const produced = r[7] === "" ? 0 : Number(r[7]) || 0;
       const due = (r[9] || "").toString().trim();
+      const assignee = aIdx >= 0 ? String(r[aIdx] || "").trim() : "";
       if (!product && !client && !qty) return; // празен ред
       newTasks.push({
         workshop: ws, client, product, code, operation,
-        qty, produced, due, assignee: "", logs: [], createdAt: new Date().toISOString(),
+        qty, produced, due, assignee, logs: [], files: [], createdAt: new Date().toISOString(),
       });
+      // ако в графата има служител, който още го няма в цеха — добавяме го
+      if (assignee && !(WORKERS[ws] || []).some(n => n.toLowerCase() === assignee.toLowerCase())) {
+        WORKERS[ws] = WORKERS[ws] || [];
+        WORKERS[ws].push(assignee);
+      }
     });
     if (!WORKERS[ws]) WORKERS[ws] = [];
   });
