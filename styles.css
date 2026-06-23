@@ -140,6 +140,7 @@ body {
 .tasks-table thead th[data-sort]:hover { color: var(--brand); }
 .tasks-table thead th.sort-active { color: var(--brand); }
 .sort-ind { font-size: 11px; }
+.serie { color: #7c3aed; font-weight: 700; font-size: 12px; letter-spacing: .5px; }
 .t-code { font-size: 11px; color: var(--muted); }
 .t-files { white-space: normal; }
 .t-files .tf { display: inline-flex; align-items: center; margin-right: 4px; }

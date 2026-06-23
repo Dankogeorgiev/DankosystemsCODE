@@ -348,14 +348,14 @@ function renderTasks() {
     const tr = document.createElement("tr");
     tr.className = "task-" + st;
     tr.innerHTML = `
-      <td>${escapeHtml(t.client) || "—"}</td>
+      <td>${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
       <td>${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
       <td class="t-files">${taskFilesCell(t)}</td>
       <td>${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num">${qty || "—"}</td>
       <td class="num"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}">${rem}</td>
-      <td>${escapeHtml(t.due) || "—"}</td>
+      <td>${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
         ? `<td class="t-assignee-ro">${escapeHtml(t.assignee) || "—"}</td>`
         : `<td><select class="t-assignee">${opts.join("")}</select></td>`}
