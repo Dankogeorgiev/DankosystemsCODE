@@ -102,6 +102,15 @@ async function tLoadWorkers() {
     await tSaveWorkers();
   }
   TASK_DEFAULT_WORKSHOPS.forEach(w => { if (!WORKERS[w]) WORKERS[w] = []; });
+
+  // Почистване на грешно добавени „служители“, които са само числа
+  let cleaned = false;
+  Object.keys(WORKERS).forEach(w => {
+    const before = (WORKERS[w] || []).length;
+    WORKERS[w] = (WORKERS[w] || []).filter(n => !/^\s*\d+([.,]\d+)?\s*$/.test(String(n)));
+    if (WORKERS[w].length !== before) cleaned = true;
+  });
+  if (cleaned) await tSaveWorkers();
 }
 async function tSaveWorkers() {
   const { error } = await sb.from("app_config")
@@ -478,7 +487,7 @@ async function importERP(file) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
     // търсим колона „служител/отговорник/изпълнител“ по заглавния ред
     const header = (rows[0] || []).map(h => String(h || "").toLowerCase());
-    const aIdx = header.findIndex(h => /служ|отговор|изпълн/.test(h));
+    const aIdx = header.findIndex(h => /служ|отговор/.test(h));
     rows.slice(1).forEach(r => {
       const client = (r[0] || "").toString().trim();
       const product = (r[1] || "").toString().trim();
