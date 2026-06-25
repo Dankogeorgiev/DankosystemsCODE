@@ -111,7 +111,7 @@ function renderCatBar() {
   ["Доставчици", "Клиенти", "Други"].forEach(g => {
     if (!groups[g] || !groups[g].length) return;
     const cols = groups[g].length > 6 ? 3 : (groups[g].length > 3 ? 2 : 1);
-    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(150px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
+    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(116px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
   });
   html += `</div>`;
   bar.innerHTML = html;
@@ -259,7 +259,7 @@ function renderInqCatBar() {
   ["Доставчици", "Клиенти", "Други"].forEach(g => {
     if (!groups[g] || !groups[g].length) return;
     const cols = groups[g].length > 6 ? 3 : (groups[g].length > 3 ? 2 : 1);
-    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(150px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
+    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(116px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
   });
   html += `</div>`;
   bar.innerHTML = html;
