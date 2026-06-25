@@ -170,6 +170,9 @@ body {
 .tasks-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .tasks-controls select, .tasks-controls input[type="search"] { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
 .tasks-controls .spacer { flex: 1; }
+#contacts-modal .tasks-controls { flex-wrap: nowrap; }
+#contacts-modal #contact-search { flex: 0 0 200px; max-width: 200px; }
+#contacts-modal .tasks-controls .btn { white-space: nowrap; }
 .worker-bar { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .wbar-hint { color: var(--muted); font-size: 13px; }
 .wchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 5px; border: 1px solid var(--line); background: #fff; border-radius: 99px; cursor: pointer; font-size: 13px; font-family: inherit; }
