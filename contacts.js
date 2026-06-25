@@ -252,9 +252,8 @@ function renderInqCatBar() {
   const bar = document.getElementById("inq-cat-bar");
   const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
   const counts = {}; withEmail.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
-  const cats = [...new Set(withEmail.map(c => c.category).filter(Boolean))];
   const groups = { "Доставчици": [], "Клиенти": [], "Други": [] };
-  cats.forEach(cat => (groups[catGroup(cat)] || groups["Други"]).push(cat));
+  allCategories().forEach(cat => (groups[catGroup(cat)] || groups["Други"]).push(cat));
   const chip = cat => `<button class="cat-chip ${inqCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`;
   let html = `<div class="cat-allrow"><button class="cat-chip ${inqCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${withEmail.length})</button></div><div class="cat-groups">`;
   ["Доставчици", "Клиенти", "Други"].forEach(g => {
