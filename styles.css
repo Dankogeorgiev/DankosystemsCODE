@@ -121,9 +121,11 @@ body {
 .cat-badge { display: inline-block; border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
 .contact-cat-bar { padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .cat-allrow { margin-bottom: 10px; }
-.cat-groups { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
-.cat-col { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 200px; }
-.cat-col-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; }
+.cat-groups { display: flex; flex-direction: column; gap: 14px; }
+.cat-col { width: 100%; }
+.cat-col-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-width: 780px; }
+.cat-col-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+@media (max-width: 760px) { .cat-col-chips { grid-template-columns: 1fr 1fr; } }
 .cat-chip { border: none; color: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; opacity: .85; text-align: left; }
 .cat-chip:hover { opacity: 1; }
 .cat-chip.active { opacity: 1; box-shadow: 0 0 0 3px rgba(37,99,235,.35); }
@@ -140,9 +142,8 @@ body {
 .contacts-table th:nth-child(6), .contacts-table td:nth-child(6) { width: 26%; }
 .contacts-table th:nth-child(7), .contacts-table td:nth-child(7) { width: 6%; }
 .inq-cat-bar { margin: 6px 0 10px; }
-.inq-cat-bar .cat-groups { gap: 18px; }
-.inq-cat-bar .cat-col { min-width: 170px; }
-.inq-suppliers { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; }
+.inq-suppliers { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 2px 16px; }
+@media (max-width: 760px) { .inq-suppliers { grid-template-columns: 1fr; } }
 .inq-sup { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
 .inq-sup .muted { color: var(--muted); }
 .cat-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: 0 0 12px; }
