@@ -172,7 +172,7 @@ body {
 .tasks-controls .spacer { flex: 1; }
 #contacts-modal .tasks-controls { flex-wrap: nowrap; }
 #contacts-modal #contact-search { flex: 0 0 340px; max-width: 340px; }
-#contacts-modal .tasks-controls .spacer { flex: 0 0 16px; }
+#contacts-modal .tasks-controls .spacer { flex: 0 0 48px; }
 #contacts-modal .tasks-controls .btn { white-space: nowrap; }
 .worker-bar { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .wbar-hint { color: var(--muted); font-size: 13px; }
