@@ -140,8 +140,9 @@ body {
 .contacts-table th:nth-child(6), .contacts-table td:nth-child(6) { width: 26%; }
 .contacts-table th:nth-child(7), .contacts-table td:nth-child(7) { width: 6%; }
 .inq-cat-bar { margin: 6px 0 10px; }
-.inq-suppliers { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 2px 16px; }
-@media (max-width: 760px) { .inq-suppliers { grid-template-columns: 1fr; } }
+.inq-suppliers { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; }
+.inq-sup { border-bottom: 1px solid #f1f5f9; }
+.inq-sup:hover { background: #f8fafc; }
 .inq-sup { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
 .inq-sup .muted { color: var(--muted); }
 .cat-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: 0 0 12px; }
