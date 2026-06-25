@@ -18,17 +18,18 @@ async function cLoad() {
   CONTACTS = (data || []).map(r => ({ ...r.data, id: r.id }));
 }
 async function cSeedIfNeeded() {
-  const { data } = await sb.from("app_config").select("*").eq("id", "contacts_seeded").maybeSingle();
-  if (data && data.data && data.data.done) return;
-  if (CONTACTS.length === 0 && window.DANKO_CONTACTS && window.DANKO_CONTACTS.length) {
-    const rows = window.DANKO_CONTACTS.map(c => ({ data: c }));
-    for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await sb.from("contacts").insert(rows.slice(i, i + 200));
-      if (error) { console.error("seed contacts", error); break; }
-    }
-    await cLoad();
+  // Зареждаме началните контакти само ако таблицата е празна и файлът с данни е наличен.
+  if (CONTACTS.length > 0) return;
+  if (!(window.DANKO_CONTACTS && window.DANKO_CONTACTS.length)) {
+    alert("Файлът с контактите още не е зареден (кеш). Опресни с Ctrl+Shift+R и опитай пак.");
+    return;
   }
-  await sb.from("app_config").upsert({ id: "contacts_seeded", data: { done: true }, updated_at: new Date().toISOString() });
+  const rows = window.DANKO_CONTACTS.map(c => ({ data: c }));
+  for (let i = 0; i < rows.length; i += 200) {
+    const { error } = await sb.from("contacts").insert(rows.slice(i, i + 200));
+    if (error) { alert("Грешка при зареждане на началните контакти: " + error.message); break; }
+  }
+  await cLoad();
 }
 async function cSaveContact(c) {
   c.updatedAt = new Date().toISOString();
