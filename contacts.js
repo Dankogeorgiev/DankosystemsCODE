@@ -8,10 +8,10 @@ let contactsSubscribed = false;
 let contactCat = "";
 let inqSelected = new Set();
 
-// Топла палитра (различни нюанси) за категориите.
-const WARM_PALETTE = [
-  "#9a3412", "#b45309", "#c2410c", "#ea580c", "#d97706", "#ca8a04", "#a16207",
-  "#92400e", "#b91c1c", "#dc2626", "#f97316", "#e11d48", "#db2777", "#7c2d12", "#a21caf",
+// Синя палитра (различни нюанси) за категориите.
+const CAT_PALETTE = [
+  "#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#1e40af", "#0369a1", "#0284c7",
+  "#0ea5e9", "#075985", "#155e75", "#0891b2", "#4338ca", "#4f46e5", "#6366f1", "#312e81",
 ];
 
 const CONTACT_CATEGORIES = [
@@ -90,16 +90,29 @@ function catColor(cat) {
   const list = allCategories();
   let i = list.indexOf(cat);
   if (i < 0) i = Math.abs([...String(cat)].reduce((a, ch) => a + ch.charCodeAt(0), 0));
-  return WARM_PALETTE[i % WARM_PALETTE.length];
+  return CAT_PALETTE[i % CAT_PALETTE.length];
+}
+function catGroup(cat) {
+  if (/^Клиент/.test(cat)) return "Клиенти";
+  if (/^Доставчик/.test(cat)) return "Доставчици";
+  return "Други";
 }
 function renderCatBar() {
   const bar = document.getElementById("contact-cat-bar");
   const counts = {};
   CONTACTS.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
-  const chips = [`<button class="cat-chip ${contactCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${CONTACTS.length})</button>`]
-    .concat(allCategories().map(cat =>
-      `<button class="cat-chip ${contactCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`));
-  bar.innerHTML = chips.join("");
+  const groups = { "Доставчици": [], "Клиенти": [], "Други": [] };
+  allCategories().forEach(cat => { (groups[catGroup(cat)] || groups["Други"]).push(cat); });
+
+  const chip = cat => `<button class="cat-chip ${contactCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`;
+
+  let html = `<div class="cat-allrow"><button class="cat-chip ${contactCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${CONTACTS.length})</button></div><div class="cat-groups">`;
+  ["Доставчици", "Клиенти", "Други"].forEach(g => {
+    if (!groups[g] || !groups[g].length) return;
+    html += `<div class="cat-col"><div class="cat-col-title">${g}</div>${groups[g].map(chip).join("")}</div>`;
+  });
+  html += `</div>`;
+  bar.innerHTML = html;
   bar.querySelectorAll(".cat-chip").forEach(b => b.addEventListener("click", () => {
     contactCat = b.dataset.cat; renderContacts();
   }));
