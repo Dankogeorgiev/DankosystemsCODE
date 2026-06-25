@@ -110,7 +110,8 @@ function renderCatBar() {
   let html = `<div class="cat-allrow"><button class="cat-chip ${contactCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${CONTACTS.length})</button></div><div class="cat-groups">`;
   ["Доставчици", "Клиенти", "Други"].forEach(g => {
     if (!groups[g] || !groups[g].length) return;
-    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips">${groups[g].map(chip).join("")}</div></div>`;
+    const cols = groups[g].length > 6 ? 3 : (groups[g].length > 3 ? 2 : 1);
+    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(150px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
   });
   html += `</div>`;
   bar.innerHTML = html;
@@ -256,7 +257,11 @@ function renderInqCatBar() {
   cats.forEach(cat => (groups[catGroup(cat)] || groups["Други"]).push(cat));
   const chip = cat => `<button class="cat-chip ${inqCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`;
   let html = `<div class="cat-allrow"><button class="cat-chip ${inqCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${withEmail.length})</button></div><div class="cat-groups">`;
-  ["Доставчици", "Клиенти", "Други"].forEach(g => { if (groups[g] && groups[g].length) html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips">${groups[g].map(chip).join("")}</div></div>`; });
+  ["Доставчици", "Клиенти", "Други"].forEach(g => {
+    if (!groups[g] || !groups[g].length) return;
+    const cols = groups[g].length > 6 ? 3 : (groups[g].length > 3 ? 2 : 1);
+    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(150px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
+  });
   html += `</div>`;
   bar.innerHTML = html;
   bar.querySelectorAll(".cat-chip").forEach(b => b.addEventListener("click", () => {

@@ -120,16 +120,14 @@ body {
 .contacts-table th, .contacts-table td { font-size: 13px; vertical-align: top; }
 .cat-badge { display: inline-block; border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
 .contact-cat-bar { padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.cat-allrow { margin-bottom: 10px; }
-.cat-groups { display: flex; flex-direction: column; gap: 14px; }
-.cat-col { width: 100%; }
-.cat-col-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-width: 780px; }
-.cat-col-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
-@media (max-width: 760px) { .cat-col-chips { grid-template-columns: 1fr 1fr; } }
-.cat-chip { border: none; color: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; opacity: .85; text-align: left; }
+.cat-allrow { margin-bottom: 12px; }
+.cat-groups { display: flex; flex-direction: row; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+.cat-col-chips { display: grid; gap: 8px; }
+.cat-col-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+.cat-chip { border: none; color: #fff; border-radius: 8px; padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; opacity: .85; text-align: left; }
 .cat-chip:hover { opacity: 1; }
 .cat-chip.active { opacity: 1; box-shadow: 0 0 0 3px rgba(37,99,235,.35); }
-.cat-allrow .cat-chip { display: inline-block; border-radius: 99px; }
+.cat-allrow .cat-chip { display: inline-block; border-radius: 99px; font-size: 14px; }
 
 /* Подредба на таблицата с контакти */
 .contacts-table { table-layout: fixed; width: 100%; }
