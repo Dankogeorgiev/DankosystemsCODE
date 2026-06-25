@@ -2,7 +2,7 @@
    Използва глобалния Supabase клиент (sb) и помощните функции от app.js.
    Данните се пазят в таблица `tasks`, служителите — в `app_config`. */
 
-const TASK_DEFAULT_WORKSHOPS = ["Лазери", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
+const TASK_DEFAULT_WORKSHOPS = ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
 
 // Свързване на старите имена (от ERP/предишни версии) към текущите цехове.
 const WORKSHOP_RENAME = {
@@ -17,6 +17,7 @@ const SHEET_TO_WORKSHOP = {
 function mapSheetToWorkshop(name) {
   const k = (name || "").trim().toLowerCase();
   if (k.startsWith("лаз")) return "Лазери";
+  if (k.startsWith("cnc") || k.startsWith("цнц") || k.startsWith("чпу")) return "CNC цех";
   if (k.startsWith("прес")) return "Преси";
   if (k.startsWith("абк")) return "Абкант";
   if (k.startsWith("зав")) return "Заваръчно";
@@ -98,7 +99,7 @@ async function setWorkshopEmail(ws, email) {
   await tSaveRoles();
 }
 function slugWs(ws) {
-  const map = { "Лазери": "laseri", "Преси": "presi", "Абкант": "abkant", "Заваръчно": "zavarka", "Занитване": "zanitvane", "Бояджийно": "boyadjiino" };
+  const map = { "Лазери": "laseri", "CNC цех": "cnc", "Преси": "presi", "Абкант": "abkant", "Заваръчно": "zavarka", "Занитване": "zanitvane", "Бояджийно": "boyadjiino" };
   return map[ws] || "cex";
 }
 
