@@ -28,6 +28,13 @@ let MY_ACCESS = { isAdmin: true };   // { isAdmin, workshop, email }
 const pending = new Map(); // id -> sample (изчакват запис)
 
 /* ---------- Достъп (роли) ---------- */
+const EMAIL_TO_WORKSHOP = {
+  laseri: "Лазери", cnc: "CNC цех", presi: "Преси", abkant: "Абкант",
+  zavarka: "Заваръчно", zanitvane: "Занитване", boyadjiino: "Бояджийно",
+};
+function workshopFromEmail(e) {
+  return EMAIL_TO_WORKSHOP[(e.split("@")[0] || "").toLowerCase()] || "";
+}
 async function loadAccess(email) {
   let cfg = {};
   try {
@@ -36,9 +43,14 @@ async function loadAccess(email) {
   } catch {}
   const byEmail = cfg.byEmail || {};
   const e = (email || "").toLowerCase();
-  MY_ACCESS = byEmail[e]
-    ? { isAdmin: false, workshop: byEmail[e].workshop, email: e }
-    : { isAdmin: true, email: e };
+  if (byEmail[e]) {
+    MY_ACCESS = { isAdmin: false, workshop: byEmail[e].workshop, email: e };
+  } else if (e.endsWith("@danko.local")) {
+    // Всеки вътрешен @danko.local акаунт е цехов (не админ).
+    MY_ACCESS = { isAdmin: false, workshop: workshopFromEmail(e), email: e };
+  } else {
+    MY_ACCESS = { isAdmin: true, email: e };
+  }
 }
 function applyAccess() {
   const adminOnly = document.querySelectorAll(
@@ -834,6 +846,13 @@ async function onSignedIn(s) {
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
   document.getElementById("user-email").textContent = s.user?.email || "";
   await loadAccess(s.user?.email || "");
+
+  // Цехов акаунт: директно в цеха, без основния екран (мостри/контакти/рекламации).
+  if (!MY_ACCESS.isAdmin) {
+    applyAccess();
+    return;
+  }
+
   await loadSamples();
   await offerLocalImport();
   subscribeRealtime();
