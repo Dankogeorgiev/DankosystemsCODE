@@ -139,6 +139,9 @@ body {
 .contacts-table th:nth-child(5), .contacts-table td:nth-child(5) { width: 14%; }
 .contacts-table th:nth-child(6), .contacts-table td:nth-child(6) { width: 26%; }
 .contacts-table th:nth-child(7), .contacts-table td:nth-child(7) { width: 6%; }
+.inq-cat-bar { margin: 6px 0 10px; }
+.inq-cat-bar .cat-groups { gap: 18px; }
+.inq-cat-bar .cat-col { min-width: 170px; }
 .inq-suppliers { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-top: 6px; }
 .inq-sup { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
 .inq-sup .muted { color: var(--muted); }

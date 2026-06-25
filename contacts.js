@@ -6,6 +6,7 @@ let INQUIRIES = [];
 let contactsLoaded = false;
 let contactsSubscribed = false;
 let contactCat = "";
+let inqCat = "";
 let inqSelected = new Set();
 
 // Синя палитра (различни нюанси) за категориите.
@@ -221,6 +222,7 @@ function inqDateStr() { try { return new Date().toLocaleDateString("bg-BG"); } c
 function renderInquiryForm() {
   if (amWorker()) return;
   inqSelected = new Set();
+  inqCat = "";
   showContactsSub("inquiry");
   const box = document.getElementById("inquiry-view");
   const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
@@ -230,23 +232,43 @@ function renderInquiryForm() {
       <button id="inq-back" class="btn btn-small">← Назад</button></div>
     <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
     <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
-    <h4 class="sub">Изберете доставчици (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
-    <input type="search" id="inq-filter" placeholder="Филтрирай по фирма / категория..." />
+    <h4 class="sub">Изберете контакти (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
+    <div id="inq-cat-bar" class="inq-cat-bar"></div>
+    <input type="search" id="inq-filter" placeholder="Търси по фирма / имейл..." />
     <div id="inq-suppliers" class="inq-suppliers"></div>
     <div class="cform-actions">
       <button id="inq-send" class="btn btn-primary">Регистрирай и изпрати имейл</button>
       <button id="inq-cancel" class="btn">Отказ</button>
     </div>`;
+  renderInqCatBar();
   renderInqSuppliers("");
   box.querySelector("#inq-back").addEventListener("click", renderContacts);
   box.querySelector("#inq-cancel").addEventListener("click", renderContacts);
   box.querySelector("#inq-filter").addEventListener("input", e => renderInqSuppliers(e.target.value));
   box.querySelector("#inq-send").addEventListener("click", sendInquiry);
 }
+function renderInqCatBar() {
+  const bar = document.getElementById("inq-cat-bar");
+  const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
+  const counts = {}; withEmail.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
+  const cats = [...new Set(withEmail.map(c => c.category).filter(Boolean))];
+  const groups = { "Доставчици": [], "Клиенти": [], "Други": [] };
+  cats.forEach(cat => (groups[catGroup(cat)] || groups["Други"]).push(cat));
+  const chip = cat => `<button class="cat-chip ${inqCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`;
+  let html = `<div class="cat-allrow"><button class="cat-chip ${inqCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${withEmail.length})</button></div><div class="cat-groups">`;
+  ["Доставчици", "Клиенти", "Други"].forEach(g => { if (groups[g] && groups[g].length) html += `<div class="cat-col"><div class="cat-col-title">${g}</div>${groups[g].map(chip).join("")}</div>`; });
+  html += `</div>`;
+  bar.innerHTML = html;
+  bar.querySelectorAll(".cat-chip").forEach(b => b.addEventListener("click", () => {
+    inqCat = b.dataset.cat; renderInqCatBar();
+    renderInqSuppliers(document.getElementById("inq-filter").value);
+  }));
+}
 function renderInqSuppliers(term) {
   const cont = document.getElementById("inq-suppliers");
   const t = (term || "").toLowerCase();
   const list = CONTACTS.filter(c => (c.email || "").includes("@"))
+    .filter(c => !inqCat || c.category === inqCat)
     .filter(c => !t || `${c.company} ${c.category} ${c.email}`.toLowerCase().includes(t))
     .sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
   cont.innerHTML = list.map(c =>
