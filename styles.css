@@ -113,6 +113,25 @@ body {
 .btn-claim:hover { background: #c2410c; }
 .btn-tasks { background: #0d9488; color: #fff; border-color: #0d9488; }
 .btn-tasks:hover { background: #0f766e; }
+.btn-contacts { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+.btn-contacts:hover { background: #4338ca; }
+
+/* Контакти */
+.contacts-table th, .contacts-table td { font-size: 13px; vertical-align: top; }
+.cat-badge { display: inline-block; background: #eef2ff; color: #4338ca; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+.c-scope { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.c-notes { max-width: 320px; color: #374151; }
+.c-actions { white-space: nowrap; display: flex; gap: 4px; }
+.np-flag { color: #b45309; }
+.contact-form { padding: 16px 18px; overflow: auto; }
+.cform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cform-grid label, .cf-notes, .cf-check { display: block; font-size: 13px; color: var(--muted); }
+.cform-grid input, .cf-notes textarea { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+.cf-notes { margin-top: 12px; }
+.cf-check { margin-top: 12px; display: flex; align-items: center; gap: 6px; color: var(--ink); }
+.cf-check input { width: auto; margin: 0; }
+.cform-actions { margin-top: 16px; display: flex; gap: 8px; }
+@media (max-width: 760px) { .cform-grid { grid-template-columns: 1fr; } }
 
 /* Модул „Цехове“ */
 .tasks-overlay { background: rgba(15, 23, 42, .55); align-items: stretch; padding: 0; }

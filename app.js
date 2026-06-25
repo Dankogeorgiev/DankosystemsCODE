@@ -42,7 +42,7 @@ async function loadAccess(email) {
 }
 function applyAccess() {
   const adminOnly = document.querySelectorAll(
-    '#btn-new,#btn-new-order,#btn-new-claim,#btn-report,#btn-claim-report,#btn-export,label[for="import-file"]');
+    '#btn-new,#btn-new-order,#btn-new-claim,#btn-report,#btn-claim-report,#btn-contacts,#btn-export,label[for="import-file"]');
   if (MY_ACCESS.isAdmin) {
     adminOnly.forEach(el => el.style.display = "");
     document.querySelector(".layout").style.display = "";
@@ -849,6 +849,7 @@ function onSignedOut() {
   currentId = null;
   MY_ACCESS = { isAdmin: true };
   const tm = document.getElementById("tasks-modal"); if (tm) tm.hidden = true;
+  const cm = document.getElementById("contacts-modal"); if (cm) cm.hidden = true;
   const layout = document.querySelector(".layout"); if (layout) layout.style.display = "";
   showLogin();
 }
