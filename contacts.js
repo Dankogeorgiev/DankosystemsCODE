@@ -2,8 +2,17 @@
    Контактите се пазят в таблица `contacts` (Supabase). Достъп само за админи. */
 
 let CONTACTS = [];
+let INQUIRIES = [];
 let contactsLoaded = false;
 let contactsSubscribed = false;
+let contactCat = "";
+let inqSelected = new Set();
+
+// Топла палитра (различни нюанси) за категориите.
+const WARM_PALETTE = [
+  "#9a3412", "#b45309", "#c2410c", "#ea580c", "#d97706", "#ca8a04", "#a16207",
+  "#92400e", "#b91c1c", "#dc2626", "#f97316", "#e11d48", "#db2777", "#7c2d12", "#a21caf",
+];
 
 const CONTACT_CATEGORIES = [
   "Контакти – Служители",
@@ -18,7 +27,9 @@ const CONTACT_CATEGORIES = [
 async function cLoad() {
   const { data, error } = await sb.from("contacts").select("*").order("updated_at", { ascending: false });
   if (error) { alert("Грешка при зареждане на контактите: " + error.message); return; }
-  CONTACTS = (data || []).map(r => ({ ...r.data, id: r.id }));
+  const all = (data || []).map(r => ({ ...r.data, id: r.id }));
+  CONTACTS = all.filter(c => c.kind !== "inquiry");
+  INQUIRIES = all.filter(c => c.kind === "inquiry");
 }
 async function cSeedIfNeeded() {
   // Зареждаме началните контакти само ако таблицата е празна и файлът с данни е наличен.
@@ -61,12 +72,13 @@ async function openContacts() {
   document.getElementById("contacts-modal").hidden = false;
   showContactsSub("list");
   if (!contactsLoaded) { await cLoad(); await cSeedIfNeeded(); contactsLoaded = true; cSubscribe(); }
-  renderCatFilter();
   renderContacts();
 }
 function showContactsSub(which) {
   document.getElementById("contacts-view").hidden = which !== "list";
   document.getElementById("contact-form").hidden = which !== "form";
+  document.getElementById("inquiry-view").hidden = which !== "inquiry";
+  document.getElementById("contact-cat-bar").style.display = which === "list" ? "" : "none";
 }
 
 function allCategories() {
@@ -74,21 +86,31 @@ function allCategories() {
   CONTACTS.forEach(c => { if (c.category) set.add(c.category); });
   return [...set];
 }
-function renderCatFilter() {
-  const sel = document.getElementById("contact-cat");
-  const cur = sel.value;
+function catColor(cat) {
+  const list = allCategories();
+  let i = list.indexOf(cat);
+  if (i < 0) i = Math.abs([...String(cat)].reduce((a, ch) => a + ch.charCodeAt(0), 0));
+  return WARM_PALETTE[i % WARM_PALETTE.length];
+}
+function renderCatBar() {
+  const bar = document.getElementById("contact-cat-bar");
   const counts = {};
   CONTACTS.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
-  sel.innerHTML = `<option value="">Всички категории (${CONTACTS.length})</option>` +
-    allCategories().map(cat => `<option value="${escapeAttr(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</option>`).join("");
-  sel.value = cur;
+  const chips = [`<button class="cat-chip ${contactCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${CONTACTS.length})</button>`]
+    .concat(allCategories().map(cat =>
+      `<button class="cat-chip ${contactCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`));
+  bar.innerHTML = chips.join("");
+  bar.querySelectorAll(".cat-chip").forEach(b => b.addEventListener("click", () => {
+    contactCat = b.dataset.cat; renderContacts();
+  }));
 }
 
 /* ---------- Списък ---------- */
 function renderContacts() {
   showContactsSub("list");
+  renderCatBar();
   const tbody = document.getElementById("contacts-body");
-  const cat = document.getElementById("contact-cat").value;
+  const cat = contactCat;
   const term = (document.getElementById("contact-search").value || "").trim().toLowerCase();
   tbody.innerHTML = "";
 
@@ -104,7 +126,7 @@ function renderContacts() {
     const tr = document.createElement("tr");
     const flag = c.no_price_increase ? ` <span class="np-flag" title="Не пускаме увеличение">⚠</span>` : "";
     tr.innerHTML = `
-      <td><span class="cat-badge">${escapeHtml(c.category) || "—"}</span></td>
+      <td><span class="cat-badge" style="background:${c.category ? catColor(c.category) : "#94a3b8"};color:#fff">${escapeHtml(c.category) || "—"}</span></td>
       <td><strong>${escapeHtml(c.company) || "—"}</strong>${flag}${c.scope ? `<div class="c-scope">${escapeHtml(c.scope)}</div>` : ""}</td>
       <td>${escapeHtml(c.contact_person) || "—"}</td>
       <td>${escapeHtml(c.phone) || "—"}</td>
@@ -177,8 +199,100 @@ async function saveContactForm(contact) {
   c.no_price_increase = document.getElementById("cf-noinc").checked ? 1 : 0;
   c.notes = notes;
   await cSaveContact(c);
-  renderCatFilter();
   renderContacts();
+}
+
+/* ---------- Запитване до доставчици ---------- */
+function inqDateStr() { try { return new Date().toLocaleDateString("bg-BG"); } catch { return ""; } }
+
+function renderInquiryForm() {
+  if (amWorker()) return;
+  inqSelected = new Set();
+  showContactsSub("inquiry");
+  const box = document.getElementById("inquiry-view");
+  const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
+  const nextNo = INQUIRIES.reduce((m, i) => Math.max(m, Number(i.number) || 0), 0) + 1;
+  box.innerHTML = `
+    <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
+      <button id="inq-back" class="btn btn-small">← Назад</button></div>
+    <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
+    <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
+    <h4 class="sub">Изберете доставчици (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
+    <input type="search" id="inq-filter" placeholder="Филтрирай по фирма / категория..." />
+    <div id="inq-suppliers" class="inq-suppliers"></div>
+    <div class="cform-actions">
+      <button id="inq-send" class="btn btn-primary">Регистрирай и изпрати имейл</button>
+      <button id="inq-cancel" class="btn">Отказ</button>
+    </div>`;
+  renderInqSuppliers("");
+  box.querySelector("#inq-back").addEventListener("click", renderContacts);
+  box.querySelector("#inq-cancel").addEventListener("click", renderContacts);
+  box.querySelector("#inq-filter").addEventListener("input", e => renderInqSuppliers(e.target.value));
+  box.querySelector("#inq-send").addEventListener("click", sendInquiry);
+}
+function renderInqSuppliers(term) {
+  const cont = document.getElementById("inq-suppliers");
+  const t = (term || "").toLowerCase();
+  const list = CONTACTS.filter(c => (c.email || "").includes("@"))
+    .filter(c => !t || `${c.company} ${c.category} ${c.email}`.toLowerCase().includes(t))
+    .sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
+  cont.innerHTML = list.map(c =>
+    `<label class="inq-sup"><input type="checkbox" data-id="${c.id}" ${inqSelected.has(c.id) ? "checked" : ""} />
+      <span class="cat-dot" style="background:${catColor(c.category)}"></span>
+      <strong>${escapeHtml(c.company)}</strong> <span class="muted">${escapeHtml(c.category || "")} · ${escapeHtml(c.email)}</span></label>`).join("")
+    || "<em>Няма доставчици с имейл за този филтър.</em>";
+  cont.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener("change", () => {
+    if (cb.checked) inqSelected.add(cb.dataset.id); else inqSelected.delete(cb.dataset.id);
+    const c = document.getElementById("inq-cnt"); if (c) c.textContent = inqSelected.size;
+  }));
+}
+async function sendInquiry() {
+  if (amWorker()) return;
+  const subject = document.getElementById("inq-subject").value.trim();
+  const body = document.getElementById("inq-body").value.trim();
+  if (!subject) { alert("Въведи тема на запитването."); return; }
+  if (!body) { alert("Въведи съдържание на запитването."); return; }
+  if (!inqSelected.size) { alert("Избери поне един доставчик."); return; }
+  const recips = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => ({ company: c.company, email: c.email }));
+  const emails = [...new Set(recips.map(r => r.email).filter(Boolean))];
+  const number = INQUIRIES.reduce((m, i) => Math.max(m, Number(i.number) || 0), 0) + 1;
+  const date = inqDateStr();
+  const rec = { kind: "inquiry", number, date, subject, body, recipients: recips, createdAt: new Date().toISOString() };
+  const { data, error } = await sb.from("contacts").insert({ data: rec }).select().single();
+  if (error) { alert("Грешка при регистриране: " + error.message); return; }
+  INQUIRIES.unshift({ ...data.data, id: data.id });
+  openMailForInquiry(rec, emails);
+  alert(`Регистрирано запитване Изх. № ${number} до ${emails.length} доставчика.\nОтваря се имейл програмата.`);
+  renderInquiryRegistry();
+}
+function openMailForInquiry(rec, emails) {
+  const fullBody = `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\nДанко Системс ООД`;
+  window.location.href = `mailto:?bcc=${encodeURIComponent(emails.join(","))}` +
+    `&subject=${encodeURIComponent("Изх. № " + rec.number + " — " + rec.subject)}` +
+    `&body=${encodeURIComponent(fullBody)}`;
+}
+function renderInquiryRegistry() {
+  showContactsSub("inquiry");
+  const box = document.getElementById("inquiry-view");
+  const list = [...INQUIRIES].sort((a, b) => (b.number || 0) - (a.number || 0));
+  box.innerHTML = `
+    <div class="workers-head"><h3>Регистър на запитванията</h3>
+      <button id="inq-new" class="btn btn-small btn-primary">+ Ново запитване</button>
+      <button id="inq-back2" class="btn btn-small">← Към контакти</button></div>
+    <table class="report-table"><thead><tr><th>Изх. №</th><th>Дата</th><th>Тема</th><th>Доставчици</th><th></th></tr></thead>
+    <tbody>${list.map(i => `<tr>
+      <td><strong>${escapeHtml(String(i.number || "—"))}</strong></td>
+      <td>${escapeHtml(i.date || "")}</td>
+      <td>${escapeHtml(i.subject || "")}</td>
+      <td class="c-notes">${(i.recipients || []).map(r => escapeHtml(r.company)).join(", ")}</td>
+      <td><button class="btn btn-small inq-resend" data-id="${i.id}">✉ Изпрати пак</button></td>
+    </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма регистрирани запитвания.</td></tr>`}</tbody></table>`;
+  box.querySelector("#inq-new").addEventListener("click", renderInquiryForm);
+  box.querySelector("#inq-back2").addEventListener("click", renderContacts);
+  box.querySelectorAll(".inq-resend").forEach(b => b.addEventListener("click", () => {
+    const inq = INQUIRIES.find(x => x.id === b.dataset.id);
+    if (inq) openMailForInquiry(inq, (inq.recipients || []).map(r => r.email).filter(Boolean));
+  }));
 }
 
 /* ---------- Realtime ---------- */
@@ -202,8 +316,9 @@ function cInit() {
   document.getElementById("contacts-close").addEventListener("click", () => {
     document.getElementById("contacts-modal").hidden = true;
   });
-  document.getElementById("contact-cat").addEventListener("change", renderContacts);
   document.getElementById("contact-search").addEventListener("input", renderContacts);
   document.getElementById("btn-add-contact").addEventListener("click", () => renderContactForm(null));
+  document.getElementById("btn-inquiry").addEventListener("click", renderInquiryForm);
+  document.getElementById("btn-inquiry-reg").addEventListener("click", renderInquiryRegistry);
 }
 document.addEventListener("DOMContentLoaded", cInit);
