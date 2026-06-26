@@ -812,11 +812,9 @@ async function mUpdate(m) {
   const { error } = await sb.from("messages").update({ data: m }).eq("id", m.id);
   if (error) { alert("Грешка при запис: " + error.message); }
 }
-async function mDelete(m) {
-  if (!isOwnerAdmin()) { alert("Само Данко Георгиев може да трие съобщения."); return; }
-  const { error } = await sb.from("messages").delete().eq("id", m.id);
-  if (error) { alert("Грешка при изтриване: " + error.message); return; }
-  MESSAGES = MESSAGES.filter(x => x.id !== m.id);
+// Съобщенията между служители и админи НЕ могат да се трият — пазят се завинаги.
+async function mDelete() {
+  alert("Съобщенията не могат да се изтриват — те се пазят като архив на комуникацията.");
 }
 
 function taskQuestionCell(t) {
@@ -973,7 +971,6 @@ function msgCardHtml(m) {
      </div>`).join("");
   const closed = m.status === "closed";
   const isAdmin = !amWorker();
-  const isOwner = isOwnerAdmin();
   return `<div class="msg-card ${closed ? "closed" : ""}" data-id="${m.id}">
     <div class="msg-head">
       <div class="msg-who"><span class="msg-from">${escapeHtml(m.fromName || "")}</span>${m.workshop ? ` <span class="msg-ws">${escapeHtml(m.workshop)}</span>` : ""}${m.toName ? ` <span class="msg-to">→ ${escapeHtml(m.toName)}</span>` : ""}</div>
@@ -983,13 +980,12 @@ function msgCardHtml(m) {
     <div class="msg-q">${escapeHtml(m.text || "").replace(/\n/g, "<br>")}</div>
     ${replies ? `<div class="msg-replies">${replies}</div>` : ""}
     ${closed
-      ? (isAdmin ? `<div class="msg-actions-row"><button class="btn btn-small msg-reopen">↻ Отвори пак</button>${isOwner ? '<button class="btn btn-small btn-danger msg-del">🗑</button>' : ""}</div>` : "")
+      ? (isAdmin ? `<div class="msg-actions-row"><button class="btn btn-small msg-reopen">↻ Отвори пак</button></div>` : "")
       : `<div class="msg-actions">
            <textarea class="msg-reply-in" rows="2" placeholder="${isAdmin ? "Отговор към служителя..." : "Допълнение / отговор..."}"></textarea>
            <div class="msg-actions-row">
              <button class="btn btn-small btn-primary msg-send">Отговори</button>
              ${isAdmin ? '<button class="btn btn-small msg-resolve">✓ Реши</button>' : ""}
-             ${isOwner ? '<button class="btn btn-small btn-danger msg-del">🗑</button>' : ""}
            </div>
          </div>`}
   </div>`;
@@ -1024,8 +1020,6 @@ function renderMessages() {
     if (send) send.addEventListener("click", () => { const ta = card.querySelector(".msg-reply-in"); mReply(m, ta.value); });
     const res = card.querySelector(".msg-resolve"); if (res) res.addEventListener("click", () => mResolve(m, true));
     const reo = card.querySelector(".msg-reopen"); if (reo) reo.addEventListener("click", () => mResolve(m, false));
-    const del = card.querySelector(".msg-del");
-    if (del) del.addEventListener("click", async () => { if (confirm("Изтриване на съобщението?")) { await mDelete(m); renderMessages(); mUpdateBadge(); } });
   });
 }
 /* ---------- Известия (notifications) ---------- */
