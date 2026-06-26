@@ -985,7 +985,7 @@ function msgCardHtml(m) {
            <textarea class="msg-reply-in" rows="2" placeholder="${isAdmin ? "Отговор към служителя..." : "Допълнение / отговор..."}"></textarea>
            <div class="msg-actions-row">
              <button class="btn btn-small btn-primary msg-send">Отговори</button>
-             ${isAdmin ? '<button class="btn btn-small msg-resolve">✓ Реши</button>' : ""}
+             ${isAdmin ? '<button class="btn btn-small msg-resolve">✓ Изпълнено</button>' : ""}
            </div>
          </div>`}
   </div>`;
