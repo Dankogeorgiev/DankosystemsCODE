@@ -253,6 +253,7 @@ function renderInquiryForm() {
   box.innerHTML = `
     <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
       <button id="inq-back" class="btn btn-small">← Назад</button></div>
+    <div id="inq-to" class="inq-to"></div>
     <p class="muted" style="margin:6px 0">Изготвил: <strong>${escapeHtml(authorName())}</strong> · ${escapeHtml((MY_ACCESS && MY_ACCESS.email) || "")} (от акаунта)</p>
     <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
     <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
@@ -266,6 +267,7 @@ function renderInquiryForm() {
     </div>`;
   renderInqCatBar();
   renderInqSuppliers("");
+  updateInqTo();
   box.querySelector("#inq-back").addEventListener("click", renderContacts);
   box.querySelector("#inq-cancel").addEventListener("click", renderContacts);
   box.querySelector("#inq-filter").addEventListener("input", e => renderInqSuppliers(e.target.value));
@@ -299,14 +301,25 @@ function renderInqSuppliers(term) {
     .filter(c => !t || `${c.company} ${c.category} ${c.email}`.toLowerCase().includes(t))
     .sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
   cont.innerHTML = list.map(c =>
-    `<label class="inq-sup"><input type="checkbox" data-id="${c.id}" ${inqSelected.has(c.id) ? "checked" : ""} />
-      <span class="cat-dot" style="background:${catColor(c.category)}"></span>
-      <strong>${escapeHtml(c.company)}</strong> <span class="muted">${escapeHtml(c.category || "")} · ${escapeHtml(c.email)}</span></label>`).join("")
+    `<div class="inq-sup">
+      <label class="inq-pick"><input type="checkbox" data-id="${c.id}" ${inqSelected.has(c.id) ? "checked" : ""} />
+        <span class="cat-dot" style="background:${catColor(c.category)}"></span>
+        <strong>${escapeHtml(c.company)}</strong> <span class="muted inq-cat">${escapeHtml(c.category || "")}</span></label>
+      <a href="mailto:${escapeAttr(c.email)}" class="inq-mail" title="Изпрати имейл">${escapeHtml(c.email)}</a>
+    </div>`).join("")
     || "<em>Няма доставчици с имейл за този филтър.</em>";
   cont.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener("change", () => {
     if (cb.checked) inqSelected.add(cb.dataset.id); else inqSelected.delete(cb.dataset.id);
     const c = document.getElementById("inq-cnt"); if (c) c.textContent = inqSelected.size;
+    updateInqTo();
   }));
+}
+function updateInqTo() {
+  const el = document.getElementById("inq-to"); if (!el) return;
+  const names = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => c.company).filter(Boolean);
+  el.innerHTML = names.length
+    ? `<strong>До:</strong> ${escapeHtml(names.join(", "))} <span class="muted">(${names.length})</span>`
+    : `<strong>До:</strong> <span class="muted">— изберете доставчици по-долу —</span>`;
 }
 async function sendInquiry() {
   if (amWorker()) return;
@@ -339,38 +352,61 @@ function openMailForInquiry(rec, emails) {
 }
 function generateInquiryPDF(rec) {
   const logoUrl = new URL("logo.png", location.href).href;
-  const recips = (rec.recipients || []).map(r => r.company).filter(Boolean).join(", ");
+  const recList = (rec.recipients || []).filter(r => r && (r.company || r.email));
+  const recipsHtml = recList.length
+    ? recList.map(r => `<div class="rec-item"><span class="rec-co">${escapeHtml(r.company || "")}</span>${r.email ? `<span class="rec-em">${escapeHtml(r.email)}</span>` : ""}</div>`).join("")
+    : `<div class="rec-item"><span class="rec-co">—</span></div>`;
   const bodyHtml = escapeHtml(rec.body || "").replace(/\n/g, "<br>");
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Запитване Изх. № ${rec.number}</title>
 <style>
+  @page { size: A4 portrait; margin: 16mm 18mm; }
   * { box-sizing: border-box; }
-  body { font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a37; margin: 40px; font-size: 14px; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1d4ed8; padding-bottom: 14px; }
-  .head img { height: 70px; }
-  .co { text-align: right; font-size: 13px; line-height: 1.5; }
-  .co .nm { font-size: 17px; font-weight: 700; color: #1d4ed8; }
-  .meta { display: flex; justify-content: space-between; margin: 18px 0 6px; font-size: 14px; }
-  h1 { text-align: center; font-size: 22px; letter-spacing: 2px; margin: 18px 0; }
-  .row { margin: 8px 0; }
-  .label { font-weight: 700; }
-  .body { margin: 16px 0; padding: 14px; background: #f7f9fc; border-radius: 8px; white-space: normal; line-height: 1.55; }
-  .sign { margin-top: 40px; line-height: 1.6; }
-  .genby { margin-top: 24px; font-size: 12px; color: #6b7280; }
-  .foot { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 8px; font-size: 11px; color: #6b7280; text-align: center; }
-  @media print { body { margin: 18mm; } }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "DejaVu Sans", "Segoe UI", Arial, sans-serif; color: #1f2a37; font-size: 13px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sheet { max-width: 174mm; margin: 0 auto; padding: 0; }
+  .topbar { height: 6px; background: linear-gradient(90deg,#1d4ed8,#3b82f6); border-radius: 3px; }
+  .head { display: flex; justify-content: space-between; align-items: center; padding: 16px 0 12px; border-bottom: 2px solid #e5e9f2; }
+  .head img { height: 62px; }
+  .co { text-align: right; font-size: 12px; line-height: 1.55; color: #475569; }
+  .co .nm { font-size: 16px; font-weight: 700; color: #1d4ed8; letter-spacing: .3px; }
+  .titlebar { display: flex; justify-content: space-between; align-items: flex-end; margin: 22px 0 10px; }
+  .titlebar h1 { font-size: 24px; letter-spacing: 4px; margin: 0; color: #0f1b33; font-weight: 800; }
+  .docmeta { text-align: right; font-size: 12px; color: #475569; line-height: 1.6; }
+  .docmeta b { color: #1d4ed8; }
+  .recbox { border: 1px solid #e2e8f0; background: #f7f9fc; border-radius: 10px; padding: 12px 14px; margin: 4px 0 14px; }
+  .recbox .cap { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; font-weight: 700; margin-bottom: 6px; }
+  .rec-list { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  .rec-item { font-size: 12.5px; }
+  .rec-co { font-weight: 700; color: #1f2a37; }
+  .rec-em { color: #64748b; margin-left: 6px; }
+  .subj { margin: 4px 0 12px; font-size: 14px; }
+  .subj .label { font-weight: 700; color: #1d4ed8; }
+  .body { padding: 16px 18px; background: #fff; border: 1px solid #e6ebf3; border-left: 4px solid #1d4ed8; border-radius: 8px; line-height: 1.6; min-height: 70mm; }
+  .sign { margin-top: 26px; line-height: 1.6; font-size: 13px; }
+  .sign .nm { font-weight: 700; color: #0f1b33; }
+  .genby { margin-top: 22px; padding-top: 8px; font-size: 11px; color: #94a3b8; }
+  .foot { margin-top: 18px; border-top: 1px solid #e5e9f2; padding-top: 8px; font-size: 10.5px; color: #94a3b8; text-align: center; }
 </style></head><body>
-  <div class="head">
-    <img src="${logoUrl}" onerror="this.style.display='none'" />
-    <div class="co"><div class="nm">${escapeHtml(COMPANY_INFO.name)}</div><div>${escapeHtml(COMPANY_INFO.eik)}</div><div>${escapeHtml(COMPANY_INFO.city)}</div><div>${escapeHtml(COMPANY_INFO.street)}</div></div>
+  <div class="sheet">
+    <div class="topbar"></div>
+    <div class="head">
+      <img src="${logoUrl}" onerror="this.style.display='none'" />
+      <div class="co"><div class="nm">${escapeHtml(COMPANY_INFO.name)}</div><div>ЕИК ${escapeHtml(COMPANY_INFO.eik)}</div><div>${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)}</div></div>
+    </div>
+    <div class="titlebar">
+      <h1>ЗАПИТВАНЕ</h1>
+      <div class="docmeta"><div><b>Изх. №</b> ${escapeHtml(String(rec.number))}</div><div><b>Дата:</b> ${escapeHtml(rec.date || "")}</div></div>
+    </div>
+    <div class="recbox">
+      <div class="cap">До</div>
+      <div class="rec-list">${recipsHtml}</div>
+    </div>
+    <div class="subj"><span class="label">Относно:</span> ${escapeHtml(rec.subject || "")}</div>
+    <div class="body">${bodyHtml}</div>
+    <div class="sign">С уважение,<br><span class="nm">${escapeHtml(rec.author || "")}</span>${rec.authorEmail ? `<br>${escapeHtml(rec.authorEmail)}` : ""}<br>${escapeHtml(COMPANY_INFO.name)}</div>
+    <div class="genby">Запитването е генерирано от: <strong>${escapeHtml(rec.author || "")}</strong>${rec.authorEmail ? ` (${escapeHtml(rec.authorEmail)})` : ""} · Изх. № ${escapeHtml(String(rec.number))} · ${escapeHtml(rec.date || "")}</div>
+    <div class="foot">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)} · ЕИК ${escapeHtml(COMPANY_INFO.eik)}</div>
   </div>
-  <div class="meta"><div><span class="label">Изх. №</span> ${escapeHtml(String(rec.number))}</div><div><span class="label">Дата:</span> ${escapeHtml(rec.date || "")}</div></div>
-  <h1>ЗАПИТВАНЕ</h1>
-  <div class="row"><span class="label">До:</span> ${escapeHtml(recips) || "—"}</div>
-  <div class="row"><span class="label">Относно:</span> ${escapeHtml(rec.subject || "")}</div>
-  <div class="body">${bodyHtml}</div>
-  <div class="sign">С уважение,<br><span class="label">${escapeHtml(rec.author || "")}</span>${rec.authorEmail ? `<br>${escapeHtml(rec.authorEmail)}` : ""}<br>${escapeHtml(COMPANY_INFO.name)}</div>
-  <div class="genby">Запитването е генерирано от: <strong>${escapeHtml(rec.author || "")}</strong>${rec.authorEmail ? ` (${escapeHtml(rec.authorEmail)})` : ""} · Изх. № ${escapeHtml(String(rec.number))} · ${escapeHtml(rec.date || "")}</div>
-  <div class="foot">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)} · ${escapeHtml(COMPANY_INFO.eik)}</div>
   <script>window.onload=function(){setTimeout(function(){window.print();},300);}</script>
 </body></html>`;
   const w = window.open("", "_blank");
