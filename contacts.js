@@ -373,9 +373,12 @@ async function sendInquiry() {
   generateInquiryPDF(rec);
 
   // Опит за автоматично изпращане през сървърната функция (SMTP).
-  const sent = await sendInquiryEmail(rec, emails);
+  // Към получателите добавяме и имейла на влезлия потребител — за копие.
+  const sendList = [...new Set([...emails, authorEmail].filter(Boolean))];
+  const sent = await sendInquiryEmail(rec, sendList);
   if (sent === true) {
-    alert(`✅ Запитване Изх. № ${number} е изпратено автоматично до ${emails.length} доставчика от ${COMPANY_INFO.name}.\nГенерира се и PDF документ.`);
+    const copyNote = authorEmail ? `\nКопие е изпратено и до твоя имейл (${authorEmail}).` : "";
+    alert(`✅ Запитване Изх. № ${number} е изпратено автоматично до ${emails.length} доставчика от ${COMPANY_INFO.name}.${copyNote}\nГенерира се и PDF документ.`);
   } else {
     // Резервен вариант: отваряме пощенската програма (полу-автоматично).
     openMailForInquiry(rec, emails);
@@ -414,8 +417,12 @@ async function sendInquiryEmail(rec, emails) {
     return { message: (e && e.message) || String(e) };
   }
 }
+function inquiryAutoNote(rec) {
+  const who = [rec.author, COMPANY_INFO.name].filter(Boolean).join(", ");
+  return `Това е автоматично генерирано запитване от ${who}.`;
+}
 function inquiryEmailText(rec) {
-  return `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${rec.authorEmail ? rec.authorEmail + "\n" : ""}${COMPANY_INFO.name}\nЕИК ${COMPANY_INFO.eik} · ${COMPANY_INFO.city}, ${COMPANY_INFO.street}`;
+  return `${inquiryAutoNote(rec)}\n\n${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${rec.authorEmail ? rec.authorEmail + "\n" : ""}${COMPANY_INFO.name}\nЕИК ${COMPANY_INFO.eik} · ${COMPANY_INFO.city}, ${COMPANY_INFO.street}`;
 }
 function inquiryEmailHtml(rec) {
   const bodyHtml = escapeHtml(rec.body || "").replace(/\n/g, "<br>");
@@ -429,6 +436,7 @@ function inquiryEmailHtml(rec) {
       <div style="font-size:20px;font-weight:800;letter-spacing:2px;color:#0f1b33">ЗАПИТВАНЕ</div>
       <div style="text-align:right;font-size:13px;color:#475569"><b>Изх. №</b> ${escapeHtml(String(rec.number))}<br><b>Дата:</b> ${escapeHtml(rec.date || "")}</div>
     </div>
+    <div style="margin:6px 0 10px;font-size:12.5px;color:#64748b;font-style:italic">${escapeHtml(inquiryAutoNote(rec))}</div>
     <div style="margin:6px 0 12px;font-size:14px"><b style="color:#1d4ed8">Относно:</b> ${escapeHtml(rec.subject || "")}</div>
     <div style="padding:14px 16px;background:#f7f9fc;border-left:4px solid #1d4ed8;border-radius:8px;line-height:1.6">${bodyHtml}</div>
     <div style="margin-top:22px;font-size:13px;line-height:1.6">С уважение,<br><b>${escapeHtml(rec.author || "")}</b>${rec.authorEmail ? `<br>${escapeHtml(rec.authorEmail)}` : ""}<br>${escapeHtml(COMPANY_INFO.name)}</div>
@@ -493,6 +501,7 @@ function generateInquiryPDF(rec) {
       <div class="cap">До</div>
       <div class="rec-list">${recipsHtml}</div>
     </div>
+    <div class="autonote" style="font-size:11.5px;color:#64748b;font-style:italic;margin:2px 0 8px">${escapeHtml(inquiryAutoNote(rec))}</div>
     <div class="subj"><span class="label">Относно:</span> ${escapeHtml(rec.subject || "")}</div>
     <div class="body">${bodyHtml}</div>
     <div class="sign">С уважение,<br><span class="nm">${escapeHtml(rec.author || "")}</span>${rec.authorEmail ? `<br>${escapeHtml(rec.authorEmail)}` : ""}<br>${escapeHtml(COMPANY_INFO.name)}</div>
