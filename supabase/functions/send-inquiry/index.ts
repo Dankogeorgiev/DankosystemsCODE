@@ -42,12 +42,13 @@ Deno.serve(async (req) => {
   if (!to.length) return json({ error: "Няма валидни получатели" }, 400);
   if (!subject) return json({ error: "Липсва тема" }, 400);
 
-  const host = Deno.env.get("SMTP_HOST") || "";
-  const port = Number(Deno.env.get("SMTP_PORT") || "465");
-  const user = Deno.env.get("SMTP_USER") || "";
-  const pass = Deno.env.get("SMTP_PASS") || "";
-  const fromEmail = Deno.env.get("FROM_EMAIL") || user;
-  const fromName = Deno.env.get("FROM_NAME") || "Данко Системс";
+  // .trim() маха случайни интервали/нов ред, промъкнали се при въвеждане на тайните ключове
+  const host = (Deno.env.get("SMTP_HOST") || "").trim();
+  const port = Number((Deno.env.get("SMTP_PORT") || "465").trim());
+  const user = (Deno.env.get("SMTP_USER") || "").trim();
+  const pass = (Deno.env.get("SMTP_PASS") || "").trim();
+  const fromEmail = (Deno.env.get("FROM_EMAIL") || user).trim();
+  const fromName = (Deno.env.get("FROM_NAME") || "Данко Системс").trim();
 
   if (!host || !user || !pass) {
     return json({ error: "Сървърът не е настроен (липсват SMTP тайни ключове)." }, 500);
