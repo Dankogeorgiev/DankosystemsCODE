@@ -255,6 +255,7 @@ function renderInquiryForm() {
   const nextNo = nextInquiryNumber();
   box.innerHTML = `
     <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
+      ${canDeleteInquiry() ? '<button id="inq-test" class="btn btn-small">🔧 Тест на пощата</button>' : ""}
       <button id="inq-back" class="btn btn-small">← Назад</button></div>
     <div id="inq-to" class="inq-to"></div>
     <p class="muted" style="margin:6px 0">Изготвил: <strong>${escapeHtml(authorName())}</strong> · ${escapeHtml((MY_ACCESS && MY_ACCESS.email) || "")} (от акаунта)</p>
@@ -273,6 +274,7 @@ function renderInquiryForm() {
   updateInqTo();
   box.querySelector("#inq-back").addEventListener("click", renderContacts);
   box.querySelector("#inq-cancel").addEventListener("click", renderContacts);
+  const testBtn = box.querySelector("#inq-test"); if (testBtn) testBtn.addEventListener("click", testInquiryEmail);
   box.querySelector("#inq-filter").addEventListener("input", e => renderInqSuppliers(e.target.value));
   box.querySelector("#inq-send").addEventListener("click", sendInquiry);
 }
@@ -323,6 +325,33 @@ function updateInqTo() {
   el.innerHTML = names.length
     ? `<strong>До:</strong> ${escapeHtml(names.join(", "))} <span class="muted">(${names.length})</span>`
     : `<strong>До:</strong> <span class="muted">— изберете доставчици по-долу —</span>`;
+}
+async function testInquiryEmail() {
+  const myEmail = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
+  if (!myEmail) { alert("Няма имейл на акаунта."); return; }
+  if (!confirm("Ще се изпрати тестов имейл до " + myEmail + ".\nПродължаваме?")) return;
+  try {
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") { alert("❌ Няма връзка със сървъра (функциите не са налични)."); return; }
+    const { data, error } = await sb.functions.invoke("send-inquiry", {
+      body: { to: [myEmail], replyTo: myEmail, subject: "Тест на пощата — Данко Системс", text: "Това е тестово съобщение от приложението.", html: "<p>Това е <b>тестово</b> съобщение от приложението.</p>" },
+    });
+    if (error) {
+      let msg = error.message || "неизвестна грешка";
+      try {
+        const ctx = error.context;
+        if (ctx && typeof ctx.text === "function") {
+          const t = await ctx.text();
+          if (t) { try { const j = JSON.parse(t); msg = j.error || t; } catch (_) { msg = t; } }
+        }
+      } catch (_) {}
+      alert("❌ ТЕСТЪТ НЕ УСПЯ:\n\n" + msg);
+      return;
+    }
+    if (data && data.ok) { alert("✅ ТЕСТЪТ УСПЯ!\nИзпратено до " + myEmail + ". Провери пощата (и папка Спам)."); return; }
+    alert("⚠️ Неочакван отговор от сървъра:\n" + JSON.stringify(data));
+  } catch (e) {
+    alert("❌ Грешка при връзката със сървъра:\n" + (e && e.message ? e.message : String(e)));
+  }
 }
 async function sendInquiry() {
   if (amWorker()) return;
