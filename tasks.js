@@ -765,6 +765,15 @@ function msgMyName() {
   return (MY_ACCESS && MY_ACCESS.email) || "Администратор";
 }
 function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || ""; }
+function isOwnerAdmin() {
+  return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) === "dankog@gmail.com";
+}
+// Данко вижда всички съобщения; другите админи — само въпросите от служители; служителят — само своите
+function msgVisibleToMe(m) {
+  if (amWorker()) return m.fromName === MY_WORKER;
+  if (isOwnerAdmin()) return true;
+  return m.from === "worker";
+}
 function msgFmtTime(iso) {
   if (!iso) return "";
   const d = new Date(iso); if (isNaN(d.getTime())) return iso;
@@ -797,13 +806,14 @@ async function mUpdate(m) {
   if (error) { alert("Грешка при запис: " + error.message); }
 }
 async function mDelete(m) {
+  if (!isOwnerAdmin()) { alert("Само Данко Георгиев може да трие съобщения."); return; }
   const { error } = await sb.from("messages").delete().eq("id", m.id);
   if (error) { alert("Грешка при изтриване: " + error.message); return; }
   MESSAGES = MESSAGES.filter(x => x.id !== m.id);
 }
 
 function taskQuestionCell(t) {
-  const mine = MESSAGES.filter(m => m.taskId === t.id && (!amWorker() || m.fromName === MY_WORKER));
+  const mine = MESSAGES.filter(m => m.taskId === t.id && msgVisibleToMe(m));
   const openCount = mine.filter(m => m.status !== "closed").length;
   const askBtn = amWorker() ? `<button type="button" class="btn btn-small t-ask" title="Задай въпрос към технолог/организатор">❓ Питай</button>` : "";
   const viewBtn = mine.length
@@ -814,7 +824,7 @@ function taskQuestionCell(t) {
 
 function mUnreadCount() {
   if (amWorker()) return MESSAGES.filter(m => m.fromName === MY_WORKER && m.seenByWorker === false).length;
-  return MESSAGES.filter(m => m.seenByAdmin === false && m.status !== "closed").length;
+  return MESSAGES.filter(m => msgVisibleToMe(m) && m.seenByAdmin === false && m.status !== "closed").length;
 }
 function mUpdateBadge() {
   const b = document.getElementById("msg-badge"); if (!b) return;
@@ -824,7 +834,7 @@ function mUpdateBadge() {
 async function markMessagesSeen() {
   const toMark = amWorker()
     ? MESSAGES.filter(m => m.fromName === MY_WORKER && m.seenByWorker === false)
-    : MESSAGES.filter(m => m.seenByAdmin === false);
+    : MESSAGES.filter(m => msgVisibleToMe(m) && m.seenByAdmin === false);
   for (const m of toMark) {
     if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true;
     await mUpdate(m);
@@ -893,6 +903,7 @@ function msgCardHtml(m) {
      </div>`).join("");
   const closed = m.status === "closed";
   const isAdmin = !amWorker();
+  const isOwner = isOwnerAdmin();
   return `<div class="msg-card ${closed ? "closed" : ""}" data-id="${m.id}">
     <div class="msg-head">
       <div class="msg-who"><span class="msg-from">${escapeHtml(m.fromName || "")}</span>${m.workshop ? ` <span class="msg-ws">${escapeHtml(m.workshop)}</span>` : ""}</div>
@@ -902,13 +913,13 @@ function msgCardHtml(m) {
     <div class="msg-q">${escapeHtml(m.text || "").replace(/\n/g, "<br>")}</div>
     ${replies ? `<div class="msg-replies">${replies}</div>` : ""}
     ${closed
-      ? (isAdmin ? `<div class="msg-actions-row"><button class="btn btn-small msg-reopen">↻ Отвори пак</button><button class="btn btn-small btn-danger msg-del">🗑</button></div>` : "")
+      ? (isAdmin ? `<div class="msg-actions-row"><button class="btn btn-small msg-reopen">↻ Отвори пак</button>${isOwner ? '<button class="btn btn-small btn-danger msg-del">🗑</button>' : ""}</div>` : "")
       : `<div class="msg-actions">
            <textarea class="msg-reply-in" rows="2" placeholder="${isAdmin ? "Отговор към служителя..." : "Допълнение / отговор..."}"></textarea>
            <div class="msg-actions-row">
              <button class="btn btn-small btn-primary msg-send">Отговори</button>
              ${isAdmin ? '<button class="btn btn-small msg-resolve">✓ Реши</button>' : ""}
-             ${isAdmin ? '<button class="btn btn-small btn-danger msg-del">🗑</button>' : ""}
+             ${isOwner ? '<button class="btn btn-small btn-danger msg-del">🗑</button>' : ""}
            </div>
          </div>`}
   </div>`;
@@ -917,8 +928,7 @@ function renderMessages() {
   showSub("messages");
   const v = document.getElementById("messages-view");
   const isW = amWorker();
-  let list = MESSAGES.slice();
-  if (isW) list = list.filter(m => m.fromName === MY_WORKER);
+  let list = MESSAGES.filter(msgVisibleToMe);
   if (msgFilterTask) list = list.filter(m => m.taskId === msgFilterTask);
   if (!msgShowClosed) list = list.filter(m => m.status !== "closed");
   list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
