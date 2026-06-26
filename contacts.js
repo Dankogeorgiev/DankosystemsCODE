@@ -368,7 +368,16 @@ async function sendInquiryEmail(rec, emails) {
         html: inquiryEmailHtml(rec),
       },
     });
-    if (error) return { message: error.message || "грешка от сървъра" };
+    if (error) {
+      let serverMsg = error.message || "грешка от сървъра";
+      try {
+        if (error.context && typeof error.context.json === "function") {
+          const j = await error.context.json();
+          if (j && j.error) serverMsg = j.error;
+        }
+      } catch (_) {}
+      return { message: serverMsg };
+    }
     if (data && data.ok) return true;
     return { message: (data && data.error) || "неуспешно изпращане" };
   } catch (e) {
