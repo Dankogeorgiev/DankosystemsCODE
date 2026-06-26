@@ -371,9 +371,10 @@ async function sendInquiryEmail(rec, emails) {
     if (error) {
       let serverMsg = error.message || "грешка от сървъра";
       try {
-        if (error.context && typeof error.context.json === "function") {
-          const j = await error.context.json();
-          if (j && j.error) serverMsg = j.error;
+        const ctx = error.context;
+        if (ctx && typeof ctx.text === "function") {
+          const t = await ctx.text();
+          if (t) { try { const j = JSON.parse(t); serverMsg = j.error || t; } catch (_) { serverMsg = t; } }
         }
       } catch (_) {}
       return { message: serverMsg };
