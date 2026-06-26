@@ -233,6 +233,9 @@ const COMPANY_INFO = {
 };
 // Свързване на имейл за вход с име на изготвилия
 const AUTHOR_BY_EMAIL = {
+  "miroslav.pilev@dankosystems.com": "Мирослав Пилев",
+  "grigor.baykov@dankosystems.com": "Григор Байков",
+  "angelov@dankosystems.com": "Веселин Ангелов",
   "danko.orders@gmail.com": "Таня Илиева",
   "office@dankosystems.com": "Кристина Дончева",
   "dankog@gmail.com": "Данко Георгиев",
