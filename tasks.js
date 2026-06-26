@@ -47,7 +47,7 @@ let workersSeededV1 = false;
 let MESSAGES = [];               // вътрешни съобщения служител↔админ
 let messagesSubscribed = false;
 let msgFilterTask = null;        // показвай само съобщения за тази задача
-let msgShowClosed = false;
+let msgView = "active";   // регистър: "active" | "done" | "all"
 let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия при нов отговор/въпрос
 
 function dueSortVal(due) {
@@ -994,24 +994,38 @@ function renderMessages() {
   showSub("messages");
   const v = document.getElementById("messages-view");
   const isW = amWorker();
-  let list = MESSAGES.filter(msgVisibleToMe);
-  if (msgFilterTask) list = list.filter(m => m.taskId === msgFilterTask);
-  if (!msgShowClosed) list = list.filter(m => m.status !== "closed");
+  let base = MESSAGES.filter(msgVisibleToMe);
+  if (msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
+  const nActive = base.filter(m => m.status !== "closed").length;
+  const nDone = base.filter(m => m.status === "closed").length;
+  let list = base.slice();
+  if (msgView === "active") list = list.filter(m => m.status !== "closed");
+  else if (msgView === "done") list = list.filter(m => m.status === "closed");
   list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
+
+  const tab = (key, label, n) => `<button class="msg-tab ${msgView === key ? "active" : ""}" data-view="${key}">${label} (${n})</button>`;
+  const emptyText = msgView === "done"
+    ? "Все още няма приключени съобщения."
+    : (msgView === "active" ? "Няма активни съобщения." : "Няма съобщения.");
 
   v.innerHTML = `
     <div class="workers-head">
-      <h3>📨 Съобщения${msgFilterTask ? " · по задача" : ""}</h3>
-      <label class="msg-closed-tgl"><input type="checkbox" id="msg-show-closed" ${msgShowClosed ? "checked" : ""} /> Покажи решените</label>
-      ${msgFilterTask ? '<button id="msg-clear-filter" class="btn btn-small">Всички</button>' : ""}
+      <h3>📨 Регистър на съобщенията${msgFilterTask ? " · по задача" : ""}</h3>
+      ${msgFilterTask ? '<button id="msg-clear-filter" class="btn btn-small">Всички задачи</button>' : ""}
       ${isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : ""}
       <button id="msg-back" class="btn btn-small">← Назад</button>
     </div>
-    <div class="msg-list">${list.map(msgCardHtml).join("") || '<p class="report-empty">Няма съобщения.</p>'}</div>`;
+    <div class="msg-tabs">
+      ${tab("active", "Активни", nActive)}
+      ${tab("done", "✓ Изпълнени", nDone)}
+      ${tab("all", "Всички", nActive + nDone)}
+    </div>
+    ${msgView === "done" ? '<p class="msg-hint">История на приключената комуникация — целият разговор се пази.</p>' : ""}
+    <div class="msg-list">${list.map(msgCardHtml).join("") || `<p class="report-empty">${emptyText}</p>`}</div>`;
 
   v.querySelector("#msg-back").addEventListener("click", () => { msgFilterTask = null; showSub("tasks"); renderTasks(); });
   const cf = v.querySelector("#msg-clear-filter"); if (cf) cf.addEventListener("click", () => { msgFilterTask = null; renderMessages(); });
-  const sc = v.querySelector("#msg-show-closed"); if (sc) sc.addEventListener("change", () => { msgShowClosed = sc.checked; renderMessages(); });
+  v.querySelectorAll(".msg-tab").forEach(b => b.addEventListener("click", () => { msgView = b.dataset.view; renderMessages(); }));
   const nw = v.querySelector("#msg-new"); if (nw) nw.addEventListener("click", askGeneralQuestion);
 
   v.querySelectorAll(".msg-card").forEach(card => {
