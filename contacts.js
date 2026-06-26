@@ -253,7 +253,7 @@ function renderInquiryForm() {
   box.innerHTML = `
     <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
       <button id="inq-back" class="btn btn-small">← Назад</button></div>
-    <p class="muted" style="margin:6px 0">Изготвил: <strong>${escapeHtml(authorName())}</strong> (от акаунта)</p>
+    <p class="muted" style="margin:6px 0">Изготвил: <strong>${escapeHtml(authorName())}</strong> · ${escapeHtml((MY_ACCESS && MY_ACCESS.email) || "")} (от акаунта)</p>
     <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
     <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
     <h4 class="sub">Изберете контакти (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
@@ -311,6 +311,7 @@ function renderInqSuppliers(term) {
 async function sendInquiry() {
   if (amWorker()) return;
   const author = authorName();
+  const authorEmail = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
   const subject = document.getElementById("inq-subject").value.trim();
   const body = document.getElementById("inq-body").value.trim();
   if (!subject) { alert("Въведи тема на запитването."); return; }
@@ -320,7 +321,7 @@ async function sendInquiry() {
   const emails = [...new Set(recips.map(r => r.email).filter(Boolean))];
   const number = nextInquiryNumber();
   const date = inqDateStr();
-  const rec = { kind: "inquiry", number, date, subject, body, author, recipients: recips, createdAt: new Date().toISOString() };
+  const rec = { kind: "inquiry", number, date, subject, body, author, authorEmail, recipients: recips, createdAt: new Date().toISOString() };
   const { data, error } = await sb.from("contacts").insert({ data: rec }).select().single();
   if (error) { alert("Грешка при регистриране: " + error.message); return; }
   INQUIRIES.unshift({ ...data.data, id: data.id });
@@ -330,7 +331,7 @@ async function sendInquiry() {
   renderInquiryRegistry();
 }
 function openMailForInquiry(rec, emails) {
-  const fullBody = `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${COMPANY_INFO.name}`;
+  const fullBody = `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${rec.authorEmail ? rec.authorEmail + "\n" : ""}${COMPANY_INFO.name}`;
   const url = `mailto:?bcc=${encodeURIComponent(emails.join(","))}` +
     `&subject=${encodeURIComponent("Изх. № " + rec.number + " — " + rec.subject)}` +
     `&body=${encodeURIComponent(fullBody)}`;
@@ -367,8 +368,8 @@ function generateInquiryPDF(rec) {
   <div class="row"><span class="label">До:</span> ${escapeHtml(recips) || "—"}</div>
   <div class="row"><span class="label">Относно:</span> ${escapeHtml(rec.subject || "")}</div>
   <div class="body">${bodyHtml}</div>
-  <div class="sign">С уважение,<br><span class="label">${escapeHtml(rec.author || "")}</span><br>${escapeHtml(COMPANY_INFO.name)}</div>
-  <div class="genby">Запитването е генерирано от: <strong>${escapeHtml(rec.author || "")}</strong> · Изх. № ${escapeHtml(String(rec.number))} · ${escapeHtml(rec.date || "")}</div>
+  <div class="sign">С уважение,<br><span class="label">${escapeHtml(rec.author || "")}</span>${rec.authorEmail ? `<br>${escapeHtml(rec.authorEmail)}` : ""}<br>${escapeHtml(COMPANY_INFO.name)}</div>
+  <div class="genby">Запитването е генерирано от: <strong>${escapeHtml(rec.author || "")}</strong>${rec.authorEmail ? ` (${escapeHtml(rec.authorEmail)})` : ""} · Изх. № ${escapeHtml(String(rec.number))} · ${escapeHtml(rec.date || "")}</div>
   <div class="foot">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)} · ${escapeHtml(COMPANY_INFO.eik)}</div>
   <script>window.onload=function(){setTimeout(function(){window.print();},300);}</script>
 </body></html>`;
