@@ -342,9 +342,59 @@ async function sendInquiry() {
   if (error) { alert("Грешка при регистриране: " + error.message); return; }
   INQUIRIES.unshift({ ...data.data, id: data.id });
   generateInquiryPDF(rec);
-  openMailForInquiry(rec, emails);
-  alert(`Регистрирано запитване Изх. № ${number} до ${emails.length} доставчика.\nОтваря се PDF за изтегляне и имейл програмата.`);
+
+  // Опит за автоматично изпращане през сървърната функция (SMTP).
+  const sent = await sendInquiryEmail(rec, emails);
+  if (sent === true) {
+    alert(`✅ Запитване Изх. № ${number} е изпратено автоматично до ${emails.length} доставчика от ${COMPANY_INFO.name}.\nГенерира се и PDF документ.`);
+  } else {
+    // Резервен вариант: отваряме пощенската програма (полу-автоматично).
+    openMailForInquiry(rec, emails);
+    const reason = sent && sent.message ? "\n(" + sent.message + ")" : "";
+    alert(`Запитване Изх. № ${number} е регистрирано.${reason}\nАвтоматичното изпращане не е налично — отваря се пощенската програма, за да го пратиш ръчно.`);
+  }
   renderInquiryRegistry();
+}
+// Връща true при успех, или обект {message} при неуспех (за резервен mailto)
+async function sendInquiryEmail(rec, emails) {
+  try {
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") return { message: "няма връзка със сървъра" };
+    const { data, error } = await sb.functions.invoke("send-inquiry", {
+      body: {
+        to: emails,
+        replyTo: rec.authorEmail || "",
+        subject: `Изх. № ${rec.number} — ${rec.subject}`,
+        text: inquiryEmailText(rec),
+        html: inquiryEmailHtml(rec),
+      },
+    });
+    if (error) return { message: error.message || "грешка от сървъра" };
+    if (data && data.ok) return true;
+    return { message: (data && data.error) || "неуспешно изпращане" };
+  } catch (e) {
+    return { message: (e && e.message) || String(e) };
+  }
+}
+function inquiryEmailText(rec) {
+  return `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${rec.authorEmail ? rec.authorEmail + "\n" : ""}${COMPANY_INFO.name}\nЕИК ${COMPANY_INFO.eik} · ${COMPANY_INFO.city}, ${COMPANY_INFO.street}`;
+}
+function inquiryEmailHtml(rec) {
+  const bodyHtml = escapeHtml(rec.body || "").replace(/\n/g, "<br>");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#1f2a37;max-width:640px;margin:0 auto">
+    <div style="height:5px;background:#1d4ed8;border-radius:3px"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:2px solid #e5e9f2">
+      <div style="font-size:18px;font-weight:700;color:#1d4ed8">${escapeHtml(COMPANY_INFO.name)}</div>
+      <div style="text-align:right;font-size:12px;color:#475569">ЕИК ${escapeHtml(COMPANY_INFO.eik)}<br>${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)}</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin:16px 0 6px">
+      <div style="font-size:20px;font-weight:800;letter-spacing:2px;color:#0f1b33">ЗАПИТВАНЕ</div>
+      <div style="text-align:right;font-size:13px;color:#475569"><b>Изх. №</b> ${escapeHtml(String(rec.number))}<br><b>Дата:</b> ${escapeHtml(rec.date || "")}</div>
+    </div>
+    <div style="margin:6px 0 12px;font-size:14px"><b style="color:#1d4ed8">Относно:</b> ${escapeHtml(rec.subject || "")}</div>
+    <div style="padding:14px 16px;background:#f7f9fc;border-left:4px solid #1d4ed8;border-radius:8px;line-height:1.6">${bodyHtml}</div>
+    <div style="margin-top:22px;font-size:13px;line-height:1.6">С уважение,<br><b>${escapeHtml(rec.author || "")}</b>${rec.authorEmail ? `<br>${escapeHtml(rec.authorEmail)}` : ""}<br>${escapeHtml(COMPANY_INFO.name)}</div>
+    <div style="margin-top:18px;border-top:1px solid #e5e9f2;padding-top:8px;font-size:11px;color:#94a3b8;text-align:center">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)} · ЕИК ${escapeHtml(COMPANY_INFO.eik)}</div>
+  </div>`;
 }
 function openMailForInquiry(rec, emails) {
   const fullBody = `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${rec.authorEmail ? rec.authorEmail + "\n" : ""}${COMPANY_INFO.name}`;
