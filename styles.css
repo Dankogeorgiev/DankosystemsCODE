@@ -511,11 +511,46 @@ input[type="date"] {
 
 /* Responsive */
 @media (max-width: 760px) {
+  body { font-size: 15px; }
   .layout { grid-template-columns: 1fr; }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--line); max-height: 220px; }
-  .grid-2 { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--line); max-height: 240px; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .process-item { grid-template-columns: 28px 1fr; }
   .process-item .resp { grid-column: 1 / -1; }
+  .content { padding: 14px; }
+  .sample-form { max-width: 100%; }
+
+  /* Хедър */
+  .app-header { padding: 8px 10px; }
+  .brand-logo { height: 34px; }
+  .app-header h1 { font-size: 16px; }
+  .subtitle { display: none; }
+  .header-actions { gap: 6px; }
+  .header-actions .btn, .header-actions .tab, .header-actions label.btn { font-size: 12px; padding: 7px 10px; }
+  #user-email { display: none; }
+
+  /* Пълноекранни модули */
+  .tasks-controls { flex-wrap: wrap; gap: 6px; }
+  .tasks-controls .spacer { display: none; }
+  #contacts-modal .tasks-controls { flex-wrap: wrap; }
+  #contacts-modal #contact-search { flex: 1 1 100%; max-width: 100%; }
+  #contacts-modal .tasks-controls .spacer { display: none; }
+  .tasks-head h2 { font-size: 16px; }
+  #tasks-view, #workers-view, #report-view, #contacts-view, #contact-form, #inquiry-view { padding: 10px; }
+
+  /* Категории — една под друга, по 2 на ред */
+  .cat-groups { flex-direction: column; gap: 10px; }
+  .cat-col-chips { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+  /* Таблиците — хоризонтален скрол вместо смачкване */
+  .tasks-table { min-width: 860px; }
+  .contacts-table { min-width: 720px; }
+  .report, #report, .report-table { overflow-x: auto; }
+  .report-table { min-width: 620px; }
+  .card { overflow-x: auto; }
+  .materials-table { min-width: 480px; }
+  .report-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .report-head .toolbar-actions { flex-wrap: wrap; }
 }
 
 /* Print */
