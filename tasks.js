@@ -48,6 +48,7 @@ let MESSAGES = [];               // вътрешни съобщения служ
 let messagesSubscribed = false;
 let msgFilterTask = null;        // показвай само съобщения за тази задача
 let msgShowClosed = false;
+let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия при нов отговор/въпрос
 
 function dueSortVal(due) {
   const m = String(due || "").match(/(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/);
@@ -187,6 +188,8 @@ async function openTasks() {
   document.getElementById("tasks-modal").hidden = false;
   showSub("tasks");
   if (!tasksLoaded) { await tLoadWorkers(); await tLoadRoles(); await tLoadTasks(); await mLoad(); tasksLoaded = true; subscribeTasks(); subscribeMessages(); }
+  msgNotifyState = snapshotNotify();
+  requestNotifyPermission();
   applyTasksAccess();
   renderWorkshopSelect();
   renderWorkerFilter();
@@ -224,6 +227,8 @@ function renderIdentityPicker() {
     MY_WORKER = b.dataset.name;
     box.hidden = true;
     document.querySelector(".tasks-table").style.display = "";
+    msgNotifyState = snapshotNotify();   // вече знаем кой е служителят — нулираме базата за известия
+    mUpdateBadge();
     renderTasks();
   }));
 }
@@ -768,11 +773,13 @@ function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS &&
 function isOwnerAdmin() {
   return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) === "dankog@gmail.com";
 }
-// Данко вижда всички съобщения; другите админи — само въпросите от служители; служителят — само своите
+// Данко вижда всички съобщения; другите админи — въпросите, адресирани до тях; служителят — само своите
 function msgVisibleToMe(m) {
   if (amWorker()) return m.fromName === MY_WORKER;
   if (isOwnerAdmin()) return true;
-  return m.from === "worker";
+  if (m.from !== "worker") return false;
+  if (!m.toEmail) return true;   // стари съобщения без адресат — видими за всички админи
+  return (m.toEmail || "").toLowerCase() === msgMyEmail().toLowerCase();
 }
 function msgFmtTime(iso) {
   if (!iso) return "";
@@ -842,36 +849,79 @@ async function markMessagesSeen() {
   mUpdateBadge();
 }
 
-async function askTaskQuestion(t) {
-  if (!amWorker()) return;
-  const text = prompt(`Въпрос относно:\n${taskRefText(t)}\n\nНапиши въпроса си към технолог / организатор производство:`, "");
-  if (!text || !text.trim()) return;
-  const now = new Date().toISOString();
-  const m = {
-    from: "worker", fromName: msgMyName(), fromEmail: msgMyEmail(),
-    workshop: (MY_ACCESS && MY_ACCESS.workshop) || t.workshop || "",
-    taskId: t.id, taskRef: taskRefText(t),
-    text: text.trim(), status: "open", replies: [],
-    seenByAdmin: false, seenByWorker: true,
-    createdAt: now, updatedAt: now,
-  };
-  const rec = await mInsert(m);
-  if (rec) { alert("Въпросът е изпратен до администраторите. ✅"); mUpdateBadge(); renderTasks(); }
+// Списък с админи (име + имейл) — от AUTHOR_BY_EMAIL в contacts.js, иначе резервен списък
+function adminDirectory() {
+  if (typeof AUTHOR_BY_EMAIL === "object" && AUTHOR_BY_EMAIL) {
+    const arr = Object.entries(AUTHOR_BY_EMAIL).map(([email, name]) => ({ email, name }));
+    if (arr.length) return arr;
+  }
+  return [
+    { email: "danko.orders@gmail.com", name: "Таня Илиева" },
+    { email: "office@dankosystems.com", name: "Кристина Дончева" },
+    { email: "dankog@gmail.com", name: "Данко Георгиев" },
+  ];
 }
-async function askGeneralQuestion() {
-  const text = prompt("Напиши въпроса си към технолог / организатор производство:", "");
-  if (!text || !text.trim()) return;
+function askTaskQuestion(t) {
+  if (!amWorker()) return;
+  openAskDialog({ taskId: t.id, taskRef: taskRefText(t), workshop: (MY_ACCESS && MY_ACCESS.workshop) || t.workshop || "" });
+}
+function askGeneralQuestion() {
+  openAskDialog({ taskId: null, taskRef: "", workshop: (MY_ACCESS && MY_ACCESS.workshop) || "" });
+}
+function openAskDialog(ctx) {
+  const admins = adminDirectory();
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>❓ Нов въпрос</h3>
+      ${ctx.taskRef ? `<div class="msg-task">📋 ${escapeHtml(ctx.taskRef)}</div>` : ""}
+      <label>До кого е въпросът
+        <select id="ask-to">
+          ${admins.map(a => `<option value="${escapeAttr(a.email)}">${escapeHtml(a.name)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Въпрос
+        <textarea id="ask-text" rows="4" placeholder="Напиши въпроса си към технолог / организатор производство..."></textarea>
+      </label>
+      <div class="ask-actions">
+        <button id="ask-send" class="btn btn-primary">Изпрати</button>
+        <button id="ask-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#ask-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#ask-send").addEventListener("click", async () => {
+    const text = wrap.querySelector("#ask-text").value.trim();
+    if (!text) { alert("Напиши въпрос."); return; }
+    const sel = wrap.querySelector("#ask-to");
+    const toEmail = sel.value;
+    const toName = (admins.find(a => a.email === toEmail) || {}).name || "";
+    close();
+    await sendWorkerQuestion({ ...ctx, text, toEmail, toName });
+  });
+  setTimeout(() => { const ta = wrap.querySelector("#ask-text"); if (ta) ta.focus(); }, 50);
+}
+async function sendWorkerQuestion(ctx) {
   const now = new Date().toISOString();
   const m = {
     from: "worker", fromName: msgMyName(), fromEmail: msgMyEmail(),
-    workshop: (MY_ACCESS && MY_ACCESS.workshop) || "",
-    taskId: null, taskRef: "",
-    text: text.trim(), status: "open", replies: [],
+    workshop: ctx.workshop || "",
+    taskId: ctx.taskId || null, taskRef: ctx.taskRef || "",
+    toEmail: ctx.toEmail || "", toName: ctx.toName || "",
+    text: ctx.text.trim(), status: "open", replies: [],
     seenByAdmin: false, seenByWorker: true,
     createdAt: now, updatedAt: now,
   };
   const rec = await mInsert(m);
-  if (rec) { alert("Въпросът е изпратен. ✅"); mUpdateBadge(); renderMessages(); }
+  if (rec) {
+    msgNotifyState = snapshotNotify();   // да не отброи собствения въпрос като „ново“
+    alert("Въпросът е изпратен" + (ctx.toName ? " до " + ctx.toName : "") + ". ✅");
+    mUpdateBadge();
+    if (!document.getElementById("messages-view").hidden) renderMessages(); else renderTasks();
+  }
 }
 async function mReply(m, text) {
   if (!text || !text.trim()) return;
@@ -906,7 +956,7 @@ function msgCardHtml(m) {
   const isOwner = isOwnerAdmin();
   return `<div class="msg-card ${closed ? "closed" : ""}" data-id="${m.id}">
     <div class="msg-head">
-      <div class="msg-who"><span class="msg-from">${escapeHtml(m.fromName || "")}</span>${m.workshop ? ` <span class="msg-ws">${escapeHtml(m.workshop)}</span>` : ""}</div>
+      <div class="msg-who"><span class="msg-from">${escapeHtml(m.fromName || "")}</span>${m.workshop ? ` <span class="msg-ws">${escapeHtml(m.workshop)}</span>` : ""}${m.toName ? ` <span class="msg-to">→ ${escapeHtml(m.toName)}</span>` : ""}</div>
       <div class="msg-date">${escapeHtml(msgFmtTime(m.createdAt))}${closed ? ' · <span class="msg-done">решено ✓</span>' : ""}</div>
     </div>
     ${m.taskRef ? `<div class="msg-task">📋 ${escapeHtml(m.taskRef)}</div>` : ""}
@@ -958,13 +1008,82 @@ function renderMessages() {
     if (del) del.addEventListener("click", async () => { if (confirm("Изтриване на съобщението?")) { await mDelete(m); renderMessages(); mUpdateBadge(); } });
   });
 }
+/* ---------- Известия (notifications) ---------- */
+function snapshotNotify() {
+  const replyCounts = {}; const ids = [];
+  MESSAGES.forEach(m => {
+    if (!msgVisibleToMe(m)) return;
+    ids.push(m.id);
+    replyCounts[m.id] = (m.replies || []).length;
+  });
+  return { replyCounts, ids };
+}
+function requestNotifyPermission() {
+  try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
+}
+function fireBrowserNotification(title, body) {
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      const n = new Notification(title, { body, icon: "logo.png" });
+      n.onclick = () => { try { window.focus(); } catch (e) {} openMessagesFromNotify(); n.close(); };
+    }
+  } catch (e) {}
+}
+function showToast(text) {
+  let t = document.getElementById("danko-toast");
+  if (!t) { t = document.createElement("div"); t.id = "danko-toast"; t.className = "danko-toast"; document.body.appendChild(t); }
+  t.textContent = text;
+  t.onclick = () => { t.classList.remove("show"); openMessagesFromNotify(); };
+  t.classList.add("show");
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove("show"), 7000);
+}
+function openMessagesFromNotify() {
+  if (document.getElementById("tasks-modal").hidden) return;
+  msgFilterTask = null;
+  renderMessages();
+  markMessagesSeen();
+}
+function detectAndNotify(before) {
+  if (amWorker()) {
+    // нов отговор от админ към мой въпрос
+    MESSAGES.forEach(m => {
+      if (m.fromName !== MY_WORKER) return;
+      const prev = before.replyCounts[m.id] || 0;
+      const now = (m.replies || []).length;
+      if (now > prev) {
+        const last = m.replies[now - 1];
+        if (last && last.by === "admin") {
+          const title = "📨 Нов отговор от " + (last.name || "администратор");
+          fireBrowserNotification(title, (m.taskRef ? m.taskRef + "\n" : "") + (last.text || ""));
+          showToast(title + " — натисни тук, за да видиш.");
+        }
+      }
+    });
+  } else {
+    // нов въпрос от служител, адресиран до мен
+    const had = new Set(before.ids);
+    MESSAGES.forEach(m => {
+      if (!msgVisibleToMe(m)) return;
+      if (m.from === "worker" && !had.has(m.id)) {
+        const title = "📨 Нов въпрос от " + (m.fromName || "служител");
+        fireBrowserNotification(title, (m.taskRef ? m.taskRef + "\n" : "") + (m.text || ""));
+        showToast(title + " — натисни тук, за да видиш.");
+      }
+    });
+  }
+}
+
 function subscribeMessages() {
   if (messagesSubscribed) return;
   messagesSubscribed = true;
   sb.channel("messages-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, async () => {
       if (document.getElementById("tasks-modal").hidden) return;
+      const before = msgNotifyState;
       await mLoad();
+      detectAndNotify(before);
+      msgNotifyState = snapshotNotify();
       mUpdateBadge();
       if (!document.getElementById("messages-view").hidden) renderMessages();
       else if (!document.getElementById("tasks-view").hidden) renderTasks();

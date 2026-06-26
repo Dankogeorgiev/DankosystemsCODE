@@ -181,6 +181,20 @@ body {
 .msg-reply-in { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--line, #cbd5e1); border-radius: 8px; padding: 7px 9px; font: inherit; }
 .msg-actions-row { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .msg-closed-tgl { font-size: 13px; color: #475569; display: inline-flex; align-items: center; gap: 5px; }
+.msg-to { font-size: 12px; color: #1d4ed8; background: #eef4ff; padding: 1px 7px; border-radius: 9px; }
+
+/* Диалог за нов въпрос */
+.ask-overlay { display: flex; align-items: center; justify-content: center; z-index: 1200; background: rgba(15, 27, 51, .55); }
+.ask-box { max-width: 460px; width: 92%; }
+.ask-box h3 { margin: 0 0 10px; }
+.ask-box label { display: block; margin: 10px 0 0; font-size: 13px; color: #334155; }
+.ask-box select, .ask-box textarea { width: 100%; box-sizing: border-box; margin-top: 4px; border: 1px solid var(--line, #cbd5e1); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.ask-box .msg-task { margin: 4px 0 0; }
+.ask-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+/* Изскачащо известие (toast) */
+.danko-toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(140%); max-width: 92%; background: #0f1b33; color: #fff; padding: 13px 18px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.3); font-size: 14px; font-weight: 600; z-index: 1300; cursor: pointer; opacity: 0; transition: transform .35s ease, opacity .35s ease; text-align: center; }
+.danko-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 .c-scope { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .c-notes { color: #374151; }
 .c-actions { white-space: nowrap; display: flex; gap: 4px; }
