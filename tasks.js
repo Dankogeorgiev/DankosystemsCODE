@@ -350,18 +350,18 @@ function renderTasks() {
     const tr = document.createElement("tr");
     tr.className = "task-" + st;
     tr.innerHTML = `
-      <td>${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
-      <td>${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
-      <td class="t-files">${taskFilesCell(t)}</td>
-      <td>${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
-      <td class="num">${qty || "—"}</td>
-      <td class="num"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
-      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}">${rem}</td>
-      <td>${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
+      <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
+      <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
+      <td class="num" data-label="Количество">${qty || "—"}</td>
+      <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
+      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}</td>
+      <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
-        ? `<td class="t-assignee-ro">${escapeHtml(t.assignee) || "—"}</td>`
-        : `<td><select class="t-assignee">${opts.join("")}</select></td>`}
-      <td class="t-actions">
+        ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
+        : `<td data-label="Отговорник"><select class="t-assignee">${opts.join("")}</select></td>`}
+      <td class="t-actions" data-label="">
         <input type="number" class="t-today" min="0" placeholder="днес" />
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
         ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
