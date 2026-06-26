@@ -77,6 +77,7 @@ Deno.serve(async (req) => {
     return json({ ok: true, sent: to.length });
   } catch (err) {
     try { await client.close(); } catch (_) {}
-    return json({ error: "Грешка при изпращане: " + (err?.message || String(err)) }, 502);
+    const diag = ` [потр=${user} · дължина_парола=${pass.length} · сървър=${host}:${port}]`;
+    return json({ error: "Грешка при изпращане: " + (err?.message || String(err)) + diag }, 502);
   }
 });
