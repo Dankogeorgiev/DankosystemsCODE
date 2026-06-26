@@ -227,9 +227,20 @@ function nextInquiryNumber() {
 // Фирмени данни за документа
 const COMPANY_INFO = {
   name: "Данко Системс ООД",
-  eik: "ЕИК / BG 115789385",
-  address: "Индустриална зона, гр. Първенец, обл. Пловдив",
+  eik: "BG 115789385",
+  city: "гр. Пловдив",
+  street: "ул. Виктор Юго 5",
 };
+// Свързване на имейл за вход с име на изготвилия
+const AUTHOR_BY_EMAIL = {
+  "danko.orders@gmail.com": "Таня Илиева",
+  "office@dankosystems.com": "Кристина Дончева",
+  "dankog@gmail.com": "Данко Георгиев",
+};
+function authorName() {
+  const e = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email || "").toLowerCase();
+  return AUTHOR_BY_EMAIL[e] || (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
+}
 
 function renderInquiryForm() {
   if (amWorker()) return;
@@ -239,11 +250,10 @@ function renderInquiryForm() {
   const box = document.getElementById("inquiry-view");
   const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
   const nextNo = nextInquiryNumber();
-  const savedAuthor = (typeof MY_WORKER !== "undefined" && MY_WORKER) || localStorage.getItem("danko_author") || "";
   box.innerHTML = `
     <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
       <button id="inq-back" class="btn btn-small">← Назад</button></div>
-    <label class="cf-notes">Изготвил (Вашето име) *<input id="inq-author" value="${escapeAttr(savedAuthor)}" placeholder="напр. Иван Иванов" /></label>
+    <p class="muted" style="margin:6px 0">Изготвил: <strong>${escapeHtml(authorName())}</strong> (от акаунта)</p>
     <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
     <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
     <h4 class="sub">Изберете контакти (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
@@ -300,14 +310,12 @@ function renderInqSuppliers(term) {
 }
 async function sendInquiry() {
   if (amWorker()) return;
-  const author = document.getElementById("inq-author").value.trim();
+  const author = authorName();
   const subject = document.getElementById("inq-subject").value.trim();
   const body = document.getElementById("inq-body").value.trim();
-  if (!author) { alert("Въведи кой изготвя запитването (Вашето име)."); return; }
   if (!subject) { alert("Въведи тема на запитването."); return; }
   if (!body) { alert("Въведи съдържание на запитването."); return; }
   if (!inqSelected.size) { alert("Избери поне един доставчик."); return; }
-  localStorage.setItem("danko_author", author);
   const recips = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => ({ company: c.company, email: c.email }));
   const emails = [...new Set(recips.map(r => r.email).filter(Boolean))];
   const number = nextInquiryNumber();
@@ -346,12 +354,13 @@ function generateInquiryPDF(rec) {
   .label { font-weight: 700; }
   .body { margin: 16px 0; padding: 14px; background: #f7f9fc; border-radius: 8px; white-space: normal; line-height: 1.55; }
   .sign { margin-top: 40px; line-height: 1.6; }
-  .foot { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 8px; font-size: 11px; color: #6b7280; text-align: center; }
+  .genby { margin-top: 24px; font-size: 12px; color: #6b7280; }
+  .foot { margin-top: 30px; border-top: 1px solid #ccc; padding-top: 8px; font-size: 11px; color: #6b7280; text-align: center; }
   @media print { body { margin: 18mm; } }
 </style></head><body>
   <div class="head">
     <img src="${logoUrl}" onerror="this.style.display='none'" />
-    <div class="co"><div class="nm">${escapeHtml(COMPANY_INFO.name)}</div><div>${escapeHtml(COMPANY_INFO.eik)}</div><div>${escapeHtml(COMPANY_INFO.address)}</div></div>
+    <div class="co"><div class="nm">${escapeHtml(COMPANY_INFO.name)}</div><div>${escapeHtml(COMPANY_INFO.eik)}</div><div>${escapeHtml(COMPANY_INFO.city)}</div><div>${escapeHtml(COMPANY_INFO.street)}</div></div>
   </div>
   <div class="meta"><div><span class="label">Изх. №</span> ${escapeHtml(String(rec.number))}</div><div><span class="label">Дата:</span> ${escapeHtml(rec.date || "")}</div></div>
   <h1>ЗАПИТВАНЕ</h1>
@@ -359,7 +368,8 @@ function generateInquiryPDF(rec) {
   <div class="row"><span class="label">Относно:</span> ${escapeHtml(rec.subject || "")}</div>
   <div class="body">${bodyHtml}</div>
   <div class="sign">С уважение,<br><span class="label">${escapeHtml(rec.author || "")}</span><br>${escapeHtml(COMPANY_INFO.name)}</div>
-  <div class="foot">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.address)} · ${escapeHtml(COMPANY_INFO.eik)}</div>
+  <div class="genby">Запитването е генерирано от: <strong>${escapeHtml(rec.author || "")}</strong> · Изх. № ${escapeHtml(String(rec.number))} · ${escapeHtml(rec.date || "")}</div>
+  <div class="foot">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.city)}, ${escapeHtml(COMPANY_INFO.street)} · ${escapeHtml(COMPANY_INFO.eik)}</div>
   <script>window.onload=function(){setTimeout(function(){window.print();},300);}</script>
 </body></html>`;
   const w = window.open("", "_blank");
