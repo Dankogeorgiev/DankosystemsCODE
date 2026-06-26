@@ -219,6 +219,17 @@ async function saveContactForm(contact) {
 
 /* ---------- Запитване до доставчици ---------- */
 function inqDateStr() { try { return new Date().toLocaleDateString("bg-BG"); } catch { return ""; } }
+// Изходящ номер — започва от 1307.
+function nextInquiryNumber() {
+  const mx = INQUIRIES.reduce((m, i) => Math.max(m, Number(i.number) || 0), 0);
+  return Math.max(mx, 1306) + 1;
+}
+// Фирмени данни за документа
+const COMPANY_INFO = {
+  name: "Данко Системс ООД",
+  eik: "ЕИК / BG 115789385",
+  address: "Индустриална зона, гр. Първенец, обл. Пловдив",
+};
 
 function renderInquiryForm() {
   if (amWorker()) return;
@@ -227,10 +238,12 @@ function renderInquiryForm() {
   showContactsSub("inquiry");
   const box = document.getElementById("inquiry-view");
   const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
-  const nextNo = INQUIRIES.reduce((m, i) => Math.max(m, Number(i.number) || 0), 0) + 1;
+  const nextNo = nextInquiryNumber();
+  const savedAuthor = (typeof MY_WORKER !== "undefined" && MY_WORKER) || localStorage.getItem("danko_author") || "";
   box.innerHTML = `
     <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
       <button id="inq-back" class="btn btn-small">← Назад</button></div>
+    <label class="cf-notes">Изготвил (Вашето име) *<input id="inq-author" value="${escapeAttr(savedAuthor)}" placeholder="напр. Иван Иванов" /></label>
     <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
     <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
     <h4 class="sub">Изберете контакти (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
@@ -287,28 +300,71 @@ function renderInqSuppliers(term) {
 }
 async function sendInquiry() {
   if (amWorker()) return;
+  const author = document.getElementById("inq-author").value.trim();
   const subject = document.getElementById("inq-subject").value.trim();
   const body = document.getElementById("inq-body").value.trim();
+  if (!author) { alert("Въведи кой изготвя запитването (Вашето име)."); return; }
   if (!subject) { alert("Въведи тема на запитването."); return; }
   if (!body) { alert("Въведи съдържание на запитването."); return; }
   if (!inqSelected.size) { alert("Избери поне един доставчик."); return; }
+  localStorage.setItem("danko_author", author);
   const recips = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => ({ company: c.company, email: c.email }));
   const emails = [...new Set(recips.map(r => r.email).filter(Boolean))];
-  const number = INQUIRIES.reduce((m, i) => Math.max(m, Number(i.number) || 0), 0) + 1;
+  const number = nextInquiryNumber();
   const date = inqDateStr();
-  const rec = { kind: "inquiry", number, date, subject, body, recipients: recips, createdAt: new Date().toISOString() };
+  const rec = { kind: "inquiry", number, date, subject, body, author, recipients: recips, createdAt: new Date().toISOString() };
   const { data, error } = await sb.from("contacts").insert({ data: rec }).select().single();
   if (error) { alert("Грешка при регистриране: " + error.message); return; }
   INQUIRIES.unshift({ ...data.data, id: data.id });
+  generateInquiryPDF(rec);
   openMailForInquiry(rec, emails);
-  alert(`Регистрирано запитване Изх. № ${number} до ${emails.length} доставчика.\nОтваря се имейл програмата.`);
+  alert(`Регистрирано запитване Изх. № ${number} до ${emails.length} доставчика.\nОтваря се PDF за изтегляне и имейл програмата.`);
   renderInquiryRegistry();
 }
 function openMailForInquiry(rec, emails) {
-  const fullBody = `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\nДанко Системс ООД`;
-  window.location.href = `mailto:?bcc=${encodeURIComponent(emails.join(","))}` +
+  const fullBody = `${rec.body}\n\n— — —\nИзх. № ${rec.number} / ${rec.date}\n${rec.author ? rec.author + "\n" : ""}${COMPANY_INFO.name}`;
+  const url = `mailto:?bcc=${encodeURIComponent(emails.join(","))}` +
     `&subject=${encodeURIComponent("Изх. № " + rec.number + " — " + rec.subject)}` +
     `&body=${encodeURIComponent(fullBody)}`;
+  const a = document.createElement("a"); a.href = url; a.click();
+}
+function generateInquiryPDF(rec) {
+  const logoUrl = new URL("logo.png", location.href).href;
+  const recips = (rec.recipients || []).map(r => r.company).filter(Boolean).join(", ");
+  const bodyHtml = escapeHtml(rec.body || "").replace(/\n/g, "<br>");
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Запитване Изх. № ${rec.number}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; color: #1f2a37; margin: 40px; font-size: 14px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1d4ed8; padding-bottom: 14px; }
+  .head img { height: 70px; }
+  .co { text-align: right; font-size: 13px; line-height: 1.5; }
+  .co .nm { font-size: 17px; font-weight: 700; color: #1d4ed8; }
+  .meta { display: flex; justify-content: space-between; margin: 18px 0 6px; font-size: 14px; }
+  h1 { text-align: center; font-size: 22px; letter-spacing: 2px; margin: 18px 0; }
+  .row { margin: 8px 0; }
+  .label { font-weight: 700; }
+  .body { margin: 16px 0; padding: 14px; background: #f7f9fc; border-radius: 8px; white-space: normal; line-height: 1.55; }
+  .sign { margin-top: 40px; line-height: 1.6; }
+  .foot { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 8px; font-size: 11px; color: #6b7280; text-align: center; }
+  @media print { body { margin: 18mm; } }
+</style></head><body>
+  <div class="head">
+    <img src="${logoUrl}" onerror="this.style.display='none'" />
+    <div class="co"><div class="nm">${escapeHtml(COMPANY_INFO.name)}</div><div>${escapeHtml(COMPANY_INFO.eik)}</div><div>${escapeHtml(COMPANY_INFO.address)}</div></div>
+  </div>
+  <div class="meta"><div><span class="label">Изх. №</span> ${escapeHtml(String(rec.number))}</div><div><span class="label">Дата:</span> ${escapeHtml(rec.date || "")}</div></div>
+  <h1>ЗАПИТВАНЕ</h1>
+  <div class="row"><span class="label">До:</span> ${escapeHtml(recips) || "—"}</div>
+  <div class="row"><span class="label">Относно:</span> ${escapeHtml(rec.subject || "")}</div>
+  <div class="body">${bodyHtml}</div>
+  <div class="sign">С уважение,<br><span class="label">${escapeHtml(rec.author || "")}</span><br>${escapeHtml(COMPANY_INFO.name)}</div>
+  <div class="foot">${escapeHtml(COMPANY_INFO.name)} · ${escapeHtml(COMPANY_INFO.address)} · ${escapeHtml(COMPANY_INFO.eik)}</div>
+  <script>window.onload=function(){setTimeout(function(){window.print();},300);}</script>
+</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Разреши изскачащите прозорци (popups), за да се генерира PDF документът."); return; }
+  w.document.write(html); w.document.close();
 }
 function renderInquiryRegistry() {
   showContactsSub("inquiry");
@@ -324,13 +380,20 @@ function renderInquiryRegistry() {
       <td>${escapeHtml(i.date || "")}</td>
       <td>${escapeHtml(i.subject || "")}</td>
       <td class="c-notes">${(i.recipients || []).map(r => escapeHtml(r.company)).join(", ")}</td>
-      <td><button class="btn btn-small inq-resend" data-id="${i.id}">✉ Изпрати пак</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-small inq-pdf" data-id="${i.id}">📄 PDF</button>
+        <button class="btn btn-small inq-resend" data-id="${i.id}">✉ Пак</button>
+      </td>
     </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма регистрирани запитвания.</td></tr>`}</tbody></table>`;
   box.querySelector("#inq-new").addEventListener("click", renderInquiryForm);
   box.querySelector("#inq-back2").addEventListener("click", renderContacts);
   box.querySelectorAll(".inq-resend").forEach(b => b.addEventListener("click", () => {
     const inq = INQUIRIES.find(x => x.id === b.dataset.id);
     if (inq) openMailForInquiry(inq, (inq.recipients || []).map(r => r.email).filter(Boolean));
+  }));
+  box.querySelectorAll(".inq-pdf").forEach(b => b.addEventListener("click", () => {
+    const inq = INQUIRIES.find(x => x.id === b.dataset.id);
+    if (inq) generateInquiryPDF(inq);
   }));
 }
 
