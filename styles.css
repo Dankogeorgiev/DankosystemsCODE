@@ -538,9 +538,11 @@ input[type="date"] {
   .tasks-head h2 { font-size: 16px; }
   #tasks-view, #workers-view, #report-view, #contacts-view, #contact-form, #inquiry-view { padding: 10px; }
 
-  /* Категории — една под друга, по 2 на ред */
+  /* Категории — една под друга, по 2 на ред; ограничена височина, за да остане място за списъка */
   .cat-groups { flex-direction: column; gap: 10px; }
   .cat-col-chips { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .contact-cat-bar { max-height: 34vh; overflow: auto; }
+  #contacts-view { min-height: 40vh; }
 
   /* Таблиците — хоризонтален скрол вместо смачкване */
   .tasks-table { min-width: 860px; }
