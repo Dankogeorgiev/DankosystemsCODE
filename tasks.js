@@ -834,9 +834,29 @@ function mUnreadCount() {
   return MESSAGES.filter(m => msgVisibleToMe(m) && m.seenByAdmin === false && m.status !== "closed").length;
 }
 function mUpdateBadge() {
-  const b = document.getElementById("msg-badge"); if (!b) return;
   const n = mUnreadCount();
-  b.textContent = n; b.hidden = n === 0;
+  ["msg-badge", "msg-badge-main"].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) { b.textContent = n; b.hidden = n === 0; }
+  });
+}
+// Зарежда съобщенията и пуска реалтайм, за да работи балончето на основния екран (за админи)
+async function ensureMessagesBadge() {
+  if (typeof sb === "undefined" || !sb) return;
+  try {
+    if (!tasksLoaded) await mLoad();
+    msgNotifyState = snapshotNotify();
+    requestNotifyPermission();
+    subscribeMessages();
+    mUpdateBadge();
+  } catch (e) { console.error("messages badge init", e); }
+}
+// Отваря модула направо на изгледа „Съобщения“ (от бутона на основния екран)
+async function openMessagesFromMain() {
+  await openTasks();
+  msgFilterTask = null;
+  renderMessages();
+  markMessagesSeen();
 }
 async function markMessagesSeen() {
   const toMark = amWorker()
@@ -1039,7 +1059,7 @@ function showToast(text) {
   t._timer = setTimeout(() => t.classList.remove("show"), 7000);
 }
 function openMessagesFromNotify() {
-  if (document.getElementById("tasks-modal").hidden) return;
+  if (document.getElementById("tasks-modal").hidden) { openMessagesFromMain(); return; }
   msgFilterTask = null;
   renderMessages();
   markMessagesSeen();
@@ -1079,12 +1099,12 @@ function subscribeMessages() {
   messagesSubscribed = true;
   sb.channel("messages-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, async () => {
-      if (document.getElementById("tasks-modal").hidden) return;
       const before = msgNotifyState;
       await mLoad();
       detectAndNotify(before);
       msgNotifyState = snapshotNotify();
       mUpdateBadge();
+      if (document.getElementById("tasks-modal").hidden) return;   // балончето/известията работят и без отворен модул
       if (!document.getElementById("messages-view").hidden) renderMessages();
       else if (!document.getElementById("tasks-view").hidden) renderTasks();
     })
@@ -1126,5 +1146,6 @@ function tInit() {
   document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
+  const bmm = document.getElementById("btn-main-messages"); if (bmm) bmm.addEventListener("click", openMessagesFromMain);
 }
 document.addEventListener("DOMContentLoaded", tInit);
