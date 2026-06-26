@@ -413,6 +413,18 @@ function generateInquiryPDF(rec) {
   if (!w) { alert("Разреши изскачащите прозорци (popups), за да се генерира PDF документът."); return; }
   w.document.write(html); w.document.close();
 }
+function canDeleteInquiry() {
+  const e = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email || "").toLowerCase();
+  return e === "dankog@gmail.com";
+}
+async function cDeleteInquiry(inq) {
+  if (!canDeleteInquiry()) { alert("Само Данко Георгиев може да изтрива запитвания."); return; }
+  if (!confirm(`Изтриване на запитване Изх. № ${inq.number}?\nТова не може да се върне.`)) return;
+  const { error } = await sb.from("contacts").delete().eq("id", inq.id);
+  if (error) { alert("Грешка при изтриване: " + error.message); return; }
+  INQUIRIES = INQUIRIES.filter(x => x.id !== inq.id);
+  renderInquiryRegistry();
+}
 function renderInquiryRegistry() {
   showContactsSub("inquiry");
   const box = document.getElementById("inquiry-view");
@@ -430,10 +442,15 @@ function renderInquiryRegistry() {
       <td style="white-space:nowrap">
         <button class="btn btn-small inq-pdf" data-id="${i.id}">📄 PDF</button>
         <button class="btn btn-small inq-resend" data-id="${i.id}">✉ Пак</button>
+        ${canDeleteInquiry() ? `<button class="btn btn-small inq-del" data-id="${i.id}" title="Изтрий">🗑</button>` : ""}
       </td>
     </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма регистрирани запитвания.</td></tr>`}</tbody></table>`;
   box.querySelector("#inq-new").addEventListener("click", renderInquiryForm);
   box.querySelector("#inq-back2").addEventListener("click", renderContacts);
+  box.querySelectorAll(".inq-del").forEach(b => b.addEventListener("click", () => {
+    const inq = INQUIRIES.find(x => x.id === b.dataset.id);
+    if (inq) cDeleteInquiry(inq);
+  }));
   box.querySelectorAll(".inq-resend").forEach(b => b.addEventListener("click", () => {
     const inq = INQUIRIES.find(x => x.id === b.dataset.id);
     if (inq) openMailForInquiry(inq, (inq.recipients || []).map(r => r.email).filter(Boolean));

@@ -44,6 +44,10 @@ let taskFileTarget = null;   // задача, към която се качва 
 let selectedTasks = new Set();   // избрани задачи за групово възлагане
 let sortState = { key: null, dir: 1 };
 let workersSeededV1 = false;
+let MESSAGES = [];               // вътрешни съобщения служител↔админ
+let messagesSubscribed = false;
+let msgFilterTask = null;        // показвай само съобщения за тази задача
+let msgShowClosed = false;
 
 function dueSortVal(due) {
   const m = String(due || "").match(/(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/);
@@ -182,10 +186,11 @@ async function openTasks() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   document.getElementById("tasks-modal").hidden = false;
   showSub("tasks");
-  if (!tasksLoaded) { await tLoadWorkers(); await tLoadRoles(); await tLoadTasks(); tasksLoaded = true; subscribeTasks(); }
+  if (!tasksLoaded) { await tLoadWorkers(); await tLoadRoles(); await tLoadTasks(); await mLoad(); tasksLoaded = true; subscribeTasks(); subscribeMessages(); }
   applyTasksAccess();
   renderWorkshopSelect();
   renderWorkerFilter();
+  mUpdateBadge();
   renderTasks();
 }
 
@@ -226,6 +231,7 @@ function showSub(which) {
   document.getElementById("tasks-view").hidden = which !== "tasks";
   document.getElementById("workers-view").hidden = which !== "workers";
   document.getElementById("report-view").hidden = which !== "report";
+  const mv = document.getElementById("messages-view"); if (mv) mv.hidden = which !== "messages";
 }
 
 /* ---------- Падащи менюта ---------- */
@@ -361,6 +367,7 @@ function renderTasks() {
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
         : `<td data-label="Отговорник"><select class="t-assignee">${opts.join("")}</select></td>`}
+      <td class="t-q" data-label="Въпрос">${taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
         <input type="number" class="t-today" min="0" placeholder="днес" />
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
@@ -388,6 +395,8 @@ function renderTasks() {
     input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
+    const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
+    const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
     tbody.appendChild(tr);
   });
 
@@ -749,6 +758,210 @@ function subscribeTasks() {
     .subscribe();
 }
 
+/* ---------- Вътрешни съобщения (служител ↔ админ) ---------- */
+function msgMyName() {
+  if (amWorker()) return MY_WORKER || (MY_ACCESS && MY_ACCESS.workshop) || "Служител";
+  if (typeof authorName === "function") { const a = authorName(); if (a) return a; }
+  return (MY_ACCESS && MY_ACCESS.email) || "Администратор";
+}
+function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || ""; }
+function msgFmtTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso); if (isNaN(d.getTime())) return iso;
+  const p = n => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function taskRefText(t) {
+  return `${t.client || "СЕРИЯ"}${t.product ? " · " + t.product : ""}${t.code ? " (" + t.code + ")" : ""}${t.operation ? " — " + t.operation : ""}`;
+}
+
+async function mLoad() {
+  const { data, error } = await sb.from("messages").select("*").order("created_at", { ascending: false });
+  if (error) { console.error("messages load", error.message); MESSAGES = []; return; }
+  MESSAGES = (data || []).map(r => ({ ...r.data, id: r.id }));
+}
+async function mInsert(m) {
+  const { data, error } = await sb.from("messages").insert({ data: m }).select().single();
+  if (error) {
+    alert("Грешка при изпращане на съобщението: " + error.message +
+      "\n(Ако таблицата „messages“ още не е създадена, кажи на Данко да пусне SQL-а messages-setup.sql в Supabase.)");
+    return null;
+  }
+  const rec = { ...data.data, id: data.id };
+  MESSAGES.unshift(rec);
+  return rec;
+}
+async function mUpdate(m) {
+  m.updatedAt = new Date().toISOString();
+  const { error } = await sb.from("messages").update({ data: m }).eq("id", m.id);
+  if (error) { alert("Грешка при запис: " + error.message); }
+}
+async function mDelete(m) {
+  const { error } = await sb.from("messages").delete().eq("id", m.id);
+  if (error) { alert("Грешка при изтриване: " + error.message); return; }
+  MESSAGES = MESSAGES.filter(x => x.id !== m.id);
+}
+
+function taskQuestionCell(t) {
+  const mine = MESSAGES.filter(m => m.taskId === t.id && (!amWorker() || m.fromName === MY_WORKER));
+  const openCount = mine.filter(m => m.status !== "closed").length;
+  const askBtn = amWorker() ? `<button type="button" class="btn btn-small t-ask" title="Задай въпрос към технолог/организатор">❓ Питай</button>` : "";
+  const viewBtn = mine.length
+    ? `<button type="button" class="btn btn-small t-qview ${openCount ? "q-open" : ""}" title="Виж съобщенията">💬 ${mine.length}</button>`
+    : (amWorker() ? "" : "—");
+  return askBtn + (askBtn && viewBtn ? " " : "") + viewBtn;
+}
+
+function mUnreadCount() {
+  if (amWorker()) return MESSAGES.filter(m => m.fromName === MY_WORKER && m.seenByWorker === false).length;
+  return MESSAGES.filter(m => m.seenByAdmin === false && m.status !== "closed").length;
+}
+function mUpdateBadge() {
+  const b = document.getElementById("msg-badge"); if (!b) return;
+  const n = mUnreadCount();
+  b.textContent = n; b.hidden = n === 0;
+}
+async function markMessagesSeen() {
+  const toMark = amWorker()
+    ? MESSAGES.filter(m => m.fromName === MY_WORKER && m.seenByWorker === false)
+    : MESSAGES.filter(m => m.seenByAdmin === false);
+  for (const m of toMark) {
+    if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true;
+    await mUpdate(m);
+  }
+  mUpdateBadge();
+}
+
+async function askTaskQuestion(t) {
+  if (!amWorker()) return;
+  const text = prompt(`Въпрос относно:\n${taskRefText(t)}\n\nНапиши въпроса си към технолог / организатор производство:`, "");
+  if (!text || !text.trim()) return;
+  const now = new Date().toISOString();
+  const m = {
+    from: "worker", fromName: msgMyName(), fromEmail: msgMyEmail(),
+    workshop: (MY_ACCESS && MY_ACCESS.workshop) || t.workshop || "",
+    taskId: t.id, taskRef: taskRefText(t),
+    text: text.trim(), status: "open", replies: [],
+    seenByAdmin: false, seenByWorker: true,
+    createdAt: now, updatedAt: now,
+  };
+  const rec = await mInsert(m);
+  if (rec) { alert("Въпросът е изпратен до администраторите. ✅"); mUpdateBadge(); renderTasks(); }
+}
+async function askGeneralQuestion() {
+  const text = prompt("Напиши въпроса си към технолог / организатор производство:", "");
+  if (!text || !text.trim()) return;
+  const now = new Date().toISOString();
+  const m = {
+    from: "worker", fromName: msgMyName(), fromEmail: msgMyEmail(),
+    workshop: (MY_ACCESS && MY_ACCESS.workshop) || "",
+    taskId: null, taskRef: "",
+    text: text.trim(), status: "open", replies: [],
+    seenByAdmin: false, seenByWorker: true,
+    createdAt: now, updatedAt: now,
+  };
+  const rec = await mInsert(m);
+  if (rec) { alert("Въпросът е изпратен. ✅"); mUpdateBadge(); renderMessages(); }
+}
+async function mReply(m, text) {
+  if (!text || !text.trim()) return;
+  m.replies = m.replies || [];
+  m.replies.push({ by: amWorker() ? "worker" : "admin", name: msgMyName(), email: msgMyEmail(), text: text.trim(), at: new Date().toISOString() });
+  if (amWorker()) m.seenByAdmin = false; else m.seenByWorker = false;
+  await mUpdate(m);
+  mUpdateBadge(); renderMessages();
+}
+async function mResolve(m, close) {
+  m.status = close ? "closed" : "open";
+  if (close) m.seenByWorker = false;   // служителят вижда, че е решено
+  await mUpdate(m);
+  mUpdateBadge(); renderMessages();
+}
+
+function openMessages() {
+  const v = document.getElementById("messages-view");
+  if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
+  msgFilterTask = null;
+  renderMessages();
+  markMessagesSeen();
+}
+function msgCardHtml(m) {
+  const replies = (m.replies || []).map(r =>
+    `<div class="msg-reply ${r.by === "admin" ? "from-admin" : "from-worker"}">
+       <div class="msg-meta"><strong>${escapeHtml(r.name || "")}</strong> · ${escapeHtml(msgFmtTime(r.at))}</div>
+       <div class="msg-text">${escapeHtml(r.text || "").replace(/\n/g, "<br>")}</div>
+     </div>`).join("");
+  const closed = m.status === "closed";
+  const isAdmin = !amWorker();
+  return `<div class="msg-card ${closed ? "closed" : ""}" data-id="${m.id}">
+    <div class="msg-head">
+      <div class="msg-who"><span class="msg-from">${escapeHtml(m.fromName || "")}</span>${m.workshop ? ` <span class="msg-ws">${escapeHtml(m.workshop)}</span>` : ""}</div>
+      <div class="msg-date">${escapeHtml(msgFmtTime(m.createdAt))}${closed ? ' · <span class="msg-done">решено ✓</span>' : ""}</div>
+    </div>
+    ${m.taskRef ? `<div class="msg-task">📋 ${escapeHtml(m.taskRef)}</div>` : ""}
+    <div class="msg-q">${escapeHtml(m.text || "").replace(/\n/g, "<br>")}</div>
+    ${replies ? `<div class="msg-replies">${replies}</div>` : ""}
+    ${closed
+      ? (isAdmin ? `<div class="msg-actions-row"><button class="btn btn-small msg-reopen">↻ Отвори пак</button><button class="btn btn-small btn-danger msg-del">🗑</button></div>` : "")
+      : `<div class="msg-actions">
+           <textarea class="msg-reply-in" rows="2" placeholder="${isAdmin ? "Отговор към служителя..." : "Допълнение / отговор..."}"></textarea>
+           <div class="msg-actions-row">
+             <button class="btn btn-small btn-primary msg-send">Отговори</button>
+             ${isAdmin ? '<button class="btn btn-small msg-resolve">✓ Реши</button>' : ""}
+             ${isAdmin ? '<button class="btn btn-small btn-danger msg-del">🗑</button>' : ""}
+           </div>
+         </div>`}
+  </div>`;
+}
+function renderMessages() {
+  showSub("messages");
+  const v = document.getElementById("messages-view");
+  const isW = amWorker();
+  let list = MESSAGES.slice();
+  if (isW) list = list.filter(m => m.fromName === MY_WORKER);
+  if (msgFilterTask) list = list.filter(m => m.taskId === msgFilterTask);
+  if (!msgShowClosed) list = list.filter(m => m.status !== "closed");
+  list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
+
+  v.innerHTML = `
+    <div class="workers-head">
+      <h3>📨 Съобщения${msgFilterTask ? " · по задача" : ""}</h3>
+      <label class="msg-closed-tgl"><input type="checkbox" id="msg-show-closed" ${msgShowClosed ? "checked" : ""} /> Покажи решените</label>
+      ${msgFilterTask ? '<button id="msg-clear-filter" class="btn btn-small">Всички</button>' : ""}
+      ${isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : ""}
+      <button id="msg-back" class="btn btn-small">← Назад</button>
+    </div>
+    <div class="msg-list">${list.map(msgCardHtml).join("") || '<p class="report-empty">Няма съобщения.</p>'}</div>`;
+
+  v.querySelector("#msg-back").addEventListener("click", () => { msgFilterTask = null; showSub("tasks"); renderTasks(); });
+  const cf = v.querySelector("#msg-clear-filter"); if (cf) cf.addEventListener("click", () => { msgFilterTask = null; renderMessages(); });
+  const sc = v.querySelector("#msg-show-closed"); if (sc) sc.addEventListener("change", () => { msgShowClosed = sc.checked; renderMessages(); });
+  const nw = v.querySelector("#msg-new"); if (nw) nw.addEventListener("click", askGeneralQuestion);
+
+  v.querySelectorAll(".msg-card").forEach(card => {
+    const m = MESSAGES.find(x => x.id === card.dataset.id); if (!m) return;
+    const send = card.querySelector(".msg-send");
+    if (send) send.addEventListener("click", () => { const ta = card.querySelector(".msg-reply-in"); mReply(m, ta.value); });
+    const res = card.querySelector(".msg-resolve"); if (res) res.addEventListener("click", () => mResolve(m, true));
+    const reo = card.querySelector(".msg-reopen"); if (reo) reo.addEventListener("click", () => mResolve(m, false));
+    const del = card.querySelector(".msg-del");
+    if (del) del.addEventListener("click", async () => { if (confirm("Изтриване на съобщението?")) { await mDelete(m); renderMessages(); mUpdateBadge(); } });
+  });
+}
+function subscribeMessages() {
+  if (messagesSubscribed) return;
+  messagesSubscribed = true;
+  sb.channel("messages-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, async () => {
+      if (document.getElementById("tasks-modal").hidden) return;
+      await mLoad();
+      mUpdateBadge();
+      if (!document.getElementById("messages-view").hidden) renderMessages();
+      else if (!document.getElementById("tasks-view").hidden) renderTasks();
+    })
+    .subscribe();
+}
+
 /* ---------- Инициализация ---------- */
 function tInit() {
   const btn = document.getElementById("btn-tasks");
@@ -783,5 +996,6 @@ function tInit() {
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
   document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
+  const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
 }
 document.addEventListener("DOMContentLoaded", tInit);
