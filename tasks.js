@@ -4,6 +4,13 @@
 
 const TASK_DEFAULT_WORKSHOPS = ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
 
+// Машини по цехове (за задължителното записване на време при изработка)
+const MACHINES_BY_WORKSHOP = {
+  "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
+};
+// Цехове, за които при „Запиши“ изскача прозорецът за машина + времена
+const WORKSHOPS_WITH_TIME = ["Лазери"];
+
 // Свързване на старите имена (от ERP/предишни версии) към текущите цехове.
 const WORKSHOP_RENAME = {
   "Лазер": "Лазери", "Заварки": "Заваръчно", "Боядисване": "Бояджийно",
@@ -422,7 +429,10 @@ function renderTasks() {
       const c = document.getElementById("bulk-count"); if (c) c.textContent = selectedTasks.size;
     });
     const input = tr.querySelector(".t-today");
-    const submit = () => logProduction(t, input.value);
+    const submit = () => {
+      if (WORKSHOPS_WITH_TIME.includes(t.workshop)) openProductionDialog(t, input.value);
+      else logProduction(t, input.value);
+    };
     tr.querySelector(".t-add").addEventListener("click", submit);
     input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
@@ -499,7 +509,7 @@ async function removeTaskFile(t, i) {
   renderTasks();
 }
 
-async function logProduction(t, qtyVal) {
+async function logProduction(t, qtyVal, extra) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
   if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
   let worker;
@@ -512,9 +522,78 @@ async function logProduction(t, qtyVal) {
   }
   t.produced = (Number(t.produced) || 0) + add;
   t.logs = t.logs || [];
-  t.logs.push({ date: todayStr(), worker, qty: add });
+  const entry = { date: todayStr(), worker, qty: add };
+  if (extra) {
+    if (extra.machine) entry.machine = extra.machine;
+    if (extra.tPiece) entry.tPiece = extra.tPiece;
+    if (extra.tSheet) entry.tSheet = extra.tSheet;
+    if (extra.tOrder) entry.tOrder = extra.tOrder;
+  }
+  t.logs.push(entry);
   await tSaveTask(t);
   renderTasks();
+}
+
+// Задължителен прозорец за машина + времена (за цеховете в WORKSHOPS_WITH_TIME)
+function openProductionDialog(t, qtyPrefill) {
+  const machines = MACHINES_BY_WORKSHOP[t.workshop] || null;
+  const machineField = machines
+    ? `<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select>`
+    : `<input id="pd-machine" type="text" placeholder="На коя машина работи?" />`;
+  const timeRow = (id, label, unitDef) => `
+    <label>${label}
+      <span class="pd-time">
+        <input id="${id}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" />
+        <select id="${id}-u">
+          <option value="sec" ${unitDef === "sec" ? "selected" : ""}>сек</option>
+          <option value="min" ${unitDef === "min" ? "selected" : ""}>мин</option>
+          <option value="hour" ${unitDef === "hour" ? "selected" : ""}>час</option>
+        </select>
+      </span>
+    </label>`;
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>⏱ Записване на изработката</h3>
+      <div class="pd-task">
+        <div><b>Клиент:</b> ${escapeHtml(t.client || "СЕРИЯ")}</div>
+        <div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
+        ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
+      </div>
+      <label>Машина *${machineField}</label>
+      <label>Брой произведени сега *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
+      ${timeRow("pd-piece", "Време за 1 брой *", "sec")}
+      ${timeRow("pd-sheet", "Време за 1 лист *", "min")}
+      ${timeRow("pd-order", "Време за цялата нарязана част *", "min")}
+      <div class="ask-actions">
+        <button id="pd-save" class="btn btn-primary">Запиши изработката</button>
+        <button id="pd-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#pd-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#pd-save").addEventListener("click", async () => {
+    const machine = (wrap.querySelector("#pd-machine").value || "").trim();
+    const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
+    const readTime = (id) => {
+      const v = Number(String(wrap.querySelector("#" + id + "-v").value).replace(",", "."));
+      const unit = wrap.querySelector("#" + id + "-u").value;
+      const mult = unit === "hour" ? 3600 : (unit === "min" ? 60 : 1);
+      return { v, unit, sec: v > 0 ? Math.round(v * mult) : 0 };
+    };
+    const tPiece = readTime("pd-piece"), tSheet = readTime("pd-sheet"), tOrder = readTime("pd-order");
+    if (!machine) { alert("Избери машина."); return; }
+    if (!qty || qty <= 0) { alert("Въведи брой произведени."); return; }
+    if (!tPiece.sec) { alert("Въведи време за 1 брой."); return; }
+    if (!tSheet.sec) { alert("Въведи време за 1 лист."); return; }
+    if (!tOrder.sec) { alert("Въведи време за цялата нарязана част."); return; }
+    close();
+    await logProduction(t, qty, { machine, tPiece, tSheet, tOrder });
+  });
+  setTimeout(() => { const m = wrap.querySelector("#pd-machine"); if (m) m.focus(); }, 50);
 }
 
 async function editTask(t) {

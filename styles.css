@@ -690,3 +690,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 /* Ленти за груповите действия и дневното обобщение — по-спокойни */
 .task-bulk { background: #fff7ed; border-color: #fed7aa; border-radius: 12px; }
 .tasks-daily { background: #ecfeff; border-color: #a5f3fc; border-radius: 12px; }
+
+/* Прозорец за записване на изработка (машина + времена) */
+.pd-box { max-width: 480px; }
+.pd-task { background: #f7f9fc; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 4px 0 6px; font-size: 13.5px; line-height: 1.55; }
+.ask-box input[type="text"], .ask-box input[type="number"], .ask-box input[type="email"] { width: 100%; box-sizing: border-box; margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.pd-time { display: flex; gap: 6px; margin-top: 4px; }
+.pd-time input { flex: 1 1 auto; margin-top: 0 !important; }
+.pd-time select { flex: 0 0 84px; width: auto !important; margin-top: 0 !important; }
