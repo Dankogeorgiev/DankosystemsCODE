@@ -326,6 +326,32 @@ function updateInqTo() {
     ? `<strong>До:</strong> ${escapeHtml(names.join(", "))} <span class="muted">(${names.length})</span>`
     : `<strong>До:</strong> <span class="muted">— изберете доставчици по-долу —</span>`;
 }
+// Проверка дали един низ е валиден имейл адрес
+function isValidEmail(e) {
+  return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test((e || "").trim());
+}
+// Приема списък (може с няколко адреса в едно поле, разделени с , ; интервал/нов ред),
+// връща чист списък от валидни, уникални имейли
+function cleanEmailList(arr) {
+  const out = [];
+  (arr || []).forEach(item => {
+    String(item || "").split(/[,;\s]+/).forEach(part => {
+      const e = part.trim();
+      if (e && isValidEmail(e) && !out.includes(e)) out.push(e);
+    });
+  });
+  return out;
+}
+// Колко „суров" имейл е пропуснат (за предупреждение)
+function countSkippedEmails(raw, cleaned) {
+  let bad = 0;
+  (raw || []).forEach(item => {
+    const parts = String(item || "").split(/[,;\s]+/).map(p => p.trim()).filter(Boolean);
+    parts.forEach(p => { if (!isValidEmail(p)) bad++; });
+    if (!parts.length) bad++; // напълно празно поле
+  });
+  return bad;
+}
 async function testInquiryEmail() {
   const myEmail = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
   if (!myEmail) { alert("Няма имейл на акаунта."); return; }
@@ -363,7 +389,15 @@ async function sendInquiry() {
   if (!body) { alert("Въведи съдържание на запитването."); return; }
   if (!inqSelected.size) { alert("Избери поне един доставчик."); return; }
   const recips = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => ({ company: c.company, email: c.email }));
-  const emails = [...new Set(recips.map(r => r.email).filter(Boolean))];
+  // Изчистваме имейлите: разделяме няколко в едно поле, махаме интервали/невалидни.
+  const rawEmails = recips.map(r => r.email);
+  const emails = cleanEmailList(rawEmails);
+  const skipped = countSkippedEmails(rawEmails, emails);
+  if (!emails.length) {
+    alert("Нито един от избраните доставчици няма валиден имейл адрес.\nПровери имейлите в контактите.");
+    return;
+  }
+  if (skipped > 0 && !confirm(`Внимание: ${skipped} имейл адрес(а) изглеждат невалидни и ще бъдат пропуснати.\nДа изпратя ли до останалите ${emails.length}?`)) return;
   const number = nextInquiryNumber();
   const date = inqDateStr();
   const rec = { kind: "inquiry", number, date, subject, body, author, authorEmail, recipients: recips, createdAt: new Date().toISOString() };
@@ -374,7 +408,7 @@ async function sendInquiry() {
 
   // Опит за автоматично изпращане през сървърната функция (SMTP).
   // Към получателите добавяме и имейла на влезлия потребител — за копие.
-  const sendList = [...new Set([...emails, authorEmail].filter(Boolean))];
+  const sendList = cleanEmailList([...emails, authorEmail]);
   const sent = await sendInquiryEmail(rec, sendList);
   if (sent === true) {
     const copyNote = authorEmail ? `\nКопие е изпратено и до твоя имейл (${authorEmail}).` : "";
