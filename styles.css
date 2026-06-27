@@ -248,7 +248,11 @@ tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .wchip.active .wav { background: rgba(255,255,255,.3); }
 #tasks-view, #workers-view, #report-view, #contacts-view, #contact-form { overflow: auto; padding: 14px 18px; flex: 1 1 auto; min-height: 0; }
 .tasks-table th, .tasks-table td { font-size: 13px; }
-.tasks-table { table-layout: fixed; width: 100%; }
+.tasks-table { table-layout: fixed; width: 100%; min-width: 1180px; }
+.tasks-table thead th { font-size: 12px; white-space: nowrap; }
+.tasks-table td[data-label="Срок"] { white-space: nowrap; }
+.tasks-table .t-files .btn, .tasks-table .tf-add { white-space: nowrap; font-size: 12px; padding: 4px 8px; }
+.tasks-table .t-assignee { max-width: 100%; }
 .tasks-table th, .tasks-table td { vertical-align: top; word-break: break-word; }
 .tasks-table td.num, .tasks-table th.num { text-align: center; white-space: nowrap; }
 .tasks-table thead th[data-sort] { cursor: pointer; user-select: none; }
@@ -265,8 +269,8 @@ tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .t-files .tf a { text-decoration: none; font-size: 17px; }
 .tf-x { border: none; background: #fecaca; color: #b91c1c; border-radius: 50%; width: 16px; height: 16px; cursor: pointer; font-size: 11px; line-height: 1; margin-left: 2px; }
 .t-assignee { padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; max-width: 150px; }
-.t-actions { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
-.t-today { width: 60px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.t-actions { white-space: nowrap; display: flex; gap: 3px; align-items: center; }
+.t-today { width: 50px; padding: 5px 5px; border: 1px solid var(--line); border-radius: 6px; }
 .t-today-info { font-size: 11px; color: var(--ok); font-weight: 600; }
 .tasks-daily { background: #ecfeff; border: 1px solid #a5f3fc; color: #0f766e; padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
 .tasks-daily #who-change { margin-left: 10px; }
