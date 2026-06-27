@@ -1,14 +1,15 @@
 :root {
-  --bg: #f4f6f9;
+  --bg: #f1f5f9;
   --panel: #ffffff;
-  --ink: #1f2a37;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --brand: #1d4ed8;
-  --brand-dark: #1e40af;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --brand: #2563eb;
+  --brand-dark: #1d4ed8;
   --ok: #16a34a;
   --danger: #dc2626;
-  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 6px 16px rgba(16,24,40,.05);
 }
 
 * { box-sizing: border-box; }
@@ -48,10 +49,13 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", Roboto, system-ui, -apple-system, sans-serif;
+  font-family: "Segoe UI", system-ui, Roboto, -apple-system, "Helvetica Neue", Arial, sans-serif;
   background: var(--bg);
   color: var(--ink);
   font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Header */
@@ -654,3 +658,35 @@ input[type="date"] {
   .card { box-shadow: none; break-inside: avoid; border-color: #999; }
   body { background: #fff; font-size: 12px; }
 }
+
+/* ============================================================
+   Модерен изчистен вид (refresh v103)
+   ============================================================ */
+.btn { border-radius: 10px; box-shadow: 0 1px 1px rgba(16,24,40,.04); transition: background .15s, border-color .15s, box-shadow .15s, transform .03s; }
+.btn:hover { box-shadow: 0 2px 8px rgba(16,24,40,.10); }
+.btn:active { transform: translateY(1px); }
+.btn-small { border-radius: 8px; }
+
+/* Фокус върху полета — мек син ринг */
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(37,99,235,.16); }
+
+/* Таблици — по-изчистени заглавия и редове */
+.report-table { border-radius: 14px; }
+.report-table th, .tasks-table thead th { background: #f8fafc; color: #475569; font-weight: 600; }
+.report-table td, .tasks-table td { border-bottom-color: #eef2f6; }
+.report-table tbody tr:hover { background: rgba(37,99,235,.04); }
+.tasks-table tbody tr:hover td { background: rgba(37,99,235,.04); }
+
+/* По-меки, модерни цветове за статусите */
+.tasks-table tr.task-done td { background: #dcfce7; }
+.tasks-table tr.task-progress td { background: #fdf6e3; }
+.tasks-table tr.task-done:hover td { background: #cdf3da; }
+.tasks-table tr.task-progress:hover td { background: #faeecb; }
+
+/* Карти и наслагващи кутии — по-мека сянка */
+.card { box-shadow: 0 1px 2px rgba(16,24,40,.05); border-color: var(--line); }
+.overlay-box { box-shadow: 0 20px 50px rgba(16,24,40,.25); }
+
+/* Ленти за груповите действия и дневното обобщение — по-спокойни */
+.task-bulk { background: #fff7ed; border-color: #fed7aa; border-radius: 12px; }
+.tasks-daily { background: #ecfeff; border-color: #a5f3fc; border-radius: 12px; }
