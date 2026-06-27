@@ -56,6 +56,7 @@ let messagesSubscribed = false;
 let msgFilterTask = null;        // показвай само съобщения за тази задача
 let msgView = "active";   // регистър: "active" | "done" | "all"
 let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия при нов отговор/въпрос
+let timesFilter = { workshop: "", machine: "", worker: "" };   // филтри в „Времена“
 
 function dueSortVal(due) {
   const m = String(due || "").match(/(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/);
@@ -222,7 +223,7 @@ async function openTasks() {
 
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
@@ -260,6 +261,7 @@ function showSub(which) {
   document.getElementById("workers-view").hidden = which !== "workers";
   document.getElementById("report-view").hidden = which !== "report";
   const mv = document.getElementById("messages-view"); if (mv) mv.hidden = which !== "messages";
+  const tv = document.getElementById("times-view"); if (tv) tv.hidden = which !== "times";
 }
 
 /* ---------- Падащи менюта ---------- */
@@ -1226,6 +1228,99 @@ function subscribeMessages() {
     .subscribe();
 }
 
+/* ---------- Времена за изработка (само админи) ---------- */
+function fmtSecDur(obj) {
+  const s = obj && obj.sec;
+  if (!s) return "—";
+  if (s < 60) return s + " сек";
+  if (s < 3600) { const m = Math.floor(s / 60), r = s % 60; return r ? `${m} мин ${r} сек` : `${m} мин`; }
+  const h = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60);
+  return mm ? `${h} ч ${mm} мин` : `${h} ч`;
+}
+function fmtLogDate(d) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || "");
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || "");
+}
+function collectTimeRows() {
+  const rows = [];
+  TASKS.forEach(t => (t.logs || []).forEach(l => {
+    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder) return;   // само вписвания с време
+    rows.push({
+      date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
+      client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
+      worker: l.worker || "", qty: Number(l.qty) || 0,
+      tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder,
+    });
+  }));
+  return rows;
+}
+function toggleTimes() {
+  const v = document.getElementById("times-view");
+  if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
+  renderTimes();
+}
+function renderTimes() {
+  showSub("times");
+  const v = document.getElementById("times-view");
+  const all = collectTimeRows();
+  const uniq = key => [...new Set(all.map(r => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  const workshops = uniq("workshop"), machines = uniq("machine"), workers = uniq("worker");
+  const f = timesFilter;
+  const rows = all
+    .filter(r => (!f.workshop || r.workshop === f.workshop) && (!f.machine || r.machine === f.machine) && (!f.worker || r.worker === f.worker))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const opt = (val, sel) => `<option ${val === sel ? "selected" : ""}>${escapeHtml(val)}</option>`;
+  v.innerHTML = `
+    <div class="workers-head"><h3>⏱ Времена за изработка</h3>
+      <button id="times-back" class="btn btn-small">← Назад</button></div>
+    <div class="times-filters">
+      <label>Цех <select id="tf-ws"><option value="">Всички</option>${workshops.map(w => opt(w, f.workshop)).join("")}</select></label>
+      <label>Машина <select id="tf-m"><option value="">Всички</option>${machines.map(m => opt(m, f.machine)).join("")}</select></label>
+      <label>Служител <select id="tf-w"><option value="">Всички</option>${workers.map(w => opt(w, f.worker)).join("")}</select></label>
+      <span class="muted times-count">${rows.length} записа</span>
+      <button id="times-csv" class="btn btn-small">⤓ Експорт (Excel)</button>
+    </div>
+    <table class="report-table times-table">
+      <thead><tr>
+        <th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
+        <th class="num">Брой</th><th>1 брой</th><th>1 лист</th><th>Поръчка</th>
+      </tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${escapeHtml(fmtLogDate(r.date))}</td>
+        <td>${escapeHtml(r.workshop) || "—"}</td>
+        <td>${escapeHtml(r.machine) || "—"}</td>
+        <td>${r.client ? escapeHtml(r.client) : `<span class="serie">СЕРИЯ</span>`}</td>
+        <td>${escapeHtml(r.product) || "—"}${r.code ? `<div class="t-code">${escapeHtml(r.code)}</div>` : ""}</td>
+        <td>${escapeHtml(r.operation) || "—"}</td>
+        <td>${escapeHtml(r.worker) || "—"}</td>
+        <td class="num">${r.qty}</td>
+        <td>${escapeHtml(fmtSecDur(r.tPiece))}</td>
+        <td>${escapeHtml(fmtSecDur(r.tSheet))}</td>
+        <td>${escapeHtml(fmtSecDur(r.tOrder))}</td>
+      </tr>`).join("") || `<tr><td colspan="11" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
+    </table>`;
+  v.querySelector("#times-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
+  v.querySelector("#tf-ws").addEventListener("change", e => { timesFilter.workshop = e.target.value; renderTimes(); });
+  v.querySelector("#tf-m").addEventListener("change", e => { timesFilter.machine = e.target.value; renderTimes(); });
+  v.querySelector("#tf-w").addEventListener("change", e => { timesFilter.worker = e.target.value; renderTimes(); });
+  v.querySelector("#times-csv").addEventListener("click", () => exportTimesCsv(rows));
+}
+function exportTimesCsv(rows) {
+  const head = ["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "Време 1 брой (сек)", "Време 1 лист (сек)", "Време поръчка (сек)"];
+  const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
+  const lines = [head.map(esc).join(",")];
+  rows.forEach(r => lines.push([
+    fmtLogDate(r.date), r.workshop, r.machine, r.client, r.product, r.code, r.operation, r.worker, r.qty,
+    (r.tPiece && r.tPiece.sec) || "", (r.tSheet && r.tSheet.sec) || "", (r.tOrder && r.tOrder.sec) || "",
+  ].map(esc).join(",")));
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "vremena.csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 /* ---------- Инициализация ---------- */
 function tInit() {
   const btn = document.getElementById("btn-tasks");
@@ -1260,6 +1355,7 @@ function tInit() {
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
   document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
+  const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bmm = document.getElementById("btn-main-messages"); if (bmm) bmm.addEventListener("click", openMessagesFromMain);
 }

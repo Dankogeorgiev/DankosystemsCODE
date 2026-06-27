@@ -698,3 +698,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .pd-time { display: flex; gap: 6px; margin-top: 4px; }
 .pd-time input { flex: 1 1 auto; margin-top: 0 !important; }
 .pd-time select { flex: 0 0 84px; width: auto !important; margin-top: 0 !important; }
+
+/* Времена за изработка */
+.times-filters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 10px 0 12px; }
+.times-filters label { font-size: 13px; color: #475569; display: inline-flex; align-items: center; gap: 6px; }
+.times-filters select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.times-count { margin-left: auto; font-size: 13px; }
+.times-table { font-size: 13px; }
+.times-table th, .times-table td { padding: 8px 10px; white-space: nowrap; }
+.times-table td .t-code { font-size: 11px; color: var(--muted); }
