@@ -56,7 +56,23 @@ function dueSortVal(due) {
   let [, d, mo, y] = m; if (y.length === 2) y = "20" + y;
   return Number(y) * 10000 + Number(mo) * 100 + Number(d);
 }
+// Приоритет на задачите: 0 = нормален, 1 = висок, 2 = спешно
+const TASK_PRIORITIES = [
+  { v: 0, icon: "☆", badge: "", label: "Нормален", cls: "" },
+  { v: 1, icon: "🟠", badge: "🟠", label: "Висок", cls: "prio-high" },
+  { v: 2, icon: "🔴", badge: "🔴", label: "Спешно", cls: "prio-urgent" },
+];
+function priLevel(t) { const n = Number(t && t.priority) || 0; return n < 0 ? 0 : (n > 2 ? 2 : n); }
+function priInfo(t) { return TASK_PRIORITIES[priLevel(t)] || TASK_PRIORITIES[0]; }
+async function cyclePriority(t) {
+  if (amWorker()) return;
+  t.priority = (priLevel(t) + 1) % 3;   // Нормален → Висок → Спешно → Нормален
+  await tSaveTask(t);
+  renderTasks();
+}
+
 const SORT_KEYS = {
+  priority: t => priLevel(t),
   client: t => (t.client || "").toLowerCase(),
   product: t => (t.product || "").toLowerCase(),
   files: t => (t.files || []).length,
@@ -316,15 +332,20 @@ function renderTasks() {
     return true;
   });
 
-  if (sortState.key && SORT_KEYS[sortState.key]) {
-    const f = SORT_KEYS[sortState.key];
-    rows.sort((a, b) => {
-      const va = f(a), vb = f(b);
-      if (va < vb) return -1 * sortState.dir;
-      if (va > vb) return 1 * sortState.dir;
-      return 0;
-    });
-  }
+  // Приоритетните задачи винаги изплуват най-горе; в рамките на еднакъв приоритет —
+  // по избраната колона (по подразбиране по срок).
+  const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
+  const f = SORT_KEYS[selKey];
+  rows.sort((a, b) => {
+    if (selKey !== "priority") {
+      const pa = priLevel(a), pb = priLevel(b);
+      if (pa !== pb) return pb - pa;
+    }
+    const va = f(a), vb = f(b);
+    if (va < vb) return -1 * sortState.dir;
+    if (va > vb) return 1 * sortState.dir;
+    return 0;
+  });
   updateSortIndicators();
 
   document.getElementById("tasks-empty").hidden = rows.length > 0;
@@ -358,9 +379,15 @@ function renderTasks() {
       .concat(wsWorkers.map(n => `<option ${n === t.assignee ? "selected" : ""}>${escapeHtml(n)}</option>`));
     if (t.assignee && !wsWorkers.includes(t.assignee)) opts.push(`<option selected>${escapeHtml(t.assignee)}</option>`);
 
+    const pi = priInfo(t);
+    const prioCell = amWorker()
+      ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
+      : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
+
     const tr = document.createElement("tr");
-    tr.className = "task-" + st;
+    tr.className = "task-" + st + (pi.cls ? " " + pi.cls : "");
     tr.innerHTML = `
+      ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
       <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
@@ -402,6 +429,7 @@ function renderTasks() {
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
     const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
+    const prio = tr.querySelector(".t-prio"); if (prio) prio.addEventListener("click", () => cyclePriority(t));
     tbody.appendChild(tr);
   });
 

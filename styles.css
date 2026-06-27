@@ -188,6 +188,15 @@ body {
 .msg-tab:hover { background: #f1f5f9; }
 .msg-tab.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
 .msg-hint { font-size: 12.5px; color: var(--muted, #64748b); margin: 6px 0 2px; }
+
+/* ---------- Приоритет на задачите ---------- */
+.t-prio-cell { text-align: center; }
+.t-prio { background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; border-radius: 6px; }
+.t-prio:hover { background: #f1f5f9; transform: scale(1.12); }
+.t-prio-badge { font-size: 16px; }
+.t-prio-cell.prio-urgent { box-shadow: inset 4px 0 0 #dc2626; }
+.t-prio-cell.prio-high { box-shadow: inset 4px 0 0 #f59e0b; }
+tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .msg-to { font-size: 12px; color: #1d4ed8; background: #eef4ff; padding: 1px 7px; border-radius: 9px; }
 
 /* Диалог за нов въпрос */
