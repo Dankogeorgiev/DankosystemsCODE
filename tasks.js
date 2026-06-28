@@ -47,6 +47,7 @@ const FIELDS_BY_WORKER = {
         timeFields: [
           { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
           { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+          { key: "tSetup", label: "Време за настройка (спомагателно)", unit: "min" },
         ],
       },
       "Сглобяване": {
@@ -1489,7 +1490,7 @@ function collectTimeRows() {
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
       client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
       worker: l.worker || "", qty: Number(l.qty) || 0,
-      tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder,
+      tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder, tSetup: l.tSetup,
       notes: logNotes(l),
     });
   }));
@@ -1524,7 +1525,7 @@ function renderTimes() {
     <table class="report-table times-table">
       <thead><tr>
         <th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
-        <th class="num">Брой</th><th>1 брой</th><th>1 лист</th><th>Кол-во/поръчка</th><th>Бележки</th>
+        <th class="num">Брой</th><th>1 брой</th><th>1 лист</th><th>Кол-во/поръчка</th><th>Настройка</th><th>Бележки</th>
       </tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${escapeHtml(fmtLogDate(r.date))}</td>
@@ -1538,8 +1539,9 @@ function renderTimes() {
         <td>${escapeHtml(fmtSecDur(r.tPiece))}</td>
         <td>${escapeHtml(fmtSecDur(r.tSheet))}</td>
         <td>${escapeHtml(fmtSecDur(r.tOrder))}</td>
+        <td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
         <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
-      </tr>`).join("") || `<tr><td colspan="12" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
     </table>`;
   v.querySelector("#times-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#tf-ws").addEventListener("change", e => { timesFilter.workshop = e.target.value; renderTimes(); });
@@ -1548,12 +1550,12 @@ function renderTimes() {
   v.querySelector("#times-csv").addEventListener("click", () => exportTimesCsv(rows));
 }
 function exportTimesCsv(rows) {
-  const head = ["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "Време 1 брой (сек)", "Време 1 лист (сек)", "Време кол-во/поръчка (сек)", "Бележки"];
+  const head = ["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "Време 1 брой (сек)", "Време 1 лист (сек)", "Време кол-во/поръчка (сек)", "Настройка (сек)", "Бележки"];
   const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
   const lines = [head.map(esc).join(",")];
   rows.forEach(r => lines.push([
     fmtLogDate(r.date), r.workshop, r.machine, r.client, r.product, r.code, r.operation, r.worker, r.qty,
-    (r.tPiece && r.tPiece.sec) || "", (r.tSheet && r.tSheet.sec) || "", (r.tOrder && r.tOrder.sec) || "", r.notes || "",
+    (r.tPiece && r.tPiece.sec) || "", (r.tSheet && r.tSheet.sec) || "", (r.tOrder && r.tOrder.sec) || "", (r.tSetup && r.tSetup.sec) || "", r.notes || "",
   ].map(esc).join(",")));
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
