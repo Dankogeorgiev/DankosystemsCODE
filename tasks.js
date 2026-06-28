@@ -74,6 +74,7 @@ let MESSAGES = [];               // вътрешни съобщения служ
 let messagesSubscribed = false;
 let msgFilterTask = null;        // показвай само съобщения за тази задача
 let msgView = "active";   // регистър: "active" | "done" | "all"
+let msgType = "question"; // раздел: "question" | "supply" (поръчки за снабдяване)
 let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия при нов отговор/въпрос
 let timesFilter = { workshop: "", machine: "", worker: "" };   // филтри в „Времена“
 
@@ -963,16 +964,33 @@ function taskQuestionCell(t) {
   return askBtn + (askBtn && viewBtn ? " " : "") + viewBtn;
 }
 
-function mUnreadCount() {
-  if (amWorker()) return MESSAGES.filter(m => m.fromName === MY_WORKER && m.seenByWorker === false).length;
-  return MESSAGES.filter(m => msgVisibleToMe(m) && m.seenByAdmin === false && m.status !== "closed").length;
+function msgIsSupply(m) { return (m.type || "question") === "supply"; }
+// Брои отделно въпросите (q) и поръчките за снабдяване (s), които изискват внимание
+function msgCounts() {
+  const isW = amWorker();
+  let q = 0, s = 0;
+  MESSAGES.forEach(m => {
+    if (!msgVisibleToMe(m)) return;
+    const supply = msgIsSupply(m);
+    if (isW) {
+      if (m.fromName !== MY_WORKER) return;
+      if (m.seenByWorker === false) { if (supply) s++; else q++; }
+    } else if (supply) {
+      if (m.status !== "closed" && !m.acceptedBy) s++;   // поръчки, които чакат приемане
+    } else {
+      if (m.seenByAdmin === false && m.status !== "closed") q++;
+    }
+  });
+  return { q, s };
 }
 function mUpdateBadge() {
-  const n = mUnreadCount();
+  const { q, s } = msgCounts();
   ["msg-badge", "msg-badge-main"].forEach(id => {
     const b = document.getElementById(id);
-    if (b) { b.textContent = n; b.hidden = n === 0; }
+    if (b) { b.textContent = q; b.hidden = q === 0; }
   });
+  const sb2 = document.getElementById("supply-badge");
+  if (sb2) { sb2.textContent = s; sb2.hidden = s === 0; }
 }
 // Зарежда съобщенията и пуска реалтайм, за да работи балончето на основния екран (за админи)
 async function ensureMessagesBadge() {
@@ -988,14 +1006,17 @@ async function ensureMessagesBadge() {
 // Отваря модула направо на изгледа „Съобщения“ (от бутона на основния екран)
 async function openMessagesFromMain() {
   await openTasks();
-  msgFilterTask = null;
+  msgType = "question"; msgFilterTask = null; msgView = "active";
   renderMessages();
   markMessagesSeen();
 }
 async function markMessagesSeen() {
-  const toMark = amWorker()
-    ? MESSAGES.filter(m => m.fromName === MY_WORKER && m.seenByWorker === false)
-    : MESSAGES.filter(m => msgVisibleToMe(m) && m.seenByAdmin === false);
+  const toMark = MESSAGES.filter(m => {
+    if (!msgVisibleToMe(m)) return false;
+    if (msgIsSupply(m) !== (msgType === "supply")) return false;   // само текущия раздел
+    if (amWorker()) return m.fromName === MY_WORKER && m.seenByWorker === false;
+    return m.seenByAdmin === false;
+  });
   for (const m of toMark) {
     if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true;
     await mUpdate(m);
@@ -1094,12 +1115,99 @@ async function mResolve(m, close) {
 
 function openMessages() {
   const v = document.getElementById("messages-view");
-  if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  msgFilterTask = null;
+  if (!v.hidden && msgType === "question") { showSub("tasks"); renderTasks(); return; }
+  msgType = "question"; msgFilterTask = null; msgView = "active";
   renderMessages();
   markMessagesSeen();
 }
+function openSupply() {
+  const v = document.getElementById("messages-view");
+  if (!v.hidden && msgType === "supply") { showSub("tasks"); renderTasks(); return; }
+  msgType = "supply"; msgFilterTask = null; msgView = "active";
+  renderMessages();
+  markMessagesSeen();
+}
+async function mAccept(m) {
+  if (amWorker()) return;
+  m.acceptedBy = { name: msgMyName(), email: msgMyEmail(), at: new Date().toISOString() };
+  m.seenByWorker = false;   // служителят вижда, че е приета
+  await mUpdate(m);
+  mUpdateBadge(); renderMessages();
+}
+function openSupplyForm() {
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>📦 Нова поръчка за снабдяване</h3>
+      <p class="muted" style="margin:2px 0 8px">Опиши какви консумативи или материали са нужни. Поръчката отива до администраторите.</p>
+      <label>Какво е необходимо *<textarea id="sp-text" rows="5" placeholder="Напр.: 10 бр. фрези Ø6 за CNC; 2 листа ламарина 2 мм; ..."></textarea></label>
+      <div class="ask-actions">
+        <button id="sp-send" class="btn btn-primary">Изпрати поръчката</button>
+        <button id="sp-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#sp-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#sp-send").addEventListener("click", async () => {
+    const text = (wrap.querySelector("#sp-text").value || "").trim();
+    if (!text) { alert("Опиши какво ти трябва."); return; }
+    close();
+    const now = new Date().toISOString();
+    const m = {
+      type: "supply", from: "worker", fromName: msgMyName(), fromEmail: msgMyEmail(),
+      workshop: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.workshop) || "",
+      taskId: null, taskRef: "", text, status: "open", acceptedBy: null, replies: [],
+      seenByAdmin: false, seenByWorker: true, createdAt: now, updatedAt: now,
+    };
+    const rec = await mInsert(m);
+    if (rec) {
+      msgNotifyState = snapshotNotify();
+      alert("Поръчката за снабдяване е изпратена до администраторите. ✅");
+      msgType = "supply"; mUpdateBadge();
+      if (!document.getElementById("messages-view").hidden) renderMessages();
+    }
+  });
+  setTimeout(() => { const ta = wrap.querySelector("#sp-text"); if (ta) ta.focus(); }, 50);
+}
+function msgRepliesHtml(m) {
+  return (m.replies || []).map(r =>
+    `<div class="msg-reply ${r.by === "admin" ? "from-admin" : "from-worker"}">
+       <div class="msg-meta"><strong>${escapeHtml(r.name || "")}</strong> · ${escapeHtml(msgFmtTime(r.at))}</div>
+       <div class="msg-text">${escapeHtml(r.text || "").replace(/\n/g, "<br>")}</div>
+     </div>`).join("");
+}
+function supplyCardHtml(m) {
+  const closed = m.status === "closed";
+  const isAdmin = !amWorker();
+  const acc = m.acceptedBy;
+  const replies = msgRepliesHtml(m);
+  return `<div class="msg-card supply ${closed ? "closed" : (acc ? "accepted" : "unaccepted")}" data-id="${m.id}">
+    <div class="msg-head">
+      <div class="msg-who"><span class="msg-from">${escapeHtml(m.fromName || "")}</span>${m.workshop ? ` <span class="msg-ws">${escapeHtml(m.workshop)}</span>` : ""}</div>
+      <div class="msg-date">${escapeHtml(msgFmtTime(m.createdAt))}${closed ? ' · <span class="msg-done">изпълнена ✓</span>' : ""}</div>
+    </div>
+    <div class="msg-q">${escapeHtml(m.text || "").replace(/\n/g, "<br>")}</div>
+    ${acc
+      ? `<div class="supply-acc">✅ Приета от <b>${escapeHtml(acc.name || "")}</b> · ${escapeHtml(msgFmtTime(acc.at))}</div>`
+      : `<div class="supply-wait">⏳ Чака приемане</div>`}
+    ${replies ? `<div class="msg-replies">${replies}</div>` : ""}
+    ${closed
+      ? (isAdmin ? `<div class="msg-actions-row"><button class="btn btn-small msg-reopen">↻ Отвори пак</button></div>` : "")
+      : `<div class="msg-actions">
+           ${isAdmin && !acc ? `<button class="btn btn-small btn-primary msg-accept">✅ Приеми (поемам отговорност)</button>` : ""}
+           <textarea class="msg-reply-in" rows="2" placeholder="Коментар..."></textarea>
+           <div class="msg-actions-row">
+             <button class="btn btn-small msg-send">Коментар</button>
+             ${isAdmin ? '<button class="btn btn-small msg-resolve">✓ Изпълнена</button>' : ""}
+           </div>
+         </div>`}
+  </div>`;
+}
 function msgCardHtml(m) {
+  if (msgIsSupply(m)) return supplyCardHtml(m);
   const replies = (m.replies || []).map(r =>
     `<div class="msg-reply ${r.by === "admin" ? "from-admin" : "from-worker"}">
        <div class="msg-meta"><strong>${escapeHtml(r.name || "")}</strong> · ${escapeHtml(msgFmtTime(r.at))}</div>
@@ -1130,8 +1238,13 @@ function renderMessages() {
   showSub("messages");
   const v = document.getElementById("messages-view");
   const isW = amWorker();
-  let base = MESSAGES.filter(msgVisibleToMe);
-  if (msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
+  const supplyMode = msgType === "supply";
+  const visible = MESSAGES.filter(msgVisibleToMe);
+  const cntQ = visible.filter(m => !msgIsSupply(m) && m.status !== "closed").length;
+  const cntS = visible.filter(m => msgIsSupply(m) && m.status !== "closed").length;
+
+  let base = visible.filter(m => msgIsSupply(m) === supplyMode);
+  if (!supplyMode && msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
   const nActive = base.filter(m => m.status !== "closed").length;
   const nDone = base.filter(m => m.status === "closed").length;
   let list = base.slice();
@@ -1140,29 +1253,39 @@ function renderMessages() {
   list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
 
   const tab = (key, label, n) => `<button class="msg-tab ${msgView === key ? "active" : ""}" data-view="${key}">${label} (${n})</button>`;
-  const emptyText = msgView === "done"
-    ? "Все още няма приключени съобщения."
-    : (msgView === "active" ? "Няма активни съобщения." : "Няма съобщения.");
+  const ttab = (ty, label, n) => `<button class="msg-ttab ${msgType === ty ? "active" : ""}" data-type="${ty}">${label}${n ? ` <span class="ttab-n">${n}</span>` : ""}</button>`;
+  const emptyText = supplyMode
+    ? (msgView === "done" ? "Няма изпълнени поръчки." : "Няма поръчки за снабдяване.")
+    : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
+  const newBtn = supplyMode
+    ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова поръчка</button>'
+    : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
 
   v.innerHTML = `
     <div class="workers-head">
-      <h3>📨 Регистър на съобщенията${msgFilterTask ? " · по задача" : ""}</h3>
-      ${msgFilterTask ? '<button id="msg-clear-filter" class="btn btn-small">Всички задачи</button>' : ""}
-      ${isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : ""}
+      <h3>${supplyMode ? "📦 Поръчки за снабдяване" : "📨 Регистър на съобщенията"}${(!supplyMode && msgFilterTask) ? " · по задача" : ""}</h3>
+      ${(!supplyMode && msgFilterTask) ? '<button id="msg-clear-filter" class="btn btn-small">Всички задачи</button>' : ""}
+      ${newBtn}
       <button id="msg-back" class="btn btn-small">← Назад</button>
     </div>
+    <div class="msg-typetabs">
+      ${ttab("question", "❓ Въпроси", cntQ)}
+      ${ttab("supply", "📦 Поръчки за снабдяване", cntS)}
+    </div>
     <div class="msg-tabs">
-      ${tab("active", "Активни", nActive)}
+      ${tab("active", supplyMode ? "Чакащи" : "Активни", nActive)}
       ${tab("done", "✓ Изпълнени", nDone)}
       ${tab("all", "Всички", nActive + nDone)}
     </div>
-    ${msgView === "done" ? '<p class="msg-hint">История на приключената комуникация — целият разговор се пази.</p>' : ""}
+    ${(supplyMode && msgView === "active") ? '<p class="msg-hint">Поръчката стои отворена, докато някой админ я приеме. Който я приеме — носи отговорността.</p>' : ""}
+    ${(msgView === "done") ? '<p class="msg-hint">История — целият разговор се пази.</p>' : ""}
     <div class="msg-list">${list.map(msgCardHtml).join("") || `<p class="report-empty">${emptyText}</p>`}</div>`;
 
   v.querySelector("#msg-back").addEventListener("click", () => { msgFilterTask = null; showSub("tasks"); renderTasks(); });
   const cf = v.querySelector("#msg-clear-filter"); if (cf) cf.addEventListener("click", () => { msgFilterTask = null; renderMessages(); });
   v.querySelectorAll(".msg-tab").forEach(b => b.addEventListener("click", () => { msgView = b.dataset.view; renderMessages(); }));
-  const nw = v.querySelector("#msg-new"); if (nw) nw.addEventListener("click", askGeneralQuestion);
+  v.querySelectorAll(".msg-ttab").forEach(b => b.addEventListener("click", () => { msgType = b.dataset.type; msgView = "active"; msgFilterTask = null; renderMessages(); markMessagesSeen(); }));
+  const nw = v.querySelector("#msg-new"); if (nw) nw.addEventListener("click", supplyMode ? openSupplyForm : askGeneralQuestion);
 
   v.querySelectorAll(".msg-card").forEach(card => {
     const m = MESSAGES.find(x => x.id === card.dataset.id); if (!m) return;
@@ -1170,6 +1293,7 @@ function renderMessages() {
     if (send) send.addEventListener("click", () => { const ta = card.querySelector(".msg-reply-in"); mReply(m, ta.value); });
     const res = card.querySelector(".msg-resolve"); if (res) res.addEventListener("click", () => mResolve(m, true));
     const reo = card.querySelector(".msg-reopen"); if (reo) reo.addEventListener("click", () => mResolve(m, false));
+    const acc = card.querySelector(".msg-accept"); if (acc) acc.addEventListener("click", () => mAccept(m));
   });
 }
 /* ---------- Известия (notifications) ---------- */
@@ -1230,7 +1354,7 @@ function detectAndNotify(before) {
     MESSAGES.forEach(m => {
       if (!msgVisibleToMe(m)) return;
       if (m.from === "worker" && !had.has(m.id)) {
-        const title = "📨 Нов въпрос от " + (m.fromName || "служител");
+        const title = (msgIsSupply(m) ? "📦 Нова поръчка за снабдяване от " : "📨 Нов въпрос от ") + (m.fromName || "служител");
         fireBrowserNotification(title, (m.taskRef ? m.taskRef + "\n" : "") + (m.text || ""));
         showToast(title + " — натисни тук, за да видиш.");
       }
@@ -1386,6 +1510,7 @@ function tInit() {
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
+  const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
   const bmm = document.getElementById("btn-main-messages"); if (bmm) bmm.addEventListener("click", openMessagesFromMain);
 }
 document.addEventListener("DOMContentLoaded", tInit);

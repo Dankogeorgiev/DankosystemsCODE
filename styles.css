@@ -708,3 +708,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .times-table th, .times-table td { padding: 8px 10px; white-space: nowrap; }
 .times-table td .t-code { font-size: 11px; color: var(--muted); }
 .times-table .times-cons { white-space: normal; min-width: 160px; max-width: 240px; }
+
+/* Поръчки за снабдяване / тип-раздели в съобщенията */
+.msg-typetabs { display: flex; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap; }
+.msg-ttab { border: 1px solid var(--line); background: #fff; color: #334155; border-radius: 10px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.msg-ttab:hover { background: #f1f5f9; }
+.msg-ttab.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+.ttab-n { display: inline-block; min-width: 16px; text-align: center; background: #dc2626; color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+.msg-card.supply { border-left-color: #ea580c; }
+.msg-card.supply.unaccepted { background: #fff7ed; }
+.supply-wait { color: #c2410c; font-weight: 700; font-size: 13px; margin: 8px 0; }
+.supply-acc { color: #166534; font-weight: 600; font-size: 13px; margin: 8px 0; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 6px 10px; }
