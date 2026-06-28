@@ -438,6 +438,9 @@ function renderTasks() {
     if (t.assignee && !wsWorkers.includes(t.assignee)) opts.push(`<option selected>${escapeHtml(t.assignee)}</option>`);
 
     const pi = priInfo(t);
+    // Цеховете/служителите с Отчетен прозорец нямат нужда от инлайн поле „днес“ (бройката се въвежда в прозореца)
+    const rowWho = MY_WORKER || t.assignee || "";
+    const usesDialog = WORKSHOPS_WITH_TIME.includes(t.workshop) || (FIELDS_BY_WORKER && FIELDS_BY_WORKER[rowWho]);
     const prioCell = amWorker()
       ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
       : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
@@ -459,7 +462,7 @@ function renderTasks() {
         : `<td data-label="Отговорник"><select class="t-assignee">${opts.join("")}</select></td>`}
       <td class="t-q" data-label="Въпрос">${taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
-        <input type="number" class="t-today" min="0" placeholder="днес" />
+        ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
         ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
@@ -480,14 +483,12 @@ function renderTasks() {
       const c = document.getElementById("bulk-count"); if (c) c.textContent = selectedTasks.size;
     });
     const input = tr.querySelector(".t-today");
-    const whoNow = MY_WORKER || t.assignee || "";
     const submit = () => {
-      if (WORKSHOPS_WITH_TIME.includes(t.workshop) || (FIELDS_BY_WORKER && FIELDS_BY_WORKER[whoNow]))
-        openProductionDialog(t, input.value);
-      else logProduction(t, input.value);
+      if (usesDialog) openProductionDialog(t, input ? input.value : "");
+      else logProduction(t, input ? input.value : "");
     };
     tr.querySelector(".t-add").addEventListener("click", submit);
-    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+    if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
