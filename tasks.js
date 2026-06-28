@@ -57,6 +57,14 @@ const FIELDS_BY_WORKER = {
       // CNC цех — ползва стандартните CNC машини/полета
     },
   },
+  "Кръстьо Средев": {
+    machines: ["Щанца DURMA"],
+    countFields: [{ key: "sheets", label: "Брой насечени листи" }],
+    qtyLabel: "Брой детайли",
+    timeFields: [
+      { key: "tSetup", label: "Време за пренастройка", unit: "min" },
+    ],
+  },
 };
 
 // Свързване на старите имена (от ERP/предишни версии) към текущите цехове.
@@ -614,11 +622,15 @@ function openProductionDialog(t, qtyPrefill) {
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
     { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
   ];
+  const qtyLabel = wcfg.qtyLabel || "Брой произведени сега";
+  const countFields = wcfg.countFields || [];   // допълнителни бройки (напр. насечени листи)
   const extraFields = (wcfg.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
   // „Специфична работа“ — поле за всеки служител (за гъвкавост при местене между цехове)
   if (!extraFields.some(f => f.key === "specific")) {
     extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
   }
+  const countRow = (f) => `
+    <label>${escapeHtml(f.label)} *<input id="pd-c-${f.key}" type="number" min="0" step="1" inputmode="numeric" placeholder="0" /></label>`;
   const timeRow = (f) => `
     <label>${escapeHtml(f.label)}
       <span class="pd-time">
@@ -645,7 +657,8 @@ function openProductionDialog(t, qtyPrefill) {
         ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
       </div>
       ${machineField ? `<label>Машина *${machineField}</label>` : ""}
-      <label>Брой произведени сега *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
+      ${countFields.map(countRow).join("")}
+      <label>${escapeHtml(qtyLabel)} *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
       ${fields.length ? `<p class="pd-hint">⏱ Попълни поне едно от времената (другите може да оставиш празни):</p>` : ""}
       ${fields.map(timeRow).join("")}
       ${extraFields.map(textRow).join("")}
@@ -663,9 +676,15 @@ function openProductionDialog(t, qtyPrefill) {
     const machine = (mEl && mEl.value || "").trim();
     const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
     if (mEl && !machine) { alert("Избери машина."); return; }
-    if (!qty || qty <= 0) { alert("Въведи брой произведени."); return; }
+    if (!qty || qty <= 0) { alert("Въведи " + qtyLabel.toLowerCase() + "."); return; }
     const extra = {};
     if (machine) extra.machine = machine;
+    // Допълнителни бройки (напр. насечени листи) — задължителни
+    for (const f of countFields) {
+      const cv = Number(String(wrap.querySelector("#pd-c-" + f.key).value).replace(",", "."));
+      if (!cv || cv <= 0) { alert("Въведи „" + f.label + "“."); return; }
+      extra[f.key] = cv;
+    }
     // Времената: попълва се поне едно; празните се пропускат (0 е позволено = празно).
     let timeCount = 0;
     for (const f of fields) {
@@ -1492,6 +1511,7 @@ function fmtLogDate(d) {
 }
 function logNotes(l) {
   const parts = [];
+  if (l.sheets) parts.push("Насечени листи: " + l.sheets);
   if (l.consumables) parts.push("Консумативи: " + l.consumables);
   if (l.assemblyNote) parts.push("Сглобено: " + l.assemblyNote);
   if (l.specific) parts.push("Специфично: " + l.specific);
@@ -1501,7 +1521,7 @@ function collectTimeRows() {
   const rows = [];
   TASKS.forEach(t => (t.logs || []).forEach(l => {
     // включваме всяко вписване, направено през Отчетния прозорец (с машина, време или бележка)
-    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.consumables && !l.specific && !l.assemblyNote) return;
+    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.tSetup && !l.sheets && !l.consumables && !l.specific && !l.assemblyNote) return;
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
       client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
