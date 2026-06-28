@@ -27,8 +27,20 @@ const EXTRA_FIELDS_BY_WORKSHOP = {
     { key: "consumables", label: "Изразходени консумативи (опиши — напр. счупени фрези)", required: false },
   ],
 };
-// Цехове, за които при „Запиши“ изскача прозорецът за машина + времена
+// Цехове, за които при „Запиши“ изскача Отчетният прозорец (по подразбиране)
 const WORKSHOPS_WITH_TIME = ["Лазери", "CNC цех"];
+
+// Персонален „Отчетен прозорец“ по СЛУЖИТЕЛ (има предимство пред цеха).
+// Ключ = точното име на служителя. Може да задаваш само това, което се различава
+// (machines / timeFields / extraFields). Празните полета падат към настройката на цеха.
+// Пример:
+//   "Иво Бончев": {
+//     machines: ["Преса 1", "Преса 2"],
+//     timeFields: [{ key:"tPiece", label:"Време за 1 брой", unit:"sec" }],
+//     extraFields: [{ key:"consumables", label:"Изразходени консумативи", required:false }],
+//   },
+const FIELDS_BY_WORKER = {
+};
 
 // Свързване на старите имена (от ERP/предишни версии) към текущите цехове.
 const WORKSHOP_RENAME = {
@@ -451,8 +463,10 @@ function renderTasks() {
       const c = document.getElementById("bulk-count"); if (c) c.textContent = selectedTasks.size;
     });
     const input = tr.querySelector(".t-today");
+    const whoNow = MY_WORKER || t.assignee || "";
     const submit = () => {
-      if (WORKSHOPS_WITH_TIME.includes(t.workshop)) openProductionDialog(t, input.value);
+      if (WORKSHOPS_WITH_TIME.includes(t.workshop) || (FIELDS_BY_WORKER && FIELDS_BY_WORKER[whoNow]))
+        openProductionDialog(t, input.value);
       else logProduction(t, input.value);
     };
     tr.querySelector(".t-add").addEventListener("click", submit);
@@ -553,15 +567,18 @@ async function logProduction(t, qtyVal, extra) {
 
 // Задължителен прозорец за машина + времена (за цеховете в WORKSHOPS_WITH_TIME)
 function openProductionDialog(t, qtyPrefill) {
-  const machines = MACHINES_BY_WORKSHOP[t.workshop] || null;
+  // Персонален Отчетен прозорец (по служител) има предимство пред настройката на цеха.
+  const wname = MY_WORKER || t.assignee || "";
+  const wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
+  const machines = wcfg.machines || MACHINES_BY_WORKSHOP[t.workshop] || null;
   const machineField = machines
     ? `<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select>`
     : `<input id="pd-machine" type="text" placeholder="На коя машина работи?" />`;
-  const fields = TIME_FIELDS_BY_WORKSHOP[t.workshop] || [
+  const fields = wcfg.timeFields || TIME_FIELDS_BY_WORKSHOP[t.workshop] || [
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
     { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
   ];
-  const extraFields = EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || [];
+  const extraFields = wcfg.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || [];
   const timeRow = (f) => `
     <label>${escapeHtml(f.label)} *
       <span class="pd-time">
