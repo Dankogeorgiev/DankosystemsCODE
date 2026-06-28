@@ -996,6 +996,7 @@ function isOwnerAdmin() {
 // При въпрос „→ Име“ се вижда за кого е основно, но всеки админ може да го отвори/отговори.
 function msgVisibleToMe(m) {
   if (amWorker()) return m.fromName === MY_WORKER;
+  if ((m.type || "") === "idea") return isOwnerAdmin();   // Идеи и Препоръки — само за Данко
   return true;
 }
 function msgFmtTime(iso) {
@@ -1048,20 +1049,22 @@ function msgIsSupply(m) { return (m.type || "question") === "supply"; }
 // Брои отделно въпросите (q) и поръчките за снабдяване (s), които изискват внимание
 function msgCounts() {
   const isW = amWorker();
-  let q = 0, s = 0;
+  let q = 0, s = 0, i = 0;
   MESSAGES.forEach(m => {
     if (!msgVisibleToMe(m)) return;
-    const supply = msgIsSupply(m);
+    const k = m.type || "question";
     if (isW) {
       if (m.fromName !== MY_WORKER) return;
-      if (m.seenByWorker === false) { if (supply) s++; else q++; }
-    } else if (supply) {
+      if (m.seenByWorker === false) { if (k === "supply") s++; else if (k === "idea") i++; else q++; }
+    } else if (k === "supply") {
       if (m.status !== "closed" && !m.acceptedBy) s++;   // поръчки, които чакат приемане
+    } else if (k === "idea") {
+      if (m.status !== "closed" && m.seenByAdmin === false) i++;
     } else {
       if (m.seenByAdmin === false && m.status !== "closed") q++;
     }
   });
-  return { q, s };
+  return { q, s, i };
 }
 // Фирмено броене — всички админи виждат еднакво, независимо до кого е съобщението.
 // Въпрос „чака внимание“ = отворен и още без отговор от админ; поръчка = отворена и неприета.
@@ -1079,10 +1082,11 @@ function companyOpenCount() {
   return { q, s, total: q + s };
 }
 function mUpdateBadge() {
-  const { q, s } = msgCounts();
+  const { q, s, i } = msgCounts();
   const isAdmin = typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.isAdmin;
   const mb = document.getElementById("msg-badge"); if (mb) { mb.textContent = q; mb.hidden = q === 0; }
   const sb2 = document.getElementById("supply-badge"); if (sb2) { sb2.textContent = s; sb2.hidden = s === 0; }
+  const ib = document.getElementById("ideas-badge"); if (ib) { ib.textContent = i; ib.hidden = i === 0; }
 
   const co = companyOpenCount();
   const mbm = document.getElementById("msg-badge-main");
@@ -1130,7 +1134,7 @@ async function openMessagesFromMain() {
 async function markMessagesSeen() {
   const toMark = MESSAGES.filter(m => {
     if (!msgVisibleToMe(m)) return false;
-    if (msgIsSupply(m) !== (msgType === "supply")) return false;   // само текущия раздел
+    if ((m.type || "question") !== msgType) return false;   // само текущия раздел
     if (amWorker()) return m.fromName === MY_WORKER && m.seenByWorker === false;
     return m.seenByAdmin === false;
   });
@@ -1244,6 +1248,52 @@ function openSupply() {
   renderMessages();
   markMessagesSeen();
 }
+function openIdeas() {
+  const v = document.getElementById("messages-view");
+  if (!v.hidden && msgType === "idea") { showSub("tasks"); renderTasks(); return; }
+  msgType = "idea"; msgFilterTask = null; msgView = "active";
+  renderMessages();
+  markMessagesSeen();
+}
+function openIdeaForm() {
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>💡 Нова идея / препоръка</h3>
+      <p class="muted" style="margin:2px 0 8px">Сподели идея или препоръка как да подобрим работата. Отива лично до Данко Георгиев.</p>
+      <label>Твоята идея *<textarea id="id-text" rows="5" placeholder="Опиши идеята/препоръката си..."></textarea></label>
+      <div class="ask-actions">
+        <button id="id-send" class="btn btn-primary">Изпрати</button>
+        <button id="id-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#id-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#id-send").addEventListener("click", async () => {
+    const text = (wrap.querySelector("#id-text").value || "").trim();
+    if (!text) { alert("Напиши идеята си."); return; }
+    close();
+    const now = new Date().toISOString();
+    const m = {
+      type: "idea", from: "worker", fromName: msgMyName(), fromEmail: msgMyEmail(),
+      workshop: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.workshop) || "",
+      toEmail: "dankog@gmail.com", toName: "Данко Георгиев",
+      taskId: null, taskRef: "", text, status: "open", replies: [],
+      seenByAdmin: false, seenByWorker: true, createdAt: now, updatedAt: now,
+    };
+    const rec = await mInsert(m);
+    if (rec) {
+      msgNotifyState = snapshotNotify();
+      alert("Идеята ти е изпратена до Данко. Благодарим! 💡");
+      msgType = "idea"; mUpdateBadge();
+      if (!document.getElementById("messages-view").hidden) renderMessages();
+    }
+  });
+  setTimeout(() => { const ta = wrap.querySelector("#id-text"); if (ta) ta.focus(); }, 50);
+}
 async function mAccept(m) {
   if (amWorker()) return;
   m.acceptedBy = { name: msgMyName(), email: msgMyEmail(), at: new Date().toISOString() };
@@ -1355,13 +1405,17 @@ function renderMessages() {
   showSub("messages");
   const v = document.getElementById("messages-view");
   const isW = amWorker();
+  const kindOf = m => m.type || "question";
   const supplyMode = msgType === "supply";
+  const ideaMode = msgType === "idea";
+  const showIdeaTab = true;
   const visible = MESSAGES.filter(msgVisibleToMe);
-  const cntQ = visible.filter(m => !msgIsSupply(m) && m.status !== "closed").length;
-  const cntS = visible.filter(m => msgIsSupply(m) && m.status !== "closed").length;
+  const cntQ = visible.filter(m => kindOf(m) === "question" && m.status !== "closed").length;
+  const cntS = visible.filter(m => kindOf(m) === "supply" && m.status !== "closed").length;
+  const cntI = visible.filter(m => kindOf(m) === "idea" && m.status !== "closed").length;
 
-  let base = visible.filter(m => msgIsSupply(m) === supplyMode);
-  if (!supplyMode && msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
+  let base = visible.filter(m => kindOf(m) === msgType);
+  if (msgType === "question" && msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
   const nActive = base.filter(m => m.status !== "closed").length;
   const nDone = base.filter(m => m.status === "closed").length;
   let list = base.slice();
@@ -1371,23 +1425,30 @@ function renderMessages() {
 
   const tab = (key, label, n) => `<button class="msg-tab ${msgView === key ? "active" : ""}" data-view="${key}">${label} (${n})</button>`;
   const ttab = (ty, label, n) => `<button class="msg-ttab ${msgType === ty ? "active" : ""}" data-type="${ty}">${label}${n ? ` <span class="ttab-n">${n}</span>` : ""}</button>`;
-  const emptyText = supplyMode
-    ? (msgView === "done" ? "Няма изпълнени поръчки." : "Няма поръчки за снабдяване.")
-    : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
-  const newBtn = supplyMode
-    ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова поръчка</button>'
-    : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
+  const titles = { question: "📨 Регистър на съобщенията", supply: "📦 Поръчки за снабдяване", idea: "💡 Идеи и Препоръки" };
+  const emptyText = ideaMode
+    ? (msgView === "done" ? "Няма приключени идеи." : "Няма идеи и препоръки.")
+    : supplyMode
+      ? (msgView === "done" ? "Няма изпълнени поръчки." : "Няма поръчки за снабдяване.")
+      : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
+  const newBtn = ideaMode
+    ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова идея</button>'
+    : supplyMode
+      ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова поръчка</button>'
+      : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
+  const newHandler = ideaMode ? openIdeaForm : (supplyMode ? openSupplyForm : askGeneralQuestion);
 
   v.innerHTML = `
     <div class="workers-head">
-      <h3>${supplyMode ? "📦 Поръчки за снабдяване" : "📨 Регистър на съобщенията"}${(!supplyMode && msgFilterTask) ? " · по задача" : ""}</h3>
-      ${(!supplyMode && msgFilterTask) ? '<button id="msg-clear-filter" class="btn btn-small">Всички задачи</button>' : ""}
+      <h3>${titles[msgType] || titles.question}${(msgType === "question" && msgFilterTask) ? " · по задача" : ""}</h3>
+      ${(msgType === "question" && msgFilterTask) ? '<button id="msg-clear-filter" class="btn btn-small">Всички задачи</button>' : ""}
       ${newBtn}
       <button id="msg-back" class="btn btn-small">← Назад</button>
     </div>
     <div class="msg-typetabs">
       ${ttab("question", "❓ Въпроси", cntQ)}
       ${ttab("supply", "📦 Поръчки за снабдяване", cntS)}
+      ${showIdeaTab ? ttab("idea", "💡 Идеи и Препоръки", cntI) : ""}
     </div>
     <div class="msg-tabs">
       ${tab("active", supplyMode ? "Чакащи" : "Активни", nActive)}
@@ -1395,6 +1456,7 @@ function renderMessages() {
       ${tab("all", "Всички", nActive + nDone)}
     </div>
     ${(supplyMode && msgView === "active") ? '<p class="msg-hint">Поръчката стои отворена, докато някой админ я приеме. Който я приеме — носи отговорността.</p>' : ""}
+    ${(ideaMode && msgView === "active") ? '<p class="msg-hint">Идеите и препоръките отиват лично до Данко Георгиев.</p>' : ""}
     ${(msgView === "done") ? '<p class="msg-hint">История — целият разговор се пази.</p>' : ""}
     <div class="msg-list">${list.map(msgCardHtml).join("") || `<p class="report-empty">${emptyText}</p>`}</div>`;
 
@@ -1402,7 +1464,7 @@ function renderMessages() {
   const cf = v.querySelector("#msg-clear-filter"); if (cf) cf.addEventListener("click", () => { msgFilterTask = null; renderMessages(); });
   v.querySelectorAll(".msg-tab").forEach(b => b.addEventListener("click", () => { msgView = b.dataset.view; renderMessages(); }));
   v.querySelectorAll(".msg-ttab").forEach(b => b.addEventListener("click", () => { msgType = b.dataset.type; msgView = "active"; msgFilterTask = null; renderMessages(); markMessagesSeen(); }));
-  const nw = v.querySelector("#msg-new"); if (nw) nw.addEventListener("click", supplyMode ? openSupplyForm : askGeneralQuestion);
+  const nw = v.querySelector("#msg-new"); if (nw) nw.addEventListener("click", newHandler);
 
   v.querySelectorAll(".msg-card").forEach(card => {
     const m = MESSAGES.find(x => x.id === card.dataset.id); if (!m) return;
@@ -1471,7 +1533,8 @@ function detectAndNotify(before) {
     MESSAGES.forEach(m => {
       if (!msgVisibleToMe(m)) return;
       if (m.from === "worker" && !had.has(m.id)) {
-        const title = (msgIsSupply(m) ? "📦 Нова поръчка за снабдяване от " : "📨 Нов въпрос от ") + (m.fromName || "служител");
+        const k = m.type || "question";
+        const title = (k === "supply" ? "📦 Нова поръчка за снабдяване от " : k === "idea" ? "💡 Нова идея от " : "📨 Нов въпрос от ") + (m.fromName || "служител");
         fireBrowserNotification(title, (m.taskRef ? m.taskRef + "\n" : "") + (m.text || ""));
         showToast(title + " — натисни тук, за да видиш.");
       }
@@ -1638,6 +1701,7 @@ function tInit() {
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
+  const bidea = document.getElementById("btn-ideas"); if (bidea) bidea.addEventListener("click", openIdeas);
   const balert = document.getElementById("msg-alert"); if (balert) balert.addEventListener("click", openMessagesFromBanner);
   const bmm = document.getElementById("btn-main-messages"); if (bmm) bmm.addEventListener("click", openMessagesFromMain);
 }
