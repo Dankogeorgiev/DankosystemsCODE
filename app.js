@@ -860,6 +860,11 @@ async function onSignedIn(s) {
   renderForm();
   applyAccess();
   if (typeof ensureMessagesBadge === "function") ensureMessagesBadge();
+  // Директен линк към цех: ?cex=Лазери → отваря направо този цех
+  try {
+    const cex = new URLSearchParams(location.search).get("cex");
+    if (cex && typeof openWorkshopDirect === "function") openWorkshopDirect(cex);
+  } catch (e) {}
 }
 
 function onSignedOut() {

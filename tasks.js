@@ -270,6 +270,18 @@ async function openTasks() {
   renderTasks();
 }
 
+// Отваря директно даден цех (за линк ?cex=Лазери на телефон/таблет)
+async function openWorkshopDirect(ws) {
+  if (!ws) return;
+  await openTasks();
+  const sel = document.getElementById("task-workshop");
+  if (sel && [...sel.options].some(o => o.value === ws)) {
+    sel.value = ws;
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+  }
+}
 function applyTasksAccess() {
   const w = amWorker();
   ["btn-add-task", "btn-times", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
