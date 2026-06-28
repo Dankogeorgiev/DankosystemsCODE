@@ -724,3 +724,17 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .msg-alert { background: #fff7ed; border-bottom: 1px solid #fed7aa; color: #9a3412; padding: 11px 20px; font-size: 14px; cursor: pointer; text-align: center; font-weight: 600; }
 .msg-alert:hover { background: #ffedd5; }
 .msg-alert b { color: #c2410c; }
+
+/* Преработена форма за запитване — стъпки */
+.inq-step { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px; box-shadow: 0 1px 2px rgba(16,24,40,.05); }
+.inq-step-h { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.inq-num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; font-size: 13px; flex: 0 0 24px; }
+.inq-field { display: block; margin: 0 0 12px; font-size: 13px; color: #475569; font-weight: 600; }
+.inq-field input, .inq-field textarea { width: 100%; box-sizing: border-box; margin-top: 5px; border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; font: inherit; font-weight: 400; color: var(--ink); }
+.inq-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.inq-tools #inq-filter { flex: 1 1 auto; box-sizing: border-box; border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; font: inherit; }
+.inq-cat-toggle.active, #inq-cat-toggle.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+.inq-cat-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.inq-author { margin: 8px 0 12px; }
+.btn-lg { padding: 11px 18px; font-size: 15px; }
+.cform-actions { display: flex; gap: 8px; flex-wrap: wrap; }

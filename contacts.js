@@ -254,26 +254,50 @@ function renderInquiryForm() {
   const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
   const nextNo = nextInquiryNumber();
   box.innerHTML = `
-    <div class="workers-head"><h3>Запитване до доставчици · <span class="muted">Изх. № ${nextNo}</span></h3>
+    <div class="workers-head">
+      <h3>📨 Запитване до доставчици <span class="muted">· Изх. № ${nextNo}</span></h3>
       ${canDeleteInquiry() ? '<button id="inq-test" class="btn btn-small">🔧 Тест на пощата</button>' : ""}
-      <button id="inq-back" class="btn btn-small">← Назад</button></div>
-    <div id="inq-to" class="inq-to"></div>
-    <p class="muted" style="margin:6px 0">Изготвил: <strong>${escapeHtml(authorName())}</strong> · ${escapeHtml((MY_ACCESS && MY_ACCESS.email) || "")} (от акаунта)</p>
-    <label class="cf-notes">Тема *<input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
-    <label class="cf-notes">Съдържание на запитването *<textarea id="inq-body" rows="6" placeholder="Опишете какво запитвате — артикул, количества, размери, срок на доставка, условия..."></textarea></label>
-    <h4 class="sub">Изберете контакти (${withEmail.length} с имейл) — <span id="inq-cnt">0</span> избрани</h4>
-    <div id="inq-cat-bar" class="inq-cat-bar"></div>
-    <input type="search" id="inq-filter" placeholder="Търси по фирма / имейл..." />
-    <div id="inq-suppliers" class="inq-suppliers"></div>
-    <div class="cform-actions">
-      <button id="inq-send" class="btn btn-primary">Регистрирай и изпрати имейл</button>
-      <button id="inq-cancel" class="btn">Отказ</button>
+      <button id="inq-back" class="btn btn-small">← Назад</button>
+    </div>
+
+    <div class="inq-step">
+      <div class="inq-step-h"><span class="inq-num">1</span> Какво запитваш</div>
+      <label class="inq-field">Тема
+        <input id="inq-subject" placeholder="напр. Запитване за цена — ламарина 2 мм" /></label>
+      <label class="inq-field">Съдържание
+        <textarea id="inq-body" rows="6" placeholder="Опишете артикул, количества, размери, срок на доставка, условия..."></textarea></label>
+    </div>
+
+    <div class="inq-step">
+      <div class="inq-step-h"><span class="inq-num">2</span> До кого — изберете доставчици <span class="muted">(<span id="inq-cnt">0</span> избрани)</span></div>
+      <div class="inq-tools">
+        <input type="search" id="inq-filter" placeholder="🔎 Търси по фирма / имейл..." />
+        <button id="inq-cat-toggle" class="btn btn-small" type="button">🏷 Категории</button>
+      </div>
+      <div id="inq-cat-bar" class="inq-cat-bar" hidden></div>
+      <div id="inq-suppliers" class="inq-suppliers"></div>
+    </div>
+
+    <div class="inq-step">
+      <div class="inq-step-h"><span class="inq-num">3</span> Преглед и изпращане</div>
+      <div id="inq-to" class="inq-to"></div>
+      <p class="muted inq-author">Изготвил: <strong>${escapeHtml(authorName())}</strong> · ${escapeHtml((MY_ACCESS && MY_ACCESS.email) || "")}</p>
+      <div class="cform-actions">
+        <button id="inq-send" class="btn btn-primary btn-lg">📨 Изпрати запитването по имейл</button>
+        <button id="inq-cancel" class="btn">Отказ</button>
+      </div>
     </div>`;
   renderInqCatBar();
   renderInqSuppliers("");
   updateInqTo();
   box.querySelector("#inq-back").addEventListener("click", renderContacts);
   box.querySelector("#inq-cancel").addEventListener("click", renderContacts);
+  const catToggle = box.querySelector("#inq-cat-toggle");
+  if (catToggle) catToggle.addEventListener("click", () => {
+    const bar = document.getElementById("inq-cat-bar");
+    bar.hidden = !bar.hidden;
+    catToggle.classList.toggle("active", !bar.hidden);
+  });
   const testBtn = box.querySelector("#inq-test"); if (testBtn) testBtn.addEventListener("click", testInquiryEmail);
   box.querySelector("#inq-filter").addEventListener("input", e => renderInqSuppliers(e.target.value));
   box.querySelector("#inq-send").addEventListener("click", sendInquiry);
@@ -282,17 +306,10 @@ function renderInqCatBar() {
   const bar = document.getElementById("inq-cat-bar");
   const withEmail = CONTACTS.filter(c => (c.email || "").includes("@"));
   const counts = {}; withEmail.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
-  const groups = { "Доставчици": [], "Клиенти": [], "Други": [] };
-  allCategories().forEach(cat => (groups[catGroup(cat)] || groups["Други"]).push(cat));
-  const chip = cat => `<button class="cat-chip ${inqCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`;
-  let html = `<div class="cat-allrow"><button class="cat-chip ${inqCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${withEmail.length})</button></div><div class="cat-groups">`;
-  ["Доставчици", "Клиенти", "Други"].forEach(g => {
-    if (!groups[g] || !groups[g].length) return;
-    const cols = groups[g].length > 6 ? 3 : (groups[g].length > 3 ? 2 : 1);
-    html += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${cols},minmax(116px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
-  });
-  html += `</div>`;
-  bar.innerHTML = html;
+  // само категориите, които наистина имат контакти с имейл (без празните)
+  const cats = Object.keys(counts).filter(c => c).sort((a, b) => a.localeCompare(b, "bg"));
+  const chip = cat => `<button class="cat-chip ${inqCat === cat ? "active" : ""}" data-cat="${escapeAttr(cat)}" style="background:${catColor(cat)}">${escapeHtml(cat)} (${counts[cat]})</button>`;
+  bar.innerHTML = `<button class="cat-chip ${inqCat === "" ? "active" : ""}" data-cat="" style="background:#475569">Всички (${withEmail.length})</button>` + cats.map(chip).join("");
   bar.querySelectorAll(".cat-chip").forEach(b => b.addEventListener("click", () => {
     inqCat = b.dataset.cat; renderInqCatBar();
     renderInqSuppliers(document.getElementById("inq-filter").value);
@@ -324,7 +341,7 @@ function updateInqTo() {
   const names = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => c.company).filter(Boolean);
   el.innerHTML = names.length
     ? `<strong>До:</strong> ${escapeHtml(names.join(", "))} <span class="muted">(${names.length})</span>`
-    : `<strong>До:</strong> <span class="muted">— изберете доставчици по-долу —</span>`;
+    : `<strong>До:</strong> <span class="muted">— изберете доставчици в стъпка 2 —</span>`;
 }
 // Проверка дали един низ е валиден имейл адрес
 function isValidEmail(e) {
