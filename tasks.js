@@ -40,6 +40,22 @@ const WORKSHOPS_WITH_TIME = ["Лазери", "CNC цех"];
 //     extraFields: [{ key:"consumables", label:"Изразходени консумативи", required:false }],
 //   },
 const FIELDS_BY_WORKER = {
+  "Иво Бончев": {
+    byWorkshop: {
+      "Преси": {
+        machines: ["Автоматична Преса 1", "Автоматична Преса 2"],
+        timeFields: [
+          { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
+          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+        ],
+      },
+      "Сглобяване": {
+        machines: false,        // няма машина
+        timeFields: [],         // без времена — само бройка + кратко описание (в „Специфична работа“)
+      },
+      // CNC цех — ползва стандартните CNC машини/полета
+    },
+  },
 };
 
 // Свързване на старите имена (от ERP/предишни версии) към текущите цехове.
@@ -569,16 +585,26 @@ async function logProduction(t, qtyVal, extra) {
 function openProductionDialog(t, qtyPrefill) {
   // Персонален Отчетен прозорец (по служител) има предимство пред настройката на цеха.
   const wname = MY_WORKER || t.assignee || "";
-  const wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
-  const machines = wcfg.machines || MACHINES_BY_WORKSHOP[t.workshop] || null;
-  const machineField = machines
+  let wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
+  if (wcfg.byWorkshop) wcfg = wcfg.byWorkshop[t.workshop] || wcfg.byWorkshop["*"] || {};
+
+  // Машини: масив → избор; false/[] → без поле за машина; иначе по цеха (или текст).
+  const machines = ("machines" in wcfg) ? wcfg.machines : (MACHINES_BY_WORKSHOP[t.workshop] || null);
+  const hasMachineSelect = Array.isArray(machines) && machines.length > 0;
+  const noMachine = machines === false || (Array.isArray(machines) && machines.length === 0);
+  const machineField = hasMachineSelect
     ? `<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select>`
-    : `<input id="pd-machine" type="text" placeholder="На коя машина работи?" />`;
+    : (noMachine ? "" : `<input id="pd-machine" type="text" placeholder="На коя машина работи?" />`);
+
   const fields = wcfg.timeFields || TIME_FIELDS_BY_WORKSHOP[t.workshop] || [
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
     { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
   ];
-  const extraFields = wcfg.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || [];
+  const extraFields = (wcfg.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
+  // „Специфична работа“ — поле за всеки служител (за гъвкавост при местене между цехове)
+  if (!extraFields.some(f => f.key === "specific")) {
+    extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
+  }
   const timeRow = (f) => `
     <label>${escapeHtml(f.label)} *
       <span class="pd-time">
@@ -604,7 +630,7 @@ function openProductionDialog(t, qtyPrefill) {
         <div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
         ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
       </div>
-      <label>Машина *${machineField}</label>
+      ${machineField ? `<label>Машина *${machineField}</label>` : ""}
       <label>Брой произведени сега *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
       ${fields.map(timeRow).join("")}
       ${extraFields.map(textRow).join("")}
@@ -618,11 +644,13 @@ function openProductionDialog(t, qtyPrefill) {
   wrap.querySelector("#pd-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
   wrap.querySelector("#pd-save").addEventListener("click", async () => {
-    const machine = (wrap.querySelector("#pd-machine").value || "").trim();
+    const mEl = wrap.querySelector("#pd-machine");
+    const machine = (mEl && mEl.value || "").trim();
     const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
-    if (!machine) { alert("Избери машина."); return; }
+    if (mEl && !machine) { alert("Избери машина."); return; }
     if (!qty || qty <= 0) { alert("Въведи брой произведени."); return; }
-    const extra = { machine };
+    const extra = {};
+    if (machine) extra.machine = machine;
     for (const f of fields) {
       const v = Number(String(wrap.querySelector("#pd-" + f.key + "-v").value).replace(",", "."));
       const unit = wrap.querySelector("#pd-" + f.key + "-u").value;
@@ -811,6 +839,7 @@ function renderWorkers() {
   v.innerHTML = `<div class="workers-head"><h3>Служители по цехове</h3>
     <button id="w-add-shop" class="btn btn-small">+ Нов цех</button>
     <button id="w-back" class="btn btn-small">← Назад</button></div>
+    <p class="msg-hint">💡 След като добавиш нов служител, кажи на Клод да му направи <strong>Отчетен прозорец</strong> (машини и полета за отчитане).</p>
     <div id="workers-list"></div>`;
   v.querySelector("#w-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#w-add-shop").addEventListener("click", async () => {
@@ -1444,16 +1473,24 @@ function fmtLogDate(d) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || "");
   return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || "");
 }
+function logNotes(l) {
+  const parts = [];
+  if (l.consumables) parts.push("Консумативи: " + l.consumables);
+  if (l.assemblyNote) parts.push("Сглобено: " + l.assemblyNote);
+  if (l.specific) parts.push("Специфично: " + l.specific);
+  return parts.join(" · ");
+}
 function collectTimeRows() {
   const rows = [];
   TASKS.forEach(t => (t.logs || []).forEach(l => {
-    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder) return;   // само вписвания с време
+    // включваме всяко вписване, направено през Отчетния прозорец (с машина, време или бележка)
+    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.consumables && !l.specific && !l.assemblyNote) return;
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
       client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
       worker: l.worker || "", qty: Number(l.qty) || 0,
       tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder,
-      consumables: l.consumables || "",
+      notes: logNotes(l),
     });
   }));
   return rows;
@@ -1487,7 +1524,7 @@ function renderTimes() {
     <table class="report-table times-table">
       <thead><tr>
         <th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
-        <th class="num">Брой</th><th>1 брой</th><th>1 лист</th><th>Кол-во/поръчка</th><th>Консумативи</th>
+        <th class="num">Брой</th><th>1 брой</th><th>1 лист</th><th>Кол-во/поръчка</th><th>Бележки</th>
       </tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${escapeHtml(fmtLogDate(r.date))}</td>
@@ -1501,7 +1538,7 @@ function renderTimes() {
         <td>${escapeHtml(fmtSecDur(r.tPiece))}</td>
         <td>${escapeHtml(fmtSecDur(r.tSheet))}</td>
         <td>${escapeHtml(fmtSecDur(r.tOrder))}</td>
-        <td class="times-cons">${r.consumables ? escapeHtml(r.consumables) : "—"}</td>
+        <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
       </tr>`).join("") || `<tr><td colspan="12" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
     </table>`;
   v.querySelector("#times-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
@@ -1511,12 +1548,12 @@ function renderTimes() {
   v.querySelector("#times-csv").addEventListener("click", () => exportTimesCsv(rows));
 }
 function exportTimesCsv(rows) {
-  const head = ["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "Време 1 брой (сек)", "Време 1 лист (сек)", "Време кол-во/поръчка (сек)", "Консумативи"];
+  const head = ["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "Време 1 брой (сек)", "Време 1 лист (сек)", "Време кол-во/поръчка (сек)", "Бележки"];
   const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
   const lines = [head.map(esc).join(",")];
   rows.forEach(r => lines.push([
     fmtLogDate(r.date), r.workshop, r.machine, r.client, r.product, r.code, r.operation, r.worker, r.qty,
-    (r.tPiece && r.tPiece.sec) || "", (r.tSheet && r.tSheet.sec) || "", (r.tOrder && r.tOrder.sec) || "", r.consumables || "",
+    (r.tPiece && r.tPiece.sec) || "", (r.tSheet && r.tSheet.sec) || "", (r.tOrder && r.tOrder.sec) || "", r.notes || "",
   ].map(esc).join(",")));
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
