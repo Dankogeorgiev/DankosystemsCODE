@@ -1,41 +1,31 @@
-# Автоматично изпращане на запитвания по имейл
+# Автоматично изпращане на запитвания по имейл (Brevo)
 
-Запитванията се изпращат от пощата **zapitvane@dankosystems.com** чрез
-Supabase Edge Function `send-inquiry`. Паролата за пощата **не се пази в кода**,
-а като таен ключ (secret) в Supabase.
+Запитванията се изпращат от **zapitvane@dankosystems.com** чрез услугата
+**Brevo** (HTTP API). Ключът се пази като secret в Supabase, не в кода.
 
-## 1. Деплой на функцията (еднократно)
+## 1. Регистрация в Brevo
+- Влез в https://www.brevo.com → безплатна регистрация.
 
-На компютър с инсталиран [Supabase CLI](https://supabase.com/docs/guides/cli):
+## 2. Потвърди подателя
+- Brevo → **Senders, Domains & Dedicated IPs → Senders → Add a sender**
+- Име: `Данко Системс`, имейл: `zapitvane@dankosystems.com`
+- Brevo праща писмо за потвърждение на тази поща → отвори го и потвърди.
 
-```bash
-supabase login
-supabase link --project-ref hwbblteomrrahfrsyuow
-supabase functions deploy send-inquiry
-```
+## 3. Вземи API ключ
+- Brevo → **SMTP & API → API Keys → Generate a new API key** → копирай го.
 
-## 2. Задаване на тайните ключове (SMTP данни)
+## 4. Задай тайните ключове в Supabase
+Edge Functions → Secrets (https://supabase.com/dashboard/project/hwbblteomrrahfrsyuow/functions/secrets):
 
-Може през CLI:
+| Key | Value |
+|---|---|
+| `BREVO_API_KEY` | (ключът от стъпка 3) |
+| `FROM_EMAIL` | `zapitvane@dankosystems.com` |
+| `FROM_NAME` | `Данко Системс` |
 
-```bash
-supabase secrets set \
-  SMTP_HOST=mail.dankosystems.com \
-  SMTP_PORT=465 \
-  SMTP_USER=zapitvane@dankosystems.com \
-  SMTP_PASS=ПАРОЛАТА_ТУК \
-  FROM_EMAIL=zapitvane@dankosystems.com \
-  "FROM_NAME=Данко Системс"
-```
+## 5. Деплой на функцията
+- Замени кода на `send-inquiry` с този от `supabase/functions/send-inquiry/index.ts` и Deploy.
 
-…или през уеб интерфейса:
-**Supabase → Project → Edge Functions → Manage secrets → Add new secret**
-(добави горните 6 ключа).
-
-> ⚠️ Паролата се въвежда САМО тук. Никога в кода или в GitHub.
-
-## 3. Готово
-
-След това бутонът „Регистрирай и изпрати имейл" праща писмото автоматично.
-Ако функцията не е налична, приложението се връща към стария режим
-(отваря пощенската програма с готово запитване).
+## (по желание, за перфектна доставимост)
+- Brevo → Domains → автентикирай `dankosystems.com` (добавяш няколко DNS записа).
+  Не е задължително за старт, но премахва риска от спам.

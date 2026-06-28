@@ -1,13 +1,11 @@
 // ============================================================
-// Данко Системс — изпращане на запитване по имейл (SMTP)
-// Supabase Edge Function. Паролата НЕ е в кода — чете се от
-// тайните ключове (secrets), зададени в Supabase.
+// Данко Системс — изпращане на запитване по имейл (Brevo HTTP API)
+// Supabase Edge Function. Ключът НЕ е в кода — чете се от тайните
+// ключове (secrets) в Supabase.
 //
 // Деплой:  supabase functions deploy send-inquiry
-// Тайни:   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL, FROM_NAME
+// Тайни:   BREVO_API_KEY, FROM_EMAIL, FROM_NAME
 // ============================================================
-
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,8 +19,6 @@ function json(body: unknown, status = 200) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
-
-function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -44,56 +40,35 @@ Deno.serve(async (req) => {
   if (!to.length) return json({ error: "Няма валидни получатели" }, 400);
   if (!subject) return json({ error: "Липсва тема" }, 400);
 
-  // .trim() маха случайни интервали/нов ред, промъкнали се при въвеждане на тайните ключове
-  const host = (Deno.env.get("SMTP_HOST") || "").trim();
-  const port = Number((Deno.env.get("SMTP_PORT") || "465").trim());
-  const user = (Deno.env.get("SMTP_USER") || "").trim();
-  const pass = (Deno.env.get("SMTP_PASS") || "").trim();
-  const fromEmail = (Deno.env.get("FROM_EMAIL") || user).trim();
+  const apiKey = (Deno.env.get("BREVO_API_KEY") || "").trim();
+  const fromEmail = (Deno.env.get("FROM_EMAIL") || "").trim();
   const fromName = (Deno.env.get("FROM_NAME") || "Данко Системс").trim();
 
-  if (!host || !user || !pass) {
-    return json({ error: "Сървърът не е настроен (липсват SMTP тайни ключове)." }, 500);
+  if (!apiKey || !fromEmail) {
+    return json({ error: "Сървърът не е настроен (липсва BREVO_API_KEY или FROM_EMAIL)." }, 500);
   }
 
-  const message = {
-    from: `${fromName} <${fromEmail}>`,
-    to: fromEmail,            // видим получател — самата поща на запитванията
-    bcc: to,                  // доставчиците/админът са скрити един от друг
-    replyTo: replyTo || undefined,
+  // Получателите са в BCC (скрити един от друг); видим получател е самата поща.
+  const body: any = {
+    sender: { email: fromEmail, name: fromName },
+    to: [{ email: fromEmail, name: fromName }],
+    bcc: to.map((e) => ({ email: e })),
     subject,
-    content: text || "Запитване от Данко Системс",
-    html: html || undefined,
+    textContent: text || "Запитване от Данко Системс",
   };
+  if (html) body.htmlContent = html;
+  if (replyTo) body.replyTo = { email: replyTo };
 
-  // Опитваме конфигурирания порт, после алтернативния (465 ⇄ 587). По 2 опита всеки.
-  const altPort = port === 465 ? 587 : 465;
-  const conns = [
-    { hostname: host, port, tls: port === 465 },
-    { hostname: host, port: altPort, tls: altPort === 465 },
-  ];
-
-  let lastErr = "";
-  for (const conn of conns) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const client = new SMTPClient({ connection: { ...conn, auth: { username: user, password: pass } } });
-      try {
-        await client.send(message);
-        try { await client.close(); } catch (_) { /* ignore */ }
-        return json({ ok: true, sent: to.length, via: `${conn.hostname}:${conn.port}` });
-      } catch (err) {
-        lastErr = (err && (err as any).message) || String(err);
-        try { await client.close(); } catch (_) { /* ignore */ }
-        // Ако е грешка в данните за вход, няма смисъл да опитваме повече
-        if (/535|authentication|auth|credential|password/i.test(lastErr)) {
-          return json({ error: "Грешни данни за вход в пощата (SMTP 535). Провери паролата (SMTP_PASS). [" + lastErr + "]" }, 502);
-        }
-        await sleep(400);
-      }
-    }
+  try {
+    const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": apiKey, "content-type": "application/json", "accept": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok) return json({ ok: true, sent: to.length, id: (data as any).messageId || "" });
+    return json({ error: "Brevo отказа (" + resp.status + "): " + ((data as any).message || JSON.stringify(data)) }, 502);
+  } catch (err) {
+    return json({ error: "Грешка при връзка с Brevo: " + ((err as any)?.message || String(err)) }, 502);
   }
-  return json({
-    error: "Изпращането не успя след няколко опита: " + lastErr +
-      ` [потр=${user} · дължина_парола=${pass.length} · сървър=${host} · портове=${port}/${altPort}]`,
-  }, 502);
 });
