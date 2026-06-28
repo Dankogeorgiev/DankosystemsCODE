@@ -983,14 +983,51 @@ function msgCounts() {
   });
   return { q, s };
 }
+// Фирмено броене — всички админи виждат еднакво, независимо до кого е съобщението.
+// Въпрос „чака внимание“ = отворен и още без отговор от админ; поръчка = отворена и неприета.
+function companyOpenCount() {
+  let q = 0, s = 0;
+  MESSAGES.forEach(m => {
+    if (m.status === "closed") return;
+    if (msgIsSupply(m)) { if (!m.acceptedBy) s++; }
+    else {
+      const reps = m.replies || [];
+      const lastAdmin = reps.length && reps[reps.length - 1].by === "admin";
+      if (!lastAdmin) q++;
+    }
+  });
+  return { q, s, total: q + s };
+}
 function mUpdateBadge() {
   const { q, s } = msgCounts();
-  ["msg-badge", "msg-badge-main"].forEach(id => {
-    const b = document.getElementById(id);
-    if (b) { b.textContent = q; b.hidden = q === 0; }
-  });
-  const sb2 = document.getElementById("supply-badge");
-  if (sb2) { sb2.textContent = s; sb2.hidden = s === 0; }
+  const isAdmin = typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.isAdmin;
+  const mb = document.getElementById("msg-badge"); if (mb) { mb.textContent = q; mb.hidden = q === 0; }
+  const sb2 = document.getElementById("supply-badge"); if (sb2) { sb2.textContent = s; sb2.hidden = s === 0; }
+
+  const co = companyOpenCount();
+  const mbm = document.getElementById("msg-badge-main");
+  if (mbm) { const n = isAdmin ? co.total : q; mbm.textContent = n; mbm.hidden = n === 0; }
+
+  const alert = document.getElementById("msg-alert");
+  if (alert) {
+    if (isAdmin && co.total > 0) {
+      const parts = [];
+      if (co.q) parts.push(`<b>${co.q}</b> ${co.q === 1 ? "нов въпрос" : "нови въпроса"}`);
+      if (co.s) parts.push(`<b>${co.s}</b> ${co.s === 1 ? "поръчка за снабдяване" : "поръчки за снабдяване"}`);
+      alert.innerHTML = `🔔 Има ${parts.join(" и ")} в Цехове — натисни, за да видиш.`;
+      alert.hidden = false;
+    } else {
+      alert.hidden = true;
+    }
+  }
+}
+async function openMessagesFromBanner() {
+  await openTasks();
+  const co = companyOpenCount();
+  msgType = (co.q > 0 || co.s === 0) ? "question" : "supply";
+  msgFilterTask = null; msgView = "active";
+  renderMessages();
+  markMessagesSeen();
 }
 // Зарежда съобщенията и пуска реалтайм, за да работи балончето на основния екран (за админи)
 async function ensureMessagesBadge() {
@@ -1511,6 +1548,7 @@ function tInit() {
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
+  const balert = document.getElementById("msg-alert"); if (balert) balert.addEventListener("click", openMessagesFromBanner);
   const bmm = document.getElementById("btn-main-messages"); if (bmm) bmm.addEventListener("click", openMessagesFromMain);
 }
 document.addEventListener("DOMContentLoaded", tInit);

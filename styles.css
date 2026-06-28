@@ -719,3 +719,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .msg-card.supply.unaccepted { background: #fff7ed; }
 .supply-wait { color: #c2410c; font-weight: 700; font-size: 13px; margin: 8px 0; }
 .supply-acc { color: #166534; font-weight: 600; font-size: 13px; margin: 8px 0; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 6px 10px; }
+
+/* Лента на началния екран: има нови съобщения/поръчки (за админи) */
+.msg-alert { background: #fff7ed; border-bottom: 1px solid #fed7aa; color: #9a3412; padding: 11px 20px; font-size: 14px; cursor: pointer; text-align: center; font-weight: 600; }
+.msg-alert:hover { background: #ffedd5; }
+.msg-alert b { color: #c2410c; }
