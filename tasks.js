@@ -910,13 +910,11 @@ function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS &&
 function isOwnerAdmin() {
   return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) === "dankog@gmail.com";
 }
-// Данко вижда всички съобщения; другите админи — въпросите, адресирани до тях; служителят — само своите
+// Всички админи виждат всички съобщения (пълна прозрачност); служителят — само своите.
+// При въпрос „→ Име“ се вижда за кого е основно, но всеки админ може да го отвори/отговори.
 function msgVisibleToMe(m) {
   if (amWorker()) return m.fromName === MY_WORKER;
-  if (isOwnerAdmin()) return true;
-  if (m.from !== "worker") return false;
-  if (!m.toEmail) return true;   // стари съобщения без адресат — видими за всички админи
-  return (m.toEmail || "").toLowerCase() === msgMyEmail().toLowerCase();
+  return true;
 }
 function msgFmtTime(iso) {
   if (!iso) return "";
