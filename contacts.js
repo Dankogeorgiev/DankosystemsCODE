@@ -338,9 +338,10 @@ function renderInqSuppliers(term) {
 }
 function updateInqTo() {
   const el = document.getElementById("inq-to"); if (!el) return;
-  const names = CONTACTS.filter(c => inqSelected.has(c.id)).map(c => c.company).filter(Boolean);
-  el.innerHTML = names.length
-    ? `<strong>До:</strong> ${escapeHtml(names.join(", "))} <span class="muted">(${names.length})</span>`
+  const sel = CONTACTS.filter(c => inqSelected.has(c.id));
+  el.innerHTML = sel.length
+    ? `<strong>До (${sel.length}):</strong><ul class="inq-to-list">${sel.map(c =>
+        `<li>${escapeHtml(c.company || "—")} <span class="inq-to-mail">&lt;${escapeHtml(c.email || "няма имейл")}&gt;</span></li>`).join("")}</ul>`
     : `<strong>До:</strong> <span class="muted">— изберете доставчици в стъпка 2 —</span>`;
 }
 // Проверка дали един низ е валиден имейл адрес

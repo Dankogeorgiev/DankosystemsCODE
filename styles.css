@@ -738,3 +738,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .inq-author { margin: 8px 0 12px; }
 .btn-lg { padding: 11px 18px; font-size: 15px; }
 .cform-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.inq-to-list { margin: 6px 0 0; padding-left: 18px; }
+.inq-to-list li { margin: 2px 0; }
+.inq-to-mail { color: #1d4ed8; font-size: 12.5px; }
