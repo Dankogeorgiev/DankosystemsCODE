@@ -22,6 +22,8 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -54,30 +56,44 @@ Deno.serve(async (req) => {
     return json({ error: "Сървърът не е настроен (липсват SMTP тайни ключове)." }, 500);
   }
 
-  const client = new SMTPClient({
-    connection: {
-      hostname: host,
-      port,
-      tls: port === 465, // 465 = директен TLS
-      auth: { username: user, password: pass },
-    },
-  });
+  const message = {
+    from: `${fromName} <${fromEmail}>`,
+    to: fromEmail,            // видим получател — самата поща на запитванията
+    bcc: to,                  // доставчиците/админът са скрити един от друг
+    replyTo: replyTo || undefined,
+    subject,
+    content: text || "Запитване от Данко Системс",
+    html: html || undefined,
+  };
 
-  try {
-    await client.send({
-      from: `${fromName} <${fromEmail}>`,
-      to: fromEmail,            // видим получател — самата поща на запитванията
-      bcc: to,                  // доставчиците са скрити един от друг
-      replyTo: replyTo || undefined,
-      subject,
-      content: text || "Запитване от Данко Системс",
-      html: html || undefined,
-    });
-    await client.close();
-    return json({ ok: true, sent: to.length });
-  } catch (err) {
-    try { await client.close(); } catch (_) {}
-    const diag = ` [потр=${user} · дължина_парола=${pass.length} · сървър=${host}:${port}]`;
-    return json({ error: "Грешка при изпращане: " + (err?.message || String(err)) + diag }, 502);
+  // Опитваме конфигурирания порт, после алтернативния (465 ⇄ 587). По 2 опита всеки.
+  const altPort = port === 465 ? 587 : 465;
+  const conns = [
+    { hostname: host, port, tls: port === 465 },
+    { hostname: host, port: altPort, tls: altPort === 465 },
+  ];
+
+  let lastErr = "";
+  for (const conn of conns) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const client = new SMTPClient({ connection: { ...conn, auth: { username: user, password: pass } } });
+      try {
+        await client.send(message);
+        try { await client.close(); } catch (_) { /* ignore */ }
+        return json({ ok: true, sent: to.length, via: `${conn.hostname}:${conn.port}` });
+      } catch (err) {
+        lastErr = (err && (err as any).message) || String(err);
+        try { await client.close(); } catch (_) { /* ignore */ }
+        // Ако е грешка в данните за вход, няма смисъл да опитваме повече
+        if (/535|authentication|auth|credential|password/i.test(lastErr)) {
+          return json({ error: "Грешни данни за вход в пощата (SMTP 535). Провери паролата (SMTP_PASS). [" + lastErr + "]" }, 502);
+        }
+        await sleep(400);
+      }
+    }
   }
+  return json({
+    error: "Изпращането не успя след няколко опита: " + lastErr +
+      ` [потр=${user} · дължина_парола=${pass.length} · сървър=${host} · портове=${port}/${altPort}]`,
+  }, 502);
 });
