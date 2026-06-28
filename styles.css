@@ -274,7 +274,8 @@ tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .tf-x { border: none; background: #fecaca; color: #b91c1c; border-radius: 50%; width: 16px; height: 16px; cursor: pointer; font-size: 11px; line-height: 1; margin-left: 2px; }
 .t-assignee { padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; max-width: 150px; }
 .t-actions { white-space: nowrap; display: flex; gap: 3px; align-items: center; }
-.t-today { width: 50px; padding: 5px 5px; border: 1px solid var(--line); border-radius: 6px; }
+.t-today { width: 72px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; }
+.t-actions .t-add { margin-left: 4px; }
 .t-today-info { font-size: 11px; color: var(--ok); font-weight: 600; }
 .tasks-daily { background: #ecfeff; border: 1px solid #a5f3fc; color: #0f766e; padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
 .tasks-daily #who-change { margin-left: 10px; }
@@ -741,3 +742,4 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .inq-to-list { margin: 6px 0 0; padding-left: 18px; }
 .inq-to-list li { margin: 2px 0; }
 .inq-to-mail { color: #1d4ed8; font-size: 12.5px; }
+.pd-hint { font-size: 12.5px; color: var(--muted, #64748b); margin: 8px 0 2px; }

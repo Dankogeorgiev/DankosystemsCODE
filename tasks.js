@@ -607,7 +607,7 @@ function openProductionDialog(t, qtyPrefill) {
     extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
   }
   const timeRow = (f) => `
-    <label>${escapeHtml(f.label)} *
+    <label>${escapeHtml(f.label)}
       <span class="pd-time">
         <input id="pd-${f.key}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" />
         <select id="pd-${f.key}-u">
@@ -633,6 +633,7 @@ function openProductionDialog(t, qtyPrefill) {
       </div>
       ${machineField ? `<label>Машина *${machineField}</label>` : ""}
       <label>Брой произведени сега *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
+      ${fields.length ? `<p class="pd-hint">⏱ Попълни поне едно от времената (другите може да оставиш празни):</p>` : ""}
       ${fields.map(timeRow).join("")}
       ${extraFields.map(textRow).join("")}
       <div class="ask-actions">
@@ -652,14 +653,16 @@ function openProductionDialog(t, qtyPrefill) {
     if (!qty || qty <= 0) { alert("Въведи брой произведени."); return; }
     const extra = {};
     if (machine) extra.machine = machine;
+    // Времената: попълва се поне едно; празните се пропускат (0 е позволено = празно).
+    let timeCount = 0;
     for (const f of fields) {
       const v = Number(String(wrap.querySelector("#pd-" + f.key + "-v").value).replace(",", "."));
       const unit = wrap.querySelector("#pd-" + f.key + "-u").value;
       const mult = unit === "hour" ? 3600 : (unit === "min" ? 60 : 1);
       const sec = v > 0 ? Math.round(v * mult) : 0;
-      if (!sec) { alert("Въведи „" + f.label + "“."); return; }
-      extra[f.key] = { v, unit, sec };
+      if (sec) { extra[f.key] = { v, unit, sec }; timeCount++; }
     }
+    if (fields.length && timeCount === 0) { alert("Попълни поне едно от полетата за време."); return; }
     for (const f of extraFields) {
       const el = wrap.querySelector("#pd-x-" + f.key);
       const val = (el && el.value || "").trim();
