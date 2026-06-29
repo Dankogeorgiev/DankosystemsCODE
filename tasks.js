@@ -327,7 +327,7 @@ function applyTasksAccess() {
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
-  document.getElementById("task-search").style.display = w ? "none" : "";
+  document.getElementById("task-search").style.display = "";   // търсачката е достъпна за всички
   document.getElementById("worker-bar").style.display = w ? "none" : "";
   document.querySelector(".tasks-head h2").textContent = w
     ? "🏭 " + (MY_ACCESS.workshop || "Цех") : "🏭 Производство по цехове";
