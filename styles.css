@@ -755,3 +755,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
   .ask-box textarea { rows: 2; }
   .ask-actions { position: sticky; bottom: 0; background: #fff; padding-top: 8px; margin-top: 6px; }
 }
+
+/* Персонална значка/лого на служител в дневната лента */
+.tasks-daily.has-badge { display: flex; align-items: center; gap: 12px; }
+.worker-badge { height: 60px; width: auto; flex: 0 0 auto; }
+@media (max-width: 760px) { .worker-badge { height: 46px; } }

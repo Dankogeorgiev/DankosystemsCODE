@@ -119,6 +119,10 @@ let msgView = "active";   // регистър: "active" | "done" | "all"
 let msgType = "question"; // раздел: "question" | "supply" (поръчки за снабдяване)
 let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия при нов отговор/въпрос
 let timesFilter = { workshop: "", machine: "", worker: "" };   // филтри в „Времена“
+// Персонално лого/значка за конкретен служител (показва се горе в неговия изглед)
+const WORKER_BADGE = {
+  "Димитър Павлов": { img: "cska.png?v=1", alt: "ЦСКА", title: "ЦСКА 1948" },
+};
 
 function dueSortVal(due) {
   const m = String(due || "").match(/(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/);
@@ -444,7 +448,10 @@ function renderTasks() {
     daily.hidden = false;
     const change = isW ? ` <button id="who-change" class="btn btn-small">Смени служител</button>` : "";
     const lbl = isW ? "Ти си" : "👷";
-    daily.innerHTML = `${lbl} <strong>${escapeHtml(worker)}</strong> — днес произведено: <strong>${total}</strong> бр. (${cnt} вписвания)${change}`;
+    const badge = WORKER_BADGE[worker];
+    const badgeImg = badge ? `<img class="worker-badge" src="${escapeAttr(badge.img)}" alt="${escapeAttr(badge.alt || "")}" title="${escapeAttr(badge.title || "")}" onerror="this.style.display='none'" />` : "";
+    daily.classList.toggle("has-badge", !!badge);
+    daily.innerHTML = `${badgeImg}<span>${lbl} <strong>${escapeHtml(worker)}</strong> — днес произведено: <strong>${total}</strong> бр. (${cnt} вписвания)${change}</span>`;
     const cb = daily.querySelector("#who-change");
     if (cb) cb.addEventListener("click", () => { MY_WORKER = null; renderTasks(); });
   } else {
