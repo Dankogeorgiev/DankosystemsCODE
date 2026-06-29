@@ -9,6 +9,11 @@ const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
   "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC 600", "VMC966", "Traub Turning"],
 };
+// Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
+const MACHINE_TIME_LABELS = {
+  "Gweike combi": { tSheet: "Време за 1 прът (6 м)" },
+  "Gweike Tube": { tSheet: "Време за 1 прът (6 м)" },
+};
 // Полета за време по цех (key, етикет, мерна единица по подразбиране)
 const TIME_FIELDS_BY_WORKSHOP = {
   "Лазери": [
@@ -632,7 +637,7 @@ function openProductionDialog(t, qtyPrefill) {
   const countRow = (f) => `
     <label>${escapeHtml(f.label)} *<input id="pd-c-${f.key}" type="number" min="0" step="1" inputmode="numeric" placeholder="0" /></label>`;
   const timeRow = (f) => `
-    <label>${escapeHtml(f.label)}
+    <label><span class="pd-flabel" id="pd-lbl-${f.key}">${escapeHtml(f.label)}</span>
       <span class="pd-time">
         <input id="pd-${f.key}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" />
         <select id="pd-${f.key}-u">
@@ -671,6 +676,15 @@ function openProductionDialog(t, qtyPrefill) {
   const close = () => wrap.remove();
   wrap.querySelector("#pd-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  // Преименуване на полета според избраната машина (напр. Gweike → „1 прът“ вместо „1 лист“)
+  const machineSel = wrap.querySelector("#pd-machine");
+  const relabelByMachine = () => {
+    const mv = (machineSel && machineSel.value) || "";
+    const ov = MACHINE_TIME_LABELS[mv] || {};
+    fields.forEach(f => { const el = wrap.querySelector("#pd-lbl-" + f.key); if (el) el.textContent = ov[f.key] || f.label; });
+  };
+  if (machineSel) machineSel.addEventListener("change", relabelByMachine);
+  relabelByMachine();
   wrap.querySelector("#pd-save").addEventListener("click", async () => {
     const mEl = wrap.querySelector("#pd-machine");
     const machine = (mEl && mEl.value || "").trim();
@@ -1624,7 +1638,7 @@ function renderTimes() {
     <table class="report-table times-table">
       <thead><tr>
         <th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
-        <th class="num">Брой</th><th>1 брой</th><th>1 лист</th><th>Кол-во/поръчка</th><th>Настройка</th><th>Бележки</th>
+        <th class="num">Брой</th><th>1 брой</th><th>1 лист/прът</th><th>Кол-во/поръчка</th><th>Настройка</th><th>Бележки</th>
       </tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${escapeHtml(fmtLogDate(r.date))}</td>
