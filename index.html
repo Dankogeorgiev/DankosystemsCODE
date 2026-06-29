@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=136" />
+  <link rel="stylesheet" href="styles.css?v=137" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 136</p>
+      <p class="login-version">версия 137</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=136" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=137" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -51,7 +51,7 @@
       <button id="btn-report" class="btn">Обща справка</button>
       <button id="btn-claim-report" class="btn">Регистър рекламации</button>
       <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
-      <button id="btn-painting" class="btn btn-paint">🎨 Боядисване</button>
+      <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване</button>
       <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
       <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
       <button id="btn-export" class="btn">Експорт</button>
@@ -83,7 +83,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=136" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=137" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -361,7 +361,7 @@
       <div class="tasks-head">
         <h2>🏭 Производство по цехове</h2>
         <div class="tasks-head-actions">
-          <button id="tasks-painting" class="btn btn-paint" hidden>🎨 Отчет боядисване</button>
+          <button id="tasks-painting" class="btn btn-paint" hidden onclick="location.href='boya/'">🎨 Отчет боядисване</button>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -457,78 +457,12 @@
     </div>
   </div>
 
-  <!-- Модал: Линия за прахово боядисване -->
-  <div id="painting-modal" class="overlay tasks-overlay" hidden>
-    <div class="tasks-box">
-      <div class="tasks-head">
-        <h2>🎨 Линия за прахово боядисване</h2>
-        <div class="tasks-head-actions">
-          <span id="pa-sync" class="pa-sync" title="Споделено в облака"></span>
-          <button id="painting-close" class="btn">Затвори</button>
-        </div>
-      </div>
-
-      <div class="pa-grid">
-        <!-- ЛЯВО -->
-        <div class="pa-panel">
-          <fieldset class="pa-fs">
-            <legend class="pa-legend">Управление</legend>
-            <div class="pa-ctrls"><button class="btn pa-pri" id="pa-startBtn">▶ Старт</button><button class="btn" id="pa-resetBtn">Нулирай</button></div>
-            <div class="pa-row"><span>Скорост</span><span><input type="number" id="pa-speed" value="45"> подв/час</span></div>
-            <div class="pa-row"><span>Преглед (×по-бързо)</span><input type="number" id="pa-preview" value="60"></div>
-            <div class="pa-row"><span>Места на линията</span><input type="number" id="pa-capacity" value="62"></div>
-            <div class="pa-row"><span class="pa-lab">Корекция към реалността</span>
-              <span class="pa-nudge"><button class="btn" id="pa-back">−</button><button class="btn" id="pa-fwd">мина +</button></span></div>
-          </fieldset>
-          <fieldset class="pa-fs">
-            <legend class="pa-legend">Боя на линията</legend>
-            <div class="pa-paintrow">
-              <input type="color" id="pa-paint" value="#3B6FB0" class="pa-colorbig">
-              <div style="flex:1"><div class="pa-paintname" id="pa-paintName">#3B6FB0</div><div class="pa-lab" id="pa-paintChanges">смени днес: 0</div></div>
-              <button class="btn" id="pa-newColor">смени цвят</button>
-            </div>
-            <div class="pa-colordots" id="pa-colordots"></div>
-          </fieldset>
-          <fieldset class="pa-fs">
-            <legend class="pa-legend"><span>Видове подвески</span><button class="btn" id="pa-addHanger">+ вид</button></legend>
-            <div id="pa-hangerList"></div>
-            <div class="pa-note">Редове = напречни железа на подвеската.</div>
-          </fieldset>
-          <fieldset class="pa-fs">
-            <legend class="pa-legend"><span>Детайли (бутони)</span><button class="btn" id="pa-addPart">+ детайл</button></legend>
-            <div class="pa-palette" id="pa-palette"></div>
-            <div class="pa-note">Маркирай ред от състава, после натисни детайл, за да го заредиш. Числото е <b>бр/ред</b>.</div>
-          </fieldset>
-        </div>
-
-        <!-- ДЯСНО -->
-        <div class="pa-stagewrap">
-          <div class="pa-panel">
-            <fieldset class="pa-fs"><legend class="pa-legend"><span>Състав на линията сега</span><button class="btn" id="pa-addEntry">+ подвески</button></legend>
-              <div id="pa-entryList"></div>
-            </fieldset>
-          </div>
-          <div class="pa-loopbox"><div id="pa-loop"></div></div>
-          <div class="pa-results">
-            <div class="pa-stat pa-hero"><div class="pa-k">Боядисани</div><div class="pa-v" id="pa-r_done">0</div><div class="pa-vsub" id="pa-r_pct">0%</div></div>
-            <div class="pa-stat"><div class="pa-k">Остават</div><div class="pa-v" id="pa-r_left">–</div><div class="pa-vsub" id="pa-r_cap"></div></div>
-            <div class="pa-stat"><div class="pa-k">Изтекло (боядисване)</div><div class="pa-v" id="pa-r_elapsed">0:00</div><div class="pa-vsub" id="pa-r_pause">паузи 0:00</div></div>
-            <div class="pa-stat"><div class="pa-k">Оставащо време</div><div class="pa-v" id="pa-r_eta">–</div><div class="pa-vsub" id="pa-r_etasub">до края</div></div>
-          </div>
-          <table class="pa-bd"><thead><tr><th>Детайл</th><th>Боядисани</th><th>Остават</th><th>Бр. детайли остават</th></tr></thead><tbody id="pa-bdBody"></tbody></table>
-          <p class="pa-note"><b>Идея:</b> горе задаваш състава (тип подвеска + детайл + брой). Същите подвески се движат по затворения контур и минават през неподвижната кабина — там стават „боядисани". Старт пуска, Пауза = почивка (реално време), корекцията сверява при засечка. Сменяш състава по всяко време — линията се преизчислява.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="config.js?v=136"></script>
-  <script src="app.js?v=136"></script>
-  <script src="tasks.js?v=136"></script>
-  <script src="contacts-data.js?v=136"></script>
-  <script src="contacts.js?v=136"></script>
-  <script src="painting.js?v=136"></script>
+  <script src="config.js?v=137"></script>
+  <script src="app.js?v=137"></script>
+  <script src="tasks.js?v=137"></script>
+  <script src="contacts-data.js?v=137"></script>
+  <script src="contacts.js?v=137"></script>
 </body>
 </html>

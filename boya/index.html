@@ -10,6 +10,7 @@
   :root{--ink:#1F3864;--ink-soft:#33507e;--bg:#EAEEF3;--panel:#FFFFFF;--line:#D2DAE4;--muted:#6B7686;--ok:#2F7A4D;--warn:#C0392B;
     --mono:'IBM Plex Mono',ui-monospace,monospace;--disp:'Space Grotesk',system-ui,sans-serif;--body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}
   *{box-sizing:border-box}
+  [hidden]{display:none!important}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
   .wrap{max-width:1280px;margin:0 auto;padding:20px}
   header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 16px;border-bottom:2px solid var(--ink)}
@@ -75,8 +76,19 @@
 </style>
 </head>
 <body>
+<div id="gate" hidden style="position:fixed;inset:0;background:#1F3864;color:#fff;display:grid;place-items:center;z-index:1000;padding:20px;text-align:center;font-family:system-ui">
+  <div>
+    <h2 style="margin:0 0 10px">Трябва да влезеш</h2>
+    <p style="margin:0 0 16px">Отвори системата, влез и се върни тук.</p>
+    <a href="../" style="display:inline-block;background:#fff;color:#1F3864;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">→ Към системата</a>
+  </div>
+</div>
 <div class="wrap">
-  <header class="top"><h1>Линия за прахово боядисване</h1><span class="sub">състав · затворен конвейр · отчитане на живо</span></header>
+  <header class="top"><h1>Линия за прахово боядисване</h1>
+    <span style="display:flex;align-items:center;gap:12px;margin-left:auto">
+      <span id="sync" class="sub" title="Споделено в облака">споделено ✓</span>
+      <a href="../" class="btn" style="text-decoration:none">← Към системата</a>
+    </span></header>
   <div class="grid">
     <!-- ЛЯВО -->
     <div class="panel">
@@ -265,5 +277,8 @@ window.__state=()=>({phi,done:paintedCount(),L:L(),running});
 
 refresh();requestAnimationFrame(tick);
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../config.js?v=137"></script>
+<script src="sync.js?v=137"></script>
 </body>
 </html>
