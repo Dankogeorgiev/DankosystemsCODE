@@ -760,3 +760,79 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .tasks-daily.has-badge { display: flex; align-items: center; gap: 12px; }
 .worker-badge { height: 60px; width: auto; flex: 0 0 auto; }
 @media (max-width: 760px) { .worker-badge { height: 46px; } }
+
+/* ============================================================
+   Модул „Линия за прахово боядисване“ (#painting-modal)
+   Стиловете са ограничени под модала, за да не влияят на останалото.
+   ============================================================ */
+.btn-paint { background: #eef4ff; border-color: #c7d6f2; color: #1f3864; }
+.btn-paint:hover { background: #1f3864; color: #fff; border-color: #1f3864; }
+
+#painting-modal { --pa-ink:#1F3864; --pa-line:#D2DAE4; --pa-muted:#6B7686; --pa-ok:#2F7A4D; --pa-warn:#C0392B; }
+#painting-modal .tasks-box { color: var(--pa-ink); max-width: 1280px; }
+.pa-sync { font-size: 12px; color: var(--pa-muted); align-self: center; margin-right: 4px; white-space: nowrap; }
+.pa-sync.warn { color: var(--pa-warn); }
+
+#painting-modal .pa-grid { display: grid; grid-template-columns: 320px 1fr; gap: 18px; margin-top: 6px; }
+@media (max-width: 880px) { #painting-modal .pa-grid { grid-template-columns: 1fr; } }
+#painting-modal .pa-panel { background: #fff; border: 1px solid var(--pa-line); border-radius: 10px; padding: 16px; }
+#painting-modal .pa-stagewrap { display: flex; flex-direction: column; gap: 16px; }
+#painting-modal .pa-fs { border: none; margin: 0 0 16px; padding: 0; }
+#painting-modal .pa-fs:last-child { margin-bottom: 0; }
+#painting-modal .pa-legend { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: #33507e;
+  padding: 0 0 9px; border-bottom: 1px solid var(--pa-line); width: 100%; margin-bottom: 11px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+#painting-modal .pa-lab { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--pa-muted); }
+#painting-modal input[type=number], #painting-modal input[type=text] { font-size: 13px; text-align: right; color: var(--pa-ink); background: #F8FAFC; border: 1px solid var(--pa-line); border-radius: 7px; padding: 6px 8px; outline: none; }
+#painting-modal input[type=text] { text-align: left; }
+#painting-modal input:focus, #painting-modal select:focus { border-color: var(--pa-ink); background: #fff; box-shadow: 0 0 0 3px rgba(31,56,100,.10); }
+#painting-modal input[type=number] { width: 58px; -moz-appearance: textfield; }
+#painting-modal input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+#painting-modal select { font-size: 13px; border: 1px solid var(--pa-line); border-radius: 7px; padding: 6px 8px; background: #fff; color: var(--pa-ink); outline: none; }
+#painting-modal .pa-pri { background: var(--pa-ink); color: #fff; border-color: var(--pa-ink); }
+#painting-modal .pa-pri:hover { background: #16294a; color: #fff; }
+#painting-modal .pa-x { padding: 4px 7px; color: var(--pa-muted); }
+#painting-modal .pa-x:hover { background: var(--pa-warn); color: #fff; border-color: var(--pa-warn); }
+#painting-modal .pa-ctrls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+#painting-modal .pa-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; font-size: 13px; }
+#painting-modal .pa-nudge { display: flex; gap: 6px; }
+#painting-modal .pa-item { display: flex; align-items: center; gap: 7px; margin: 7px 0; background: #F8FAFC; border: 1px solid var(--pa-line); border-radius: 8px; padding: 7px 9px; }
+#painting-modal .pa-dot { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.15); }
+#painting-modal .pa-item input[type=text] { flex: 1 1 auto; min-width: 0; background: transparent; border: none; }
+#painting-modal .pa-palette { display: flex; flex-wrap: wrap; gap: 7px; }
+#painting-modal .pa-chip { display: flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--pa-line); background: #F8FAFC; border-radius: 20px; padding: 5px 10px; cursor: pointer; }
+#painting-modal .pa-chip:hover { border-color: var(--pa-ink); }
+#painting-modal .pa-pr { font-size: 10.5px; color: var(--pa-muted); }
+#painting-modal .pa-chip input { width: 30px; font-size: 11px; padding: 2px 3px; text-align: center; }
+#painting-modal .pa-paintrow { display: flex; align-items: center; gap: 10px; }
+#painting-modal .pa-paintname { font-size: 13px; font-weight: 600; }
+#painting-modal .pa-colorbig { width: 40px; height: 40px; border: none; background: none; cursor: pointer; padding: 0; }
+#painting-modal .pa-colordots { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 9px; }
+#painting-modal .pa-cd { width: 18px; height: 18px; border-radius: 5px; border: 1px solid rgba(0,0,0,.15); }
+#painting-modal .pa-entry { display: flex; align-items: center; gap: 8px; margin: 7px 0; background: #F8FAFC; border: 1px solid var(--pa-line); border-radius: 9px; padding: 8px 10px; cursor: pointer; }
+#painting-modal .pa-entry.sel { border-color: var(--pa-ink); box-shadow: 0 0 0 2px rgba(31,56,100,.12); }
+#painting-modal .pa-entry .pa-cnt { flex: 0 0 auto; width: 46px; }
+#painting-modal .pa-meta { flex: 1 1 auto; min-width: 0; }
+#painting-modal .pa-nm { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 7px; }
+#painting-modal .pa-det { font-size: 11px; color: var(--pa-muted); margin-top: 2px; }
+#painting-modal .pa-entry select { font-size: 12px; padding: 4px 6px; }
+#painting-modal .pa-loopbox { background: radial-gradient(120% 120% at 50% 40%, #fff, #E9EDF2); border: 1px solid var(--pa-line); border-radius: 12px; overflow: hidden; }
+#painting-modal .pa-loopbox svg { width: 100%; height: auto; display: block; }
+#painting-modal .pa-results { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 560px) { #painting-modal .pa-results { grid-template-columns: repeat(2, 1fr); } }
+#painting-modal .pa-stat { background: #fff; border: 1px solid var(--pa-line); border-radius: 10px; padding: 13px; }
+#painting-modal .pa-stat .pa-k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--pa-muted); }
+#painting-modal .pa-stat .pa-v { font-weight: 700; font-size: 23px; margin-top: 5px; }
+#painting-modal .pa-stat.pa-hero { background: var(--pa-ink); }
+#painting-modal .pa-stat.pa-hero .pa-k { color: #9fb0cf; }
+#painting-modal .pa-stat.pa-hero .pa-v { color: #fff; }
+#painting-modal .pa-stat .pa-vsub { font-size: 11px; color: var(--pa-muted); margin-top: 3px; }
+#painting-modal .pa-stat.pa-hero .pa-vsub { color: #9fb0cf; }
+#painting-modal .pa-vsub.warn { color: #ffb4a8; }
+#painting-modal table.pa-bd { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--pa-line); border-radius: 10px; overflow: hidden; }
+#painting-modal table.pa-bd th, #painting-modal table.pa-bd td { text-align: right; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--pa-line); }
+#painting-modal table.pa-bd th { font-size: 10px; text-transform: uppercase; color: var(--pa-muted); font-weight: 600; background: #F6F8FB; }
+#painting-modal table.pa-bd td:first-child, #painting-modal table.pa-bd th:first-child { text-align: left; }
+#painting-modal table.pa-bd tr:last-child td { border-bottom: none; }
+#painting-modal .pa-nm2 { display: flex; align-items: center; gap: 8px; }
+#painting-modal .pa-note { font-size: 12px; color: var(--pa-muted); margin-top: 6px; line-height: 1.5; }
+#painting-modal .pa-note b { color: #33507e; font-weight: 600; }

@@ -54,7 +54,7 @@ async function loadAccess(email) {
 }
 function applyAccess() {
   const adminOnly = document.querySelectorAll(
-    '#btn-new,#btn-new-order,#btn-new-claim,#btn-report,#btn-claim-report,#btn-main-messages,#btn-contacts,#btn-export,label[for="import-file"]');
+    '#btn-new,#btn-new-order,#btn-new-claim,#btn-report,#btn-claim-report,#btn-main-messages,#btn-contacts,#btn-painting,#btn-export,label[for="import-file"]');
   if (MY_ACCESS.isAdmin) {
     adminOnly.forEach(el => el.style.display = "");
     document.querySelector(".layout").style.display = "";

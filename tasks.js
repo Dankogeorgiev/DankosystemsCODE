@@ -324,6 +324,9 @@ function applyTasksAccess() {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
+  // „Отчет боядисване“ — за админи и за служители от Цех Боя (Бояджийно)
+  const pb = document.getElementById("tasks-painting");
+  if (pb) pb.hidden = !(!w || MY_ACCESS.workshop === "Бояджийно");
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
