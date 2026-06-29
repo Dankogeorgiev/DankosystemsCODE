@@ -135,7 +135,7 @@ let messagesSubscribed = false;
 let msgFilterTask = null;        // показвай само съобщения за тази задача
 let msgView = "active";   // регистър: "active" | "done" | "all"
 let msgType = "question"; // раздел: "question" | "supply" (поръчки за снабдяване)
-let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия при нов отговор/въпрос
+let msgNotifyState = { replyCounts: {}, ids: [], accepted: {} };   // за известия при нов отговор/въпрос/приемане
 let timesFilter = { workshop: "", machine: "", worker: "" };   // филтри в „Времена“
 // Персонално лого/значка за конкретен служител (показва се горе в неговия изглед)
 const WORKER_BADGE = {
@@ -1535,13 +1535,14 @@ function renderMessages() {
 }
 /* ---------- Известия (notifications) ---------- */
 function snapshotNotify() {
-  const replyCounts = {}; const ids = [];
+  const replyCounts = {}; const ids = []; const accepted = {};
   MESSAGES.forEach(m => {
     if (!msgVisibleToMe(m)) return;
     ids.push(m.id);
     replyCounts[m.id] = (m.replies || []).length;
+    accepted[m.id] = !!m.acceptedBy;
   });
-  return { replyCounts, ids };
+  return { replyCounts, ids, accepted };
 }
 function requestNotifyPermission() {
   try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
@@ -1583,6 +1584,12 @@ function detectAndNotify(before) {
           fireBrowserNotification(title, (m.taskRef ? m.taskRef + "\n" : "") + (last.text || ""));
           showToast(title + " — натисни тук, за да видиш.");
         }
+      }
+      // Поръчка за снабдяване — приета от админ
+      if (msgIsSupply(m) && m.acceptedBy && !(before.accepted && before.accepted[m.id])) {
+        const title = "📦 Поръчката ти е приета от " + (m.acceptedBy.name || "администратор");
+        fireBrowserNotification(title, m.text || "");
+        showToast(title + " — натисни тук, за да видиш.");
       }
     });
   } else {
