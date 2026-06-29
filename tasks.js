@@ -10,7 +10,7 @@ const THICKNESS_OPTIONS = ["0,5", "0,7", "0,8", "1", "1,2", "1,5", "2", "2,5", "
 // Машини по цехове (за задължителното записване на време при изработка)
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
-  "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC 600", "VMC966", "Traub Turning"],
+  "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC 600", "VMC966", "Traub Turning", "Лазерно Гравиране"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
 const MACHINE_TIME_LABELS = {
