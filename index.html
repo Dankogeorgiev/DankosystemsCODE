@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=129" />
+  <link rel="stylesheet" href="styles.css?v=130" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,13 +28,13 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 129</p>
+      <p class="login-version">версия 130</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="brand">
-      <img src="logo.png?v=129" alt="Данко Системс" class="brand-logo"
+      <img src="logo.png?v=130" alt="Данко Системс" class="brand-logo"
            onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
       <div id="brand-fallback" class="brand-fallback">
         <span class="logo">DS</span>
@@ -82,7 +82,7 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=129" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.jpg?v=130" alt="Добре дошли" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошъл 👋</h2>
         <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
@@ -391,21 +391,22 @@
         <table class="report-table tasks-table">
           <colgroup>
             <col style="width:4%" />
+            <col style="width:9%" />
             <col style="width:10%" />
-            <col style="width:10%" />
             <col style="width:6%" />
+            <col style="width:6%" />
+            <col style="width:6%" />
+            <col style="width:6%" />
+            <col style="width:6%" />
+            <col style="width:5%" />
             <col style="width:7%" />
+            <col style="width:13%" />
             <col style="width:6%" />
-            <col style="width:6%" />
-            <col style="width:6%" />
-            <col style="width:8%" />
-            <col style="width:14%" />
-            <col style="width:7%" />
             <col style="width:16%" />
           </colgroup>
           <thead>
             <tr>
-              <th data-sort="priority" title="Приоритет">★</th><th data-sort="client">Клиент</th><th data-sort="product">Продукт</th><th data-sort="files">Чертеж</th><th data-sort="operation">Операция</th>
+              <th data-sort="priority" title="Приоритет">★</th><th data-sort="client">Клиент</th><th data-sort="product">Продукт</th><th data-sort="files">Чертеж</th><th data-sort="thickness">Дебелина</th><th data-sort="operation">Операция</th>
               <th class="num" data-sort="qty">Кол-во</th><th class="num" data-sort="produced">Произв.</th><th class="num" data-sort="remaining">Остатък</th>
               <th data-sort="due">Срок</th><th data-sort="assignee">Отговорник</th><th>Въпрос</th><th></th>
             </tr>
@@ -456,10 +457,10 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="config.js?v=129"></script>
-  <script src="app.js?v=129"></script>
-  <script src="tasks.js?v=129"></script>
-  <script src="contacts-data.js?v=129"></script>
-  <script src="contacts.js?v=129"></script>
+  <script src="config.js?v=130"></script>
+  <script src="app.js?v=130"></script>
+  <script src="tasks.js?v=130"></script>
+  <script src="contacts-data.js?v=130"></script>
+  <script src="contacts.js?v=130"></script>
 </body>
 </html>

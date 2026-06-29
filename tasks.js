@@ -4,6 +4,9 @@
 
 const TASK_DEFAULT_WORKSHOPS = ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
 
+// Дебелини (мм) за падащото меню в колона „Дебелина“ (десетите се пишат със запетая)
+const THICKNESS_OPTIONS = ["0,5", "0,7", "0,8", "1", "1,2", "1,5", "2", "2,5", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "15", "16", "18", "20", "22", "25"];
+
 // Машини по цехове (за задължителното записване на време при изработка)
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
@@ -147,6 +150,7 @@ async function cyclePriority(t) {
 
 const SORT_KEYS = {
   priority: t => priLevel(t),
+  thickness: t => parseFloat(String(t.thickness || "").replace(",", ".")) || 0,
   client: t => (t.client || "").toLowerCase(),
   product: t => (t.product || "").toLowerCase(),
   files: t => (t.files || []).length,
@@ -484,6 +488,9 @@ function renderTasks() {
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
       <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
+      <td data-label="Дебелина">${amWorker()
+        ? (escapeHtml(t.thickness) || "—")
+        : `<select class="t-thick"><option value="">—</option>${THICKNESS_OPTIONS.map(v => `<option ${t.thickness === v ? "selected" : ""}>${v}</option>`).join("")}</select>`}</td>
       <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
@@ -509,6 +516,8 @@ function renderTasks() {
       b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
     const asg = tr.querySelector("select.t-assignee");
     if (asg) asg.addEventListener("change", () => { if (amWorker()) return; t.assignee = asg.value; tSaveTask(t); });
+    const thk = tr.querySelector("select.t-thick");
+    if (thk) thk.addEventListener("change", () => { if (amWorker()) return; t.thickness = thk.value; tSaveTask(t); });
     const sel = tr.querySelector(".t-sel");
     if (sel) sel.addEventListener("change", () => {
       if (sel.checked) selectedTasks.add(t.id); else selectedTasks.delete(t.id);
