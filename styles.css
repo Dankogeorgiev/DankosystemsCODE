@@ -250,7 +250,7 @@ tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .wchip-all { padding: 4px 14px; }
 .wav { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #0d9488; color: #fff; font-size: 12px; font-weight: 700; }
 .wchip.active .wav { background: rgba(255,255,255,.3); }
-#tasks-view, #workers-view, #report-view, #contacts-view, #contact-form { overflow: auto; padding: 14px 18px; flex: 1 1 auto; min-height: 0; }
+#tasks-view, #workers-view, #report-view, #messages-view, #times-view, #contacts-view, #contact-form { overflow: auto; padding: 14px 18px; flex: 1 1 auto; min-height: 0; }
 .tasks-table th, .tasks-table td { font-size: 13px; }
 .tasks-table { table-layout: fixed; width: 100%; min-width: 1180px; }
 .tasks-table thead th { font-size: 12px; white-space: nowrap; }
@@ -609,7 +609,7 @@ input[type="date"] {
   #contacts-modal #contact-search { flex: 1 1 100%; max-width: 100%; }
   #contacts-modal .tasks-controls .spacer { display: none; }
   .tasks-head h2 { font-size: 16px; }
-  #tasks-view, #workers-view, #report-view, #contacts-view, #contact-form, #inquiry-view { padding: 10px; }
+  #tasks-view, #workers-view, #report-view, #messages-view, #times-view, #contacts-view, #contact-form, #inquiry-view { padding: 10px; }
 
   /* Категории — една под друга, по 2 на ред; ограничена височина, за да остане място за списъка */
   .cat-groups { flex-direction: column; gap: 10px; }
