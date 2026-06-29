@@ -73,6 +73,9 @@
   table.bd tr:last-child td{border-bottom:none}
   .nm2{display:flex;align-items:center;gap:8px}
   .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
+  .nowbox{margin-top:10px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#F8FAFC;font-size:13px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .nowbox .lab2{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;width:100%}
+  .nowbox .dot{width:13px;height:13px}
 </style>
 </head>
 <body>
@@ -100,14 +103,17 @@
         <div class="row"><span>Места на линията</span><input type="number" id="capacity" value="62"></div>
         <div class="row"><span class="lab">Корекция към реалността</span>
           <span class="nudge"><button class="btn" id="back">−</button><button class="btn" id="fwd">мина +</button></span></div>
+        <div class="nowbox" id="nowPainting">—</div>
       </fieldset>
       <fieldset>
         <legend>Боя на линията</legend>
         <div class="paintrow">
           <input type="color" id="paint" value="#3B6FB0" style="width:40px;height:40px;border:none;background:none;cursor:pointer">
-          <div style="flex:1"><div style="font-size:13px;font-weight:600" id="paintName">#3B6FB0</div><div class="lab" id="paintChanges">смени днес: 0</div></div>
+          <div style="flex:1"><div style="font-size:14px;font-weight:700" id="paintName">RAL —</div><div class="lab" id="paintChanges">смени днес: 0</div></div>
           <button class="btn" id="newColor">смени цвят</button>
         </div>
+        <div class="row" style="margin-top:8px"><span class="lab">RAL цвят</span>
+          <input type="text" id="paintRal" placeholder="напр. 9005" maxlength="12" style="width:96px"></div>
         <div class="colordots" id="colordots"></div>
       </fieldset>
       <fieldset>
@@ -167,6 +173,11 @@ let entries=[
 let selEntry=entries[0].id, paintToday=['#3B6FB0'];
 let hangers=[];   // [{type, part}] в реда на боядисване
 let phi=0, running=false, runSec=0, pauseSec=0, last=0;
+let paintRal='';  // RAL код на текущата боя (по избор)
+/* Често ползвани прахови RAL цветове → hex (за квадратчето). */
+const RAL_HEX={"1003":"#f9a800","1015":"#e6d2b5","1018":"#f5d033","1021":"#f3c300","2004":"#e75b12","3000":"#af2b1e","3002":"#9b111e","3005":"#59191f","3020":"#cc0605","5002":"#20214f","5005":"#1d1e33","5010":"#0e294b","5012":"#3b83bd","5015":"#2874b2","5017":"#063971","6005":"#0f4336","6011":"#587246","6018":"#61993b","6029":"#20603d","7001":"#8f999f","7011":"#434b4d","7012":"#4e5754","7015":"#434750","7016":"#293133","7021":"#23282b","7024":"#474a51","7035":"#cbd0cc","7037":"#7d7f7d","7040":"#9da3a6","8014":"#382c1e","8017":"#45322e","8019":"#403a3a","9001":"#fdf4e3","9002":"#e7ebda","9003":"#f4f4f4","9005":"#0a0a0a","9006":"#a5a5a5","9007":"#8f8f8c","9010":"#ffffff","9011":"#1c1c1c","9016":"#f6f6f6","9017":"#1e1e1e"};
+const ralToHex=r=>RAL_HEX[String(r||'').replace(/[^0-9]/g,'')]||null;
+function currentHangerInfo(){const i=paintedCount();if(i>=L()||!hangers[i])return null;const h=hangers[i];return{ht:H(h.type),p:P(h.part)};}
 
 const $=id=>document.getElementById(id);
 const H=id=>hangerTypes.find(h=>h.id===id);
@@ -198,9 +209,11 @@ function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.ha
       <select data-e="${e.id}" data-f="hanger" onclick="event.stopPropagation()">${hangerOpts(e.hanger)}</select></div>
       <div class="det">детайл: <b>${p?p.name:'—'}</b> · ${h?h.rows:0}×${p?p.perRow:0} = ${cap(e)} бр/подв.</div></div>
     <button class="btn x" data-dele="${e.id}" onclick="event.stopPropagation()">×</button></div>`;}).join('');}
-function renderColor(){const c=$('paint').value;$('paintName').textContent=c.toUpperCase();
+function renderColor(){const c=$('paint').value;
+  $('paintName').textContent=paintRal?('RAL '+paintRal):c.toUpperCase();
   $('paintChanges').textContent='смени днес: '+Math.max(0,paintToday.length-1);
-  $('colordots').innerHTML=paintToday.map(x=>`<span class="cd" style="background:${x}"></span>`).join('');}
+  $('colordots').innerHTML=paintToday.map(x=>`<span class="cd" style="background:${x}"></span>`).join('');
+  if($('paintRal')&&document.activeElement!==$('paintRal'))$('paintRal').value=paintRal;}
 
 /* ===== контур ===== */
 function drawLoop(){
@@ -209,15 +222,20 @@ function drawLoop(){
   let s=`<svg viewBox="0 0 ${Wd} ${Hd}" font-family="IBM Plex Mono,monospace">`;
   s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#C7D0DC" stroke-width="10"/>`;
   s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#EAEEF3" stroke-width="6" stroke-dasharray="2 14"/>`;
-  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-phi)*step,[x,y]=pos(t),painted=phi>=k+1,col=H(hangers[k].type)?.color||'#ccc';
-    s+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><circle r="7.5" fill="${painted?PAINT():'#fff'}" stroke="${painted?PAINT():col}" stroke-width="${painted?1.4:2.4}"/>`+
-       `<circle r="2.8" fill="${painted?'#fff':col}"/></g>`;}
+  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-phi)*step,[x,y]=pos(t),painted=phi>=k+1,cur=(k===paintedCount()),col=H(hangers[k].type)?.color||'#ccc';
+    s+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">`+
+       (cur?`<circle r="12" fill="none" stroke="#1F3864" stroke-width="2"><animate attributeName="r" values="11;16;11" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.25;1" dur="1.2s" repeatCount="indefinite"/></circle>`:``)+
+       `<circle r="${cur?9.5:7.5}" fill="${painted?PAINT():'#fff'}" stroke="${cur?'#1F3864':(painted?PAINT():col)}" stroke-width="${cur?2.6:(painted?1.4:2.4)}"/>`+
+       `<circle r="${cur?3.4:2.8}" fill="${painted?'#fff':col}"/></g>`;}
   const [bx,by]=pos(boothA);
   s+=`<g transform="translate(${bx},${by})"><rect x="-34" y="-40" width="68" height="30" rx="6" fill="#1F3864"/>`+
      `<text x="0" y="-20" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">КАБИНА</text>`+
      `<line x1="0" y1="-10" x2="0" y2="2" stroke="#1F3864" stroke-width="2"/><polygon points="-7,2 7,2 4,9 -4,9" fill="${PAINT()}"/></g>`;
   s+=`<text x="${cx}" y="${cy-4}" font-size="26" font-weight="700" fill="#1F3864" text-anchor="middle" font-family="Space Grotesk">${paintedCount()} / ${Lc}</text>`;
-  s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани</text></svg>`;
+  s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани</text>`;
+  const ci=currentHangerInfo();
+  s+=`<text x="${cx}" y="${cy+40}" font-size="13" font-weight="700" fill="#1F3864" text-anchor="middle">${ci?'сега: '+((ci.ht&&ci.ht.name)||'—')+' · '+((ci.p&&ci.p.name)||'—'):'✓ всичко боядисано'}</text>`;
+  s+=`</svg>`;
   $('loop').innerHTML=s;
 }
 
@@ -238,6 +256,10 @@ function update(){
     `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
     `<td>${a.done}</td><td>${a.left}</td><td><b>${a.leftParts.toLocaleString('bg')}</b></td></tr>`).join('')
     ||'<tr><td colspan="4" class="note">няма заредени детайли</td></tr>';
+  const ci=currentHangerInfo(),np=$('nowPainting');
+  if(np)np.innerHTML='<span class="lab2">сега боядисва</span>'+(ci
+    ?`<span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'}"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${(ci.p&&ci.p.name)||'—'}</span>`
+    :'<b style="color:var(--ok)">✓ всичко боядисано</b>');
   drawLoop();
 }
 function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderColor();update();}
@@ -254,10 +276,11 @@ document.addEventListener('input',e=>{const t=e.target;
   if(t.dataset.h){const h=H(+t.dataset.h);if(t.dataset.f==='name')h.name=t.value;else h.rows=Math.max(1,+t.value||1);refresh();}
   else if(t.dataset.p){P(+t.dataset.p).perRow=Math.max(0,+t.value||0);refresh();}
   else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
+  else if(t.id==='paintRal'){paintRal=t.value.trim();const hx=ralToHex(paintRal);if(hx){$('paint').value=hx;if(paintToday.length)paintToday[paintToday.length-1]=hx;}renderColor();update();}
   else if(['capacity','speed','preview'].includes(t.id))update();});
 document.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.e&&t.dataset.f==='hanger'){entries.find(x=>x.id===+t.dataset.e).hanger=+t.value;refresh();}
-  if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;renderColor();update();}});
+  if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;if(ralToHex(paintRal)!==t.value)paintRal='';renderColor();update();}});
 document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-loadpart],[data-delh],[data-delp],[data-dele]')||e.target;
   if(t.dataset.sel){selEntry=+t.dataset.sel;renderEntries();return;}
   if(t.dataset.loadpart){const en=entries.find(x=>x.id===selEntry);if(en){en.part=+t.dataset.loadpart;refresh();}return;}
@@ -279,6 +302,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=137"></script>
+<script src="sync.js?v=138"></script>
 </body>
 </html>
