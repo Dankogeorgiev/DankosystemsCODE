@@ -856,16 +856,10 @@ async function importERP(file) {
 
   const shopsInFile = [...new Set(newTasks.map(t => t.workshop))];
   if (!confirm(
-    `Намерени са ${newTasks.length} задачи за ${shopsInFile.length} цех(а):\n${shopsInFile.join(", ")}.\n\n` +
-    `Старите задачи за ТЕЗИ цехове ще се ЗАМЕНЯТ с новите. Другите цехове остават непроменени.\n\nПродължи?`)) return;
+    `Намерени са ${newTasks.length} нови задачи за ${shopsInFile.length} цех(а):\n${shopsInFile.join(", ")}.\n\n` +
+    `Те ще се ДОБАВЯТ към съществуващите. Нищо старо НЕ се изтрива.\n\nПродължи?`)) return;
 
-  // изтриваме старите задачи само за цеховете, които са във файла
-  const toDelete = TASKS.filter(t => shopsInFile.includes(t.workshop)).map(t => t.id);
-  for (let i = 0; i < toDelete.length; i += 100) {
-    const { error } = await sb.from("tasks").delete().in("id", toDelete.slice(i, i + 100));
-    if (error) { alert("Грешка при изчистване: " + error.message); return; }
-  }
-  // вмъкване на партиди по 200
+  // САМО добавяне — старите задачи НЕ се пипат. Вмъкване на партиди по 200.
   for (let i = 0; i < newTasks.length; i += 200) {
     const chunk = newTasks.slice(i, i + 200).map(t => ({ data: t }));
     const { error } = await sb.from("tasks").insert(chunk);
@@ -874,7 +868,7 @@ async function importERP(file) {
   await tSaveWorkers();
   await tLoadTasks();
   renderWorkshopSelect(); renderWorkerFilter(); renderTasks();
-  alert(`Готово! Заредени ${newTasks.length} задачи.`);
+  alert(`Готово! Добавени ${newTasks.length} нови задачи (старите са запазени).`);
 }
 
 /* ---------- Служители ---------- */
