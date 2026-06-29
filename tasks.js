@@ -63,7 +63,7 @@ const FIELDS_BY_WORKER = {
     },
   },
   "Кръстьо Средев": {
-    machines: ["Щанца DURMA"],
+    machines: ["Gweike 3kw 1", "Gweike 3kw 2", "DURMA щанца"],
     countFields: [{ key: "sheets", label: "Брой насечени листи" }],
     qtyLabel: "Брой детайли",
     timeFields: [
