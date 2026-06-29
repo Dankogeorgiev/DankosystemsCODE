@@ -121,7 +121,7 @@ let msgNotifyState = { replyCounts: {}, ids: [] };   // за известия п
 let timesFilter = { workshop: "", machine: "", worker: "" };   // филтри в „Времена“
 // Персонално лого/значка за конкретен служител (показва се горе в неговия изглед)
 const WORKER_BADGE = {
-  "Димитър Павлов": { img: "cska.png?v=1", alt: "ЦСКА", title: "ЦСКА 1948" },
+  "Димитър Павлов": { img: "https://upload.wikimedia.org/wikipedia/commons/9/99/CSKA_Sofia_logo_2018-19.png", alt: "ЦСКА", title: "ЦСКА 1948" },
 };
 
 function dueSortVal(due) {
