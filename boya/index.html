@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Линия за боядисване — Данко Системс</title>
+  <link rel="stylesheet" href="painting.css?v=1" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">DS</span>
+      <div>
+        <h1>Линия за боядисване</h1>
+        <p class="subtitle">Подвески на конвейера · бързо отчитане</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-print" class="btn">🖨 Печат / справка</button>
+      <button id="btn-clear-done" class="btn btn-ghost">Премахни готовите</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Бързо закачане на нова подвеска -->
+    <form id="add-form" class="add-bar" autocomplete="off">
+      <div class="field field-color">
+        <label>Цвят (RAL)</label>
+        <div class="color-row">
+          <input type="text" id="f-ral" placeholder="напр. 9005" maxlength="12" />
+          <input type="color" id="f-color" value="#1b1b1b" title="Цвят" />
+        </div>
+      </div>
+      <div class="field field-grow">
+        <label>Вид детайли</label>
+        <input type="text" id="f-part" placeholder="напр. рамки, панти, профили…" />
+      </div>
+      <div class="field field-count">
+        <label>Брой</label>
+        <input type="number" id="f-count" min="1" step="1" value="1" />
+      </div>
+      <button type="submit" class="btn btn-primary">＋ Закачи на линията</button>
+    </form>
+
+    <!-- Обобщение за отчитане -->
+    <section class="summary" id="summary"></section>
+
+    <!-- Филтри -->
+    <div class="filters" id="filters">
+      <button class="chip is-active" data-filter="all">Всички</button>
+      <button class="chip" data-filter="online">На линията</button>
+      <button class="chip" data-filter="done">Готови</button>
+    </div>
+
+    <!-- Конвейерът с подвеските -->
+    <div class="line-wrap">
+      <div class="conveyor" id="conveyor">
+        <div class="rail"></div>
+        <div class="hangers" id="hangers"></div>
+      </div>
+    </div>
+    <p class="empty" id="empty" hidden>Линията е празна. Закачи първата подвеска отгоре. ⤴</p>
+  </main>
+
+  <!-- Редакция на подвеска -->
+  <dialog id="edit-dialog" class="dialog">
+    <form method="dialog" id="edit-form">
+      <h3>Подвеска</h3>
+      <div class="field">
+        <label>Цвят (RAL)</label>
+        <div class="color-row">
+          <input type="text" id="e-ral" maxlength="12" />
+          <input type="color" id="e-color" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Вид детайли</label>
+        <input type="text" id="e-part" />
+      </div>
+      <div class="field">
+        <label>Брой</label>
+        <input type="number" id="e-count" min="1" step="1" />
+      </div>
+      <div class="field">
+        <label>Забележка</label>
+        <input type="text" id="e-note" placeholder="по избор" />
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="e-delete" class="btn btn-danger">Изтрий</button>
+        <span class="spacer"></span>
+        <button type="button" id="e-cancel" class="btn btn-ghost">Отказ</button>
+        <button type="submit" class="btn btn-primary">Запази</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="painting.js?v=1"></script>
+</body>
+</html>
