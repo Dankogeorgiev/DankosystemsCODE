@@ -66,12 +66,27 @@ const FIELDS_BY_WORKER = {
     },
   },
   "Кръстьо Средев": {
-    machines: ["Gweike 3kw 1", "Gweike 3kw 2", "DURMA щанца"],
-    countFields: [{ key: "sheets", label: "Брой насечени листи" }],
-    qtyLabel: "Брой детайли",
-    timeFields: [
-      { key: "tSetup", label: "Време за пренастройка", unit: "min" },
-    ],
+    byMachine: {
+      "Gweike 3kw 1": {
+        qtyLabel: "Брой детайли",
+        timeFields: [
+          { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
+          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+        ],
+      },
+      "Gweike 3kw 2": {
+        qtyLabel: "Брой детайли",
+        timeFields: [
+          { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
+          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+        ],
+      },
+      "DURMA щанца": {
+        qtyLabel: "Брой детайли",
+        countFields: [{ key: "sheets", label: "Брой насечени листи" }],
+        timeFields: [{ key: "tSetup", label: "Време за пренастройка", unit: "min" }],
+      },
+    },
   },
 };
 
@@ -624,36 +639,45 @@ async function logProduction(t, qtyVal, extra) {
   renderTasks();
 }
 
-// Задължителен прозорец за машина + времена (за цеховете в WORKSHOPS_WITH_TIME)
+// Задължителен прозорец за машина + времена (полетата може да зависят от машината)
 function openProductionDialog(t, qtyPrefill) {
   // Персонален Отчетен прозорец (по служител) има предимство пред настройката на цеха.
   const wname = MY_WORKER || t.assignee || "";
   let wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
   if (wcfg.byWorkshop) wcfg = wcfg.byWorkshop[t.workshop] || wcfg.byWorkshop["*"] || {};
+  const byMachine = wcfg.byMachine || null;
 
-  // Машини: масив → избор; false/[] → без поле за машина; иначе по цеха (или текст).
-  const machines = ("machines" in wcfg) ? wcfg.machines : (MACHINES_BY_WORKSHOP[t.workshop] || null);
+  // Машини: масив → избор; ключовете на byMachine; false/[] → без поле; иначе по цеха (текст).
+  let machines;
+  if ("machines" in wcfg) machines = wcfg.machines;
+  else if (byMachine) machines = Object.keys(byMachine);
+  else machines = MACHINES_BY_WORKSHOP[t.workshop] || null;
   const hasMachineSelect = Array.isArray(machines) && machines.length > 0;
   const noMachine = machines === false || (Array.isArray(machines) && machines.length === 0);
   const machineField = hasMachineSelect
     ? `<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select>`
     : (noMachine ? "" : `<input id="pd-machine" type="text" placeholder="На коя машина работи?" />`);
 
-  const fields = wcfg.timeFields || TIME_FIELDS_BY_WORKSHOP[t.workshop] || [
-    { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
-    { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
-  ];
-  const qtyLabel = wcfg.qtyLabel || "Брой произведени сега";
-  const countFields = wcfg.countFields || [];   // допълнителни бройки (напр. насечени листи)
-  const extraFields = (wcfg.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
-  // „Специфична работа“ — поле за всеки служител (за гъвкавост при местене между цехове)
-  if (!extraFields.some(f => f.key === "specific")) {
-    extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
+  // Конфигурация на полетата според избраната машина (byMachine) или базова.
+  function cfgFor(machine) {
+    let c = wcfg;
+    if (byMachine && machine && byMachine[machine]) c = Object.assign({}, wcfg, byMachine[machine]);
+    const timeFields = c.timeFields || TIME_FIELDS_BY_WORKSHOP[t.workshop] || [
+      { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
+      { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
+    ];
+    const qtyLabel = c.qtyLabel || "Брой произведени сега";
+    const countFields = c.countFields || [];
+    const extraFields = (c.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
+    if (!extraFields.some(f => f.key === "specific")) {
+      extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
+    }
+    return { timeFields, qtyLabel, countFields, extraFields };
   }
   const countRow = (f) => `
     <label>${escapeHtml(f.label)} *<input id="pd-c-${f.key}" type="number" min="0" step="1" inputmode="numeric" placeholder="0" /></label>`;
-  const timeRow = (f) => `
-    <label><span class="pd-flabel" id="pd-lbl-${f.key}">${escapeHtml(f.label)}</span>
+  const timeRow = (f, labelOverride) => `
+    <label>${escapeHtml(labelOverride || f.label)}
       <span class="pd-time">
         <input id="pd-${f.key}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" />
         <select id="pd-${f.key}-u">
@@ -667,6 +691,21 @@ function openProductionDialog(t, qtyPrefill) {
     <label>${escapeHtml(f.label)}${f.required ? " *" : ""}
       <textarea id="pd-x-${f.key}" rows="2" placeholder="${f.required ? "" : "по желание"}"></textarea>
     </label>`;
+  function fieldsHtml(machine, qtyValue) {
+    const qLbl = (cfgFor(machine).qtyLabel);
+    const qtyInput = `<label>${escapeHtml(qLbl)} *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyValue || ""))}" /></label>`;
+    if (byMachine && !machine) {
+      return qtyInput + `<p class="pd-hint">Избери машина, за да се покажат полетата за отчитане.</p>`;
+    }
+    const c = cfgFor(machine);
+    const mLabels = MACHINE_TIME_LABELS[machine] || {};
+    return c.countFields.map(countRow).join("")
+      + qtyInput
+      + (c.timeFields.length ? `<p class="pd-hint">⏱ Попълни поне едно от времената (другите може да оставиш празни):</p>` : "")
+      + c.timeFields.map(f => timeRow(f, mLabels[f.key])).join("")
+      + c.extraFields.map(textRow).join("");
+  }
+
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   wrap.innerHTML = `
@@ -678,11 +717,7 @@ function openProductionDialog(t, qtyPrefill) {
         ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
       </div>
       ${machineField ? `<label>Машина *${machineField}</label>` : ""}
-      ${countFields.map(countRow).join("")}
-      <label>${escapeHtml(qtyLabel)} *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
-      ${fields.length ? `<p class="pd-hint">⏱ Попълни поне едно от времената (другите може да оставиш празни):</p>` : ""}
-      ${fields.map(timeRow).join("")}
-      ${extraFields.map(textRow).join("")}
+      <div id="pd-fields">${fieldsHtml("", qtyPrefill)}</div>
       <div class="ask-actions">
         <button id="pd-save" class="btn btn-primary">Запиши изработката</button>
         <button id="pd-cancel" class="btn">Отказ</button>
@@ -692,40 +727,39 @@ function openProductionDialog(t, qtyPrefill) {
   const close = () => wrap.remove();
   wrap.querySelector("#pd-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
-  // Преименуване на полета според избраната машина (напр. Gweike → „1 прът“ вместо „1 лист“)
+
   const machineSel = wrap.querySelector("#pd-machine");
-  const relabelByMachine = () => {
-    const mv = (machineSel && machineSel.value) || "";
-    const ov = MACHINE_TIME_LABELS[mv] || {};
-    fields.forEach(f => { const el = wrap.querySelector("#pd-lbl-" + f.key); if (el) el.textContent = ov[f.key] || f.label; });
+  const fieldsBox = wrap.querySelector("#pd-fields");
+  const rebuild = () => {
+    const m = (machineSel && machineSel.value) || "";
+    const cur = (wrap.querySelector("#pd-qty") || {}).value || qtyPrefill || "";
+    fieldsBox.innerHTML = fieldsHtml(m, cur);
   };
-  if (machineSel) machineSel.addEventListener("change", relabelByMachine);
-  relabelByMachine();
+  if (machineSel) machineSel.addEventListener("change", rebuild);
+
   wrap.querySelector("#pd-save").addEventListener("click", async () => {
-    const mEl = wrap.querySelector("#pd-machine");
-    const machine = (mEl && mEl.value || "").trim();
+    const machine = (machineSel && machineSel.value || "").trim();
+    if (machineSel && !machine) { alert("Избери машина."); return; }
+    const c = cfgFor(machine);
     const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
-    if (mEl && !machine) { alert("Избери машина."); return; }
-    if (!qty || qty <= 0) { alert("Въведи " + qtyLabel.toLowerCase() + "."); return; }
+    if (!qty || qty <= 0) { alert("Въведи " + c.qtyLabel.toLowerCase() + "."); return; }
     const extra = {};
     if (machine) extra.machine = machine;
-    // Допълнителни бройки (напр. насечени листи) — задължителни
-    for (const f of countFields) {
+    for (const f of c.countFields) {
       const cv = Number(String(wrap.querySelector("#pd-c-" + f.key).value).replace(",", "."));
       if (!cv || cv <= 0) { alert("Въведи „" + f.label + "“."); return; }
       extra[f.key] = cv;
     }
-    // Времената: попълва се поне едно; празните се пропускат (0 е позволено = празно).
     let timeCount = 0;
-    for (const f of fields) {
+    for (const f of c.timeFields) {
       const v = Number(String(wrap.querySelector("#pd-" + f.key + "-v").value).replace(",", "."));
       const unit = wrap.querySelector("#pd-" + f.key + "-u").value;
       const mult = unit === "hour" ? 3600 : (unit === "min" ? 60 : 1);
       const sec = v > 0 ? Math.round(v * mult) : 0;
       if (sec) { extra[f.key] = { v, unit, sec }; timeCount++; }
     }
-    if (fields.length && timeCount === 0) { alert("Попълни поне едно от полетата за време."); return; }
-    for (const f of extraFields) {
+    if (c.timeFields.length && timeCount === 0) { alert("Попълни поне едно от полетата за време."); return; }
+    for (const f of c.extraFields) {
       const el = wrap.querySelector("#pd-x-" + f.key);
       const val = (el && el.value || "").trim();
       if (f.required && !val) { alert("Попълни „" + f.label + "“."); return; }
