@@ -1,99 +1,269 @@
 <!DOCTYPE html>
 <html lang="bg">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Линия за боядисване — Данко Системс</title>
-  <link rel="stylesheet" href="painting.css?v=1" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Линия за прахово боядисване — отчитане на живо</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1F3864;--ink-soft:#33507e;--bg:#EAEEF3;--panel:#FFFFFF;--line:#D2DAE4;--muted:#6B7686;--ok:#2F7A4D;--warn:#C0392B;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;--disp:'Space Grotesk',system-ui,sans-serif;--body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
+  .wrap{max-width:1280px;margin:0 auto;padding:20px}
+  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 16px;border-bottom:2px solid var(--ink)}
+  header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
+  header.top .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:18px}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  fieldset{border:none;margin:0 0 16px;padding:0}fieldset:last-child{margin-bottom:0}
+  legend{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft);
+    padding:0 0 9px;border-bottom:1px solid var(--line);width:100%;margin-bottom:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .lab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;text-align:right;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:7px;padding:6px 8px;outline:none}
+  input[type=text]{text-align:left}
+  input:focus,select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  input[type=number]{-moz-appearance:textfield;width:58px}
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+  select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:#fff;color:var(--ink);outline:none}
+  .btn{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);background:#F1F4F9;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.pri{background:var(--ink);color:#fff}.btn.pri:hover{background:#16294a}
+  .btn.x{padding:4px 7px;color:var(--muted)}.btn.x:hover{background:var(--warn);color:#fff;border-color:var(--warn)}
+  .btn:active{transform:translateY(1px)}
+  .ctrls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;font-size:13px}
+  .nudge{display:flex;gap:6px}
+  .item{display:flex;align-items:center;gap:7px;margin:7px 0;background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+  .dot{width:12px;height:12px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.15)}
+  .item input[type=text]{flex:1 1 auto;min-width:0;background:transparent;border:none;font-family:var(--body)}
+  .palette{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{display:flex;align-items:center;gap:6px;font-family:var(--body);font-size:12.5px;border:1px solid var(--line);background:#F8FAFC;border-radius:20px;padding:5px 10px;cursor:pointer}
+  .chip:hover{border-color:var(--ink)}
+  .chip .pr{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .chip input{width:30px;font-size:11px;padding:2px 3px;text-align:center}
+  .paintrow{display:flex;align-items:center;gap:10px}
+  .colordots{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}.cd{width:18px;height:18px;border-radius:5px;border:1px solid rgba(0,0,0,.15)}
+  .stagewrap{display:flex;flex-direction:column;gap:16px}
+  .entry{display:flex;align-items:center;gap:8px;margin:7px 0;background:#F8FAFC;border:1px solid var(--line);border-radius:9px;padding:8px 10px;cursor:pointer}
+  .entry.sel{border-color:var(--ink);box-shadow:0 0 0 2px rgba(31,56,100,.12)}
+  .entry .cnt{flex:0 0 auto}
+  .entry .meta{flex:1 1 auto;min-width:0}
+  .entry .nm{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:7px}
+  .entry .det{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
+  .entry select{font-size:12px;padding:4px 6px}
+  .entry input[type=number]{width:46px}
+  .loopbox{background:radial-gradient(120% 120% at 50% 40%,#fff,#E9EDF2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .loopbox svg{width:100%;height:auto;display:block}
+  .results{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:560px){.results{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px}
+  .stat .k{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+  .stat .v{font-family:var(--disp);font-weight:700;font-size:23px;margin-top:5px}
+  .stat.hero{background:var(--ink)}.stat.hero .k{color:#9fb0cf}.stat.hero .v{color:#fff}
+  .stat .vsub{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:3px}.stat.hero .vsub{color:#9fb0cf}
+  .stat .vsub.warn{color:#ffb4a8}
+  table.bd{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  table.bd th,table.bd td{text-align:right;padding:9px 12px;font-size:13px;border-bottom:1px solid var(--line)}
+  table.bd th{font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--muted);font-weight:600;background:#F6F8FB}
+  table.bd td:first-child,table.bd th:first-child{text-align:left}
+  table.bd tr:last-child td{border-bottom:none}
+  .nm2{display:flex;align-items:center;gap:8px}
+  .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
+</style>
 </head>
 <body>
-  <header class="app-header">
-    <div class="brand">
-      <span class="logo">DS</span>
-      <div>
-        <h1>Линия за боядисване</h1>
-        <p class="subtitle">Подвески на конвейера · бързо отчитане</p>
-      </div>
-    </div>
-    <div class="header-actions">
-      <button id="btn-print" class="btn">🖨 Печат / справка</button>
-      <button id="btn-clear-done" class="btn btn-ghost">Премахни готовите</button>
-    </div>
-  </header>
-
-  <main class="wrap">
-    <!-- Бързо закачане на нова подвеска -->
-    <form id="add-form" class="add-bar" autocomplete="off">
-      <div class="field field-color">
-        <label>Цвят (RAL)</label>
-        <div class="color-row">
-          <input type="text" id="f-ral" placeholder="напр. 9005" maxlength="12" />
-          <input type="color" id="f-color" value="#1b1b1b" title="Цвят" />
+<div class="wrap">
+  <header class="top"><h1>Линия за прахово боядисване</h1><span class="sub">състав · затворен конвейр · отчитане на живо</span></header>
+  <div class="grid">
+    <!-- ЛЯВО -->
+    <div class="panel">
+      <fieldset>
+        <legend>Управление</legend>
+        <div class="ctrls"><button class="btn pri" id="startBtn">▶ Старт</button><button class="btn" id="resetBtn">Нулирай</button></div>
+        <div class="row"><span>Скорост</span><span><input type="number" id="speed" value="45"> подв/час</span></div>
+        <div class="row"><span>Преглед (×по-бързо)</span><input type="number" id="preview" value="60"></div>
+        <div class="row"><span>Места на линията</span><input type="number" id="capacity" value="62"></div>
+        <div class="row"><span class="lab">Корекция към реалността</span>
+          <span class="nudge"><button class="btn" id="back">−</button><button class="btn" id="fwd">мина +</button></span></div>
+      </fieldset>
+      <fieldset>
+        <legend>Боя на линията</legend>
+        <div class="paintrow">
+          <input type="color" id="paint" value="#3B6FB0" style="width:40px;height:40px;border:none;background:none;cursor:pointer">
+          <div style="flex:1"><div style="font-size:13px;font-weight:600" id="paintName">#3B6FB0</div><div class="lab" id="paintChanges">смени днес: 0</div></div>
+          <button class="btn" id="newColor">смени цвят</button>
         </div>
-      </div>
-      <div class="field field-grow">
-        <label>Вид детайли</label>
-        <input type="text" id="f-part" placeholder="напр. рамки, панти, профили…" />
-      </div>
-      <div class="field field-count">
-        <label>Брой</label>
-        <input type="number" id="f-count" min="1" step="1" value="1" />
-      </div>
-      <button type="submit" class="btn btn-primary">＋ Закачи на линията</button>
-    </form>
-
-    <!-- Обобщение за отчитане -->
-    <section class="summary" id="summary"></section>
-
-    <!-- Филтри -->
-    <div class="filters" id="filters">
-      <button class="chip is-active" data-filter="all">Всички</button>
-      <button class="chip" data-filter="online">На линията</button>
-      <button class="chip" data-filter="done">Готови</button>
+        <div class="colordots" id="colordots"></div>
+      </fieldset>
+      <fieldset>
+        <legend><span>Видове подвески</span><button class="btn" id="addHanger">+ вид</button></legend>
+        <div id="hangerList"></div>
+        <div class="note">Редове = напречни железа на подвеската.</div>
+      </fieldset>
+      <fieldset>
+        <legend><span>Детайли (бутони)</span><button class="btn" id="addPart">+ детайл</button></legend>
+        <div class="palette" id="palette"></div>
+        <div class="note">Маркирай ред от състава, после натисни детайл, за да го заредиш. Числото е <b>бр/ред</b>.</div>
+      </fieldset>
     </div>
 
-    <!-- Конвейерът с подвеските -->
-    <div class="line-wrap">
-      <div class="conveyor" id="conveyor">
-        <div class="rail"></div>
-        <div class="hangers" id="hangers"></div>
+    <!-- ДЯСНО -->
+    <div class="stagewrap">
+      <div class="panel">
+        <fieldset><legend><span>Състав на линията сега</span><button class="btn" id="addEntry">+ подвески</button></legend>
+          <div id="entryList"></div>
+        </fieldset>
       </div>
+      <div class="loopbox"><div id="loop"></div></div>
+      <div class="results">
+        <div class="stat hero"><div class="k">Боядисани</div><div class="v" id="r_done">0</div><div class="vsub" id="r_pct">0%</div></div>
+        <div class="stat"><div class="k">Остават</div><div class="v" id="r_left">–</div><div class="vsub" id="r_cap"></div></div>
+        <div class="stat"><div class="k">Изтекло (боядисване)</div><div class="v" id="r_elapsed">0:00</div><div class="vsub" id="r_pause">паузи 0:00</div></div>
+        <div class="stat"><div class="k">Оставащо време</div><div class="v" id="r_eta">–</div><div class="vsub" id="r_etasub">до края</div></div>
+      </div>
+      <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани</th><th>Остават</th><th>Бр. детайли остават</th></tr></thead><tbody id="bdBody"></tbody></table>
+      <p class="note"><b>Идея:</b> горе задаваш състава (тип подвеска + детайл + брой). Същите подвески се движат по затворения контур и минават през неподвижната кабина — там стават „боядисани". Старт пуска, Пауза = почивка (реално време), корекцията сверява при засечка. Сменяш състава по всяко време — линията се преизчислява.</p>
     </div>
-    <p class="empty" id="empty" hidden>Линията е празна. Закачи първата подвеска отгоре. ⤴</p>
-  </main>
+  </div>
+</div>
 
-  <!-- Редакция на подвеска -->
-  <dialog id="edit-dialog" class="dialog">
-    <form method="dialog" id="edit-form">
-      <h3>Подвеска</h3>
-      <div class="field">
-        <label>Цвят (RAL)</label>
-        <div class="color-row">
-          <input type="text" id="e-ral" maxlength="12" />
-          <input type="color" id="e-color" />
-        </div>
-      </div>
-      <div class="field">
-        <label>Вид детайли</label>
-        <input type="text" id="e-part" />
-      </div>
-      <div class="field">
-        <label>Брой</label>
-        <input type="number" id="e-count" min="1" step="1" />
-      </div>
-      <div class="field">
-        <label>Забележка</label>
-        <input type="text" id="e-note" placeholder="по избор" />
-      </div>
-      <div class="dialog-actions">
-        <button type="button" id="e-delete" class="btn btn-danger">Изтрий</button>
-        <span class="spacer"></span>
-        <button type="button" id="e-cancel" class="btn btn-ghost">Отказ</button>
-        <button type="submit" class="btn btn-primary">Запази</button>
-      </div>
-    </form>
-  </dialog>
+<script>
+/* ===== МОДЕЛ ===== */
+const PAL=['#2C7A8C','#E07B39','#8E5BA6','#4E8A47','#C0518A','#B8842B','#3B6FB0'];
+let uid=1; const nid=()=>uid++;
+let hangerTypes=[
+  {id:nid(),name:'Двойна (крака)',rows:2,color:PAL[0]},
+  {id:nid(),name:'Тройна',rows:3,color:PAL[1]},
+  {id:nid(),name:'Четворна',rows:4,color:PAL[2]},
+  {id:nid(),name:'Петторна',rows:5,color:PAL[3]},
+  {id:nid(),name:'Висяща (тръби)',rows:1,color:PAL[4]},
+];
+let parts=[
+  {id:nid(),name:'Дребен детайл',perRow:18},
+  {id:nid(),name:'Крак',perRow:9},
+  {id:nid(),name:'Тръба с планка',perRow:6},
+];
+let entries=[
+  {id:nid(),hanger:hangerTypes[1].id,part:parts[0].id,count:30},
+  {id:nid(),hanger:hangerTypes[3].id,part:parts[0].id,count:5},
+  {id:nid(),hanger:hangerTypes[0].id,part:parts[1].id,count:25},
+  {id:nid(),hanger:hangerTypes[4].id,part:parts[2].id,count:5},
+];
+let selEntry=entries[0].id, paintToday=['#3B6FB0'];
+let hangers=[];   // [{type, part}] в реда на боядисване
+let phi=0, running=false, runSec=0, pauseSec=0, last=0;
 
-  <script src="painting.js?v=1"></script>
+const $=id=>document.getElementById(id);
+const H=id=>hangerTypes.find(h=>h.id===id);
+const P=id=>parts.find(p=>p.id===id);
+const cap=e=>{const h=H(e.hanger),p=P(e.part);return(h&&p)?h.rows*p.perRow:0;};
+function buildHangers(){hangers=[];entries.forEach(e=>{for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,part:e.part});});
+  if(phi>hangers.length)phi=hangers.length;}
+const L=()=>hangers.length;
+const paintedCount=()=>Math.max(0,Math.min(L(),Math.floor(phi)));
+const speed=()=>+$('speed').value||45, preview=()=>+$('preview').value||1, PAINT=()=>$('paint').value;
+function fmt(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+  return h?`${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`:`${m}:${String(ss).padStart(2,'0')}`;}
+
+/* ===== дефиниции ===== */
+function renderHangers(){$('hangerList').innerHTML=hangerTypes.map(h=>`
+  <div class="item"><span class="dot" style="background:${h.color}"></span>
+    <input type="text" value="${h.name}" data-h="${h.id}" data-f="name">
+    <span class="lab">редове</span><input type="number" value="${h.rows}" data-h="${h.id}" data-f="rows" style="width:44px">
+    <button class="btn x" data-delh="${h.id}">×</button></div>`).join('');}
+function renderPalette(){$('palette').innerHTML=parts.map(p=>`
+  <div class="chip" data-loadpart="${p.id}">${p.name}
+    <span class="pr"><input type="number" value="${p.perRow}" data-p="${p.id}" data-f="perRow" onclick="event.stopPropagation()">/ред</span>
+    <span class="btn x" data-delp="${p.id}" onclick="event.stopPropagation()">×</span></div>`).join('');}
+const hangerOpts=s=>hangerTypes.map(h=>`<option value="${h.id}"${h.id===s?' selected':''}>${h.name}</option>`).join('');
+function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.hanger),p=P(e.part);
+  return `<div class="entry${e.id===selEntry?' sel':''}" data-sel="${e.id}">
+    <input class="cnt" type="number" value="${e.count}" data-e="${e.id}" data-f="count" onclick="event.stopPropagation()">
+    <div class="meta"><div class="nm"><span class="dot" style="background:${h?h.color:'#ccc'}"></span>
+      <select data-e="${e.id}" data-f="hanger" onclick="event.stopPropagation()">${hangerOpts(e.hanger)}</select></div>
+      <div class="det">детайл: <b>${p?p.name:'—'}</b> · ${h?h.rows:0}×${p?p.perRow:0} = ${cap(e)} бр/подв.</div></div>
+    <button class="btn x" data-dele="${e.id}" onclick="event.stopPropagation()">×</button></div>`;}).join('');}
+function renderColor(){const c=$('paint').value;$('paintName').textContent=c.toUpperCase();
+  $('paintChanges').textContent='смени днес: '+Math.max(0,paintToday.length-1);
+  $('colordots').innerHTML=paintToday.map(x=>`<span class="cd" style="background:${x}"></span>`).join('');}
+
+/* ===== контур ===== */
+function drawLoop(){
+  const Wd=820,Hd=430,cx=Wd/2,cy=Hd/2,a=355,b=175,boothA=-Math.PI/2,Lc=L(),step=2*Math.PI/Math.max(1,Lc);
+  const pos=t=>[cx+a*Math.cos(t),cy+b*Math.sin(t)];
+  let s=`<svg viewBox="0 0 ${Wd} ${Hd}" font-family="IBM Plex Mono,monospace">`;
+  s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#C7D0DC" stroke-width="10"/>`;
+  s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#EAEEF3" stroke-width="6" stroke-dasharray="2 14"/>`;
+  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-phi)*step,[x,y]=pos(t),painted=phi>=k+1,col=H(hangers[k].type)?.color||'#ccc';
+    s+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><circle r="7.5" fill="${painted?PAINT():'#fff'}" stroke="${painted?PAINT():col}" stroke-width="${painted?1.4:2.4}"/>`+
+       `<circle r="2.8" fill="${painted?'#fff':col}"/></g>`;}
+  const [bx,by]=pos(boothA);
+  s+=`<g transform="translate(${bx},${by})"><rect x="-34" y="-40" width="68" height="30" rx="6" fill="#1F3864"/>`+
+     `<text x="0" y="-20" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">КАБИНА</text>`+
+     `<line x1="0" y1="-10" x2="0" y2="2" stroke="#1F3864" stroke-width="2"/><polygon points="-7,2 7,2 4,9 -4,9" fill="${PAINT()}"/></g>`;
+  s+=`<text x="${cx}" y="${cy-4}" font-size="26" font-weight="700" fill="#1F3864" text-anchor="middle" font-family="Space Grotesk">${paintedCount()} / ${Lc}</text>`;
+  s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани</text></svg>`;
+  $('loop').innerHTML=s;
+}
+
+/* ===== обобщение ===== */
+function update(){
+  const Lc=L(),done=paintedCount(),left=Lc-done,capLine=Math.round(+$('capacity').value||0);
+  $('r_done').textContent=done; $('r_pct').textContent=Lc?Math.round(done/Lc*100)+'%':'0%';
+  $('r_left').textContent=left;
+  const over=Lc-capLine; $('r_cap').textContent=over>0?('+'+over+' над капацитет!'):(capLine-Lc)+' свободни места';
+  $('r_cap').className='vsub'+(over>0?' warn':'');
+  $('r_elapsed').textContent=fmt(runSec); $('r_pause').textContent='паузи '+fmt(pauseSec);
+  const secPer=3600/speed(); $('r_eta').textContent=Lc?(left?fmt(left*secPer):'готово ✓'):'–';
+  const agg={};
+  for(let k=0;k<Lc;k++){const h=hangers[k],p=P(h.part);if(!p)continue;const key=p.id;
+    if(!agg[key])agg[key]={name:p.name,color:H(h.type)?.color||'#ccc',done:0,left:0,leftParts:0};
+    if(phi>=k+1)agg[key].done++;else{agg[key].left++;agg[key].leftParts+=(H(h.type)?.rows||0)*p.perRow;}}
+  $('bdBody').innerHTML=Object.values(agg).map(a=>
+    `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
+    `<td>${a.done}</td><td>${a.left}</td><td><b>${a.leftParts.toLocaleString('bg')}</b></td></tr>`).join('')
+    ||'<tr><td colspan="4" class="note">няма заредени детайли</td></tr>';
+  drawLoop();
+}
+function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderColor();update();}
+
+/* ===== анимация ===== */
+function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
+  if(running){const sps=speed()/3600*preview();phi+=sps*dt;runSec+=dt*preview();
+    if(paintedCount()>=L()){running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';}}
+  else if($('startBtn').dataset.p==='1')pauseSec+=dt*preview();
+  update();requestAnimationFrame(tick);}
+
+/* ===== събития ===== */
+document.addEventListener('input',e=>{const t=e.target;
+  if(t.dataset.h){const h=H(+t.dataset.h);if(t.dataset.f==='name')h.name=t.value;else h.rows=Math.max(1,+t.value||1);refresh();}
+  else if(t.dataset.p){P(+t.dataset.p).perRow=Math.max(0,+t.value||0);refresh();}
+  else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
+  else if(['capacity','speed','preview'].includes(t.id))update();});
+document.addEventListener('change',e=>{const t=e.target;
+  if(t.dataset.e&&t.dataset.f==='hanger'){entries.find(x=>x.id===+t.dataset.e).hanger=+t.value;refresh();}
+  if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;renderColor();update();}});
+document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-loadpart],[data-delh],[data-delp],[data-dele]')||e.target;
+  if(t.dataset.sel){selEntry=+t.dataset.sel;renderEntries();return;}
+  if(t.dataset.loadpart){const en=entries.find(x=>x.id===selEntry);if(en){en.part=+t.dataset.loadpart;refresh();}return;}
+  if(t.dataset.delh){hangerTypes=hangerTypes.filter(h=>h.id!=+t.dataset.delh);refresh();return;}
+  if(t.dataset.delp){parts=parts.filter(p=>p.id!=+t.dataset.delp);refresh();return;}
+  if(t.dataset.dele){entries=entries.filter(x=>x.id!=+t.dataset.dele);refresh();return;}});
+$('addHanger').onclick=()=>{hangerTypes.push({id:nid(),name:'Нова подвеска',rows:3,color:PAL[hangerTypes.length%PAL.length]});refresh();};
+$('addPart').onclick=()=>{parts.push({id:nid(),name:'Нов детайл',perRow:10});refresh();};
+$('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,part:parts[0].id,count:1};entries.push(e);selEntry=e.id;refresh();};
+$('newColor').onclick=()=>{paintToday.push($('paint').value);renderColor();update();};
+$('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ Пауза (почивка)':'▶ Старт';$('startBtn').dataset.p=running?'0':'1';};
+$('resetBtn').onclick=()=>{phi=0;runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
+$('fwd').onclick=()=>{phi=Math.min(L(),Math.floor(phi)+1);update();};
+$('back').onclick=()=>{phi=Math.max(0,Math.ceil(phi)-1);update();};
+window.addEventListener('resize',update);
+window.__state=()=>({phi,done:paintedCount(),L:L(),running});
+
+refresh();requestAnimationFrame(tick);
+</script>
 </body>
 </html>
