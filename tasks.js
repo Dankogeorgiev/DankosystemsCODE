@@ -503,7 +503,7 @@ function renderTasks() {
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
       <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
-      <td data-label="Дебелина">${amWorker()
+      <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
         : `<select class="t-thick"><option value="">—</option>${THICKNESS_OPTIONS.map(v => `<option ${t.thickness === v ? "selected" : ""}>${v}</option>`).join("")}</select>`}</td>
       <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
@@ -532,7 +532,7 @@ function renderTasks() {
     const asg = tr.querySelector("select.t-assignee");
     if (asg) asg.addEventListener("change", () => { if (amWorker()) return; t.assignee = asg.value; tSaveTask(t); });
     const thk = tr.querySelector("select.t-thick");
-    if (thk) thk.addEventListener("change", () => { if (amWorker()) return; t.thickness = thk.value; tSaveTask(t); });
+    if (thk) thk.addEventListener("change", () => { t.thickness = thk.value; tSaveTask(t); });
     const sel = tr.querySelector(".t-sel");
     if (sel) sel.addEventListener("change", () => {
       if (sel.checked) selectedTasks.add(t.id); else selectedTasks.delete(t.id);
