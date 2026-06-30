@@ -98,7 +98,9 @@
       <fieldset>
         <legend>Управление</legend>
         <div class="ctrls"><button class="btn pri" id="startBtn">▶ Старт</button><button class="btn" id="resetBtn">Нулирай</button></div>
-        <div class="row"><span>Скорост</span><span><input type="number" id="speed" value="45"> подв/час</span></div>
+        <div class="row"><span>Скорост на конвейра</span><span><input type="number" id="belt" value="75" min="1" title="Линейна скорост на веригата (обикновено 50–100)"> см/мин</span></div>
+        <div class="row"><span>Стъпка подвеска→подвеска</span><span><input type="number" id="pitch" value="1200" min="1" title="Реалното разстояние между съседни подвески по веригата"> мм</span></div>
+        <div class="row"><span class="lab">Производителност</span><span id="rateHint" class="lab">≈ — подв/час</span></div>
         <div class="row"><span>Преглед (×по-бързо)</span><input type="number" id="preview" value="60"></div>
         <div class="row"><span>Места на линията</span><input type="number" id="capacity" value="62"></div>
         <div class="row"><span class="lab">Корекция към реалността</span>
@@ -187,7 +189,13 @@ function buildHangers(){hangers=[];entries.forEach(e=>{for(let i=0;i<e.count;i++
   if(phi>hangers.length)phi=hangers.length;}
 const L=()=>hangers.length;
 const paintedCount=()=>Math.max(0,Math.min(L(),Math.floor(phi)));
-const speed=()=>+$('speed').value||45, preview=()=>+$('preview').value||1, PAINT=()=>$('paint').value;
+const beltSpeed=()=>+$('belt').value||0;   // см/мин
+const pitchMm=()=>+$('pitch').value||1200; // мм между подвески
+/* Производителност (подв/час) от линейната скорост и стъпката:
+   подв/час = скорост[см/мин] × 600 ÷ стъпка[мм]
+   (1200 мм стъпка → 50 см/мин = 25 подв/час, 100 см/мин = 50 подв/час) */
+const speed=()=>{const p=pitchMm();return p>0?beltSpeed()*600/p:0;};
+const preview=()=>+$('preview').value||1, PAINT=()=>$('paint').value;
 function fmt(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
   return h?`${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`:`${m}:${String(ss).padStart(2,'0')}`;}
 
@@ -247,7 +255,8 @@ function update(){
   const over=Lc-capLine; $('r_cap').textContent=over>0?('+'+over+' над капацитет!'):(capLine-Lc)+' свободни места';
   $('r_cap').className='vsub'+(over>0?' warn':'');
   $('r_elapsed').textContent=fmt(runSec); $('r_pause').textContent='паузи '+fmt(pauseSec);
-  const secPer=3600/speed(); $('r_eta').textContent=Lc?(left?fmt(left*secPer):'готово ✓'):'–';
+  const rate=speed(); if($('rateHint'))$('rateHint').textContent='≈ '+(rate?rate.toFixed(1).replace('.',','):'—')+' подв/час';
+  const secPer=rate>0?3600/rate:0; $('r_eta').textContent=Lc?(left?(secPer?fmt(left*secPer):'–'):'готово ✓'):'–';
   const agg={};
   for(let k=0;k<Lc;k++){const h=hangers[k],p=P(h.part);if(!p)continue;const key=p.id;
     if(!agg[key])agg[key]={name:p.name,color:H(h.type)?.color||'#ccc',done:0,left:0,leftParts:0};
@@ -277,7 +286,7 @@ document.addEventListener('input',e=>{const t=e.target;
   else if(t.dataset.p){P(+t.dataset.p).perRow=Math.max(0,+t.value||0);refresh();}
   else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
   else if(t.id==='paintRal'){paintRal=t.value.trim();const hx=ralToHex(paintRal);if(hx){$('paint').value=hx;if(paintToday.length)paintToday[paintToday.length-1]=hx;}renderColor();update();}
-  else if(['capacity','speed','preview'].includes(t.id))update();});
+  else if(['capacity','belt','pitch','preview'].includes(t.id))update();});
 document.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.e&&t.dataset.f==='hanger'){entries.find(x=>x.id===+t.dataset.e).hanger=+t.value;refresh();}
   if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;if(ralToHex(paintRal)!==t.value)paintRal='';renderColor();update();}});
@@ -302,6 +311,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=138"></script>
+<script src="sync.js?v=139"></script>
 </body>
 </html>

@@ -22,7 +22,7 @@
       v: 1, by: clientId, uid,
       hangerTypes, parts, entries, selEntry, paintToday,
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
-      speed: +$id("speed").value || 45, preview: +$id("preview").value || 60, capacity: +$id("capacity").value || 62,
+      belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: +$id("preview").value || 60, capacity: +$id("capacity").value || 62,
       phi, runSec, pauseSec, running,
       updatedAt: new Date().toISOString(),
     };
@@ -38,7 +38,8 @@
     phi = +d.phi || 0; runSec = +d.runSec || 0; pauseSec = +d.pauseSec || 0; running = false;
     if (typeof d.paintRal === "string") paintRal = d.paintRal;
     if (d.paint) $id("paint").value = d.paint;
-    if (d.speed) $id("speed").value = d.speed;
+    if (d.belt) $id("belt").value = d.belt;
+    if (d.pitch) $id("pitch").value = d.pitch;
     if (d.preview) $id("preview").value = d.preview;
     if (d.capacity) $id("capacity").value = d.capacity;
     const sbtn = $id("startBtn"); if (sbtn) { sbtn.textContent = "▶ Старт"; sbtn.dataset.p = "0"; }
@@ -79,7 +80,7 @@
 
   // Записвай при действия. Тези слушатели се добавят СЛЕД тези на
   // приложението, затова при тях състоянието вече е променено.
-  const CHANGE_IDS = ["speed", "preview", "capacity", "paint", "paintRal"];
+  const CHANGE_IDS = ["belt", "pitch", "preview", "capacity", "paint", "paintRal"];
   const CLICK_SEL = "#startBtn,#resetBtn,#fwd,#back,#newColor,#addHanger,#addPart,#addEntry,[data-loadpart],[data-delh],[data-delp],[data-dele]";
   document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
   document.addEventListener("change", e => { const t = e.target; if ((t.dataset && t.dataset.e && t.dataset.f === "hanger") || t.id === "paint") saveSoon(); });
