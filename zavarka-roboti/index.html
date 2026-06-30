@@ -18,9 +18,14 @@
   header.top .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
   .btn{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);background:#F1F4F9;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
   .btn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.pri{background:var(--ink);color:#fff}.btn.pri:hover{background:#16294a}
+  .btn:active{transform:translateY(1px)}
   .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
-  .lead{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft);margin:22px 2px 14px}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:22px 2px 14px}
+  .lead{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft)}
   .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
+  .badge{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;border-radius:20px;padding:2px 9px;margin-left:6px;background:#fdecea;color:var(--warn);border:1px solid #f3c4bf}
+  .badge.ok{background:#eaf5ef;color:var(--ok);border-color:#bfe3cd}
 
   /* ===== Табло с клетки ===== */
   .cells{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:1040px;margin:0 auto}
@@ -40,18 +45,39 @@
   .rname{font-family:var(--disp);font-weight:600;font-size:17px}
   .redit{font-size:12px;color:var(--muted);border:none;background:none;cursor:pointer;padding:3px;border-radius:6px;line-height:1}
   .redit:hover{background:#F1F4F9;color:var(--ink)}
-  .rmeta{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:5px}
-  .rdot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}
+  .rmeta{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:7px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center}
+  .rdot{display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}
 
-  /* ===== Страница на робот (детайл) ===== */
+  /* ===== Таблици ===== */
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
-  .rd-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .rd-art{width:160px;flex:0 0 auto}.rd-art svg{width:100%;height:auto;display:block}
-  .rd-title{font-family:var(--disp);font-weight:700;font-size:24px;margin:0}
-  .rd-sub{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
-  .todo{margin-top:18px;background:#F8FAFC;border:1px dashed var(--line);border-radius:10px;padding:18px;font-size:13.5px;line-height:1.6}
-  .todo h3{font-family:var(--disp);margin:0 0 8px;font-size:16px}
-  .todo ol{margin:8px 0 0;padding-left:20px}.todo li{margin:4px 0}
+  table.bd{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  table.bd th,table.bd td{text-align:right;padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.bd th{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:#F6F8FB}
+  table.bd td:first-child,table.bd th:first-child{text-align:left}
+  table.bd tr:last-child td{border-bottom:none}
+  table.bd tr.unassigned td{background:#FFF8F2}
+  table.bd tr.done td:first-child{color:var(--muted)}
+  .prod-nm{font-weight:600}
+  .num{font-family:var(--mono)}
+  .big{font-family:var(--disp);font-weight:700}
+  .muted{color:var(--muted)}
+  select.rsel{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:5px 7px;background:#fff;color:var(--ink);outline:none}
+  select.rsel:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  input.qin{font-family:var(--mono);font-size:13px;text-align:right;width:64px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:7px;padding:5px 7px;outline:none}
+  input.qin:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .rep{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+  .pill{display:inline-block;font-family:var(--mono);font-size:10px;border-radius:6px;padding:2px 7px;border:1px solid var(--line);color:var(--ink);background:#F1F4F9}
+  .empty{color:var(--muted);font-size:13px;padding:16px;text-align:center}
+
+  /* ===== Страница на робот ===== */
+  .rd-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+  .rd-art{width:120px;flex:0 0 auto}.rd-art svg{width:100%;height:auto;display:block}
+  .rd-title{font-family:var(--disp);font-weight:700;font-size:24px;margin:0;display:flex;align-items:center;gap:8px}
+  .rd-sub{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;display:flex;align-items:center;gap:6px}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+  .stat{background:#F8FAFC;border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+  .stat .k{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .stat .v{font-family:var(--disp);font-weight:700;font-size:22px;margin-top:3px}
 </style>
 </head>
 <body>
@@ -72,16 +98,35 @@
 
   <!-- ТАБЛО: 6-те клетки -->
   <section id="dash">
-    <div class="lead">Изберете клетка (робот)</div>
+    <div class="toolbar">
+      <span class="lead">Изберете клетка (робот)</span>
+      <a href="#razpredelenie" class="btn pri" id="distBtn">📋 Разпределение</a>
+    </div>
     <div class="cells" id="cells"></div>
-    <p class="note" style="text-align:center;max-width:640px;margin:18px auto 0">
-      6-те роботизирани клетки за заваряване. Всеки робот заварява точно определени изделия —
-      пускат се поръчки (брой за производство), а операторът отчита произведеното. Натисни робот, за да отвориш неговата страница.</p>
+    <p class="note" style="text-align:center;max-width:680px;margin:18px auto 0">
+      Изделията за заваряване идват от <b>Цехове</b> (цех „Заваръчно"). През
+      <b>Разпределение</b> ги пращаш към роботите. Всеки робот показва своите
+      изделия и поръчани количества, а операторът отчита заварените — отделна
+      бройка за роботите, без да пипа задачите в Цехове.</p>
+  </section>
+
+  <!-- РАЗПРЕДЕЛЕНИЕ -->
+  <section id="dist" hidden>
+    <div class="toolbar">
+      <a href="#" class="btn" id="distBack">← Всички роботи</a>
+      <span class="lead" id="distLead">Разпределение на изделията по роботи</span>
+    </div>
+    <div class="panel">
+      <div id="distTable"></div>
+      <p class="note">Изделията се четат на живо от Цехове (цех „Заваръчно"). Избери робот за всяко
+        изделие. <b>Поръчано</b> = сборът от количествата на поръчките за това изделие.
+        <b>Заварени</b> = отчетеното от роботите.</p>
+    </div>
   </section>
 
   <!-- ДЕТАЙЛ: страница на един робот -->
   <section id="detail" hidden>
-    <div class="lead"><a href="#" class="btn" id="backBtn">← Всички роботи</a></div>
+    <div class="toolbar"><a href="#" class="btn" id="backBtn">← Всички роботи</a></div>
     <div class="panel">
       <div class="rd-head">
         <div class="rd-art" id="rdArt"></div>
@@ -90,15 +135,11 @@
           <div class="rd-sub" id="rdSub"></div>
         </div>
       </div>
-      <div class="todo">
-        <h3>🛠 Изделия за този робот — предстои</h3>
-        Изпрати ми списъка с изделията, които този робот заварява. Тук ще добавим:
-        <ol>
-          <li><b>Изделия</b> (каталог за този робот) — име/код, по избор снимка.</li>
-          <li><b>Поръчки</b> — колко броя от дадено изделие трябва да се произведат.</li>
-          <li><b>Отчитане</b> — операторът маркира произведените бройки; напредъкът се вижда тук, а дневният отчет влиза във „Времена".</li>
-        </ol>
-      </div>
+      <div class="stats" id="rdStats"></div>
+      <div id="rdTable"></div>
+      <p class="note">Операторът въвежда заварените бройки в полето „днес" и натиска <b>Отчети</b>.
+        Това е отделна бройка за роботите. За да добавиш изделия към този робот, иди на
+        <a href="#razpredelenie">Разпределение</a>.</p>
     </div>
   </section>
 </div>
@@ -109,8 +150,7 @@ const PALETTES={
   gray:{main:'#8B95A3',dark:'#586273',light:'#BAC3CE',dot:'#8B95A3',label:'сив'},
   red :{main:'#C0392B',dark:'#8E261B',light:'#E08576',dot:'#C0392B',label:'червен'},
 };
-/* 6-те клетки. Подредбата на таблото следва скицата на цеха
-   (дясна колона 1·2·3, лява колона 4·5·6 — задава се през CSS). */
+/* 6-те клетки (имена преименуеми). Подредба 3×2 през CSS. */
 let robots=[
   {id:1,name:'Робот 1',pal:'gray'},
   {id:2,name:'Робот 2',pal:'gray'},
@@ -119,50 +159,62 @@ let robots=[
   {id:5,name:'Робот 5',pal:'gray'},
   {id:6,name:'Робот 6',pal:'gray'},
 ];
+let assign={};   // { "име на изделие": robotId }
+let prod={};     // { "име на изделие": заварени от роботи (общо) }
+let plog=[];     // дневник: [{date, robot, product, qty, worker, at}]
+let WELDING=[];  // заваръчни задачи от Цехове (на живо)
+let tasksLoaded=false;
+
 const $=id=>document.getElementById(id);
 const pal=r=>PALETTES[r.pal]||PALETTES.gray;
 const robotById=id=>robots.find(r=>r.id===id);
+const num=n=>Number(n||0).toLocaleString('bg');
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function todayStr(){return new Date().toISOString().slice(0,10);}
+
+/* Различни изделия от заваръчните задачи + поръчано количество (сбор). */
+function weldingProducts(){
+  const m=new Map();
+  WELDING.forEach(t=>{const p=(t.product||'').trim();if(!p)return;
+    const o=m.get(p)||{product:p,ordered:0,orders:0};
+    o.ordered+=Number(t.qty)||0;o.orders++;m.set(p,o);});
+  // включи и изделия, които вече са разпределени, но в момента ги няма в задачите
+  Object.keys(assign).forEach(p=>{if(!m.has(p))m.set(p,{product:p,ordered:0,orders:0});});
+  return [...m.values()].sort((a,b)=>a.product.localeCompare(b.product,'bg'));
+}
+const orderedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.qty)||0;});return s;};
+const remainOf=p=>Math.max(0,orderedOf(p)-(prod[p]||0));
+const productsOfRobot=id=>weldingProducts().filter(o=>assign[o.product]===id);
+const unassignedCount=()=>weldingProducts().filter(o=>!assign[o.product]).length;
 
 /* ===== Илюстрация: заваръчен робот (собствен SVG) ===== */
 function robotArt(p){
   return `<svg viewBox="0 0 200 200" role="img" aria-label="заваръчен робот">
     <ellipse cx="100" cy="184" rx="60" ry="9" fill="#1F3864" opacity=".07"/>
-    <!-- основа -->
     <path d="M66 175 L134 175 L124 151 L76 151 Z" fill="${p.dark}"/>
     <rect x="61" y="172" width="78" height="8" rx="4" fill="${p.dark}"/>
     <rect x="73" y="156" width="54" height="5" rx="2.5" fill="${p.light}" opacity=".45"/>
-    <!-- въртяща колона -->
     <rect x="83" y="116" width="34" height="38" rx="8" fill="${p.main}"/>
     <rect x="89" y="120" width="7" height="30" rx="3.5" fill="${p.light}" opacity=".7"/>
-    <!-- рамо -->
     <circle cx="100" cy="116" r="16" fill="${p.dark}"/>
     <circle cx="100" cy="116" r="6" fill="${p.light}"/>
-    <!-- долно рамо -->
     <line x1="100" y1="116" x2="139" y2="71" stroke="${p.main}" stroke-width="25" stroke-linecap="round"/>
     <line x1="100" y1="116" x2="139" y2="71" stroke="${p.light}" stroke-width="6" stroke-linecap="round" opacity=".5"/>
-    <!-- лакът -->
     <circle cx="139" cy="71" r="14" fill="${p.dark}"/>
     <circle cx="139" cy="71" r="5" fill="${p.light}"/>
-    <!-- горно рамо -->
     <line x1="139" y1="71" x2="172" y2="103" stroke="${p.main}" stroke-width="19" stroke-linecap="round"/>
-    <!-- китка -->
     <circle cx="172" cy="103" r="10.5" fill="${p.dark}"/>
     <circle cx="172" cy="103" r="4" fill="${p.light}"/>
-    <!-- горелка -->
     <line x1="172" y1="103" x2="185" y2="132" stroke="#363C45" stroke-width="8" stroke-linecap="round"/>
     <circle cx="185" cy="133" r="4.5" fill="#23282F"/>
-    <!-- детайл (работен плот) -->
     <rect x="150" y="151" width="46" height="9" rx="2" fill="#9AA4B0"/>
     <rect x="150" y="151" width="46" height="3" rx="1.5" fill="#C4CCD6"/>
-    <!-- заваръчна дъга / искри -->
     <line x1="185" y1="136" x2="183" y2="150" stroke="#FFD23F" stroke-width="2.6" opacity=".95"/>
     <circle cx="183" cy="151" r="7" fill="#FF8A1F" opacity=".30"/>
     <circle cx="183" cy="151" r="3.4" fill="#FFE9A6"/>
     <g stroke="#FFB23F" stroke-width="1.6" stroke-linecap="round" opacity=".9">
-      <line x1="183" y1="151" x2="174" y2="146"/>
-      <line x1="183" y1="151" x2="193" y2="146"/>
-      <line x1="183" y1="151" x2="177" y2="158"/>
-      <line x1="183" y1="151" x2="190" y2="159"/>
+      <line x1="183" y1="151" x2="174" y2="146"/><line x1="183" y1="151" x2="193" y2="146"/>
+      <line x1="183" y1="151" x2="177" y2="158"/><line x1="183" y1="151" x2="190" y2="159"/>
     </g>
   </svg>`;
 }
@@ -170,6 +222,9 @@ function robotArt(p){
 /* ===== Табло ===== */
 function renderDash(){
   $('cells').innerHTML=robots.map(r=>{const p=pal(r);
+    const items=productsOfRobot(r.id);
+    const rem=items.reduce((s,o)=>s+remainOf(o.product),0);
+    const meta=!tasksLoaded?'зарежда…':(items.length?`${items.length} изд. · остават ${num(rem)}`:'няма изделия');
     return `<div class="rcell${r.pal==='red'?' red':''}" data-r="${r.id}" data-go="${r.id}" role="button" tabindex="0">
       <span class="rnum">${r.id}</span>
       <div class="rart">${robotArt(p)}</div>
@@ -177,66 +232,160 @@ function renderDash(){
         <span class="rname">${esc(r.name)}</span>
         <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>
       </div>
-      <div class="rmeta"><span class="rdot" style="background:${p.dot}"></span>изделия: предстои</div>
+      <div class="rmeta"><span class="rdot" style="background:${p.dot}"></span>${meta}</div>
     </div>`;}).join('');
+  const ua=unassignedCount();
+  const db=$('distBtn');
+  if(db)db.innerHTML='📋 Разпределение'+(tasksLoaded&&ua?` <span class="badge" style="margin-left:4px">${ua} нераздадени</span>`:'');
 }
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-/* ===== Детайл ===== */
+/* ===== Разпределение ===== */
+function renderDist(){
+  const list=weldingProducts();
+  const opts=id=>robots.map(r=>`<option value="${r.id}"${id===r.id?' selected':''}>${esc(r.name)}</option>`).join('');
+  $('distLead').textContent='Разпределение — '+list.length+' изделия от Цехове';
+  $('distTable').innerHTML=!tasksLoaded
+    ? '<div class="empty">Зарежда изделията от Цехове…</div>'
+    : (list.length? `<table class="bd"><thead><tr>
+        <th>Изделие</th><th>Поръчки</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th>Робот</th>
+      </tr></thead><tbody>${list.map(o=>{const a=assign[o.product]||0;const rem=remainOf(o.product);
+        return `<tr class="${a?'':'unassigned'}">
+          <td class="prod-nm">${esc(o.product)}</td>
+          <td class="num">${o.orders||0}</td>
+          <td class="num">${num(o.ordered)}</td>
+          <td class="num">${num(prod[o.product]||0)}</td>
+          <td class="num">${num(rem)}</td>
+          <td><select class="rsel" data-assign="${esc(o.product)}">
+            <option value="0"${a?'':' selected'}>— избери —</option>${opts(a)}
+          </select></td></tr>`;}).join('')}</tbody></table>`
+      : '<div class="empty">Още няма заваръчни изделия в Цехове. Щом Таня качи задачи за цех „Заваръчно", ще се появят тук.</div>');
+}
+
+/* ===== Детайл (страница на робот) ===== */
 function renderDetail(id){
-  const r=robotById(id);if(!r){showDash();return;}
+  const r=robotById(id);if(!r){location.hash='';return;}
   const p=pal(r);
   $('rdArt').innerHTML=robotArt(p);
-  $('rdTitle').textContent=r.name;
+  $('rdTitle').innerHTML=esc(r.name)+` <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>`;
   $('rdSub').innerHTML=`<span class="rdot" style="background:${p.dot}"></span>клетка №${r.id} · ${p.label}`;
-  $('dash').hidden=true;$('detail').hidden=false;
-  window.scrollTo(0,0);
+  const items=productsOfRobot(id);
+  const tOrd=items.reduce((s,o)=>s+orderedOf(o.product),0);
+  const tProd=items.reduce((s,o)=>s+(prod[o.product]||0),0);
+  const tRem=items.reduce((s,o)=>s+remainOf(o.product),0);
+  $('rdStats').innerHTML=
+    `<div class="stat"><div class="k">Изделия</div><div class="v">${items.length}</div></div>
+     <div class="stat"><div class="k">Поръчано</div><div class="v">${num(tOrd)}</div></div>
+     <div class="stat"><div class="k">Заварени (роботи)</div><div class="v">${num(tProd)}</div></div>
+     <div class="stat"><div class="k">Остават</div><div class="v">${num(tRem)}</div></div>`;
+  $('rdTable').innerHTML=!tasksLoaded
+    ? '<div class="empty">Зарежда…</div>'
+    : (items.length? `<table class="bd"><thead><tr>
+        <th>Изделие</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th>Отчети заварени</th>
+      </tr></thead><tbody>${items.map(o=>{const rem=remainOf(o.product),done=o.ordered>0&&rem===0;
+        return `<tr class="${done?'done':''}">
+          <td class="prod-nm">${esc(o.product)}</td>
+          <td class="num">${num(o.ordered)}</td>
+          <td class="num"><b>${num(prod[o.product]||0)}</b></td>
+          <td class="num">${done?'<span class="pill">✓ готово</span>':num(rem)}</td>
+          <td><div class="rep">
+            <input class="qin" type="number" min="1" placeholder="днес" data-qin="${esc(o.product)}">
+            <button class="btn pri" data-report="${esc(o.product)}">Отчети</button>
+          </div></td></tr>`;}).join('')}</tbody></table>`
+      : '<div class="empty">Този робот още няма изделия. Добави му от <a href="#razpredelenie">Разпределение</a>.</div>');
 }
-function showDash(){$('detail').hidden=true;$('dash').hidden=false;}
 
-/* ===== Рутиране през hash ===== */
+/* ===== Изгледи / рутиране ===== */
+function show(sec){['dash','dist','detail'].forEach(s=>{$(s).hidden=(s!==sec);});}
 function route(){
-  const m=(location.hash||'').match(/^#robot-(\d+)$/);
-  if(m)renderDetail(+m[1]);else showDash();
+  const h=location.hash||'';
+  const m=h.match(/^#robot-(\d+)$/);
+  if(h==='#razpredelenie'){show('dist');renderDist();}
+  else if(m){show('detail');renderDetail(+m[1]);}
+  else {show('dash');renderDash();}
+  window.scrollTo(0,0);
 }
 window.addEventListener('hashchange',route);
 
-/* ===== Събития ===== */
-document.addEventListener('click',e=>{
-  const ed=e.target.closest('[data-edit]');
-  if(ed){e.preventDefault();renameRobot(+ed.dataset.edit);return;}
-  const go=e.target.closest('[data-go]');
-  if(go){location.hash='#robot-'+go.dataset.go;return;}
-});
-document.addEventListener('keydown',e=>{
-  if(e.key!=='Enter'&&e.key!==' ')return;
-  const c=e.target.closest&&e.target.closest('.rcell[data-go]');
-  if(c){e.preventDefault();location.hash='#robot-'+c.dataset.go;}
-});
-$('backBtn').addEventListener('click',e=>{e.preventDefault();location.hash='';});
+/* ===== Отчитане (отделна бройка за роботите) ===== */
+function reportProduced(product,id){
+  const r=robotById(id);if(!r)return;
+  const inp=document.querySelector('input[data-qin="'+cssEsc(product)+'"]');
+  const add=Number(String(inp&&inp.value||'').replace(',','.'));
+  if(!add||add<=0){alert('Въведи брой в полето „днес".');if(inp)inp.focus();return;}
+  let worker=window.PAINT_USER||'';
+  worker=prompt('Кой отчита? (име/имейл)',worker)||worker;
+  prod[product]=(prod[product]||0)+add;
+  plog.push({date:todayStr(),robot:id,product,qty:add,worker,at:new Date().toISOString()});
+  if(inp)inp.value='';
+  saveState();
+  renderDetail(id);
+}
+function cssEsc(s){return String(s).replace(/(["\\])/g,'\\$1');}
 
+/* ===== Преименуване ===== */
 function renameRobot(id){
   const r=robotById(id);if(!r)return;
   const nv=prompt('Име на робота (клетка №'+id+'):',r.name);
   if(nv===null)return;
   r.name=(nv.trim()||('Робот '+id));
-  renderDash();if(!$('detail').hidden&&(location.hash==='#robot-'+id))renderDetail(id);
-  if(window.lineSaveSoon)window.lineSaveSoon();
+  saveState();route();
 }
 
+/* ===== Събития ===== */
+document.addEventListener('click',e=>{
+  const ed=e.target.closest('[data-edit]');
+  if(ed){e.preventDefault();e.stopPropagation();renameRobot(+ed.dataset.edit);return;}
+  const rep=e.target.closest('[data-report]');
+  if(rep){const m=(location.hash||'').match(/^#robot-(\d+)$/);if(m)reportProduced(rep.dataset.report,+m[1]);return;}
+  const go=e.target.closest('.rcell[data-go]');
+  if(go){location.hash='#robot-'+go.dataset.go;return;}
+});
+document.addEventListener('change',e=>{
+  const as=e.target.closest('[data-assign]');
+  if(as){const p=as.dataset.assign,v=+as.value;
+    if(v)assign[p]=v;else delete assign[p];
+    saveState();renderDist();return;}
+});
+document.addEventListener('keydown',e=>{
+  if((e.key==='Enter'||e.key===' ')&&e.target.closest&&e.target.closest('.rcell[data-go]')){
+    e.preventDefault();location.hash='#robot-'+e.target.closest('.rcell[data-go]').dataset.go;return;}
+  if(e.key==='Enter'&&e.target.matches&&e.target.matches('input[data-qin]')){
+    const m=(location.hash||'').match(/^#robot-(\d+)$/);if(m)reportProduced(e.target.dataset.qin,+m[1]);}
+});
+$('backBtn').addEventListener('click',e=>{e.preventDefault();location.hash='';});
+$('distBack').addEventListener('click',e=>{e.preventDefault();location.hash='';});
+
 /* ===== Споделяне на живо (през sync.js) ===== */
+function saveState(){if(window.lineSaveSoon)window.lineSaveSoon();route();}
 window.LINE_STATE={
-  serialize(){return {robots:robots.map(r=>({id:r.id,name:r.name,pal:r.pal}))};},
+  serialize(){return {robots:robots.map(r=>({id:r.id,name:r.name,pal:r.pal})),assign,prod,plog};},
   apply(doc){
-    if(!doc||!Array.isArray(doc.robots))return;
-    doc.robots.forEach(rr=>{const r=robotById(+rr.id);if(r){if(typeof rr.name==='string'&&rr.name.trim())r.name=rr.name;if(PALETTES[rr.pal])r.pal=rr.pal;}});
-    renderDash();
-    const m=(location.hash||'').match(/^#robot-(\d+)$/);if(m)renderDetail(+m[1]);
+    if(!doc)return;
+    if(Array.isArray(doc.robots))doc.robots.forEach(rr=>{const r=robotById(+rr.id);if(r){if(typeof rr.name==='string'&&rr.name.trim())r.name=rr.name;if(PALETTES[rr.pal])r.pal=rr.pal;}});
+    if(doc.assign&&typeof doc.assign==='object')assign=doc.assign;
+    if(doc.prod&&typeof doc.prod==='object')prod=doc.prod;
+    if(Array.isArray(doc.plog))plog=doc.plog;
+    route();
   }
 };
 
+/* ===== Четене на заваръчните задачи от Цехове ===== */
+async function loadWeldingTasks(){
+  try{
+    if(Array.isArray(window.__MOCK_TASKS)){WELDING=window.__MOCK_TASKS.filter(t=>(t.workshop||'')==='Заваръчно');tasksLoaded=true;route();return;}
+    if(!window.supabase||!window.DANKO_CONFIG){tasksLoaded=true;route();return;}
+    const c=window.__sbxRoboti||(window.__sbxRoboti=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
+    const {data,error}=await c.from('tasks').select('*');
+    if(error)throw error;
+    WELDING=(data||[]).map(r=>({...r.data,id:r.id})).filter(t=>(t.workshop||'')==='Заваръчно');
+    tasksLoaded=true;route();
+  }catch(e){console.warn('Заваръчно роботи: задачи',e);tasksLoaded=true;route();}
+}
+
 /* ===== Старт ===== */
-renderDash();route();
+route();
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',loadWeldingTasks);
+else loadWeldingTasks();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
