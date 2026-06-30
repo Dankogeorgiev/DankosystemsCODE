@@ -23,16 +23,9 @@
   .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
 
   /* ===== Табло с клетки ===== */
-  .cells{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:780px;margin:0 auto}
-  @media(min-width:641px){
-    .rcell[data-r="1"]{grid-column:2;grid-row:1}
-    .rcell[data-r="2"]{grid-column:2;grid-row:2}
-    .rcell[data-r="3"]{grid-column:2;grid-row:3}
-    .rcell[data-r="4"]{grid-column:1;grid-row:1}
-    .rcell[data-r="5"]{grid-column:1;grid-row:2}
-    .rcell[data-r="6"]{grid-column:1;grid-row:3}
-  }
-  @media(max-width:640px){.cells{grid-template-columns:1fr;max-width:360px}}
+  .cells{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:1040px;margin:0 auto}
+  @media(max-width:880px){.cells{grid-template-columns:1fr 1fr;max-width:720px}}
+  @media(max-width:560px){.cells{grid-template-columns:1fr;max-width:360px}}
   .rcell{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
     background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 14px 14px;cursor:pointer;
     font-family:inherit;color:inherit;transition:transform .08s,box-shadow .15s,border-color .15s}
@@ -177,7 +170,7 @@ function robotArt(p){
 /* ===== Табло ===== */
 function renderDash(){
   $('cells').innerHTML=robots.map(r=>{const p=pal(r);
-    return `<button class="rcell${r.pal==='red'?' red':''}" data-r="${r.id}" data-go="${r.id}">
+    return `<div class="rcell${r.pal==='red'?' red':''}" data-r="${r.id}" data-go="${r.id}" role="button" tabindex="0">
       <span class="rnum">${r.id}</span>
       <div class="rart">${robotArt(p)}</div>
       <div class="rname-wrap">
@@ -185,7 +178,7 @@ function renderDash(){
         <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>
       </div>
       <div class="rmeta"><span class="rdot" style="background:${p.dot}"></span>изделия: предстои</div>
-    </button>`;}).join('');
+    </div>`;}).join('');
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -214,6 +207,11 @@ document.addEventListener('click',e=>{
   if(ed){e.preventDefault();renameRobot(+ed.dataset.edit);return;}
   const go=e.target.closest('[data-go]');
   if(go){location.hash='#robot-'+go.dataset.go;return;}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ')return;
+  const c=e.target.closest&&e.target.closest('.rcell[data-go]');
+  if(c){e.preventDefault();location.hash='#robot-'+c.dataset.go;}
 });
 $('backBtn').addEventListener('click',e=>{e.preventDefault();location.hash='';});
 
