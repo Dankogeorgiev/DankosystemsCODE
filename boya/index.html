@@ -161,7 +161,10 @@
         <div class="stat"><div class="k">Изтекло (боядисване)</div><div class="v" id="r_elapsed">0:00</div><div class="vsub" id="r_pause">паузи 0:00</div></div>
         <div class="stat"><div class="k">Темп (бр/час)</div><div class="v" id="r_eta">–</div><div class="vsub" id="r_etasub">при текущия състав</div></div>
       </div>
+      <div class="collab" style="margin:2px 0 6px">Отчет по детайли</div>
       <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани (бр.)</th><th>На линията (бр.)</th></tr></thead><tbody id="bdBody"></tbody></table>
+      <div class="collab" style="margin:16px 0 6px">Отчет по подвески</div>
+      <table class="bd"><thead><tr><th>Подвеска</th><th>Минали (бр.)</th><th>На линията (бр.)</th></tr></thead><tbody id="hgBody"></tbody></table>
       <p class="note"><b>Идея:</b> горе задаваш състава (тип подвеска + детайл + брой). Същите подвески се движат по затворения контур и минават през неподвижната кабина — там стават „боядисани". Старт пуска, Пауза = почивка (реално време), корекцията сверява при засечка. Сменяш състава по всяко време — линията се преизчислява.</p>
     </div>
   </div>
@@ -196,6 +199,7 @@ let selEntry=entries[0].id, paintToday=['#3B6FB0'];
 let hangers=[];   // [{type, part}] в реда на боядисване
 let phi=0, running=false, runSec=0, pauseSec=0, last=0;
 let painted={};   // {детайл id: кумулативно боядисани детайли (бр.)}
+let paintedH={};  // {тип подвеска id: кумулативно минали подвески (бр.)}
 let paintRal='';  // RAL код на текущата боя (по избор)
 /* Често ползвани прахови RAL цветове → hex (за квадратчето). */
 const RAL_HEX={"1003":"#f9a800","1015":"#e6d2b5","1018":"#f5d033","1021":"#f3c300","2004":"#e75b12","3000":"#af2b1e","3002":"#9b111e","3005":"#59191f","3020":"#cc0605","5002":"#20214f","5005":"#1d1e33","5010":"#0e294b","5012":"#3b83bd","5015":"#2874b2","5017":"#063971","6005":"#0f4336","6011":"#587246","6018":"#61993b","6029":"#20603d","7001":"#8f999f","7011":"#434b4d","7012":"#4e5754","7015":"#434750","7016":"#293133","7021":"#23282b","7024":"#474a51","7035":"#cbd0cc","7037":"#7d7f7d","7040":"#9da3a6","8014":"#382c1e","8017":"#45322e","8019":"#403a3a","9001":"#fdf4e3","9002":"#e7ebda","9003":"#f4f4f4","9005":"#0a0a0a","9006":"#a5a5a5","9007":"#8f8f8c","9010":"#ffffff","9011":"#1c1c1c","9016":"#f6f6f6","9017":"#1e1e1e"};
@@ -225,7 +229,9 @@ const loopPos=()=>{const L0=L();return L0?((phi%L0)+L0)%L0:0;};
 const revolutions=()=>{const L0=L();return L0?Math.floor(phi/L0):0;};
 const totalPainted=()=>Object.values(painted).reduce((s,n)=>s+n,0);
 // Добавя/маха детайлите на една подвеска към кумулативния отчет.
-function addHangerPieces(idx,sign){const hg=hangers[idx];if(!hg)return;(hg.rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;painted[p.id]=(painted[p.id]||0)+sign*pieces;if(painted[p.id]<=0)delete painted[p.id];});}
+function addHangerPieces(idx,sign){const hg=hangers[idx];if(!hg)return;
+  paintedH[hg.type]=(paintedH[hg.type]||0)+sign;if(paintedH[hg.type]<=0)delete paintedH[hg.type];
+  (hg.rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;painted[p.id]=(painted[p.id]||0)+sign*pieces;if(painted[p.id]<=0)delete painted[p.id];});}
 // Натрупва подвеските, минали кабината между две позиции (или маха при връщане).
 function accrue(fromP,toP){const L0=L();if(!L0)return;
   if(toP>fromP){for(let q=Math.floor(fromP)+1;q<=Math.floor(toP);q++)addHangerPieces(((q-1)%L0+L0)%L0,1);}
@@ -342,6 +348,14 @@ function update(){
     `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
     `<td><b>${a.done.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
     ||'<tr><td colspan="3" class="note">няма заредени детайли</td></tr>';
+  // отчет по подвески: кумулативно минали + колко са на линията сега
+  const hOnLine={}; entries.forEach(e=>{const h=H(e.hanger);if(!h)return;hOnLine[h.id]=(hOnLine[h.id]||0)+(+e.count||0);});
+  const hids=new Set([...Object.keys(paintedH),...Object.keys(hOnLine)]);
+  const hrows=[...hids].map(id=>{const h=H(+id);return h?{name:h.name,color:h.color,done:paintedH[id]||0,line:hOnLine[id]||0}:null;}).filter(Boolean).sort((a,b)=>b.done-a.done||b.line-a.line);
+  $('hgBody').innerHTML=hrows.map(a=>
+    `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
+    `<td><b>${a.done.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
+    ||'<tr><td colspan="3" class="note">няма подвески</td></tr>';
   const ci=currentHangerInfo(),np=$('nowPainting');
   if(np)np.innerHTML='<span class="lab2">сега боядисва</span>'+(ci
     ?`<span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'}"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
@@ -378,7 +392,7 @@ $('addPart').onclick=()=>{parts.push({id:nid(),name:'Нов детайл',perRow
 $('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,rowParts:[]};entries.push(e);selEntry=e.id;refresh();};
 $('newColor').onclick=()=>{paintToday.push($('paint').value);renderColor();update();};
 $('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ Пауза (почивка)':'▶ Старт';$('startBtn').dataset.p=running?'0':'1';};
-$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
+$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
 $('fwd').onclick=()=>{accrue(phi,phi+1);phi+=1;update();};   // мина +: още една подвеска мина кабината
 $('back').onclick=()=>{if(phi<=0)return;const np=Math.max(0,phi-1);accrue(phi,np);phi=np;update();};
 window.addEventListener('resize',update);
@@ -388,6 +402,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=145"></script>
+<script src="sync.js?v=146"></script>
 </body>
 </html>

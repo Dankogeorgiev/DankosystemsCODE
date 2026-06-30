@@ -24,7 +24,7 @@
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
       belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: +$id("preview").value || 60, capacity: +$id("capacity").value || 62,
       partsSeeded, demoCleaned,
-      phi, runSec, pauseSec, running, painted: (typeof painted !== "undefined" ? painted : {}),
+      phi, runSec, pauseSec, running, painted: (typeof painted !== "undefined" ? painted : {}), paintedH: (typeof paintedH !== "undefined" ? paintedH : {}),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -38,6 +38,7 @@
     if (typeof d.uid === "number") uid = Math.max(uid, d.uid);
     phi = +d.phi || 0; runSec = +d.runSec || 0; pauseSec = +d.pauseSec || 0; running = false;
     painted = (d.painted && typeof d.painted === "object") ? Object.assign({}, d.painted) : {};
+    paintedH = (d.paintedH && typeof d.paintedH === "object") ? Object.assign({}, d.paintedH) : {};
     if (typeof d.paintRal === "string") paintRal = d.paintRal;
     if (typeof d.partsSeeded === "boolean") partsSeeded = d.partsSeeded;
     if (typeof d.demoCleaned === "boolean") demoCleaned = d.demoCleaned;
