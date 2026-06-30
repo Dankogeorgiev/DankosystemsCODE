@@ -293,11 +293,22 @@ function drawLoop(){
   s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#C7D0DC" stroke-width="10"/>`;
   s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#EAEEF3" stroke-width="6" stroke-dasharray="2 14"/>`;
   const lp=loopPos();
-  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-lp)*step,[x,y]=pos(t),pd=lp>=k+1,cur=(k===Math.floor(lp)),col=H(hangers[k].type)?.color||'#ccc';
+  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-lp)*step,[x,y]=pos(t),pd=phi>=k+1,cur=(k===Math.floor(lp)),col=H(hangers[k].type)?.color||'#ccc';
     s+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">`+
        (cur?`<circle r="12" fill="none" stroke="#1F3864" stroke-width="2"><animate attributeName="r" values="11;16;11" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.25;1" dur="1.2s" repeatCount="indefinite"/></circle>`:``)+
        `<circle r="${cur?9.5:7.5}" fill="${pd?PAINT():'#fff'}" stroke="${cur?'#1F3864':(pd?PAINT():col)}" stroke-width="${cur?2.6:(pd?1.4:2.4)}"/>`+
        `<circle r="${cur?3.4:2.8}" fill="${pd?'#fff':col}"/></g>`;}
+  // Ориентационни стрелки по линията около кабината: вляво ЗАКАЧАНЕ, вдясно БОЯДИСВАНЕ
+  const posR=(t,dr)=>[cx+(a+dr)*Math.cos(t),cy+(b+dr)*Math.sin(t)];
+  const flowArrow=(a0,a1,label)=>{const dr=15,N=16;let pts=[];for(let i=0;i<=N;i++){const tt=a0+(a1-a0)*i/N,pr=posR(tt,dr);pts.push(pr[0].toFixed(1)+','+pr[1].toFixed(1));}
+    let g=`<polyline points="${pts.join(' ')}" fill="none" stroke="#9aa6b6" stroke-width="3" stroke-linecap="round"/>`;
+    const dir=a1>a0?1:-1,tip=posR(a1+dir*0.05,dr),base=posR(a1-dir*0.02,dr);let dx=tip[0]-base[0],dy=tip[1]-base[1];const dl=Math.hypot(dx,dy)||1;dx/=dl;dy/=dl;const nx=-dy,ny=dx,w=5.5;
+    g+=`<polygon points="${tip[0].toFixed(1)},${tip[1].toFixed(1)} ${(base[0]+nx*w).toFixed(1)},${(base[1]+ny*w).toFixed(1)} ${(base[0]-nx*w).toFixed(1)},${(base[1]-ny*w).toFixed(1)}" fill="#6b7686"/>`;
+    const lab=posR((a0+a1)/2,30);
+    g+=`<text x="${lab[0].toFixed(1)}" y="${lab[1].toFixed(1)}" font-size="11" font-weight="700" fill="#475569" text-anchor="middle">${label}</text>`;
+    return g;};
+  s+=flowArrow(boothA-0.18,boothA-0.62,'ЗАКАЧАНЕ');
+  s+=flowArrow(boothA+0.18,boothA+0.62,'БОЯДИСВАНЕ');
   const [bx,by]=pos(boothA);
   s+=`<g transform="translate(${bx},${by})"><rect x="-34" y="-40" width="68" height="30" rx="6" fill="#1F3864"/>`+
      `<text x="0" y="-20" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">КАБИНА</text>`+
@@ -377,6 +388,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=144"></script>
+<script src="sync.js?v=145"></script>
 </body>
 </html>
