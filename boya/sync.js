@@ -12,7 +12,7 @@
 
   const KEY = "painting_line";
   const clientId = "c" + Math.floor(Math.random() * 1e9).toString(36);
-  let sbx = null, ready = false, applyingRemote = false, saveTimer = null, hb = null, partsSeeded = false;
+  let sbx = null, ready = false, applyingRemote = false, saveTimer = null, hb = null, partsSeeded = false, demoCleaned = false;
 
   const $id = id => document.getElementById(id);
   function setSync(t, warn) { const e = $id("sync"); if (e) { e.textContent = t; e.style.color = warn ? "#C0392B" : "#6B7686"; } }
@@ -23,7 +23,7 @@
       hangerTypes, parts, entries, selEntry, paintToday,
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
       belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: +$id("preview").value || 60, capacity: +$id("capacity").value || 62,
-      partsSeeded,
+      partsSeeded, demoCleaned,
       phi, runSec, pauseSec, running,
       updatedAt: new Date().toISOString(),
     };
@@ -39,6 +39,7 @@
     phi = +d.phi || 0; runSec = +d.runSec || 0; pauseSec = +d.pauseSec || 0; running = false;
     if (typeof d.paintRal === "string") paintRal = d.paintRal;
     if (typeof d.partsSeeded === "boolean") partsSeeded = d.partsSeeded;
+    if (typeof d.demoCleaned === "boolean") demoCleaned = d.demoCleaned;
     if (d.paint) $id("paint").value = d.paint;
     if (d.belt) $id("belt").value = d.belt;
     if (d.pitch) $id("pitch").value = d.pitch;
@@ -68,12 +69,19 @@
       if (error) throw error;
       if (data && data.data) { applyingRemote = true; applyDoc(data.data); applyingRemote = false; setSync("споделено ✓"); }
       else { await saveNow(); }   // първи запис от текущите стойности
-      // Еднократно вливане на стандартните детайли в споделената база.
-      if (!partsSeeded && typeof ensureStandardParts === "function") {
+      // Еднократни миграции на споделената база.
+      let migrated = false;
+      if (!partsSeeded && typeof ensureStandardParts === "function") {       // влей стандартните детайли
         applyingRemote = true; const added = ensureStandardParts(); applyingRemote = false;
-        partsSeeded = true; if (added && typeof refresh === "function") refresh();
-        await saveNow();
+        partsSeeded = true; if (added) migrated = true;
       }
+      if (!demoCleaned && typeof cleanupDemoParts === "function") {          // махни демо-детайлите
+        applyingRemote = true; const removed = cleanupDemoParts(); applyingRemote = false;
+        demoCleaned = true; if (removed) migrated = true;
+      }
+      if (migrated && typeof refresh === "function") refresh();
+      const hadFlags = data && data.data && data.data.partsSeeded && data.data.demoCleaned;
+      if (migrated || !hadFlags) await saveNow();
     } catch (e) { console.warn("Боядисване: зареждане", e); setSync("само локално", true); }
   }
   function subscribe() {
@@ -90,7 +98,7 @@
   // приложението, затова при тях състоянието вече е променено.
   const CHANGE_IDS = ["belt", "pitch", "preview", "capacity", "paint", "paintRal"];
   const CLICK_SEL = "#startBtn,#resetBtn,#fwd,#back,#newColor,#addHanger,#addPart,#addEntry,[data-loadpart],[data-delh],[data-delp],[data-dele]";
-  document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
+  document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e || t.dataset.cfgn)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
   document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
   document.addEventListener("click", e => { if (e.target.closest && e.target.closest(CLICK_SEL)) saveSoon(); });
 
