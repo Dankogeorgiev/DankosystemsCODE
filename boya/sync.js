@@ -12,7 +12,7 @@
 
   const KEY = "painting_line";
   const clientId = "c" + Math.floor(Math.random() * 1e9).toString(36);
-  let sbx = null, ready = false, applyingRemote = false, saveTimer = null, hb = null;
+  let sbx = null, ready = false, applyingRemote = false, saveTimer = null, hb = null, partsSeeded = false;
 
   const $id = id => document.getElementById(id);
   function setSync(t, warn) { const e = $id("sync"); if (e) { e.textContent = t; e.style.color = warn ? "#C0392B" : "#6B7686"; } }
@@ -23,6 +23,7 @@
       hangerTypes, parts, entries, selEntry, paintToday,
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
       belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: +$id("preview").value || 60, capacity: +$id("capacity").value || 62,
+      partsSeeded,
       phi, runSec, pauseSec, running,
       updatedAt: new Date().toISOString(),
     };
@@ -37,6 +38,7 @@
     if (typeof d.uid === "number") uid = Math.max(uid, d.uid);
     phi = +d.phi || 0; runSec = +d.runSec || 0; pauseSec = +d.pauseSec || 0; running = false;
     if (typeof d.paintRal === "string") paintRal = d.paintRal;
+    if (typeof d.partsSeeded === "boolean") partsSeeded = d.partsSeeded;
     if (d.paint) $id("paint").value = d.paint;
     if (d.belt) $id("belt").value = d.belt;
     if (d.pitch) $id("pitch").value = d.pitch;
@@ -66,6 +68,12 @@
       if (error) throw error;
       if (data && data.data) { applyingRemote = true; applyDoc(data.data); applyingRemote = false; setSync("споделено ✓"); }
       else { await saveNow(); }   // първи запис от текущите стойности
+      // Еднократно вливане на стандартните детайли в споделената база.
+      if (!partsSeeded && typeof ensureStandardParts === "function") {
+        applyingRemote = true; const added = ensureStandardParts(); applyingRemote = false;
+        partsSeeded = true; if (added && typeof refresh === "function") refresh();
+        await saveNow();
+      }
     } catch (e) { console.warn("Боядисване: зареждане", e); setSync("само локално", true); }
   }
   function subscribe() {

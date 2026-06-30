@@ -176,16 +176,19 @@ let hangerTypes=[
   {id:nid(),name:'Петторна',rows:5,color:PAL[3]},
   {id:nid(),name:'Висяща (тръби)',rows:1,color:PAL[4]},
 ];
-let parts=[
-  {id:nid(),name:'Дребен детайл',perRow:18,color:'#E07B39'},
-  {id:nid(),name:'Крак',perRow:9,color:'#2C7A8C'},
-  {id:nid(),name:'Тръба с планка',perRow:6,color:'#C0518A'},
-];
+/* Стандартни детайли, които минават масово през автоматичната линия (база).
+   Всеки ред е 18 бр. по подразбиране; снимка се добавя по-късно (поле img). */
+const STANDARD_PARTS=['Единичка','Двойка','Тройка','Дебела двойка','Дебела тройка','Винкел Италия','Крак','Винкел Потапящ','Дълго Потапящ','Късо Потапящ','Късо МБ','Бастун МБ','Криво МБ','Винкел МБ','Разпънка','Планка с колело'];
+const PARTPAL=['#2C7A8C','#E07B39','#8E5BA6','#4E8A47','#C0518A','#B8842B','#3B6FB0','#0E7490','#B45309','#7C3AED','#15803D','#BE185D','#0F766E','#C2410C','#6D28D9','#1D4ED8'];
+let parts=STANDARD_PARTS.map((nm,i)=>({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:''}));
+// Влива липсващите стандартни детайли (по име) — без да трие/дублира съществуващи.
+function ensureStandardParts(){let added=false;STANDARD_PARTS.forEach((nm,i)=>{if(!parts.some(p=>p.name===nm)){parts.push({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:''});added=true;}});return added;}
+const pidByName=nm=>{const p=parts.find(x=>x.name===nm);return p?p.id:null;};
 let entries=[
-  {id:nid(),hanger:hangerTypes[1].id,count:30,rowParts:[parts[0].id,parts[0].id,parts[0].id]},
-  {id:nid(),hanger:hangerTypes[3].id,count:5,rowParts:[parts[0].id,parts[0].id,parts[0].id,parts[0].id,parts[0].id]},
-  {id:nid(),hanger:hangerTypes[0].id,count:25,rowParts:[parts[1].id,parts[1].id]},
-  {id:nid(),hanger:hangerTypes[4].id,count:5,rowParts:[parts[2].id]},
+  {id:nid(),hanger:hangerTypes[1].id,count:30,rowParts:[pidByName('Тройка'),pidByName('Тройка'),pidByName('Тройка')]},
+  {id:nid(),hanger:hangerTypes[3].id,count:5,rowParts:[pidByName('Единичка'),pidByName('Единичка'),pidByName('Единичка'),pidByName('Единичка'),pidByName('Единичка')]},
+  {id:nid(),hanger:hangerTypes[0].id,count:25,rowParts:[pidByName('Крак'),pidByName('Крак')]},
+  {id:nid(),hanger:hangerTypes[4].id,count:5,rowParts:[pidByName('Разпънка')]},
 ];
 let selEntry=entries[0].id, paintToday=['#3B6FB0'];
 let hangers=[];   // [{type, part}] в реда на боядисване
@@ -242,6 +245,10 @@ function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.ha
       <div class="det">${used}/${n} реда заредени · <b>${cap(e)}</b> бр/подв.</div></div>
     <button class="btn x" data-dele="${e.id}" onclick="event.stopPropagation()">×</button></div>`;}).join('')
     ||'<div class="note">Няма подвески. Натисни „+ подвески“.</div>';}
+function partInitials(nm){return (nm||'').replace(/[^A-Za-zА-Яа-я0-9 ]/g,'').split(/\s+/).filter(Boolean).map(w=>w[0]).join('').slice(0,2).toUpperCase();}
+function partThumb(p,sz){if(!p)return '';const s=sz||26;return p.img
+  ?`<img src="${p.img}" alt="${p.name}" title="${p.name}" style="width:${s}px;height:${s}px;object-fit:cover;border-radius:6px;border:1px solid var(--line);flex:0 0 auto">`
+  :`<span title="${p.name}" style="width:${s}px;height:${s}px;border-radius:6px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:${p.color||'#94a3b8'};color:#fff;font-size:9px;font-weight:700;border:1px solid rgba(0,0,0,.15);line-height:1">${partInitials(p.name)}</span>`;}
 function partOpts(sel){return parts.map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${p.name} (${p.perRow})</option>`).join('');}
 function renderConfig(){const box=$('entryConfig');if(!box)return;
   const e=entries.find(x=>x.id===selEntry);
@@ -249,9 +256,9 @@ function renderConfig(){const box=$('entryConfig');if(!box)return;
   const h=H(e.hanger);if(!h){box.innerHTML='<div class="cfg-empty">—</div>';return;}
   normalizeEntry(e);
   let s=`<div class="cfg-head"><span class="dot" style="background:${h.color}"></span><b>${h.name}</b> · ${h.rows} реда</div>`;
-  for(let i=0;i<h.rows;i++){const pid=e.rowParts[i],p=P(pid);
-    s+=`<div class="cfgrow"><span class="cfg-rn">Ред ${i+1}</span>
-      <select data-cfg="${e.id}" data-row="${i}"><option value=""${pid?'':' selected'}>— празно —</option>${partOpts(pid)}</select>
+  for(let i=0;i<h.rows;i++){const rpid=e.rowParts[i],p=P(rpid);
+    s+=`<div class="cfgrow"><span class="cfg-rn">Ред ${i+1}</span>${partThumb(p)}
+      <select data-cfg="${e.id}" data-row="${i}"><option value=""${rpid?'':' selected'}>— празно —</option>${partOpts(rpid)}</select>
       <span class="cfg-n">${p?p.perRow+' бр.':''}</span></div>`;}
   s+=`<div class="cfg-total">Общо: <b>${cap(e)} бр/подв.</b></div>`;
   box.innerHTML=s;}
@@ -351,6 +358,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=140"></script>
+<script src="sync.js?v=141"></script>
 </body>
 </html>
