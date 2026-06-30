@@ -22,10 +22,11 @@
   .btn:active{transform:translateY(1px)}
   .note{font-size:12.5px;color:var(--muted);margin:14px 2px 18px;line-height:1.55}.note b{color:var(--ink-soft);font-weight:600}
 
-  /* --- решетка с маси (нареждане като в цеха: ляво 4/5/6 · дясно 1/2/3) --- */
-  .tables{display:grid;gap:16px;grid-template-columns:1fr 1fr;max-width:780px;
-    grid-template-areas:"t4 t1" "t5 t2" "t6 t3"}
-  @media(max-width:680px){.tables{grid-template-columns:1fr;grid-template-areas:"t1" "t2" "t3" "t4" "t5" "t6"}}
+  /* --- решетка с маси (3 колони × 2 реда: горе 1/2/3 · долу 4/5/6) --- */
+  .tables{display:grid;gap:16px;grid-template-columns:repeat(3,1fr);max-width:1120px;
+    grid-template-areas:"t1 t2 t3" "t4 t5 t6"}
+  @media(max-width:900px){.tables{grid-template-columns:1fr 1fr;grid-template-areas:"t1 t2" "t3 t4" "t5 t6"}}
+  @media(max-width:560px){.tables{grid-template-columns:1fr;grid-template-areas:"t1" "t2" "t3" "t4" "t5" "t6"}}
   .tcard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 14px 16px;cursor:pointer;
     transition:border-color .12s,box-shadow .12s,transform .06s;display:flex;flex-direction:column;align-items:center;text-align:center}
   .tcard:hover{border-color:var(--ink);box-shadow:0 6px 20px rgba(31,56,100,.12)}
