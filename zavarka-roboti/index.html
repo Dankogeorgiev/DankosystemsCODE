@@ -152,7 +152,7 @@ const PALETTES={
 };
 /* 6-те клетки (имена преименуеми). Подредба 3×2 през CSS. */
 let robots=[
-  {id:1,name:'Робот 1',pal:'gray'},
+  {id:1,name:'Робот 1',pal:'gray',size:0.78},   // физически по-малък робот
   {id:2,name:'Робот 2',pal:'gray'},
   {id:3,name:'Робот 3',pal:'red' },
   {id:4,name:'Робот 4',pal:'gray'},
@@ -227,7 +227,7 @@ function renderDash(){
     const meta=!tasksLoaded?'зарежда…':(items.length?`${items.length} изд. · остават ${num(rem)}`:'няма изделия');
     return `<div class="rcell${r.pal==='red'?' red':''}" data-r="${r.id}" data-go="${r.id}" role="button" tabindex="0">
       <span class="rnum">${r.id}</span>
-      <div class="rart">${robotArt(p)}</div>
+      <div class="rart" style="max-width:${Math.round(200*(r.size||1))}px">${robotArt(p)}</div>
       <div class="rname-wrap">
         <span class="rname">${esc(r.name)}</span>
         <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>
@@ -266,6 +266,7 @@ function renderDetail(id){
   const r=robotById(id);if(!r){location.hash='';return;}
   const p=pal(r);
   $('rdArt').innerHTML=robotArt(p);
+  $('rdArt').style.width=Math.round(120*(r.size||1))+'px';
   $('rdTitle').innerHTML=esc(r.name)+` <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>`;
   $('rdSub').innerHTML=`<span class="rdot" style="background:${p.dot}"></span>клетка №${r.id} · ${p.label}`;
   const items=productsOfRobot(id);
