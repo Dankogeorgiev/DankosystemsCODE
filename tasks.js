@@ -332,6 +332,8 @@ function applyTasksAccess() {
   // „Заваръчно роботи“ — за админи и за служители от цех Заваръчно
   const wr = document.getElementById("tasks-welding-roboti");
   if (wr) wr.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
+  const wm = document.getElementById("tasks-welding-rachno");
+  if (wm) wm.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
