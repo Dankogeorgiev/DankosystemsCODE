@@ -76,6 +76,18 @@
   .nowbox{margin-top:10px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#F8FAFC;font-size:13px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
   .nowbox .lab2{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;width:100%}
   .nowbox .dot{width:13px;height:13px}
+  .compgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.compgrid{grid-template-columns:1fr}}
+  .collab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px}
+  .compcol:last-child{border-left:1px solid var(--line);padding-left:14px}
+  @media(max-width:760px){.compcol:last-child{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:12px}}
+  #entryConfig .cfg-empty{font-size:12px;color:var(--muted);padding:12px;background:#F8FAFC;border:1px dashed var(--line);border-radius:9px;text-align:center}
+  .cfg-head{display:flex;align-items:center;gap:7px;font-size:13.5px;margin-bottom:8px}
+  .cfgrow{display:flex;align-items:center;gap:8px;margin:6px 0;background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .cfgrow .cfg-rn{font-family:var(--mono);font-size:11px;color:var(--muted);flex:0 0 44px}
+  .cfgrow select{flex:1 1 auto;min-width:0}
+  .cfgrow .cfg-n{font-family:var(--mono);font-size:11px;color:var(--ink-soft);flex:0 0 auto;min-width:42px;text-align:right}
+  .cfg-total{margin-top:9px;font-size:13px;text-align:right}
 </style>
 </head>
 <body>
@@ -124,9 +136,9 @@
         <div class="note">Редове = напречни железа на подвеската.</div>
       </fieldset>
       <fieldset>
-        <legend><span>Детайли (бутони)</span><button class="btn" id="addPart">+ детайл</button></legend>
+        <legend><span>Детайли (каталог)</span><button class="btn" id="addPart">+ детайл</button></legend>
         <div class="palette" id="palette"></div>
-        <div class="note">Маркирай ред от състава, после натисни детайл, за да го заредиш. Числото е <b>бр/ред</b>.</div>
+        <div class="note">Това е базата с детайли. Закачаш ги по редовете на подвеската (вдясно). Числото е <b>бр/ред</b>.</div>
       </fieldset>
     </div>
 
@@ -134,7 +146,10 @@
     <div class="stagewrap">
       <div class="panel">
         <fieldset><legend><span>Състав на линията сега</span><button class="btn" id="addEntry">+ подвески</button></legend>
-          <div id="entryList"></div>
+          <div class="compgrid">
+            <div class="compcol"><div class="collab">Подвески на линията</div><div id="entryList"></div></div>
+            <div class="compcol"><div class="collab">Какво има по подвеската (по редове)</div><div id="entryConfig"></div></div>
+          </div>
         </fieldset>
       </div>
       <div class="loopbox"><div id="loop"></div></div>
@@ -144,7 +159,7 @@
         <div class="stat"><div class="k">Изтекло (боядисване)</div><div class="v" id="r_elapsed">0:00</div><div class="vsub" id="r_pause">паузи 0:00</div></div>
         <div class="stat"><div class="k">Оставащо време</div><div class="v" id="r_eta">–</div><div class="vsub" id="r_etasub">до края</div></div>
       </div>
-      <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани</th><th>Остават</th><th>Бр. детайли остават</th></tr></thead><tbody id="bdBody"></tbody></table>
+      <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани (бр.)</th><th>Остават (бр.)</th><th>Общо (бр.)</th></tr></thead><tbody id="bdBody"></tbody></table>
       <p class="note"><b>Идея:</b> горе задаваш състава (тип подвеска + детайл + брой). Същите подвески се движат по затворения контур и минават през неподвижната кабина — там стават „боядисани". Старт пуска, Пауза = почивка (реално време), корекцията сверява при засечка. Сменяш състава по всяко време — линията се преизчислява.</p>
     </div>
   </div>
@@ -162,15 +177,15 @@ let hangerTypes=[
   {id:nid(),name:'Висяща (тръби)',rows:1,color:PAL[4]},
 ];
 let parts=[
-  {id:nid(),name:'Дребен детайл',perRow:18},
-  {id:nid(),name:'Крак',perRow:9},
-  {id:nid(),name:'Тръба с планка',perRow:6},
+  {id:nid(),name:'Дребен детайл',perRow:18,color:'#E07B39'},
+  {id:nid(),name:'Крак',perRow:9,color:'#2C7A8C'},
+  {id:nid(),name:'Тръба с планка',perRow:6,color:'#C0518A'},
 ];
 let entries=[
-  {id:nid(),hanger:hangerTypes[1].id,part:parts[0].id,count:30},
-  {id:nid(),hanger:hangerTypes[3].id,part:parts[0].id,count:5},
-  {id:nid(),hanger:hangerTypes[0].id,part:parts[1].id,count:25},
-  {id:nid(),hanger:hangerTypes[4].id,part:parts[2].id,count:5},
+  {id:nid(),hanger:hangerTypes[1].id,count:30,rowParts:[parts[0].id,parts[0].id,parts[0].id]},
+  {id:nid(),hanger:hangerTypes[3].id,count:5,rowParts:[parts[0].id,parts[0].id,parts[0].id,parts[0].id,parts[0].id]},
+  {id:nid(),hanger:hangerTypes[0].id,count:25,rowParts:[parts[1].id,parts[1].id]},
+  {id:nid(),hanger:hangerTypes[4].id,count:5,rowParts:[parts[2].id]},
 ];
 let selEntry=entries[0].id, paintToday=['#3B6FB0'];
 let hangers=[];   // [{type, part}] в реда на боядисване
@@ -179,13 +194,19 @@ let paintRal='';  // RAL код на текущата боя (по избор)
 /* Често ползвани прахови RAL цветове → hex (за квадратчето). */
 const RAL_HEX={"1003":"#f9a800","1015":"#e6d2b5","1018":"#f5d033","1021":"#f3c300","2004":"#e75b12","3000":"#af2b1e","3002":"#9b111e","3005":"#59191f","3020":"#cc0605","5002":"#20214f","5005":"#1d1e33","5010":"#0e294b","5012":"#3b83bd","5015":"#2874b2","5017":"#063971","6005":"#0f4336","6011":"#587246","6018":"#61993b","6029":"#20603d","7001":"#8f999f","7011":"#434b4d","7012":"#4e5754","7015":"#434750","7016":"#293133","7021":"#23282b","7024":"#474a51","7035":"#cbd0cc","7037":"#7d7f7d","7040":"#9da3a6","8014":"#382c1e","8017":"#45322e","8019":"#403a3a","9001":"#fdf4e3","9002":"#e7ebda","9003":"#f4f4f4","9005":"#0a0a0a","9006":"#a5a5a5","9007":"#8f8f8c","9010":"#ffffff","9011":"#1c1c1c","9016":"#f6f6f6","9017":"#1e1e1e"};
 const ralToHex=r=>RAL_HEX[String(r||'').replace(/[^0-9]/g,'')]||null;
-function currentHangerInfo(){const i=paintedCount();if(i>=L()||!hangers[i])return null;const h=hangers[i];return{ht:H(h.type),p:P(h.part)};}
+function currentHangerInfo(){const i=paintedCount();if(i>=L()||!hangers[i])return null;const hg=hangers[i];const ht=H(hg.type);
+  const dets=[...new Set((hg.rowParts||[]).map(pid=>P(pid)).filter(Boolean).map(p=>p.name))];
+  return{ht,detText:dets.join(', ')||'—'};}
 
 const $=id=>document.getElementById(id);
 const H=id=>hangerTypes.find(h=>h.id===id);
 const P=id=>parts.find(p=>p.id===id);
-const cap=e=>{const h=H(e.hanger),p=P(e.part);return(h&&p)?h.rows*p.perRow:0;};
-function buildHangers(){hangers=[];entries.forEach(e=>{for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,part:e.part});});
+function normalizeEntry(e){const h=H(e.hanger),n=h?h.rows:0;if(!Array.isArray(e.rowParts))e.rowParts=[];
+  if(e.part!=null&&e.rowParts.length===0){for(let i=0;i<n;i++)e.rowParts.push(e.part);delete e.part;}
+  while(e.rowParts.length<n)e.rowParts.push(null);
+  if(e.rowParts.length>n)e.rowParts.length=n;return e;}
+const cap=e=>{const h=H(e.hanger);if(!h)return 0;normalizeEntry(e);return e.rowParts.reduce((s,pid)=>{const p=P(pid);return s+(p?p.perRow:0);},0);};
+function buildHangers(){hangers=[];entries.forEach(e=>{normalizeEntry(e);for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,rowParts:e.rowParts.slice()});});
   if(phi>hangers.length)phi=hangers.length;}
 const L=()=>hangers.length;
 const paintedCount=()=>Math.max(0,Math.min(L(),Math.floor(phi)));
@@ -206,17 +227,34 @@ function renderHangers(){$('hangerList').innerHTML=hangerTypes.map(h=>`
     <span class="lab">редове</span><input type="number" value="${h.rows}" data-h="${h.id}" data-f="rows" style="width:44px">
     <button class="btn x" data-delh="${h.id}">×</button></div>`).join('');}
 function renderPalette(){$('palette').innerHTML=parts.map(p=>`
-  <div class="chip" data-loadpart="${p.id}">${p.name}
-    <span class="pr"><input type="number" value="${p.perRow}" data-p="${p.id}" data-f="perRow" onclick="event.stopPropagation()">/ред</span>
-    <span class="btn x" data-delp="${p.id}" onclick="event.stopPropagation()">×</span></div>`).join('');}
+  <div class="item"><input type="color" value="${p.color||'#94a3b8'}" data-p="${p.id}" data-f="color" style="width:26px;height:26px;border:none;background:none;cursor:pointer;padding:0;flex:0 0 auto">
+    <input type="text" value="${p.name}" data-p="${p.id}" data-f="name">
+    <span class="lab">бр/ред</span><input type="number" value="${p.perRow}" data-p="${p.id}" data-f="perRow" style="width:44px">
+    <button class="btn x" data-delp="${p.id}">×</button></div>`).join('')
+    ||'<div class="note">Няма детайли. Натисни „+ детайл“, за да попълниш базата.</div>';}
 const hangerOpts=s=>hangerTypes.map(h=>`<option value="${h.id}"${h.id===s?' selected':''}>${h.name}</option>`).join('');
-function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.hanger),p=P(e.part);
+function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.hanger);normalizeEntry(e);
+  const used=e.rowParts.filter(Boolean).length,n=h?h.rows:0;
   return `<div class="entry${e.id===selEntry?' sel':''}" data-sel="${e.id}">
     <input class="cnt" type="number" value="${e.count}" data-e="${e.id}" data-f="count" onclick="event.stopPropagation()">
     <div class="meta"><div class="nm"><span class="dot" style="background:${h?h.color:'#ccc'}"></span>
       <select data-e="${e.id}" data-f="hanger" onclick="event.stopPropagation()">${hangerOpts(e.hanger)}</select></div>
-      <div class="det">детайл: <b>${p?p.name:'—'}</b> · ${h?h.rows:0}×${p?p.perRow:0} = ${cap(e)} бр/подв.</div></div>
-    <button class="btn x" data-dele="${e.id}" onclick="event.stopPropagation()">×</button></div>`;}).join('');}
+      <div class="det">${used}/${n} реда заредени · <b>${cap(e)}</b> бр/подв.</div></div>
+    <button class="btn x" data-dele="${e.id}" onclick="event.stopPropagation()">×</button></div>`;}).join('')
+    ||'<div class="note">Няма подвески. Натисни „+ подвески“.</div>';}
+function partOpts(sel){return parts.map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${p.name} (${p.perRow})</option>`).join('');}
+function renderConfig(){const box=$('entryConfig');if(!box)return;
+  const e=entries.find(x=>x.id===selEntry);
+  if(!e){box.innerHTML='<div class="cfg-empty">Избери подвеска отляво, за да зададеш какво има по нея.</div>';return;}
+  const h=H(e.hanger);if(!h){box.innerHTML='<div class="cfg-empty">—</div>';return;}
+  normalizeEntry(e);
+  let s=`<div class="cfg-head"><span class="dot" style="background:${h.color}"></span><b>${h.name}</b> · ${h.rows} реда</div>`;
+  for(let i=0;i<h.rows;i++){const pid=e.rowParts[i],p=P(pid);
+    s+=`<div class="cfgrow"><span class="cfg-rn">Ред ${i+1}</span>
+      <select data-cfg="${e.id}" data-row="${i}"><option value=""${pid?'':' selected'}>— празно —</option>${partOpts(pid)}</select>
+      <span class="cfg-n">${p?p.perRow+' бр.':''}</span></div>`;}
+  s+=`<div class="cfg-total">Общо: <b>${cap(e)} бр/подв.</b></div>`;
+  box.innerHTML=s;}
 function renderColor(){const c=$('paint').value;
   $('paintName').textContent=paintRal?('RAL '+paintRal):c.toUpperCase();
   $('paintChanges').textContent='смени днес: '+Math.max(0,paintToday.length-1);
@@ -242,7 +280,7 @@ function drawLoop(){
   s+=`<text x="${cx}" y="${cy-4}" font-size="26" font-weight="700" fill="#1F3864" text-anchor="middle" font-family="Space Grotesk">${paintedCount()} / ${Lc}</text>`;
   s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани</text>`;
   const ci=currentHangerInfo();
-  s+=`<text x="${cx}" y="${cy+40}" font-size="13" font-weight="700" fill="#1F3864" text-anchor="middle">${ci?'сега: '+((ci.ht&&ci.ht.name)||'—')+' · '+((ci.p&&ci.p.name)||'—'):'✓ всичко боядисано'}</text>`;
+  s+=`<text x="${cx}" y="${cy+40}" font-size="13" font-weight="700" fill="#1F3864" text-anchor="middle">${ci?'сега: '+((ci.ht&&ci.ht.name)||'—')+' · '+ci.detText:'✓ всичко боядисано'}</text>`;
   s+=`</svg>`;
   $('loop').innerHTML=s;
 }
@@ -258,20 +296,22 @@ function update(){
   const rate=speed(); if($('rateHint'))$('rateHint').textContent='≈ '+(rate?rate.toFixed(1).replace('.',','):'—')+' подв/час';
   const secPer=rate>0?3600/rate:0; $('r_eta').textContent=Lc?(left?(secPer?fmt(left*secPer):'–'):'готово ✓'):'–';
   const agg={};
-  for(let k=0;k<Lc;k++){const h=hangers[k],p=P(h.part);if(!p)continue;const key=p.id;
-    if(!agg[key])agg[key]={name:p.name,color:H(h.type)?.color||'#ccc',done:0,left:0,leftParts:0};
-    if(phi>=k+1)agg[key].done++;else{agg[key].left++;agg[key].leftParts+=(H(h.type)?.rows||0)*p.perRow;}}
+  for(let k=0;k<Lc;k++){const hg=hangers[k],painted=phi>=k+1,cnt={};
+    (hg.rowParts||[]).forEach(pid=>{if(pid==null)return;cnt[pid]=(cnt[pid]||0)+1;});
+    Object.keys(cnt).forEach(pid=>{const p=P(+pid);if(!p)return;const pieces=cnt[pid]*p.perRow;
+      if(!agg[pid])agg[pid]={name:p.name,color:p.color||'#64748b',done:0,left:0};
+      if(painted)agg[pid].done+=pieces;else agg[pid].left+=pieces;});}
   $('bdBody').innerHTML=Object.values(agg).map(a=>
     `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
-    `<td>${a.done}</td><td>${a.left}</td><td><b>${a.leftParts.toLocaleString('bg')}</b></td></tr>`).join('')
+    `<td>${a.done.toLocaleString('bg')}</td><td>${a.left.toLocaleString('bg')}</td><td><b>${(a.done+a.left).toLocaleString('bg')}</b></td></tr>`).join('')
     ||'<tr><td colspan="4" class="note">няма заредени детайли</td></tr>';
   const ci=currentHangerInfo(),np=$('nowPainting');
   if(np)np.innerHTML='<span class="lab2">сега боядисва</span>'+(ci
-    ?`<span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'}"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${(ci.p&&ci.p.name)||'—'}</span>`
+    ?`<span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'}"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
     :'<b style="color:var(--ok)">✓ всичко боядисано</b>');
   drawLoop();
 }
-function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderColor();update();}
+function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderConfig();renderColor();update();}
 
 /* ===== анимация ===== */
 function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
@@ -283,22 +323,22 @@ function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
 /* ===== събития ===== */
 document.addEventListener('input',e=>{const t=e.target;
   if(t.dataset.h){const h=H(+t.dataset.h);if(t.dataset.f==='name')h.name=t.value;else h.rows=Math.max(1,+t.value||1);refresh();}
-  else if(t.dataset.p){P(+t.dataset.p).perRow=Math.max(0,+t.value||0);refresh();}
+  else if(t.dataset.p){const p=P(+t.dataset.p);if(t.dataset.f==='name')p.name=t.value;else if(t.dataset.f==='color')p.color=t.value;else p.perRow=Math.max(0,+t.value||0);refresh();}
   else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
   else if(t.id==='paintRal'){paintRal=t.value.trim();const hx=ralToHex(paintRal);if(hx){$('paint').value=hx;if(paintToday.length)paintToday[paintToday.length-1]=hx;}renderColor();update();}
   else if(['capacity','belt','pitch','preview'].includes(t.id))update();});
 document.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.e&&t.dataset.f==='hanger'){entries.find(x=>x.id===+t.dataset.e).hanger=+t.value;refresh();}
+  if(t.dataset.cfg){const en=entries.find(x=>x.id===+t.dataset.cfg);if(en){normalizeEntry(en);en.rowParts[+t.dataset.row]=t.value?+t.value:null;refresh();}}
   if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;if(ralToHex(paintRal)!==t.value)paintRal='';renderColor();update();}});
-document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-loadpart],[data-delh],[data-delp],[data-dele]')||e.target;
-  if(t.dataset.sel){selEntry=+t.dataset.sel;renderEntries();return;}
-  if(t.dataset.loadpart){const en=entries.find(x=>x.id===selEntry);if(en){en.part=+t.dataset.loadpart;refresh();}return;}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-delh],[data-delp],[data-dele]')||e.target;
+  if(t.dataset.sel){selEntry=+t.dataset.sel;renderEntries();renderConfig();return;}
   if(t.dataset.delh){hangerTypes=hangerTypes.filter(h=>h.id!=+t.dataset.delh);refresh();return;}
   if(t.dataset.delp){parts=parts.filter(p=>p.id!=+t.dataset.delp);refresh();return;}
   if(t.dataset.dele){entries=entries.filter(x=>x.id!=+t.dataset.dele);refresh();return;}});
 $('addHanger').onclick=()=>{hangerTypes.push({id:nid(),name:'Нова подвеска',rows:3,color:PAL[hangerTypes.length%PAL.length]});refresh();};
-$('addPart').onclick=()=>{parts.push({id:nid(),name:'Нов детайл',perRow:10});refresh();};
-$('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,part:parts[0].id,count:1};entries.push(e);selEntry=e.id;refresh();};
+$('addPart').onclick=()=>{parts.push({id:nid(),name:'Нов детайл',perRow:18,color:PAL[parts.length%PAL.length]});refresh();};
+$('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,rowParts:[]};entries.push(e);selEntry=e.id;refresh();};
 $('newColor').onclick=()=>{paintToday.push($('paint').value);renderColor();update();};
 $('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ Пауза (почивка)':'▶ Старт';$('startBtn').dataset.p=running?'0':'1';};
 $('resetBtn').onclick=()=>{phi=0;runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
@@ -311,6 +351,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=139"></script>
+<script src="sync.js?v=140"></script>
 </body>
 </html>

@@ -83,7 +83,7 @@
   const CHANGE_IDS = ["belt", "pitch", "preview", "capacity", "paint", "paintRal"];
   const CLICK_SEL = "#startBtn,#resetBtn,#fwd,#back,#newColor,#addHanger,#addPart,#addEntry,[data-loadpart],[data-delh],[data-delp],[data-dele]";
   document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
-  document.addEventListener("change", e => { const t = e.target; if ((t.dataset && t.dataset.e && t.dataset.f === "hanger") || t.id === "paint") saveSoon(); });
+  document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
   document.addEventListener("click", e => { if (e.target.closest && e.target.closest(CLICK_SEL)) saveSoon(); });
 
   async function start() {
