@@ -60,6 +60,8 @@
   .entry input[type=number]{width:46px}
   .loopbox{background:radial-gradient(120% 120% at 50% 40%,#fff,#E9EDF2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .loopbox svg{width:100%;height:auto;display:block}
+  #loop.jog g[data-hi]{cursor:pointer}
+  #loop.jog g[data-hi]:hover circle:nth-of-type(1){stroke:#1F3864;stroke-width:3}
   .results{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   @media(max-width:560px){.results{grid-template-columns:repeat(2,1fr)}}
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px}
@@ -121,6 +123,9 @@
         <input type="hidden" id="preview" value="1">
         <div class="row"><span>Места на линията</span><input type="number" id="capacity" value="62"></div>
         <div class="note">Броенето е автоматично, докато линията върви. Натисни <b>❚❚ Пауза</b>, когато линията спре (почивка/престой), за да не тече броячът.</div>
+        <div class="row" id="jogRow"><span class="lab">Завърти на ръка<br>(без отчитане)</span>
+          <span class="nudge"><button class="btn" id="jogBack" title="една назад">◀</button><button class="btn" id="jogFwd" title="една напред">▶</button></span></div>
+        <div class="note" id="jogHint">Само преди СТАРТ / след Край: завърти линията до реалния номер (цъкни подвеска на контура или ◀ ▶). Не се отчита нищо.</div>
         <div class="nowbox" id="nowPainting">—</div>
       </fieldset>
       <fieldset>
@@ -313,7 +318,7 @@ function drawLoop(){
     const fill=st==='painted'?PAINT():'#fff', stroke=cur?'#1F3864':(st==='painted'?PAINT():(st==='empty'?'#cbd5e1':col)), sw=cur?3:(st==='empty'?1.5:2.4);
     const r=cur?13:(st==='empty'?8:10.5);
     const numColor=st==='painted'?textOn(PAINT()):(st==='empty'?'#aab2bd':'#1F3864');
-    s+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">`+
+    s+=`<g data-hi="${k}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">`+
        (cur?`<circle r="${r+4}" fill="none" stroke="#1F3864" stroke-width="2"><animate attributeName="r" values="${r+3};${r+8};${r+3}" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.25;1" dur="1.2s" repeatCount="indefinite"/></circle>`:``)+
        `<circle r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`+
        `<text y="0.5" font-size="${cur?11:9}" font-weight="700" fill="${numColor}" text-anchor="middle" dominant-baseline="central">${k+1}</text></g>`;}
@@ -377,6 +382,11 @@ function update(){
     ?`<b>№${boothNum()}</b><span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'};margin-left:4px"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
     :'<span style="color:var(--muted)">— линията е празна —</span>');
   drawLoop();
+  // Ръчно завъртане е достъпно само в покой (преди СТАРТ / след Край) — без отчитане.
+  const idle=!anchored;
+  const jr=$('jogRow'); if(jr)jr.hidden=!idle;
+  const jh=$('jogHint'); if(jh)jh.hidden=!idle;
+  const lpEl=$('loop'); if(lpEl)lpEl.classList.toggle('jog',idle);
 }
 function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderConfig();renderColor();update();}
 
@@ -437,6 +447,10 @@ $('startBtn').onclick=()=>{
   $('startBtn').dataset.p=running?'0':'1';
   update();};
 $('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;anchored=false;$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';update();};
+// Ръчно завъртане (само в покой, без отчитане)
+$('jogBack').onclick=()=>{if(anchored)return;phi=Math.round(phi)-1;update();};
+$('jogFwd').onclick=()=>{if(anchored)return;phi=Math.round(phi)+1;update();};
+$('loop').addEventListener('click',e=>{if(anchored)return;const g=e.target.closest('[data-hi]');if(!g)return;phi=+g.dataset.hi;update();});
 // Сглобява дневния отчет от записаните партиди.
 function buildDayReport(){const totalsByDetail={},totalsByHanger={},paints=new Set();
   batches.forEach(bt=>{if(bt.ral)paints.add(bt.ral);
@@ -471,6 +485,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=153"></script>
+<script src="sync.js?v=154"></script>
 </body>
 </html>
