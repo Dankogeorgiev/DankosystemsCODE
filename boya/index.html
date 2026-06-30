@@ -203,6 +203,8 @@ let phi=0, running=false, runSec=0, pauseSec=0, last=0;
 let painted={};   // {детайл id: кумулативно боядисани детайли (бр.)}
 let paintedH={};  // {тип подвеска id: кумулативно минали подвески (бр.)}
 let batches=[];   // записани партиди за деня (при смяна на цвят / край на деня)
+let anchored=false;   // закотвена ли е смяната (въведен начален номер при СТАРТ)
+const boothNum=()=>{const L0=L();return L0?(Math.floor(loopPos())%L0)+1:0;};   // номер на подвеската на кабината сега
 let paintRal='';  // RAL код на текущата боя (по избор)
 /* Често ползвани прахови RAL цветове → hex (за квадратчето). */
 const RAL_HEX={"1000":"#bebd7f","1001":"#c2b078","1002":"#c6a664","1003":"#e5be01","1004":"#cda434","1005":"#a98307","1006":"#e4a010","1007":"#dc9d00","1011":"#8a6642","1012":"#c7b446","1013":"#eae6ca","1014":"#e1cc4f","1015":"#e6d690","1016":"#edff21","1017":"#f5d033","1018":"#f8f32b","1019":"#9e9764","1020":"#999950","1021":"#f3da0b","1023":"#fad201","1024":"#aea04b","1026":"#ffff00","1027":"#9d9101","1028":"#f4a900","1032":"#d6ae01","1033":"#f3a505","1034":"#efa94a","1037":"#f09400","2000":"#ed760e","2001":"#c93c20","2002":"#cb2821","2003":"#ff7514","2004":"#f44611","2008":"#f75e25","2009":"#f54021","2010":"#d84b20","2011":"#ec7c26","2012":"#e55137","3000":"#af2b1e","3001":"#a52019","3002":"#a2231d","3003":"#9b111e","3004":"#75151e","3005":"#5e2129","3007":"#412227","3009":"#642424","3011":"#781f19","3012":"#c1876b","3013":"#a12312","3014":"#d36e70","3015":"#ea899a","3016":"#b32821","3017":"#e63244","3018":"#d53032","3020":"#cc0605","3022":"#d95030","3027":"#c51d34","3031":"#b32428","4001":"#6d3f5b","4002":"#922b3e","4003":"#de4c8a","4004":"#641c34","4005":"#6c4675","4006":"#a03472","4007":"#4a192c","4008":"#924e7d","4009":"#a18594","4010":"#cf3476","5000":"#354d73","5001":"#1f3438","5002":"#20214f","5003":"#1d1e33","5004":"#18171c","5005":"#1e2460","5007":"#3e5f8a","5008":"#26252d","5009":"#025669","5010":"#0e294b","5011":"#231a24","5012":"#3b83bd","5013":"#1e213d","5014":"#606e8c","5015":"#2271b3","5017":"#063971","5018":"#3f888f","5019":"#1b5583","5020":"#1d334a","5021":"#256d7b","5022":"#252850","5023":"#49678d","5024":"#5d9b9b","6000":"#316650","6001":"#287233","6002":"#2d5016","6003":"#424632","6004":"#1f3a3d","6005":"#2f4538","6006":"#3e3b32","6007":"#343b29","6008":"#39352a","6009":"#31372b","6010":"#35682d","6011":"#587246","6012":"#343e40","6013":"#6c7156","6014":"#47402e","6015":"#3b3c36","6016":"#1e5945","6017":"#4c9141","6018":"#57a639","6019":"#bdecb6","6020":"#2e3a23","6021":"#89ac76","6022":"#25221b","6024":"#308446","6025":"#3d642d","6026":"#015d52","6027":"#84c3be","6028":"#2c5545","6029":"#20603d","6032":"#317f43","6033":"#497e76","6034":"#7fb5b5","7000":"#78858b","7001":"#8a9597","7002":"#817f68","7003":"#7d7f7d","7004":"#9c9c9c","7005":"#6c6e6a","7006":"#766a5e","7008":"#745e3d","7009":"#6c7059","7010":"#5b6259","7011":"#575d5e","7012":"#565a5c","7013":"#4f4f46","7015":"#434b4d","7016":"#293133","7021":"#23282b","7022":"#332f2c","7023":"#686c5e","7024":"#474a51","7026":"#2f353b","7030":"#8b8c7a","7031":"#474b4e","7032":"#b8b799","7033":"#7d8471","7034":"#8f8b66","7035":"#cbd0cc","7036":"#7f7679","7037":"#7d7f7d","7038":"#b5b8b1","7039":"#6c6960","7040":"#9da1aa","7042":"#8d948d","7043":"#4e5452","7044":"#cac4b0","7045":"#909090","7046":"#82898f","7047":"#d0d0d0","8000":"#826c34","8001":"#955f20","8002":"#6c3b2a","8003":"#734222","8004":"#8e402a","8007":"#59351f","8008":"#6f4f28","8011":"#5b3a29","8012":"#592321","8014":"#382c1e","8015":"#633a34","8016":"#4c2f27","8017":"#45322e","8019":"#403a3a","8022":"#212121","8023":"#a65e2e","8024":"#79553d","8025":"#755c48","8028":"#4e3b31","8029":"#763c28","9001":"#fdf4e3","9002":"#e7ebda","9003":"#f4f4f4","9004":"#282828","9005":"#0a0a0a","9006":"#a5a5a5","9007":"#8f8f8c","9010":"#ffffff","9011":"#1c1c1c","9016":"#f6f6f6","9017":"#1e1e1e","9018":"#d7d7d7","9022":"#9c9c9c","9023":"#828282"};
@@ -373,8 +375,8 @@ function update(){
     `<td><b>${a.done.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
     ||'<tr><td colspan="3" class="note">няма подвески</td></tr>';
   const ci=currentHangerInfo(),np=$('nowPainting');
-  if(np)np.innerHTML='<span class="lab2">сега боядисва</span>'+(ci
-    ?`<span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'}"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
+  if(np)np.innerHTML='<span class="lab2">на кабината сега</span>'+(ci
+    ?`<b>№${boothNum()}</b><span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'};margin-left:4px"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
     :'<span style="color:var(--muted)">— линията е празна —</span>');
   drawLoop();
 }
@@ -423,8 +425,20 @@ $('newColor').onclick=()=>{
   const hx=ralToHex(paintRal);if(hx)$('paint').value=hx;
   paintToday.push($('paint').value);
   refresh();};
-$('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ ПАУЗА (почивка)':'▶ СТАРТ';$('startBtn').dataset.p=running?'0':'1';};
-$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';update();};
+$('startBtn').onclick=()=>{
+  if(!running&&!anchored){           // начало на смяна → питай от кой номер тръгваме
+    const L0=L(); if(!L0){alert('Линията е празна — задай състав първо.');return;}
+    const ans=prompt('СТАРТ — кой номер подвеска е на кабината (БОЯДИСВАНЕ) сега?\n(1–'+L0+')', String(boothNum()||1));
+    if(ans===null)return;
+    const n=parseInt(ans,10); if(!(n>=1&&n<=L0)){alert('Невалиден номер.');return;}
+    phi=n-1; painted={}; paintedH={};   // закотви позицията + нов отчет за смяната
+    anchored=true;
+  }
+  running=!running;
+  $('startBtn').textContent=running?'❚❚ ПАУЗА (почивка)':(anchored?'▶ ПРОДЪЛЖИ':'▶ СТАРТ');
+  $('startBtn').dataset.p=running?'0':'1';
+  update();};
+$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;anchored=false;$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';update();};
 // Сглобява дневния отчет от записаните партиди.
 function buildDayReport(){const totalsByDetail={},totalsByHanger={},paints=new Set();
   batches.forEach(bt=>{if(bt.ral)paints.add(bt.ral);
@@ -433,13 +447,21 @@ function buildDayReport(){const totalsByDetail={},totalsByHanger={},paints=new S
   const total=Object.values(totalsByDetail).reduce((s,n)=>s+n,0),now=new Date();
   return{id:'r'+Date.now().toString(36),date:now.toISOString().slice(0,10),endedAt:now.toISOString(),by:(window.PAINT_USER||''),batches:batches.slice(),totalsByDetail,totalsByHanger,paints:[...paints],total,runSec:Math.round(runSec)};}
 $('endDayBtn').onclick=async()=>{
-  const tot=totalPainted();
-  if(batches.length===0&&tot<=0){alert('Няма боядисано за деня — няма какво да се отчете.');return;}
-  if(!confirm('Край на работния ден?\n\nОтчетът ще се запише за админите във „Времена", а броячите за деня ще се нулират.'))return;
+  if(!confirm('Край на работния ден?\n\nЩе те питам на кой номер подвеска спираш, после отчетът се записва за админите във „Времена" и броячите за деня се нулират.'))return;
+  const L0=L();
+  if(L0){                            // засечка по реалния краен номер
+    const ans=prompt('КРАЙ — на кой номер подвеска спираш на кабината?\n(1–'+L0+')', String(boothNum()||1));
+    if(ans!==null){const n=parseInt(ans,10);
+      if(n>=1&&n<=L0){const target=n-1,cf=Math.floor(phi),cur=((cf%L0)+L0)%L0;
+        let delta=((target-cur)%L0+L0)%L0; if(delta>L0/2)delta-=L0;
+        const corrected=cf+delta; if(corrected!==cf){accrue(phi,corrected);phi=corrected;}}}
+  }
+  running=false;
   bankBatch('край на деня');                      // запиши текущата партида
+  if(batches.length===0){alert('Няма боядисано за деня — няма какво да се отчете.');$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';anchored=false;refresh();return;}
   const report=buildDayReport();
   let ok=false; try{ if(window.paintSaveReport) ok=await window.paintSaveReport(report); }catch(e){}
-  batches=[];painted={};paintedH={};phi=0;runSec=0;pauseSec=0;running=false;   // нулирай деня
+  batches=[];painted={};paintedH={};phi=0;runSec=0;pauseSec=0;anchored=false;   // нулирай деня
   $('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';
   refresh();
   alert(ok?('Работният ден е приключен.\nОтчетът ('+report.total.toLocaleString('bg')+' бр.) е изпратен във „Времена" за админите.'):'Денят е нулиран, но отчетът не се качи (няма връзка с облака). Опитай пак при връзка.');
@@ -451,6 +473,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=151"></script>
+<script src="sync.js?v=152"></script>
 </body>
 </html>
