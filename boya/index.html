@@ -12,17 +12,17 @@
   *{box-sizing:border-box}
   [hidden]{display:none!important}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
-  .wrap{max-width:1280px;margin:0 auto;padding:20px}
+  .wrap{max-width:1480px;margin:0 auto;padding:20px}
   header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 16px;border-bottom:2px solid var(--ink)}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
   header.top .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
-  .grid{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:18px}
+  .grid{display:grid;grid-template-columns:380px 1fr;gap:18px;margin-top:18px}
   @media(max-width:880px){.grid{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
   fieldset{border:none;margin:0 0 16px;padding:0}fieldset:last-child{margin-bottom:0}
   legend{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft);
     padding:0 0 9px;border-bottom:1px solid var(--line);width:100%;margin-bottom:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .lab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .lab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap}
   input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;text-align:right;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:7px;padding:6px 8px;outline:none}
   input[type=text]{text-align:left}
   input:focus,select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
@@ -37,10 +37,10 @@
   .ctrls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
   .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;font-size:13px}
   .nudge{display:flex;gap:6px}
-  .item{display:flex;align-items:center;gap:7px;margin:7px 0;background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+  .item{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:7px 0;background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:7px 9px}
   .dot{width:12px;height:12px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.15)}
-  .item input[type=text]{flex:1 1 auto;min-width:0;background:transparent;border:none;font-family:var(--body)}
-  .palette{display:flex;flex-wrap:wrap;gap:7px}
+  .item input[type=text]{flex:1 1 110px;min-width:0;background:transparent;border:none;font-family:var(--body)}
+  .palette{display:block}
   .chip{display:flex;align-items:center;gap:6px;font-family:var(--body);font-size:12.5px;border:1px solid var(--line);background:#F8FAFC;border-radius:20px;padding:5px 10px;cursor:pointer}
   .chip:hover{border-color:var(--ink)}
   .chip .pr{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
@@ -366,6 +366,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=142"></script>
+<script src="sync.js?v=143"></script>
 </body>
 </html>
