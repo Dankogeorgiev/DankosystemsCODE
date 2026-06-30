@@ -132,7 +132,6 @@
         <div class="row" style="margin-top:8px"><span class="lab">Въведи RAL</span>
           <input type="text" id="paintRal" placeholder="напр. 9005" maxlength="12" style="width:96px"></div>
         <button class="btn" id="newColor" style="width:100%;margin-top:8px">🎨 Смяна на цвят (нова партида)</button>
-        <div class="colordots" id="colordots"></div>
       </fieldset>
       <fieldset>
         <legend><span>Видове подвески</span><button class="btn" id="addHanger">+ вид</button></legend>
@@ -295,7 +294,6 @@ function renderConfig(){const box=$('entryConfig');if(!box)return;
 function renderColor(){const c=$('paint').value,nm=ralName(paintRal);
   $('paintName').textContent=paintRal?('RAL '+paintRal+(nm?' · '+nm:'')):c.toUpperCase();
   $('paintChanges').textContent='записани партиди днес: '+batches.length;
-  $('colordots').innerHTML=paintToday.map(x=>`<span class="cd" style="background:${x}"></span>`).join('');
   if($('paintRal')&&document.activeElement!==$('paintRal'))$('paintRal').value=paintRal;}
 
 /* ===== контур ===== */
@@ -473,6 +471,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=152"></script>
+<script src="sync.js?v=153"></script>
 </body>
 </html>
