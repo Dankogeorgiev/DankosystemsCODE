@@ -156,12 +156,12 @@
       </div>
       <div class="loopbox"><div id="loop"></div></div>
       <div class="results">
-        <div class="stat hero"><div class="k">Боядисани</div><div class="v" id="r_done">0</div><div class="vsub" id="r_pct">0%</div></div>
-        <div class="stat"><div class="k">Остават</div><div class="v" id="r_left">–</div><div class="vsub" id="r_cap"></div></div>
+        <div class="stat hero"><div class="k">Боядисани (бр.)</div><div class="v" id="r_done">0</div><div class="vsub" id="r_pct">обиколки: 0</div></div>
+        <div class="stat"><div class="k">На линията (бр.)</div><div class="v" id="r_left">–</div><div class="vsub" id="r_cap"></div></div>
         <div class="stat"><div class="k">Изтекло (боядисване)</div><div class="v" id="r_elapsed">0:00</div><div class="vsub" id="r_pause">паузи 0:00</div></div>
-        <div class="stat"><div class="k">Оставащо време</div><div class="v" id="r_eta">–</div><div class="vsub" id="r_etasub">до края</div></div>
+        <div class="stat"><div class="k">Темп (бр/час)</div><div class="v" id="r_eta">–</div><div class="vsub" id="r_etasub">при текущия състав</div></div>
       </div>
-      <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани (бр.)</th><th>Остават (бр.)</th><th>Общо (бр.)</th></tr></thead><tbody id="bdBody"></tbody></table>
+      <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани (бр.)</th><th>На линията (бр.)</th></tr></thead><tbody id="bdBody"></tbody></table>
       <p class="note"><b>Идея:</b> горе задаваш състава (тип подвеска + детайл + брой). Същите подвески се движат по затворения контур и минават през неподвижната кабина — там стават „боядисани". Старт пуска, Пауза = почивка (реално време), корекцията сверява при засечка. Сменяш състава по всяко време — линията се преизчислява.</p>
     </div>
   </div>
@@ -195,11 +195,12 @@ let entries=[
 let selEntry=entries[0].id, paintToday=['#3B6FB0'];
 let hangers=[];   // [{type, part}] в реда на боядисване
 let phi=0, running=false, runSec=0, pauseSec=0, last=0;
+let painted={};   // {детайл id: кумулативно боядисани детайли (бр.)}
 let paintRal='';  // RAL код на текущата боя (по избор)
 /* Често ползвани прахови RAL цветове → hex (за квадратчето). */
 const RAL_HEX={"1003":"#f9a800","1015":"#e6d2b5","1018":"#f5d033","1021":"#f3c300","2004":"#e75b12","3000":"#af2b1e","3002":"#9b111e","3005":"#59191f","3020":"#cc0605","5002":"#20214f","5005":"#1d1e33","5010":"#0e294b","5012":"#3b83bd","5015":"#2874b2","5017":"#063971","6005":"#0f4336","6011":"#587246","6018":"#61993b","6029":"#20603d","7001":"#8f999f","7011":"#434b4d","7012":"#4e5754","7015":"#434750","7016":"#293133","7021":"#23282b","7024":"#474a51","7035":"#cbd0cc","7037":"#7d7f7d","7040":"#9da3a6","8014":"#382c1e","8017":"#45322e","8019":"#403a3a","9001":"#fdf4e3","9002":"#e7ebda","9003":"#f4f4f4","9005":"#0a0a0a","9006":"#a5a5a5","9007":"#8f8f8c","9010":"#ffffff","9011":"#1c1c1c","9016":"#f6f6f6","9017":"#1e1e1e"};
 const ralToHex=r=>RAL_HEX[String(r||'').replace(/[^0-9]/g,'')]||null;
-function currentHangerInfo(){const i=paintedCount();if(i>=L()||!hangers[i])return null;const hg=hangers[i];const ht=H(hg.type);
+function currentHangerInfo(){const L0=L();if(!L0)return null;const i=Math.floor(loopPos());if(!hangers[i])return null;const hg=hangers[i];const ht=H(hg.type);
   const dets=[...new Set((hg.rowParts||[]).map(r=>P(r&&r.p)).filter(Boolean).map(p=>p.name))];
   return{ht,detText:dets.join(', ')||'—'};}
 
@@ -215,12 +216,20 @@ function normalizeEntry(e){const h=H(e.hanger),n=h?h.rows:0;if(!Array.isArray(e.
   while(e.rowParts.length<n)e.rowParts.push({p:null,n:null});
   if(e.rowParts.length>n)e.rowParts.length=n;return e;}
 const cap=e=>{const h=H(e.hanger);if(!h)return 0;normalizeEntry(e);return e.rowParts.reduce((s,r)=>s+rowCount(r),0);};
-function buildHangers(){hangers=[];entries.forEach(e=>{normalizeEntry(e);for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,rowParts:e.rowParts.map(r=>({p:r.p,n:r.n}))});});
-  if(phi>hangers.length)phi=hangers.length;}
+function buildHangers(){hangers=[];entries.forEach(e=>{normalizeEntry(e);for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,rowParts:e.rowParts.map(r=>({p:r.p,n:r.n}))});});}
 // Еднократно махане на демо-детайлите от тестовете.
 function cleanupDemoParts(){const demo=['Дребен детайл','Тръба с планка'];const before=parts.length;parts=parts.filter(p=>!demo.includes(p.name));return parts.length!==before;}
 const L=()=>hangers.length;
-const paintedCount=()=>Math.max(0,Math.min(L(),Math.floor(phi)));
+// Непрекъснат конвейер: phi расте без спиране; позицията в обиколката е phi % L.
+const loopPos=()=>{const L0=L();return L0?((phi%L0)+L0)%L0:0;};
+const revolutions=()=>{const L0=L();return L0?Math.floor(phi/L0):0;};
+const totalPainted=()=>Object.values(painted).reduce((s,n)=>s+n,0);
+// Добавя/маха детайлите на една подвеска към кумулативния отчет.
+function addHangerPieces(idx,sign){const hg=hangers[idx];if(!hg)return;(hg.rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;painted[p.id]=(painted[p.id]||0)+sign*pieces;if(painted[p.id]<=0)delete painted[p.id];});}
+// Натрупва подвеските, минали кабината между две позиции (или маха при връщане).
+function accrue(fromP,toP){const L0=L();if(!L0)return;
+  if(toP>fromP){for(let q=Math.floor(fromP)+1;q<=Math.floor(toP);q++)addHangerPieces(((q-1)%L0+L0)%L0,1);}
+  else if(toP<fromP){for(let q=Math.floor(fromP);q>Math.floor(toP);q--)addHangerPieces(((q-1)%L0+L0)%L0,-1);}}
 const beltSpeed=()=>+$('belt').value||0;   // см/мин
 const pitchMm=()=>+$('pitch').value||1200; // мм между подвески
 /* Производителност (подв/час) от линейната скорост и стъпката:
@@ -283,17 +292,18 @@ function drawLoop(){
   let s=`<svg viewBox="0 0 ${Wd} ${Hd}" font-family="IBM Plex Mono,monospace">`;
   s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#C7D0DC" stroke-width="10"/>`;
   s+=`<ellipse cx="${cx}" cy="${cy}" rx="${a}" ry="${b}" fill="none" stroke="#EAEEF3" stroke-width="6" stroke-dasharray="2 14"/>`;
-  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-phi)*step,[x,y]=pos(t),painted=phi>=k+1,cur=(k===paintedCount()),col=H(hangers[k].type)?.color||'#ccc';
+  const lp=loopPos();
+  for(let k=0;k<Lc;k++){const t=boothA-((k+1)-lp)*step,[x,y]=pos(t),pd=lp>=k+1,cur=(k===Math.floor(lp)),col=H(hangers[k].type)?.color||'#ccc';
     s+=`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">`+
        (cur?`<circle r="12" fill="none" stroke="#1F3864" stroke-width="2"><animate attributeName="r" values="11;16;11" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.25;1" dur="1.2s" repeatCount="indefinite"/></circle>`:``)+
-       `<circle r="${cur?9.5:7.5}" fill="${painted?PAINT():'#fff'}" stroke="${cur?'#1F3864':(painted?PAINT():col)}" stroke-width="${cur?2.6:(painted?1.4:2.4)}"/>`+
-       `<circle r="${cur?3.4:2.8}" fill="${painted?'#fff':col}"/></g>`;}
+       `<circle r="${cur?9.5:7.5}" fill="${pd?PAINT():'#fff'}" stroke="${cur?'#1F3864':(pd?PAINT():col)}" stroke-width="${cur?2.6:(pd?1.4:2.4)}"/>`+
+       `<circle r="${cur?3.4:2.8}" fill="${pd?'#fff':col}"/></g>`;}
   const [bx,by]=pos(boothA);
   s+=`<g transform="translate(${bx},${by})"><rect x="-34" y="-40" width="68" height="30" rx="6" fill="#1F3864"/>`+
      `<text x="0" y="-20" font-size="12" fill="#fff" text-anchor="middle" font-weight="700">КАБИНА</text>`+
      `<line x1="0" y1="-10" x2="0" y2="2" stroke="#1F3864" stroke-width="2"/><polygon points="-7,2 7,2 4,9 -4,9" fill="${PAINT()}"/></g>`;
-  s+=`<text x="${cx}" y="${cy-4}" font-size="26" font-weight="700" fill="#1F3864" text-anchor="middle" font-family="Space Grotesk">${paintedCount()} / ${Lc}</text>`;
-  s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани</text>`;
+  s+=`<text x="${cx}" y="${cy-4}" font-size="26" font-weight="700" fill="#1F3864" text-anchor="middle" font-family="Space Grotesk">${totalPainted().toLocaleString('bg')}</text>`;
+  s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани детайли · обиколка ${revolutions()+1}</text>`;
   const ci=currentHangerInfo();
   s+=`<text x="${cx}" y="${cy+40}" font-size="13" font-weight="700" fill="#1F3864" text-anchor="middle">${ci?'сега: '+((ci.ht&&ci.ht.name)||'—')+' · '+ci.detText:'✓ всичко боядисано'}</text>`;
   s+=`</svg>`;
@@ -302,35 +312,36 @@ function drawLoop(){
 
 /* ===== обобщение ===== */
 function update(){
-  const Lc=L(),done=paintedCount(),left=Lc-done,capLine=Math.round(+$('capacity').value||0);
-  $('r_done').textContent=done; $('r_pct').textContent=Lc?Math.round(done/Lc*100)+'%':'0%';
-  $('r_left').textContent=left;
-  const over=Lc-capLine; $('r_cap').textContent=over>0?('+'+over+' над капацитет!'):(capLine-Lc)+' свободни места';
+  const Lc=L(),capLine=Math.round(+$('capacity').value||0);
+  // детайли на линията сега (една обиколка) — общо и по детайл
+  let onLine=0; const perDetail={};
+  for(let k=0;k<Lc;k++){(hangers[k].rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;onLine+=pieces;perDetail[p.id]=(perDetail[p.id]||0)+pieces;});}
+  const tot=totalPainted();
+  $('r_done').textContent=tot.toLocaleString('bg'); $('r_pct').textContent='обиколки: '+revolutions();
+  $('r_left').textContent=onLine.toLocaleString('bg');
+  const over=Lc-capLine; $('r_cap').textContent=over>0?('+'+over+' над капацитет!'):(Lc+' подвески · '+(capLine-Lc)+' свободни');
   $('r_cap').className='vsub'+(over>0?' warn':'');
   $('r_elapsed').textContent=fmt(runSec); $('r_pause').textContent='паузи '+fmt(pauseSec);
   const rate=speed(); if($('rateHint'))$('rateHint').textContent='≈ '+(rate?rate.toFixed(1).replace('.',','):'—')+' подв/час';
-  const secPer=rate>0?3600/rate:0; $('r_eta').textContent=Lc?(left?(secPer?fmt(left*secPer):'–'):'готово ✓'):'–';
-  const agg={};
-  for(let k=0;k<Lc;k++){const hg=hangers[k],painted=phi>=k+1;
-    (hg.rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;
-      if(!agg[p.id])agg[p.id]={name:p.name,color:p.color||'#64748b',done:0,left:0};
-      if(painted)agg[p.id].done+=pieces;else agg[p.id].left+=pieces;});}
-  $('bdBody').innerHTML=Object.values(agg).map(a=>
+  const piecesPerHour=Lc?rate*onLine/Lc:0; $('r_eta').textContent=piecesPerHour?Math.round(piecesPerHour).toLocaleString('bg'):'–';
+  // отчет по детайл: кумулативно боядисани + колко са на линията сега
+  const ids=new Set([...Object.keys(painted),...Object.keys(perDetail)]);
+  const rows=[...ids].map(id=>{const p=P(+id);return p?{name:p.name,color:p.color||'#64748b',done:painted[id]||0,line:perDetail[id]||0}:null;}).filter(Boolean).sort((a,b)=>b.done-a.done||b.line-a.line);
+  $('bdBody').innerHTML=rows.map(a=>
     `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
-    `<td>${a.done.toLocaleString('bg')}</td><td>${a.left.toLocaleString('bg')}</td><td><b>${(a.done+a.left).toLocaleString('bg')}</b></td></tr>`).join('')
-    ||'<tr><td colspan="4" class="note">няма заредени детайли</td></tr>';
+    `<td><b>${a.done.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
+    ||'<tr><td colspan="3" class="note">няма заредени детайли</td></tr>';
   const ci=currentHangerInfo(),np=$('nowPainting');
   if(np)np.innerHTML='<span class="lab2">сега боядисва</span>'+(ci
     ?`<span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'}"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
-    :'<b style="color:var(--ok)">✓ всичко боядисано</b>');
+    :'<span style="color:var(--muted)">— линията е празна —</span>');
   drawLoop();
 }
 function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderConfig();renderColor();update();}
 
 /* ===== анимация ===== */
 function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
-  if(running){const sps=speed()/3600*preview();phi+=sps*dt;runSec+=dt*preview();
-    if(paintedCount()>=L()){running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';}}
+  if(running){const sps=speed()/3600*preview();const np=phi+sps*dt;accrue(phi,np);phi=np;runSec+=dt*preview();}  // не спира — конвейерът се върти непрекъснато
   else if($('startBtn').dataset.p==='1')pauseSec+=dt*preview();
   update();requestAnimationFrame(tick);}
 
@@ -356,16 +367,16 @@ $('addPart').onclick=()=>{parts.push({id:nid(),name:'Нов детайл',perRow
 $('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,rowParts:[]};entries.push(e);selEntry=e.id;refresh();};
 $('newColor').onclick=()=>{paintToday.push($('paint').value);renderColor();update();};
 $('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ Пауза (почивка)':'▶ Старт';$('startBtn').dataset.p=running?'0':'1';};
-$('resetBtn').onclick=()=>{phi=0;runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
-$('fwd').onclick=()=>{phi=Math.min(L(),Math.floor(phi)+1);update();};
-$('back').onclick=()=>{phi=Math.max(0,Math.ceil(phi)-1);update();};
+$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
+$('fwd').onclick=()=>{accrue(phi,phi+1);phi+=1;update();};   // мина +: още една подвеска мина кабината
+$('back').onclick=()=>{if(phi<=0)return;const np=Math.max(0,phi-1);accrue(phi,np);phi=np;update();};
 window.addEventListener('resize',update);
-window.__state=()=>({phi,done:paintedCount(),L:L(),running});
+window.__state=()=>({phi,total:totalPainted(),rev:revolutions(),L:L(),running});
 
 refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=143"></script>
+<script src="sync.js?v=144"></script>
 </body>
 </html>
