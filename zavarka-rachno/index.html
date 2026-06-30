@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root{--ink:#1F3864;--ink-soft:#33507e;--bg:#EAEEF3;--panel:#FFFFFF;--line:#D2DAE4;--muted:#6B7686;--ok:#2F7A4D;--warn:#C0392B;
+  :root{--ink:#1F3864;--ink-soft:#33507e;--bg:#EAEEF3;--panel:#FFFFFF;--line:#D2DAE4;--muted:#6B7686;--ok:#2F7A4D;--warn:#C0392B;--spark:#E8821A;
     --mono:'IBM Plex Mono',ui-monospace,monospace;--disp:'Space Grotesk',system-ui,sans-serif;--body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}
   *{box-sizing:border-box}
   [hidden]{display:none!important}
@@ -16,20 +16,66 @@
   header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 16px;border-bottom:2px solid var(--ink)}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
   header.top .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
-  .grid{display:grid;grid-template-columns:380px 1fr;gap:18px;margin-top:18px}
-  @media(max-width:880px){.grid{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
-  fieldset{border:none;margin:0 0 16px;padding:0}fieldset:last-child{margin-bottom:0}
-  legend{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft);
-    padding:0 0 9px;border-bottom:1px solid var(--line);width:100%;margin-bottom:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
   .btn{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);background:#F1F4F9;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
   .btn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .todo{background:#F8FAFC;border:1px dashed var(--line);border-radius:10px;padding:18px;font-size:13.5px;line-height:1.6}
-  .todo h3{font-family:var(--disp);margin:0 0 10px;font-size:16px}
-  .todo ol{margin:8px 0 0;padding-left:20px}
-  .todo li{margin:4px 0}
+  .btn.pri{background:var(--ink);color:#fff}.btn.pri:hover{background:#16294a}
+  .btn:active{transform:translateY(1px)}
+  .note{font-size:12.5px;color:var(--muted);margin:14px 2px 18px;line-height:1.55}.note b{color:var(--ink-soft);font-weight:600}
+
+  /* --- решетка с маси (нареждане като в цеха: ляво 4/5/6 · дясно 1/2/3) --- */
+  .tables{display:grid;gap:16px;grid-template-columns:1fr 1fr;max-width:780px;
+    grid-template-areas:"t4 t1" "t5 t2" "t6 t3"}
+  @media(max-width:680px){.tables{grid-template-columns:1fr;grid-template-areas:"t1" "t2" "t3" "t4" "t5" "t6"}}
+  .tcard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 14px 16px;cursor:pointer;
+    transition:border-color .12s,box-shadow .12s,transform .06s;display:flex;flex-direction:column;align-items:center;text-align:center}
+  .tcard:hover{border-color:var(--ink);box-shadow:0 6px 20px rgba(31,56,100,.12)}
+  .tcard:active{transform:translateY(1px)}
+  .tcard.has::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:4px;border-radius:4px;background:var(--ink)}
+  .tvis{width:100%;max-width:200px;margin:2px auto 6px}
+  .tvis svg{width:100%;height:auto;display:block}
+  .tname{font-family:var(--disp);font-weight:700;font-size:16px;margin-top:2px}
+  .tnum{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+  .tmeta{margin-top:7px;font-size:13px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:7px;min-height:20px}
+  .tmeta.empty{color:var(--muted);font-weight:500}
+  .tmeta .pcs{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:500}
+  .tedit{position:absolute;top:9px;right:9px;border:1px solid var(--line);background:#F1F4F9;border-radius:7px;padding:3px 7px;font-size:12px;cursor:pointer;color:var(--muted)}
+  .tedit:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
+
+  /* --- изглед на една маса --- */
+  .dwrap{max-width:920px}
+  .dhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .dhead h2{font-family:var(--disp);font-size:22px;margin:0}
+  .dhead .dnum{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+  .dsum{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px}
+  .pill{font-family:var(--mono);font-size:12px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:6px 13px}
+  .pill b{font-family:var(--disp);font-size:14px}
+  .pill.hero{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .tasklist{display:flex;flex-direction:column;gap:12px}
+  .tk{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .tk.done{opacity:.62;background:#F6F8FB}
+  .tk-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .tk-client{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .tk-due{font-family:var(--mono);font-size:12px;color:var(--warn)}
+  .tk-prod{font-family:var(--disp);font-weight:700;font-size:18px;margin:3px 0 2px;line-height:1.3}
+  .tk-sub{font-size:12.5px;color:var(--ink-soft)}
+  .tk-sub .code{font-family:var(--mono);background:#EEF2F7;border-radius:5px;padding:1px 6px;margin-right:6px}
+  .tk-files{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .tk-files img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .tf-doc{font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:7px;padding:6px 9px;text-decoration:none;color:var(--ink)}
+  .tf-doc:hover{background:var(--ink);color:#fff}
+  .tk-prog{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px}
+  .bar{flex:1 1 auto;height:9px;background:#E4EAF1;border-radius:6px;overflow:hidden;min-width:80px}
+  .bar > i{display:block;height:100%;background:var(--ok);border-radius:6px}
+  .tk-nums{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
+  .tk-nums b{color:var(--ink)}
+  .tk-act{display:flex;align-items:center;gap:9px;margin-top:13px;flex-wrap:wrap}
+  .tk-act label{font-size:13px;color:var(--ink-soft)}
+  .tk-act input{font-family:var(--mono);font-size:15px;text-align:right;width:84px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
+  .tk-act input:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .tk-done-badge{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ok);display:flex;align-items:center;gap:6px}
+  .empty-list{background:#F8FAFC;border:1px dashed var(--line);border-radius:12px;padding:26px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
+  .dot{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -48,33 +94,223 @@
       <a href="../" class="btn">← Към системата</a>
     </span></header>
 
-  <div class="grid">
-    <div class="panel">
-      <fieldset>
-        <legend>Ръчно заваръчно</legend>
-        <div class="note">Тук ще влезе отчитането за цех <b>Ръчно заваряване</b>.
-          Споделя входа, конфигурацията (<code>config.js</code>) и дневните отчети
-          със системата — отчетите от всички цехове се събират на едно място в
-          <b>Цехове → Времена</b>.</div>
-      </fieldset>
-    </div>
-
-    <div class="panel">
-      <div class="todo">
-        <h3>🛠 Скелетът е готов — следва логиката</h3>
-        Страницата е вързана към входа и облака. Когато опишеш как работи
-        ръчното заваряване, тук ще сглобим модела. Предстои да уточним:
-        <ol>
-          <li>Какво отчитаме — брой заварени детайли/възли по вид? Време? Метри шев?</li>
-          <li>Кой и как въвежда — заварчикът партида по партида, или по работна карта/поръчка?</li>
-          <li>Има ли смени/партиди и Край на деня → Excel в „Времена“?</li>
-        </ol>
-      </div>
-    </div>
+  <!-- ИЗГЛЕД: всички маси -->
+  <div id="tablesView">
+    <div class="note">Натисни своята маса, за да видиш какво има за заваряване. Задачите идват от
+      <b>Цехове → Заваръчно</b> — разпределя ги администратор. Като завариш, отбелязваш бройката тук и тя се връща в Цехове.</div>
+    <div class="tables" id="tables"></div>
   </div>
+
+  <!-- ИЗГЛЕД: една маса -->
+  <div id="tableDetail" class="dwrap" hidden></div>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=1"></script>
+<script src="sync.js?v=2"></script>
+<script>
+/* ===== МОДЕЛ ===== */
+const CEX = "Ръчно заваръчно";
+const N_TABLES = 6;
+// Масите = работни места. Името е работно („Заваръчна Маса N“), после се
+// кръщава с името на служителя — и по него Таня възлага задачи в „Цехове“.
+let TABLES = Array.from({length:N_TABLES}, (_,i)=>({n:i+1, name:"Заваръчна Маса "+(i+1)}));
+let TASKS = [];        // задачи за заваряване (цех „Заваръчно“)
+let selN = null;       // отворената маса (номер) или null
+let inited = false;
+
+const $ = id=>document.getElementById(id);
+const esc = s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const todayStr = ()=>new Date().toISOString().slice(0,10);
+const num = v=>{const n=Number(String(v==null?"":v).replace(",","."));return isFinite(n)?n:0;};
+const tableByN = n=>TABLES.find(t=>t.n===n);
+
+function isDone(t){const q=num(t.qty),p=num(t.produced);return q>0&&p>=q;}
+function remaining(t){const q=num(t.qty);return q>0?Math.max(0,q-num(t.produced)):null;}
+// Задачите на дадена маса = възложените на нейното име (assignee).
+function tasksForName(name){return TASKS.filter(t=>(t.assignee||"")===name);}
+function pendingFor(name){return tasksForName(name).filter(t=>!isDone(t));}
+function remainingPcsFor(name){return pendingFor(name).reduce((s,t)=>{const r=remaining(t);return s+(r==null?0:r);},0);}
+// Заварено днес на тази маса (сбор от записите от днес).
+function weldedTodayFor(name){const d=todayStr();let s=0;
+  tasksForName(name).forEach(t=>(t.logs||[]).forEach(l=>{if(l&&l.date===d&&(l.worker===name||l.cex===CEX))s+=num(l.qty);}));
+  return s;}
+
+/* ===== визуализация на заваръчна маса ===== */
+function tableSVG(active){
+  const spark=active?"var(--spark)":"#C9B79A", glow=active?"#FF7A18":"#D9C6AB";
+  return `<svg viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <!-- искри при шева -->
+    <g>
+      <path d="M150 60 L164 44 M150 60 L172 60 M150 60 L162 75 M150 60 L150 41 M150 60 L138 47"
+        stroke="${spark}" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="150" cy="60" r="4" fill="${spark}"/>
+      <circle cx="170" cy="48" r="1.7" fill="${glow}"/><circle cx="174" cy="64" r="1.5" fill="${glow}"/>
+      <circle cx="160" cy="78" r="1.4" fill="${glow}"/><circle cx="136" cy="44" r="1.4" fill="${glow}"/>
+    </g>
+    <!-- горелка -->
+    <path d="M150 60 L181 30" stroke="#33507e" stroke-width="4" stroke-linecap="round"/>
+    <rect x="173" y="20" width="16" height="10" rx="3" transform="rotate(42 181 25)" fill="#1F3864"/>
+    <!-- заваръчна маска -->
+    <g>
+      <rect x="40" y="32" width="35" height="31" rx="10" fill="#2C5BA6"/>
+      <path d="M40 50 q-6 4 -3 12" fill="none" stroke="#2C5BA6" stroke-width="5" stroke-linecap="round"/>
+      <rect x="45" y="43" width="26" height="11" rx="3" fill="#0E1B33"/>
+      <rect x="48" y="45" width="20" height="6" rx="2" fill="#3BA0C9" opacity="0.75"/>
+    </g>
+    <!-- плот на масата (с отвори за стяги) -->
+    <rect x="18" y="64" width="164" height="15" rx="4" fill="#C7D0DC" stroke="#9FB0CF" stroke-width="1.5"/>
+    <g fill="#8693a4">
+      <circle cx="34" cy="71.5" r="2.1"/><circle cx="55" cy="71.5" r="2.1"/><circle cx="76" cy="71.5" r="2.1"/>
+      <circle cx="97" cy="71.5" r="2.1"/><circle cx="118" cy="71.5" r="2.1"/><circle cx="139" cy="71.5" r="2.1"/><circle cx="160" cy="71.5" r="2.1"/>
+    </g>
+    <!-- крака и стяга -->
+    <g fill="#33507e"><rect x="33" y="79" width="10" height="53" rx="2"/><rect x="157" y="79" width="10" height="53" rx="2"/></g>
+    <rect x="43" y="106" width="114" height="8" rx="2" fill="#46618f"/>
+    <rect x="26" y="130" width="24" height="6" rx="2" fill="#1F3864"/>
+    <rect x="150" y="130" width="24" height="6" rx="2" fill="#1F3864"/>
+  </svg>`;
+}
+
+/* ===== решетка с масите ===== */
+function renderTables(){
+  $("tables").innerHTML = TABLES.map(t=>{
+    const pend=pendingFor(t.name), pcs=remainingPcsFor(t.name), has=pend.length>0;
+    const meta = has
+      ? `<span class="dot" style="background:var(--ink)"></span>${pend.length} ${pend.length===1?"задача":"задачи"} <span class="pcs">· ${pcs} бр.</span>`
+      : `няма възложена работа`;
+    return `<div class="tcard${has?" has":""}" data-open="${t.n}" style="grid-area:t${t.n}">
+      <button class="tedit" data-edit="${t.n}" title="Преименувай работното място">✎</button>
+      <div class="tnum">Място ${t.n}</div>
+      <div class="tvis">${tableSVG(has)}</div>
+      <div class="tname">${esc(t.name)}</div>
+      <div class="tmeta${has?"":" empty"}">${meta}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ===== изглед на една маса ===== */
+function fileHtml(f){
+  if(!f||!f.url) return "";
+  if(String(f.type||"").startsWith("image/"))
+    return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" alt="${esc(f.name)}" title="${esc(f.name)}"></a>`;
+  return `<a class="tf-doc" href="${esc(f.url)}" target="_blank" rel="noopener">📎 ${esc(f.name||"чертеж")}</a>`;
+}
+function taskCard(t){
+  const done=isDone(t), q=num(t.qty), p=num(t.produced), rem=remaining(t);
+  const pct=q>0?Math.min(100,Math.round(p/q*100)):0;
+  const files=(t.files||[]).map(fileHtml).join("");
+  const act = done
+    ? `<div class="tk-done-badge">✓ Заварено напълно</div>`
+    : `<div class="tk-act"><label for="in-${t.id}">Заварих сега:</label>
+        <input id="in-${t.id}" class="tk-inp" type="number" min="0" inputmode="numeric" placeholder="бр." data-id="${esc(t.id)}">
+        <button class="btn pri tk-rep" data-id="${esc(t.id)}">✓ Запиши</button></div>`;
+  return `<div class="tk${done?" done":""}">
+    <div class="tk-top"><span class="tk-client">${esc(t.client||"—")}</span>${t.due?`<span class="tk-due">⏳ ${esc(t.due)}</span>`:""}</div>
+    <div class="tk-prod">${esc(t.product||"(без описание)")}</div>
+    <div class="tk-sub">${t.code?`<span class="code">${esc(t.code)}</span>`:""}${esc(t.operation||"")}</div>
+    ${files?`<div class="tk-files">${files}</div>`:""}
+    <div class="tk-prog">
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <span class="tk-nums">${q>0?`<b>${p}</b> / ${q} бр.${rem!=null?` · остават <b>${rem}</b>`:""}`:`заварени: <b>${p}</b> бр.`}</span>
+    </div>
+    ${act}
+  </div>`;
+}
+function renderDetail(){
+  const t=tableByN(selN); if(!t){showTables();return;}
+  const all=tasksForName(t.name), pend=all.filter(x=>!isDone(x)), done=all.filter(isDone);
+  const ordered=[...pend, ...done];
+  const list = ordered.length
+    ? `<div class="tasklist">${ordered.map(taskCard).join("")}</div>`
+    : `<div class="empty-list">Няма възложени задачи за тази маса.<br>Изчакай администратор да разпредели работа в <b>Цехове → Заваръчно</b> към „${esc(t.name)}“.</div>`;
+  $("tableDetail").innerHTML =
+    `<button class="btn" id="backBtn">← Маси</button>
+     <div class="dhead" style="margin-top:14px">
+       <div><div class="dnum">Работно място ${t.n}</div><h2>${esc(t.name)}</h2></div>
+       <button class="tedit" id="detailEdit" title="Преименувай" style="position:static">✎ преименувай</button>
+     </div>
+     <div class="dsum">
+       <span class="pill hero">За заваряване: <b>${pend.length}</b> ${pend.length===1?"задача":"задачи"} · ${remainingPcsFor(t.name)} бр.</span>
+       <span class="pill">Заварени днес: <b>${weldedTodayFor(t.name)}</b> бр.</span>
+       <span class="pill">Завършени: <b>${done.length}</b></span>
+     </div>
+     ${list}`;
+}
+
+/* ===== навигация ===== */
+function showTables(){selN=null;$("tableDetail").hidden=true;$("tablesView").hidden=false;renderTables();}
+function openTable(n){selN=n;$("tablesView").hidden=true;$("tableDetail").hidden=false;renderDetail();}
+function render(){ if(selN==null) renderTables(); else renderDetail(); }
+
+/* ===== отчитане на заварено ===== */
+async function reportWeld(id){
+  const t=TASKS.find(x=>String(x.id)===String(id)); if(!t) return;
+  const inp=$("in-"+id); const add=num(inp&&inp.value);
+  if(add<=0){ alert("Въведи колко броя завари."); if(inp)inp.focus(); return; }
+  const rem=remaining(t);
+  if(rem!=null && add>rem && !confirm(`Това надхвърля оставащото (${rem} бр.). Да го запиша ли все пак?`)) return;
+  const name=(tableByN(selN)||{}).name || t.assignee || "";
+  if(!t.assignee) t.assignee=name;                 // поеми задачата, ако е без отговорник
+  t.produced=num(t.produced)+add;
+  t.logs=t.logs||[];
+  t.logs.push({date:todayStr(), worker:name, qty:add, cex:CEX, at:new Date().toISOString()});
+  if(inp){inp.disabled=true;}
+  const ok=await window.WELD.saveTask(t);
+  if(!ok){ alert("Грешка при запис. Провери връзката и опитай пак."); }
+  TASKS=await window.WELD.loadTasks();
+  render();
+}
+
+/* ===== преименуване на работно място ===== */
+async function renameTable(n){
+  const t=tableByN(n); if(!t) return;
+  const nv=prompt("Име на работното място (по-късно — име на служителя):", t.name);
+  if(nv===null) return;
+  const name=(nv||"").trim(); if(!name||name===t.name) return;
+  t.name=name;
+  if(window.lineSaveSoon) window.lineSaveSoon();            // сподели новото име
+  if(window.WELD) await window.WELD.ensureTableWorkers(TABLES.map(x=>x.name));   // за да го избира Таня
+  render();
+}
+
+/* ===== събития ===== */
+document.addEventListener("click", e=>{
+  const ed=e.target.closest("[data-edit]"); if(ed){ renameTable(+ed.dataset.edit); return; }
+  if(e.target.closest("#detailEdit")){ renameTable(selN); return; }
+  if(e.target.closest("#backBtn")){ showTables(); return; }
+  const rep=e.target.closest(".tk-rep"); if(rep){ reportWeld(rep.dataset.id); return; }
+  const card=e.target.closest("[data-open]"); if(card){ openTable(+card.dataset.open); return; }
+});
+document.addEventListener("keydown", e=>{
+  if(e.key==="Enter" && e.target.classList && e.target.classList.contains("tk-inp")){ e.preventDefault(); reportWeld(e.target.dataset.id); }
+});
+
+/* ===== състояние за споделяне (имена/нареждане на масите) ===== */
+window.LINE_STATE = {
+  serialize(){ return { tables: TABLES.map(t=>({n:t.n, name:t.name})) }; },
+  apply(doc){
+    if(!doc||!Array.isArray(doc.tables)) return;
+    doc.tables.forEach(d=>{ const t=tableByN(d.n); if(t&&d.name) t.name=d.name; });
+    render();
+  },
+};
+
+/* ===== старт (вика се от sync.js при готовност) ===== */
+async function init(){
+  if(inited) return; inited=true;
+  try{ await window.WELD.ensureTableWorkers(TABLES.map(t=>t.name)); }catch(e){}
+  TASKS = await window.WELD.loadTasks();
+  render();
+  window.WELD.subscribeTasks(async ()=>{
+    TASKS = await window.WELD.loadTasks();
+    const a = document.activeElement;
+    if (a && a.classList && a.classList.contains("tk-inp")) return;   // не пречи на въвеждащия в момента
+    render();
+  });
+}
+renderTables();   // покажи масите веднага (имената се обновяват при зареждане)
+if(window.WELD){ window.WELD.onReady = init; if(window.WELD.ready) init(); }
+</script>
 </body>
 </html>
