@@ -51,7 +51,8 @@
       <button id="btn-report" class="btn">Обща справка</button>
       <button id="btn-claim-report" class="btn">Регистър рекламации</button>
       <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
-      <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване</button>
+      <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
+      <button id="btn-painting-manual" class="btn btn-paint" onclick="location.href='boya-rachna/'">✋ Боядисване (ръчно)</button>
       <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
       <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
       <button id="btn-export" class="btn">Експорт</button>
@@ -361,7 +362,8 @@
       <div class="tasks-head">
         <h2>🏭 Производство по цехове</h2>
         <div class="tasks-head-actions">
-          <button id="tasks-painting" class="btn btn-paint" hidden onclick="location.href='boya/'">🎨 Отчет боядисване</button>
+          <button id="tasks-painting" class="btn btn-paint" hidden onclick="location.href='boya/'">🎨 Боядисване конвейр</button>
+          <button id="tasks-painting-manual" class="btn btn-paint" hidden onclick="location.href='boya-rachna/'">✋ Боядисване ръчно</button>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -460,8 +462,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js?v=138"></script>
-  <script src="app.js?v=138"></script>
-  <script src="tasks.js?v=138"></script>
+  <script src="app.js?v=139"></script>
+  <script src="tasks.js?v=139"></script>
   <script src="contacts-data.js?v=138"></script>
   <script src="contacts.js?v=138"></script>
 </body>
