@@ -1709,12 +1709,68 @@ function renderTimes() {
         <td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
         <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
       </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
-    </table>`;
+    </table>
+    <div id="painting-reports"></div>`;
   v.querySelector("#times-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#tf-ws").addEventListener("change", e => { timesFilter.workshop = e.target.value; renderTimes(); });
   v.querySelector("#tf-m").addEventListener("change", e => { timesFilter.machine = e.target.value; renderTimes(); });
   v.querySelector("#tf-w").addEventListener("change", e => { timesFilter.worker = e.target.value; renderTimes(); });
   v.querySelector("#times-csv").addEventListener("click", () => exportTimesCsv(rows));
+  loadPaintingReports();
+}
+/* ---------- Дневни отчети от боядисването (в „Времена", само админи) ---------- */
+async function loadPaintingReports() {
+  const box = document.getElementById("painting-reports");
+  if (!box) return;
+  let list = [];
+  try {
+    const { data } = await sb.from("app_config").select("*").eq("id", "painting_reports").maybeSingle();
+    list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
+  } catch (e) {}
+  list = list.slice().sort((a, b) => String(b.endedAt).localeCompare(String(a.endedAt)));
+  box.innerHTML =
+    `<div class="workers-head" style="margin-top:22px"><h3>🎨 Боядисване — дневни отчети</h3></div>` +
+    (list.length
+      ? `<table class="report-table"><thead><tr><th>Дата</th><th>Цветове (RAL)</th><th class="num">Общо (бр.)</th><th>Оператор</th><th></th></tr></thead><tbody>` +
+        list.map((r, i) => `<tr>
+          <td>${escapeHtml(fmtLogDate(r.date))}</td>
+          <td>${escapeHtml((r.paints || []).join(", ")) || "—"}</td>
+          <td class="num">${Number(r.total || 0).toLocaleString("bg")}</td>
+          <td>${escapeHtml(r.by || "—")}</td>
+          <td><button class="btn btn-small pr-csv" data-i="${i}">⤓ Excel</button></td>
+        </tr>`).join("") + `</tbody></table>`
+      : `<p class="report-empty">Още няма дневни отчети от боядисването.</p>`);
+  box.querySelectorAll(".pr-csv").forEach(btn => btn.addEventListener("click", () => exportPaintingReportCsv(list[+btn.dataset.i])));
+}
+function exportPaintingReportCsv(r) {
+  if (!r) return;
+  const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
+  const L = [];
+  L.push([esc("Отчет боядисване")].join(","));
+  L.push([esc("Дата"), esc(fmtLogDate(r.date))].join(","));
+  L.push([esc("Оператор"), esc(r.by || "")].join(","));
+  L.push([esc("Цветове (RAL)"), esc((r.paints || []).join(" "))].join(","));
+  L.push("");
+  L.push([esc("Детайл"), esc("Боядисани (бр.)")].join(","));
+  Object.entries(r.totalsByDetail || {}).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
+  L.push([esc("ОБЩО"), esc(r.total || 0)].join(","));
+  L.push("");
+  L.push([esc("Подвеска"), esc("Минали (бр.)")].join(","));
+  Object.entries(r.totalsByHanger || {}).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
+  L.push("");
+  L.push([esc("Партиди (по цвят)")].join(","));
+  L.push([esc("Час"), esc("RAL"), esc("Общо (бр.)"), esc("Детайли")].join(","));
+  (r.batches || []).forEach(bt => {
+    let hhmm = ""; try { hhmm = new Date(bt.at).toLocaleTimeString("bg", { hour: "2-digit", minute: "2-digit" }); } catch (e) {}
+    const det = Object.entries(bt.byDetail || {}).map(([k, v]) => k + ":" + v).join(" ");
+    L.push([esc(hhmm), esc(bt.ral || ""), esc(bt.total || 0), esc(det)].join(","));
+  });
+  const blob = new Blob(["﻿" + L.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "boyadisvane-" + (r.date || "") + ".csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 function exportTimesCsv(rows) {
   const head = ["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "Време 1 брой (сек)", "Време 1 лист (сек)", "Време кол-во/поръчка (сек)", "Настройка (сек)", "Бележки"];

@@ -34,6 +34,8 @@
   .btn.pri{background:var(--ink);color:#fff}.btn.pri:hover{background:#16294a}
   .btn.x{padding:4px 7px;color:var(--muted)}.btn.x:hover{background:var(--warn);color:#fff;border-color:var(--warn)}
   .btn:active{transform:translateY(1px)}
+  .btn-big{width:100%;font-size:16px;padding:14px 18px;letter-spacing:.04em}
+  .btn-end{background:#fff;border-color:#fecaca;color:#C0392B}.btn-end:hover{background:#C0392B;color:#fff;border-color:#C0392B}
   .ctrls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
   .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;font-size:13px}
   .nudge{display:flex;gap:6px}
@@ -111,7 +113,8 @@
     <div class="panel">
       <fieldset>
         <legend>Управление</legend>
-        <div class="ctrls"><button class="btn pri" id="startBtn">▶ Старт</button><button class="btn" id="resetBtn">Нулирай</button></div>
+        <button class="btn pri btn-big" id="startBtn">▶ СТАРТ</button>
+        <div class="ctrls" style="margin-top:8px"><button class="btn" id="resetBtn">Нулирай</button><button class="btn btn-end" id="endDayBtn">🏁 Край на работния ден</button></div>
         <div class="row"><span>Скорост на конвейра</span><span><input type="number" id="belt" value="75" min="1" title="Линейна скорост на веригата (обикновено 50–100)"> см/мин</span></div>
         <div class="row"><span>Стъпка подвеска→подвеска</span><span><input type="number" id="pitch" value="1200" min="1" title="Реалното разстояние между съседни подвески по веригата"> мм</span></div>
         <div class="row"><span class="lab">Производителност</span><span id="rateHint" class="lab">≈ — подв/час</span></div>
@@ -418,8 +421,27 @@ $('newColor').onclick=()=>{
   const hx=ralToHex(paintRal);if(hx)$('paint').value=hx;
   paintToday.push($('paint').value);
   refresh();};
-$('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ Пауза (почивка)':'▶ Старт';$('startBtn').dataset.p=running?'0':'1';};
-$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
+$('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ ПАУЗА (почивка)':'▶ СТАРТ';$('startBtn').dataset.p=running?'0':'1';};
+$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';update();};
+// Сглобява дневния отчет от записаните партиди.
+function buildDayReport(){const totalsByDetail={},totalsByHanger={},paints=new Set();
+  batches.forEach(bt=>{if(bt.ral)paints.add(bt.ral);
+    Object.entries(bt.byDetail||{}).forEach(([k,v])=>totalsByDetail[k]=(totalsByDetail[k]||0)+v);
+    Object.entries(bt.byHanger||{}).forEach(([k,v])=>totalsByHanger[k]=(totalsByHanger[k]||0)+v);});
+  const total=Object.values(totalsByDetail).reduce((s,n)=>s+n,0),now=new Date();
+  return{id:'r'+Date.now().toString(36),date:now.toISOString().slice(0,10),endedAt:now.toISOString(),by:(window.PAINT_USER||''),batches:batches.slice(),totalsByDetail,totalsByHanger,paints:[...paints],total,runSec:Math.round(runSec)};}
+$('endDayBtn').onclick=async()=>{
+  const tot=totalPainted();
+  if(batches.length===0&&tot<=0){alert('Няма боядисано за деня — няма какво да се отчете.');return;}
+  if(!confirm('Край на работния ден?\n\nОтчетът ще се запише за админите във „Времена", а броячите за деня ще се нулират.'))return;
+  bankBatch('край на деня');                      // запиши текущата партида
+  const report=buildDayReport();
+  let ok=false; try{ if(window.paintSaveReport) ok=await window.paintSaveReport(report); }catch(e){}
+  batches=[];painted={};paintedH={};phi=0;runSec=0;pauseSec=0;running=false;   // нулирай деня
+  $('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';
+  refresh();
+  alert(ok?('Работният ден е приключен.\nОтчетът ('+report.total.toLocaleString('bg')+' бр.) е изпратен във „Времена" за админите.'):'Денят е нулиран, но отчетът не се качи (няма връзка с облака). Опитай пак при връзка.');
+};
 window.addEventListener('resize',update);
 window.__state=()=>({phi,total:totalPainted(),rev:revolutions(),L:L(),running});
 
@@ -427,6 +449,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=149"></script>
+<script src="sync.js?v=150"></script>
 </body>
 </html>

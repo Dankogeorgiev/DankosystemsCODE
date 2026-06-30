@@ -112,11 +112,26 @@
     let session = null;
     try { const r = await sbx.auth.getSession(); session = r.data.session; } catch (e) {}
     if (!session) { $id("gate").hidden = false; setSync("вход", true); return; }
+    window.PAINT_USER = (session.user && session.user.email) || "";
     ready = true;
     await load();
     subscribe();
     if (!hb) hb = setInterval(() => { if (running) saveSoon(); }, 15000);
   }
+
+  // Записва дневен отчет в споделен списък „painting_reports" (за изгледа „Времена").
+  async function saveReport(report) {
+    if (!sbx) return false;
+    try {
+      const { data } = await sbx.from("app_config").select("*").eq("id", "painting_reports").maybeSingle();
+      const list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
+      list.push(report);
+      const { error } = await sbx.from("app_config").upsert({ id: "painting_reports", data: { list }, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      return true;
+    } catch (e) { console.warn("Боядисване: запис на отчет", e); return false; }
+  }
+  window.paintSaveReport = saveReport;
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
