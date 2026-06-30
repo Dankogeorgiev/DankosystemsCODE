@@ -115,10 +115,9 @@
         <div class="row"><span>Скорост на конвейра</span><span><input type="number" id="belt" value="75" min="1" title="Линейна скорост на веригата (обикновено 50–100)"> см/мин</span></div>
         <div class="row"><span>Стъпка подвеска→подвеска</span><span><input type="number" id="pitch" value="1200" min="1" title="Реалното разстояние между съседни подвески по веригата"> мм</span></div>
         <div class="row"><span class="lab">Производителност</span><span id="rateHint" class="lab">≈ — подв/час</span></div>
-        <div class="row"><span>Преглед (×по-бързо)</span><input type="number" id="preview" value="60"></div>
+        <input type="hidden" id="preview" value="1">
         <div class="row"><span>Места на линията</span><input type="number" id="capacity" value="62"></div>
-        <div class="row"><span class="lab">Корекция към реалността</span>
-          <span class="nudge"><button class="btn" id="back">−</button><button class="btn" id="fwd">мина +</button></span></div>
+        <div class="note">Броенето е автоматично, докато линията върви. Натисни <b>❚❚ Пауза</b>, когато линията спре (почивка/престой), за да не тече броячът.</div>
         <div class="nowbox" id="nowPainting">—</div>
       </fieldset>
       <fieldset>
@@ -402,8 +401,6 @@ $('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,ro
 $('newColor').onclick=()=>{paintToday.push($('paint').value);renderColor();update();};
 $('startBtn').onclick=()=>{running=!running;$('startBtn').textContent=running?'❚❚ Пауза (почивка)':'▶ Старт';$('startBtn').dataset.p=running?'0':'1';};
 $('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;$('startBtn').textContent='▶ Старт';$('startBtn').dataset.p='0';update();};
-$('fwd').onclick=()=>{accrue(phi,phi+1);phi+=1;update();};   // мина +: още една подвеска мина кабината
-$('back').onclick=()=>{if(phi<=0)return;const np=Math.max(0,phi-1);accrue(phi,np);phi=np;update();};
 window.addEventListener('resize',update);
 window.__state=()=>({phi,total:totalPainted(),rev:revolutions(),L:L(),running});
 
@@ -411,6 +408,6 @@ refresh();requestAnimationFrame(tick);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=147"></script>
+<script src="sync.js?v=148"></script>
 </body>
 </html>

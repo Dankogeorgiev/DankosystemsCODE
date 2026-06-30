@@ -22,7 +22,7 @@
       v: 1, by: clientId, uid,
       hangerTypes, parts, entries, selEntry, paintToday,
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
-      belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: +$id("preview").value || 60, capacity: +$id("capacity").value || 62,
+      belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: 1, capacity: +$id("capacity").value || 62,
       partsSeeded, demoCleaned,
       phi, runSec, pauseSec, running, painted: (typeof painted !== "undefined" ? painted : {}), paintedH: (typeof paintedH !== "undefined" ? paintedH : {}),
       updatedAt: new Date().toISOString(),
@@ -45,7 +45,7 @@
     if (d.paint) $id("paint").value = d.paint;
     if (d.belt) $id("belt").value = d.belt;
     if (d.pitch) $id("pitch").value = d.pitch;
-    if (d.preview) $id("preview").value = d.preview;
+    if ($id("preview")) $id("preview").value = 1;   // винаги реално време (×1)
     if (d.capacity) $id("capacity").value = d.capacity;
     const sbtn = $id("startBtn"); if (sbtn) { sbtn.textContent = "▶ Старт"; sbtn.dataset.p = "0"; }
     refresh();
@@ -99,7 +99,7 @@
   // Записвай при действия. Тези слушатели се добавят СЛЕД тези на
   // приложението, затова при тях състоянието вече е променено.
   const CHANGE_IDS = ["belt", "pitch", "preview", "capacity", "paint", "paintRal"];
-  const CLICK_SEL = "#startBtn,#resetBtn,#fwd,#back,#newColor,#addHanger,#addPart,#addEntry,[data-loadpart],[data-delh],[data-delp],[data-dele]";
+  const CLICK_SEL = "#startBtn,#resetBtn,#newColor,#addHanger,#addPart,#addEntry,[data-delh],[data-delp],[data-dele]";
   document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e || t.dataset.cfgn)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
   document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
   document.addEventListener("click", e => { if (e.target.closest && e.target.closest(CLICK_SEL)) saveSoon(); });
