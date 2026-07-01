@@ -701,8 +701,9 @@
   scene.add(oven);
   const lO = textSprite(["Фурна", "печене"], 3.2, "#d7263d"); lO.position.set(4.2, 3.9, -3); lO.raycast = function () {}; scene.add(lO);
 
-  // Станции по кривата — вход при стрелката (предна релса, ляво от центъра)
-  const U_LOAD = nearestU(-3.5, 3);
+  // Станции по кривата — вход на предната релса, изместен наляво към Камерата,
+  // за да не се закрива от предната П-образна подпора (при x≈-3.8).
+  const U_LOAD = nearestU(-6, 3);
   const U_BOOTH = nearestU(-4.6, -3);
   const U_OVEN = nearestU(4.2, -3);
   const uForQpos = q => ((U_LOAD - q / KOLCOUNT) % 1 + 1) % 1;
