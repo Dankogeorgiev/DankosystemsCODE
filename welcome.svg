@@ -29,12 +29,12 @@
   <line x1="530" y1="176" x2="530" y2="214" stroke="#c9cdd6" stroke-width="2"/>
 
   <!-- Размерна линия със стрелки, прекъсната за текста -->
-  <line x1="86" y1="210" x2="150" y2="210" stroke="#c9cdd6" stroke-width="2"/>
-  <line x1="458" y1="210" x2="522" y2="210" stroke="#c9cdd6" stroke-width="2"/>
+  <line x1="92" y1="210" x2="112" y2="210" stroke="#c9cdd6" stroke-width="2"/>
+  <line x1="496" y1="210" x2="516" y2="210" stroke="#c9cdd6" stroke-width="2"/>
   <!-- Лява стрелка -->
-  <path d="M78 210 L92 204 L92 216 Z" fill="#c9cdd6"/>
+  <path d="M78 210 L92 205 L92 215 Z" fill="#c9cdd6"/>
   <!-- Дясна стрелка -->
-  <path d="M530 210 L516 204 L516 216 Z" fill="#c9cdd6"/>
+  <path d="M530 210 L516 205 L516 215 Z" fill="#c9cdd6"/>
 
   <!-- Подзаглавие -->
   <text x="304" y="210" text-anchor="middle" dominant-baseline="central"
