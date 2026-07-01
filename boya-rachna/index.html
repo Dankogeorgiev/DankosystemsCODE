@@ -90,6 +90,22 @@
   .pipe .cell .d{font-size:10.5px;color:var(--muted);margin-top:1px;min-height:13px}
   .pipe .cell.full{background:#EAF1FF;border-color:var(--ink-soft)}
   .pipe .cell.entry{background:#E7F3EC;border-color:#BFE0CC}
+  /* Вертикална колонка „Линията в момента" */
+  .linecol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+  .linecol li{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#F8FAFC;font-size:12.5px}
+  .linecol li.entry{background:#E7F3EC;border-color:#BFE0CC}
+  .linecol li.booth{background:#EAF1FF;border-color:var(--ink-soft)}
+  .linecol li.oven{background:#FBF0EC;border-color:#E7C6B8}
+  .linecol .st{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);min-width:58px}
+  .linecol .kn{font-family:var(--disp);font-weight:700;white-space:nowrap}
+  .linecol .ct{flex:1;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .linecol .sw{width:13px;height:13px;border-radius:4px;border:1px solid rgba(0,0,0,.2);flex:none}
+  .dayctl{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+  .dayctl .btn-block{margin-top:0;padding:12px}
+  .dayctl .start{background:#E7F3EC;color:var(--ok);border-color:#BFE0CC}
+  .dayctl .start:hover{background:var(--ok);color:#fff;border-color:var(--ok)}
+  .dayctl .end{background:#F1F4F9}
+  .dayctl .end:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   .byhang{list-style:none;margin:8px 0 0;padding:0;font-size:12.5px}
   .byhang li{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line)}
   .byhang li:last-child{border-bottom:none}
@@ -164,23 +180,15 @@
       <div class="note" id="flushNote" hidden></div>
     </div>
 
-    <!-- Състояние на линията + отчет за деня -->
+    <!-- Състояние на линията -->
     <div class="panel side">
       <div class="legendrow"><span>Линията в момента</span></div>
-      <div class="pipe">
-        <div class="cell" id="cellEntry"><div class="t">На входа</div><div class="c" id="entryC">—</div><div class="d" id="entryD"></div></div>
-        <div class="cell" id="cellBooth"><div class="t">Камера</div><div class="c" id="boothC">—</div><div class="d" id="boothD"></div></div>
-        <div class="cell" id="cellOven"><div class="t">Фурна</div><div class="c" id="ovenC">—</div><div class="d" id="ovenD"></div></div>
+      <ul class="linecol" id="lineCol"></ul>
+
+      <div class="dayctl">
+        <button class="btn btn-block start" id="startDayBtn">🟢 НАЧАЛО НА ДЕНЯ</button>
+        <button class="btn btn-block end" id="endDayBtn">🏁 КРАЙ НА РАБОТНИЯ ДЕН</button>
       </div>
-
-      <div class="legendrow" style="margin-top:6px"><span>Днес</span><span id="dayColors" class="sub"></span></div>
-      <div class="row"><span class="k">Общо детайли</span><span class="big" id="dayTotal">0</span></div>
-      <div class="row"><span class="k">Кола боядисани</span><span class="v" id="dayKols">0</span></div>
-      <div class="row"><span class="k">Партиди (цветове)</span><span class="v" id="dayBatches">0</span></div>
-      <ul class="byhang" id="byHang"></ul>
-
-      <button class="btn btn-block" id="endDayBtn">🏁 Край на деня → отчет във „Времена“</button>
-      <div class="note">Отчетът се събира при админите в <b>Цехове → Времена</b>, заедно с автоматичната линия.</div>
     </div>
   </div>
 </div>
@@ -364,34 +372,44 @@
     render(); save();
   }
 
-  // ---- Край на деня → отчет във „Времена“ ----
-  async function endDay() {
-    const grand = state.batches.reduce((s, b) => s + b.total, 0);
-    if (grand <= 0) { flash("Няма боядисано за деня — няма какво да се отчете."); return; }
-    if (!confirm("Край на работния ден?\n\nОтчетът се записва за админите във „Времена“ и броячите за деня се нулират.")) return;
-    const now = new Date();
-    const totalsByHanger = {};
-    state.batches.forEach(b => Object.entries(b.byHanger).forEach(([k, v]) => totalsByHanger[k] = (totalsByHanger[k] || 0) + v));
-    const paints = [...new Set(state.batches.map(b => b.ral))];
-    const report = {
-      id: "r" + Date.now().toString(36),
-      date: now.toISOString().slice(0, 10),
-      endedAt: now.toISOString(),
-      by: (window.PAINT_USER || ""),
-      batches: state.batches.map(b => ({ at: b.at, ral: b.ral, total: b.total, byDetail: b.byHanger, byHanger: b.byHanger })),
-      totalsByDetail: {},          // ръчната линия още няма разбивка по вид детайл
-      totalsByHanger: totalsByHanger,
-      paints: paints,
-      total: grand,
-      runSec: 0,
-    };
-    let ok = false;
-    try { if (window.paintSaveReport) ok = await window.paintSaveReport(report); } catch (e) {}
-    state.batches = [];            // нулирай деня (коловете остават каквито са физически)
+  // ---- Начало на работния ден: чиста линия (6 празни кола) ----
+  function startDay() {
+    if (!confirm("Начало на нов работен ден?\nЛинията се нулира — всичките 6 кола стават празни.")) return;
+    state.step = 0; state.selected = 1; state.pendingColor = null;
+    state.batches = [];
+    state.kols = Array.from({ length: KOLCOUNT }, (_, i) => newKol(i + 1));
     render(); save();
-    alert(ok
-      ? ("Работният ден е приключен.\nОтчетът (" + grand.toLocaleString("bg") + " бр.) е изпратен във „Времена“.")
-      : "Денят е нулиран, но отчетът не се качи (няма връзка с облака). Опитай пак при връзка.");
+  }
+
+  // ---- Край на работния ден: тихо изпраща отчета във „Времена" ----
+  // Без преглед и без съобщение към оператора — отчетът тръгва автоматично.
+  async function endDay() {
+    if (!confirm("Край на работния ден?")) return;
+    const grand = state.batches.reduce((s, b) => s + b.total, 0);
+    if (grand > 0) {
+      const now = new Date();
+      const totalsByHanger = {};
+      state.batches.forEach(b => Object.entries(b.byHanger).forEach(([k, v]) => totalsByHanger[k] = (totalsByHanger[k] || 0) + v));
+      const paints = [...new Set(state.batches.map(b => b.ral))];
+      const report = {
+        id: "r" + Date.now().toString(36),
+        date: now.toISOString().slice(0, 10),
+        endedAt: now.toISOString(),
+        by: (window.PAINT_USER || ""),
+        batches: state.batches.map(b => ({ at: b.at, ral: b.ral, total: b.total, byDetail: b.byHanger, byHanger: b.byHanger })),
+        totalsByDetail: {},          // ръчната линия още няма разбивка по вид детайл
+        totalsByHanger: totalsByHanger,
+        paints: paints,
+        total: grand,
+        runSec: 0,
+      };
+      try { if (window.paintSaveReport) await window.paintSaveReport(report); } catch (e) {}
+    }
+    state.batches = [];              // нулирай деня (коловете остават каквито са физически)
+    render(); save();
+    // дискретна обратна връзка, без да се съобщава отчет
+    const btn = $("endDayBtn"); const t = btn.textContent; btn.textContent = "✓ Денят е приключен"; btn.disabled = true;
+    setTimeout(() => { btn.textContent = t; btn.disabled = false; }, 2500);
   }
 
   // ---- Рендер на панела ----
@@ -463,37 +481,25 @@
     btn.textContent = isEntry ? "🎨 БОЯДИСВАНЕ" : "🎨 БОЯДИСВАНЕ (кола не е на входа)";
     $("slotUse").textContent = usedSlots(selKol());
   }
-  function renderLine() {
+  // Вертикална колонка: какво има на линията в момента (всичките 6 кола по опашка).
+  function renderLineColumn() {
     const st = (window.LINE3D && window.LINE3D.stations) || { booth: 2, oven: 3 };
-    const fill = (cId, dId, cellId, kol, cls) => {
-      const c = $(cId), d = $(dId), cell = $(cellId);
-      cell.classList.remove("full", "entry");
-      if (kol && (kol.items.length || kol.bare)) {
-        c.textContent = "КОЛ " + kol.id;
-        const t = kolTotal(kol);
-        d.textContent = kolSummary(kol) + (t ? " · " + t + "бр" : "") + (kol.painted ? " · " + kol.ral.replace("RAL ", "") : "");
-        cell.classList.add(cls);
-      } else if (kol) { c.textContent = "КОЛ " + kol.id; d.textContent = "празен"; }
-      else { c.textContent = "—"; d.textContent = ""; }
-    };
-    fill("entryC", "entryD", "cellEntry", kolAtQpos(0), "entry");
-    fill("boothC", "boothD", "cellBooth", kolAtQpos(st.booth), "full");
-    fill("ovenC", "ovenD", "cellOven", kolAtQpos(st.oven), "full");
-  }
-  function renderDay() {
-    const totalsByHanger = {};
-    state.batches.forEach(b => Object.entries(b.byHanger).forEach(([k, v]) => totalsByHanger[k] = (totalsByHanger[k] || 0) + v));
-    const grand = state.batches.reduce((s, b) => s + b.total, 0);
-    const kols = state.batches.reduce((s, b) => s + (b.kols || 0), 0);
-    const paints = [...new Set(state.batches.map(b => b.ral))];
-    $("dayTotal").textContent = grand.toLocaleString("bg");
-    $("dayKols").textContent = kols;
-    $("dayBatches").textContent = state.batches.length;
-    $("dayColors").textContent = paints.map(c => c.replace("RAL ", "")).join(", ");
-    const ul = $("byHang"); ul.innerHTML = "";
-    Object.entries(totalsByHanger).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
+    const ul = $("lineCol"); ul.innerHTML = "";
+    // По посока на движение: Вход (0) → напред към Камера/Фурна (KOLCOUNT-1 … 1) → обратно.
+    const order = [0]; for (let q = KOLCOUNT - 1; q >= 1; q--) order.push(q);
+    order.forEach(q => {
+      const kol = kolAtQpos(q);
       const li = document.createElement("li");
-      li.innerHTML = '<span>' + k + '</span><span class="n">' + v.toLocaleString("bg") + '</span>';
+      let label = "по линията";
+      if (q === 0) { label = "Вход"; li.className = "entry"; }
+      else if (q === st.booth) { label = "Камера"; li.className = "booth"; }
+      else if (q === st.oven) { label = "Фурна"; li.className = "oven"; }
+      const has = kol && (kol.items.length || kol.bare);
+      const total = kol ? kolTotal(kol) : 0;
+      const summ = has ? kolSummary(kol) : "празен";
+      const sw = (kol && kol.painted) ? '<i class="sw" style="background:' + ralHex(kol.ral) + '"></i>' : "";
+      li.innerHTML = '<span class="st">' + label + '</span><span class="kn">КОЛ ' + (kol ? kol.id : "?") + '</span>' +
+        '<span class="ct">' + summ + (has && total ? " · " + total + "бр" : "") + '</span>' + sw;
       ul.appendChild(li);
     });
   }
@@ -513,7 +519,7 @@
   function render() {
     normalizeEntry();
     renderHead(); renderPods(); renderLoaded(); updatePaintBtn();
-    renderLine(); renderDay(); renderFlushNote();
+    renderLineColumn(); renderFlushNote();
     if (window.LINE3D) window.LINE3D.sync(state);
   }
   window.MANUAL_RENDER = render;
@@ -551,6 +557,7 @@
     $("paintBtn").onclick = sendToPaint;
     $("colorBtn").onclick = openColorDlg;
     $("loadBtn").onclick = loadNext;
+    $("startDayBtn").onclick = startDay;
     $("endDayBtn").onclick = endDay;
     $("ralOk").onclick = confirmColor;
     $("ralCancel").onclick = () => $("ralDlg").close();
