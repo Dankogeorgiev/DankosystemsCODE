@@ -29,7 +29,7 @@
   #stageBar button{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 10px;border-radius:7px;cursor:pointer}
   #stageBar button:hover{background:#f1efe8}
   #stageBar button.on{background:var(--ink);border-color:var(--ink);color:#fff}
-  #stageInfo{position:absolute;top:10px;left:12px;background:rgba(255,255,255,.82);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;max-width:60%}
+  #stageInfo{position:absolute;top:10px;left:12px;background:rgba(255,255,255,.82);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;max-width:62%}
   #stageInfo b{font-family:var(--disp)}
   #ralNow{position:absolute;top:10px;right:12px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.9);border-radius:9px;padding:7px 10px;font-size:12px}
   #ralNow i{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.2);display:inline-block}
@@ -46,6 +46,10 @@
   .kolhead .no{font-family:var(--disp);font-weight:700;font-size:22px}
   .kolhead .ral{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;color:var(--muted)}
   .kolhead .ral i{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.2)}
+  .badge{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;border-radius:5px;padding:3px 7px}
+  .badge.entry{background:#E7F3EC;color:var(--ok);border:1px solid #BFE0CC}
+  .badge.painted{background:#FBECEC;color:var(--warn);border:1px solid #E7C6C6}
+  .badge.wait{background:#EEF2F8;color:var(--ink-soft);border:1px solid var(--line)}
   .slots{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
   .slots b{color:var(--ink)}
 
@@ -85,6 +89,7 @@
   .pipe .cell .c{font-family:var(--disp);font-weight:700;font-size:15px;margin-top:2px}
   .pipe .cell .d{font-size:10.5px;color:var(--muted);margin-top:1px;min-height:13px}
   .pipe .cell.full{background:#EAF1FF;border-color:var(--ink-soft)}
+  .pipe .cell.entry{background:#E7F3EC;border-color:#BFE0CC}
   .byhang{list-style:none;margin:8px 0 0;padding:0;font-size:12.5px}
   .byhang li{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line)}
   .byhang li:last-child{border-bottom:none}
@@ -124,7 +129,7 @@
   <!-- ============ Фронтален 3D изглед на линията ============ -->
   <div id="stage">
     <canvas id="c3d"></canvas>
-    <div id="stageInfo"><b>Ръчна прахова линия</b><br><span id="stageHint">Зареждаш КОЛ отпред → БОЯДИСВАНЕ → Камера → Фурна</span></div>
+    <div id="stageInfo"><b>Ръчна прахова линия</b><br><span id="stageHint">Кликни кол, за да го зареждаш · БОЯДИСВАНЕ завърта лентата с един такт</span></div>
     <div id="ralNow"><span>Цвят:</span><i id="ralNowSw"></i><span id="ralNowTx" style="font-family:var(--mono)"></span></div>
     <div id="stageBar">
       <button id="bTop">Отгоре</button>
@@ -137,10 +142,11 @@
 
   <!-- ============ Операторски панел ============ -->
   <div class="op">
-    <!-- Нареждане на текущия кол -->
+    <!-- Нареждане на избрания кол -->
     <div class="panel">
       <div class="kolhead">
         <span class="no" id="kolNo">КОЛ 1</span>
+        <span class="badge entry" id="kolBadge">за боядисване</span>
         <span class="ral"><i id="kolRalSw"></i><span id="kolRalTx">—</span></span>
         <span class="slots">Места: <b id="slotUse">0</b>/2</span>
       </div>
@@ -148,12 +154,12 @@
       <div class="pods" id="pods"><!-- бутони за подвески --></div>
 
       <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
-      <div class="empty" id="loadedEmpty">Натисни подвеска отгоре, за да я закачиш на този кол.</div>
+      <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
 
       <div class="actions">
         <button class="paint" id="paintBtn" disabled>🎨 БОЯДИСВАНЕ</button>
         <button class="btn" id="colorBtn">Смяна на цвят</button>
-        <button class="btn" id="clearBtn">Изчисти кола</button>
+        <button class="btn" id="loadBtn">↺ Зареди кол</button>
       </div>
       <div class="note" id="flushNote" hidden></div>
     </div>
@@ -162,9 +168,9 @@
     <div class="panel side">
       <div class="legendrow"><span>Линията в момента</span></div>
       <div class="pipe">
+        <div class="cell" id="cellEntry"><div class="t">На входа</div><div class="c" id="entryC">—</div><div class="d" id="entryD"></div></div>
         <div class="cell" id="cellBooth"><div class="t">Камера</div><div class="c" id="boothC">—</div><div class="d" id="boothD"></div></div>
-        <div class="cell" id="cellOven1"><div class="t">Фурна 1</div><div class="c" id="oven1C">—</div><div class="d" id="oven1D"></div></div>
-        <div class="cell" id="cellOven2"><div class="t">Фурна 2</div><div class="c" id="oven2C">—</div><div class="d" id="oven2D"></div></div>
+        <div class="cell" id="cellOven"><div class="t">Фурна</div><div class="c" id="ovenC">—</div><div class="d" id="ovenD"></div></div>
       </div>
 
       <div class="legendrow" style="margin-top:6px"><span>Днес</span><span id="dayColors" class="sub"></span></div>
@@ -195,9 +201,13 @@
 <script>
 /* ============================================================
    Ръчна линия за прахово боядисване — логика на оператора.
-   Такт: нареждаш кол отпред → БОЯДИСВАНЕ → колът влиза в Камера,
-   предишният от Камерата минава във Фурна. Бройките се заключват
-   в момента на БОЯДИСВАНЕ и влизат в партидата за текущия цвят.
+   6 физически кола обикалят конвейра тактово. Колът на ВХОДА
+   (при стрелката, точно преди Камерата) е активен за нареждане;
+   останалите 5 са зад него в опашката. Кликаш кол → зареждаш го
+   долу (подвески + бройки). БОЯДИСВАНЕ заключва бройките на кола
+   от входа в партидата за текущия цвят и завърта лентата с един
+   такт — следващият кол идва на входа, а боядисаният тръгва през
+   Камера и Фурна и се връща празен след пълна обиколка.
    Състоянието се споделя на живо през sync.js (window.MANUAL_LINE).
    ============================================================ */
 (function () {
@@ -219,6 +229,7 @@
   const POD_BY = {}; PODVESKI.forEach(p => POD_BY[p.code] = p);
   const nameOf = code => code === BARE.code ? BARE.name : (POD_BY[code] ? POD_BY[code].name : code);
   const SLOTS_PER_KOL = 2;
+  const KOLCOUNT = 6;
 
   // ---- RAL палитра (от data/linia.json) ----
   const RALS = [
@@ -238,18 +249,29 @@
   const ralLabel = code => { const r = RAL_BY[code]; return r ? (r.code + " · " + r.name) : (code || "—"); };
 
   // ---- Състояние ----
-  const KOLCOUNT = 6;
-  function newKol(no) { return { vid: "k" + (++state.seq), no: no, bare: false, bareCount: 0, items: [] }; }
+  function newKol(id) { return { id: id, bare: false, bareCount: 0, items: [], painted: false, ral: null }; }
   let state = {
     currentRal: "RAL 9005",
-    kolNo: 1,
-    seq: 0,
-    loading: null,      // текущият кол за нареждане
-    pipeline: [],       // [Камера, Фурна1, Фурна2] — заредени/движещи се кола (визуално)
-    batches: [],        // [{ral, at, byHanger:{}, total, kols}]
-    pendingColor: null, // заявена смяна на цвят (чака единичен кол)
+    pendingColor: null,
+    step: 0,                    // брой БОЯДИСВАНЕ (тактове)
+    selected: 1,                // кой кол се редактира долу (id 1..6)
+    kols: Array.from({ length: KOLCOUNT }, (_, i) => newKol(i + 1)),
+    batches: [],                // [{ral, at, byHanger:{}, total, kols}]
   };
-  state.loading = newKol(1);
+
+  // ---- Позиции по конвейра ----
+  const loadId = () => (state.step % KOLCOUNT) + 1;                 // кол на входа
+  const qposOf = id => ((id - 1 - state.step) % KOLCOUNT + KOLCOUNT) % KOLCOUNT;  // 0 = вход
+  const kolById = id => state.kols[id - 1];
+  const kolAtQpos = q => state.kols.find(k => qposOf(k.id) === q);
+  const selKol = () => kolById(state.selected) || kolById(loadId());
+  const entryKol = () => kolById(loadId());
+
+  // Ако колът на входа е боядисан (върнал се е след пълна обиколка) — освободи го.
+  function normalizeEntry() {
+    const k = entryKol();
+    if (k && k.painted) { k.painted = false; k.items = []; k.bare = false; k.bareCount = 0; k.ral = null; }
+  }
 
   // ---- Помощни за кола ----
   function usedSlots(kol) {
@@ -267,17 +289,20 @@
     return m;
   }
   function kolSummary(kol) {
+    if (!kol) return "—";
     if (kol.bare) return "Само кол";
-    return kol.items.map(it => nameOf(it.code)).join(" + ") || "—";
+    return kol.items.map(it => nameOf(it.code)).join(" + ") || "празен";
   }
 
-  // ---- Действия по нареждането ----
+  // ---- Избор на кол (от 3D или от бутон „Зареди кол") ----
+  function selectKol(id) { if (id >= 1 && id <= KOLCOUNT) { state.selected = id; render(); save(); } }
+  window.MANUAL_SELECT = selectKol;
+
+  // ---- Нареждане на избрания кол ----
   function addPod(code) {
-    const kol = state.loading;
-    if (code === BARE.code) {                     // Само кол → изчиства подвеските
-      kol.bare = true; kol.items = [];
-      render(); save(); return;
-    }
+    const kol = selKol();
+    if (kol.painted) { flash("Този кол е боядисан — ще се освободи, като се върне на входа."); return; }
+    if (code === BARE.code) { kol.bare = true; kol.items = []; render(); save(); return; }
     if (kol.bare) { kol.bare = false; kol.bareCount = 0; }
     const p = POD_BY[code]; if (!p) return;
     const has2 = kol.items.some(it => POD_BY[it.code] && POD_BY[it.code].slots === 2);
@@ -287,29 +312,26 @@
     kol.items.push({ code: code, count: 0 });
     render(); save();
   }
-  function removeItem(i) { state.loading.items.splice(i, 1); render(); save(); }
-  function setCount(i, val) { state.loading.items[i].count = Math.max(0, val | 0); updatePaintBtn(); refresh3DHint(); save(); }
-  function setBareCount(val) { state.loading.bareCount = Math.max(0, val | 0); updatePaintBtn(); save(); }
-  function clearKol() { state.loading = newKol(state.kolNo); render(); save(); }
+  function removeItem(i) { selKol().items.splice(i, 1); render(); save(); }
+  function setCount(i, val) { selKol().items[i].count = Math.max(0, val | 0); updatePaintBtn(); save(); }
+  function setBareCount(val) { selKol().bareCount = Math.max(0, val | 0); updatePaintBtn(); save(); }
+  function loadNext() { normalizeEntry(); state.selected = loadId(); render(); save(); }   // фокус върху кола на входа
 
-  // ---- БОЯДИСВАНЕ: колът тръгва по линията ----
+  // ---- БОЯДИСВАНЕ: колът от входа тръгва по линията ----
   function sendToPaint() {
-    const kol = state.loading;
+    const kol = entryKol();
     const total = kolTotal(kol);
-    if (total <= 0) { flash("Въведи поне една бройка, преди БОЯДИСВАНЕ."); return; }
+    if (total <= 0) { flash("Въведи поне една бройка на кола за боядисване."); return; }
     if (!kol.bare && kol.items.some(it => (+it.count || 0) <= 0)) {
       if (!confirm("Има подвеска без бройка. Да продължа само с попълнените?")) return;
     }
-    // прилагане на заявена смяна на цвят — този кол вече е с новия цвят
     if (state.pendingColor) { state.currentRal = state.pendingColor; state.pendingColor = null; }
     const ral = state.currentRal;
     commit(kol, ral);
-    // визуален конвейр: нов кол → Камера, изтласква останалите към Фурната
-    state.pipeline.unshift({ vid: kol.vid, no: kol.no, ral: ral, items: kol.items.slice(), bare: kol.bare, bareCount: kol.bareCount, total: total });
-    if (state.pipeline.length > 3) state.pipeline.pop();   // излиза от Фурната
-    // следващ кол за нареждане
-    state.kolNo = state.kolNo % KOLCOUNT + 1;
-    state.loading = newKol(state.kolNo);
+    kol.painted = true; kol.ral = ral;
+    state.step++;                 // завърти лентата с един такт
+    normalizeEntry();             // новият кол на входа — освободи, ако е боядисан
+    state.selected = loadId();    // фокус върху следващия за нареждане
     render(); save();
   }
   // Заключва бройките в партидата за съответния цвят.
@@ -338,8 +360,7 @@
   function confirmColor() {
     $("ralDlg").close();
     if (!ralPick || ralPick === state.currentRal) { state.pendingColor = null; render(); save(); return; }
-    // Заявка за смяна: следващият (единичен) кол минава с новия цвят.
-    state.pendingColor = ralPick;
+    state.pendingColor = ralPick;   // следващият (единичен) кол минава с новия цвят
     render(); save();
   }
 
@@ -366,8 +387,7 @@
     };
     let ok = false;
     try { if (window.paintSaveReport) ok = await window.paintSaveReport(report); } catch (e) {}
-    // нулирай деня (линията остава каквато е физически, но отчетът тръгва наново)
-    state.batches = [];
+    state.batches = [];            // нулирай деня (коловете остават каквито са физически)
     render(); save();
     alert(ok
       ? ("Работният ден е приключен.\nОтчетът (" + grand.toLocaleString("bg") + " бр.) е изпратен във „Времена“.")
@@ -377,7 +397,7 @@
   // ---- Рендер на панела ----
   function flash(msg) {
     const n = $("flushNote"); n.hidden = false; n.textContent = "⚠ " + msg; n.style.color = "var(--warn)";
-    clearTimeout(flash._t); flash._t = setTimeout(() => { renderFlushNote(); }, 3200);
+    clearTimeout(flash._t); flash._t = setTimeout(renderFlushNote, 3400);
   }
   function renderFlushNote() {
     const n = $("flushNote");
@@ -388,36 +408,35 @@
   }
   function renderPods() {
     const box = $("pods"); box.innerHTML = "";
-    const kol = state.loading;
+    const kol = selKol();
+    const locked = kol.painted;
     const has2 = !kol.bare && kol.items.some(it => POD_BY[it.code] && POD_BY[it.code].slots === 2);
     const free = SLOTS_PER_KOL - usedSlots(kol);
     PODVESKI.forEach(p => {
       const b = document.createElement("button");
       b.className = "pod" + (p.big ? " big" : "");
       b.innerHTML = p.name + (p.note ? '<span class="cap">' + p.note + "</span>" : "");
-      const blocked = kol.bare || has2 || (p.slots > free);
-      b.disabled = blocked;
+      b.disabled = locked || kol.bare || has2 || (p.slots > free);
       b.onclick = () => addPod(p.code);
       box.appendChild(b);
     });
     const bb = document.createElement("button");
     bb.className = "pod bare"; bb.innerHTML = BARE.name + '<span class="cap">' + BARE.note + "</span>";
-    bb.onclick = () => addPod(BARE.code);
+    bb.disabled = locked; bb.onclick = () => addPod(BARE.code);
     box.appendChild(bb);
   }
   function renderLoaded() {
     const ul = $("loaded"); ul.innerHTML = "";
-    const kol = state.loading;
+    const kol = selKol();
     if (kol.bare) {
       const li = document.createElement("li");
       li.innerHTML = '<span class="nm">Само кол<small>едри детайли директно на кола</small></span>';
       const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.value = kol.bareCount || "";
-      inp.placeholder = "бр."; inp.oninput = () => setBareCount(+inp.value);
+      inp.placeholder = "бр."; inp.disabled = kol.painted; inp.oninput = () => setBareCount(+inp.value);
       li.appendChild(inp);
       const u = document.createElement("span"); u.className = "unit"; u.textContent = "бр."; li.appendChild(u);
-      const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
-      del.onclick = () => { kol.bare = false; kol.bareCount = 0; render(); save(); };
-      li.appendChild(del);
+      if (!kol.painted) { const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
+        del.onclick = () => { kol.bare = false; kol.bareCount = 0; render(); save(); }; li.appendChild(del); }
       ul.appendChild(li);
     } else {
       kol.items.forEach((it, i) => {
@@ -425,12 +444,11 @@
         const li = document.createElement("li");
         li.innerHTML = '<span class="nm">' + nameOf(it.code) + (p ? '<small>' + p.rows + ' реда' + (p.slots === 2 ? ' · заема целия кол' : '') + '</small>' : '') + '</span>';
         const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.value = it.count || "";
-        inp.placeholder = "бр."; inp.oninput = () => setCount(i, +inp.value);
+        inp.placeholder = "бр."; inp.disabled = kol.painted; inp.oninput = () => setCount(i, +inp.value);
         li.appendChild(inp);
         const u = document.createElement("span"); u.className = "unit"; u.textContent = "бр."; li.appendChild(u);
-        const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
-        del.onclick = () => removeItem(i);
-        li.appendChild(del);
+        if (!kol.painted) { const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
+          del.onclick = () => removeItem(i); li.appendChild(del); }
         ul.appendChild(li);
       });
     }
@@ -439,18 +457,28 @@
     ul.hidden = !has;
   }
   function updatePaintBtn() {
-    const kol = state.loading;
-    $("paintBtn").disabled = kolTotal(kol) <= 0;
-    $("slotUse").textContent = usedSlots(kol);
+    const isEntry = state.selected === loadId();
+    const btn = $("paintBtn");
+    btn.disabled = !isEntry || selKol().painted || kolTotal(entryKol()) <= 0;
+    btn.textContent = isEntry ? "🎨 БОЯДИСВАНЕ" : "🎨 БОЯДИСВАНЕ (кола не е на входа)";
+    $("slotUse").textContent = usedSlots(selKol());
   }
-  function renderPipe() {
-    const cells = [["boothC", "boothD", "cellBooth"], ["oven1C", "oven1D", "cellOven1"], ["oven2C", "oven2D", "cellOven2"]];
-    cells.forEach((ids, i) => {
-      const p = state.pipeline[i];
-      const c = $(ids[0]), d = $(ids[1]), cell = $(ids[2]);
-      if (p) { c.textContent = p.total + " бр."; d.textContent = kolSummary(p) + " · " + p.ral.replace("RAL ", ""); cell.classList.add("full"); }
-      else { c.textContent = "—"; d.textContent = ""; cell.classList.remove("full"); }
-    });
+  function renderLine() {
+    const st = (window.LINE3D && window.LINE3D.stations) || { booth: 2, oven: 3 };
+    const fill = (cId, dId, cellId, kol, cls) => {
+      const c = $(cId), d = $(dId), cell = $(cellId);
+      cell.classList.remove("full", "entry");
+      if (kol && (kol.items.length || kol.bare)) {
+        c.textContent = "КОЛ " + kol.id;
+        const t = kolTotal(kol);
+        d.textContent = kolSummary(kol) + (t ? " · " + t + "бр" : "") + (kol.painted ? " · " + kol.ral.replace("RAL ", "") : "");
+        cell.classList.add(cls);
+      } else if (kol) { c.textContent = "КОЛ " + kol.id; d.textContent = "празен"; }
+      else { c.textContent = "—"; d.textContent = ""; }
+    };
+    fill("entryC", "entryD", "cellEntry", kolAtQpos(0), "entry");
+    fill("boothC", "boothD", "cellBooth", kolAtQpos(st.booth), "full");
+    fill("ovenC", "ovenD", "cellOven", kolAtQpos(st.oven), "full");
   }
   function renderDay() {
     const totalsByHanger = {};
@@ -470,7 +498,12 @@
     });
   }
   function renderHead() {
-    $("kolNo").textContent = "КОЛ " + state.loading.no;
+    const kol = selKol();
+    $("kolNo").textContent = "КОЛ " + kol.id;
+    const bd = $("kolBadge");
+    if (kol.painted) { bd.className = "badge painted"; bd.textContent = "боядисан · " + (kol.ral || "").replace("RAL ", ""); }
+    else if (kol.id === loadId()) { bd.className = "badge entry"; bd.textContent = "◄ за боядисване"; }
+    else { bd.className = "badge wait"; bd.textContent = "на опашка (" + qposOf(kol.id) + ")"; }
     const showRal = state.pendingColor || state.currentRal;
     $("kolRalSw").style.background = ralHex(showRal);
     $("kolRalTx").textContent = ralLabel(showRal);
@@ -478,40 +511,38 @@
     $("ralNowTx").textContent = state.currentRal;
   }
   function render() {
+    normalizeEntry();
     renderHead(); renderPods(); renderLoaded(); updatePaintBtn();
-    renderPipe(); renderDay(); renderFlushNote();
+    renderLine(); renderDay(); renderFlushNote();
     if (window.LINE3D) window.LINE3D.sync(state);
   }
-  function refresh3DHint() { if (window.LINE3D) window.LINE3D.sync(state); }
+  window.MANUAL_RENDER = render;
 
   // ---- Споделяне през sync.js ----
   function save() { if (window.manualSaveSoon) window.manualSaveSoon(); }
   window.MANUAL_LINE = {
     serialize() {
       return {
-        currentRal: state.currentRal, kolNo: state.kolNo, seq: state.seq,
-        loading: state.loading, pipeline: state.pipeline, batches: state.batches,
-        pendingColor: state.pendingColor,
+        v: 2, currentRal: state.currentRal, pendingColor: state.pendingColor,
+        step: state.step, selected: state.selected, kols: state.kols, batches: state.batches,
       };
     },
     apply(d) {
       if (!d) return;
       if (typeof d.currentRal === "string") state.currentRal = d.currentRal;
-      if (typeof d.kolNo === "number") state.kolNo = d.kolNo;
-      if (typeof d.seq === "number") state.seq = Math.max(state.seq, d.seq);
-      if (d.loading && typeof d.loading === "object") state.loading = normKol(d.loading);
-      state.pipeline = Array.isArray(d.pipeline) ? d.pipeline.map(normKol) : [];
-      state.batches = Array.isArray(d.batches) ? d.batches : [];
       state.pendingColor = (typeof d.pendingColor === "string") ? d.pendingColor : null;
+      if (typeof d.step === "number") state.step = d.step;
+      if (typeof d.selected === "number") state.selected = d.selected;
+      if (Array.isArray(d.kols) && d.kols.length === KOLCOUNT) state.kols = d.kols.map(normKol);
+      state.batches = Array.isArray(d.batches) ? d.batches : [];
       render();
     },
   };
   function normKol(k) {
     return {
-      vid: k.vid || ("k" + (++state.seq)), no: +k.no || 1,
-      bare: !!k.bare, bareCount: +k.bareCount || 0,
+      id: +k.id || 1, bare: !!k.bare, bareCount: +k.bareCount || 0,
       items: Array.isArray(k.items) ? k.items.map(it => ({ code: it.code, count: +it.count || 0 })) : [],
-      ral: k.ral, total: +k.total || 0,
+      painted: !!k.painted, ral: k.ral || null,
     };
   }
 
@@ -519,13 +550,12 @@
   function wire() {
     $("paintBtn").onclick = sendToPaint;
     $("colorBtn").onclick = openColorDlg;
-    $("clearBtn").onclick = clearKol;
+    $("loadBtn").onclick = loadNext;
     $("endDayBtn").onclick = endDay;
     $("ralOk").onclick = confirmColor;
     $("ralCancel").onclick = () => $("ralDlg").close();
   }
 
-  // Стартиране на панела веднага (3D се вдига отделно).
   wire(); render();
   window.MANUAL_PANEL_READY = true;
 })();
@@ -535,8 +565,10 @@
 /* ============================================================
    Фронтален 3D изглед на ръчната линия (Three.js).
    Показва овалния конвейр, порталите, Камера боядисване и Фурна
-   печене. Коловете се позиционират според състоянието на линията
-   и се плъзгат тактово при БОЯДИСВАНЕ. window.LINE3D.sync(state).
+   печене. Всичките 6 кола се виждат и се позиционират по опашката
+   спрямо състоянието (вход = стрелката, точно преди Камерата).
+   Кликаш кол → избираш го за нареждане. При БОЯДИСВАНЕ лентата
+   се плъзга напред с един такт. window.LINE3D.sync(state).
    ============================================================ */
 (function () {
   "use strict";
@@ -545,6 +577,7 @@
   const canvas = document.getElementById("c3d");
   const RAIL_Y = 2.8, STRAIGHT = 8, R = 3;
   const COL_PURPLE = 0x8E6BA8, COL_BLUE = 0x2E7BC4;
+  const KOLCOUNT = 6;
   const ROWS = { "2ka": 2, "3ka": 3, "4ka": 4, "5ca": 5, "5ca_long": 5, "elha": 3, "trabi": 2 };
 
   const scene = new THREE.Scene();
@@ -613,8 +646,9 @@
       const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.03), partMat); p.position.set(0, y - 0.12, 0.05); g.add(p); }
     return g; }
 
-  // Един кол: подвески по кодове (или гол кол), боядисан цвят tintHex
-  function makeKol(codes, bare, tintHex, name) {
+  // Един кол: подвески по кодове (или гол кол), боядисан цвят tintHex, подсветка
+  function makeKol(codes, bare, tintHex, name, opts) {
+    opts = opts || {};
     const g = new THREE.Group();
     const partMat = new THREE.MeshStandardMaterial({ color: tintHex != null ? tintHex : 0xb9bec4, roughness: 0.7, metalness: tintHex != null ? 0.15 : 0.25 });
     const trolley = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.26), mTrolley); trolley.position.y = RAIL_Y; g.add(trolley);
@@ -629,7 +663,13 @@
       list.forEach((code, i) => { const pod = makePodveska(ROWS[code] || 3, partMat);
         const xo = n === 1 ? 0 : (-barLen / 2 + barLen * (i + 0.5) / n); pod.position.set(xo, RAIL_Y - 0.6, 0); g.add(pod); });
     }
-    if (name) { const lab = label(name, 1.7, "#1c4e80"); lab.position.set(0, RAIL_Y + 0.75, 0); lab.raycast = function () {}; g.add(lab); }
+    // Подсветка на избрания кол (пръстен) + цвят на етикета за входа/избора
+    if (opts.selected) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.045, 8, 30), new THREE.MeshBasicMaterial({ color: opts.entry ? 0x2F7A4D : 0x1F3864 }));
+      ring.rotation.x = Math.PI / 2; ring.position.y = RAIL_Y - 0.48; ring.raycast = function () {}; g.add(ring);
+    }
+    const labColor = opts.entry ? "#C0392B" : (opts.selected ? "#1F3864" : "#5f6b7d");
+    const lab = label(name + (opts.entry ? "  ◄" : ""), 1.75, labColor); lab.position.set(0, RAIL_Y + 0.8, 0); lab.raycast = function () {}; g.add(lab);
     return g; }
 
   // Камера боядисване + Фурна печене (прозрачни)
@@ -654,42 +694,63 @@
   scene.add(oven);
   const lO = textSprite(["Фурна", "печене"], 3.2, "#d7263d"); lO.position.set(4.2, 3.9, -3); lO.raycast = function () {}; scene.add(lO);
 
-  // Станции по кривата (u-параметри)
-  const U_LOAD = nearestU(2, 3);     // отпред — операторът нарежда
-  const U_BOOTH = nearestU(-4.6, -3); // Камера
-  const U_OVEN1 = nearestU(1.8, -3);  // на влизане към Фурната
-  const U_OVEN2 = nearestU(4.2, -3);  // Фурна
-  const STATION_U = [U_BOOTH, U_OVEN1, U_OVEN2];
+  // Станции по кривата — вход при стрелката (предна релса, ляво от центъра)
+  const U_LOAD = nearestU(-3.5, 3);
+  const U_BOOTH = nearestU(-4.6, -3);
+  const U_OVEN = nearestU(4.2, -3);
+  const uForQpos = q => ((U_LOAD - q / KOLCOUNT) % 1 + 1) % 1;
+  // Кой qpos е най-близо до Камерата и Фурната (за страничния панел)
+  function nearestQ(uTarget) { let bq = 0, bd = 2; for (let q = 0; q < KOLCOUNT; q++) { let d = Math.abs(uForQpos(q) - uTarget); d = Math.min(d, 1 - d); if (d < bd) { bd = d; bq = q; } } return bq; }
+  const QBOOTH = nearestQ(U_BOOTH), QOVEN = nearestQ(U_OVEN);
 
-  // Живи кола във визуализацията: vid -> group
+  // Живи кола във визуализацията: id -> group
   const viz = {};
   function hexNum(h) { return parseInt(String(h).replace("#", ""), 16); }
-  function placeSpawn(g, u) { g.userData.u = u; g.userData.targetU = u; const p = curve.getPointAt(((u % 1) + 1) % 1); g.position.set(p.x, 0, p.z); }
+  function disposeGroup(g) { g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); }); }
 
   function sync(state) {
     boothMat.color.setHex(hexNum(ralHexOf(state.currentRal)));
-    const want = [];
-    if (state.loading) want.push({ vid: state.loading.vid, no: state.loading.no, codes: state.loading.items.map(i => i.code), bare: state.loading.bare, tint: null, u: U_LOAD, name: "КОЛ " + state.loading.no });
-    (state.pipeline || []).slice(0, 3).forEach((p, i) => want.push({ vid: p.vid, no: p.no, codes: (p.items || []).map(x => x.code), bare: !!p.bare, tint: hexNum(ralHexOf(p.ral)), u: STATION_U[i], name: "КОЛ " + p.no }));
-    const keep = {};
-    want.forEach(d => {
-      keep[d.vid] = true;
-      const h = JSON.stringify([d.codes, d.bare, d.tint, d.name]);
-      let g = viz[d.vid];
-      if (g && g.userData.hash !== h) { scene.remove(g); disposeGroup(g); g = null; }
-      if (!g) { g = makeKol(d.codes, d.bare, d.tint, d.name); g.userData.hash = h; scene.add(g); viz[d.vid] = g; placeSpawn(g, d.vid === lastLoadingVid ? U_LOAD : U_LOAD); }
-      g.userData.targetU = d.u;
+    const step = state.step || 0;
+    const loadId = (step % KOLCOUNT) + 1;
+    (state.kols || []).forEach(kol => {
+      const qpos = ((kol.id - 1 - step) % KOLCOUNT + KOLCOUNT) % KOLCOUNT;
+      const u = uForQpos(qpos);
+      const codes = (kol.items || []).map(x => x.code);
+      const tint = kol.painted ? hexNum(ralHexOf(kol.ral)) : null;
+      const entry = kol.id === loadId, selected = kol.id === state.selected;
+      const h = JSON.stringify([codes, !!kol.bare, tint, kol.id, entry, selected]);
+      let g = viz[kol.id];
+      let carry = null;                                  // текущата позиция при пресъздаване (за плавно движение)
+      if (g && g.userData.hash !== h) { carry = g.userData.u; scene.remove(g); disposeGroup(g); g = null; }
+      if (!g) {
+        g = makeKol(codes, !!kol.bare, tint, "КОЛ " + kol.id, { entry: entry, selected: selected });
+        g.userData.kolId = kol.id; g.userData.hash = h;
+        g.userData.u = (carry != null) ? carry : u;
+        const p = curve.getPointAt(((g.userData.u % 1) + 1) % 1); g.position.set(p.x, 0, p.z);
+        scene.add(g); viz[kol.id] = g;
+      }
+      g.userData.targetU = u;
     });
-    // махни излезлите
-    Object.keys(viz).forEach(vid => { if (!keep[vid]) { scene.remove(viz[vid]); disposeGroup(viz[vid]); delete viz[vid]; } });
-    lastLoadingVid = state.loading ? state.loading.vid : null;
   }
-  let lastLoadingVid = null;
-  function disposeGroup(g) { g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); }); }
 
-  // RAL hex справка (огледало на палитрата в панела)
   const RAL_HEX = { "RAL 9005": "#121212", "RAL 9006": "#A5A8A6", "RAL 7016": "#373F43", "RAL 9010": "#F1EDE3", "RAL 7035": "#C6C8C4", "RAL 6005": "#2C5545", "RAL 8017": "#45322E", "RAL 5010": "#0E294B", "RAL 3020": "#C1121C", "RAL 1023": "#F0CA00" };
   function ralHexOf(code) { return RAL_HEX[code] || "#888888"; }
+
+  // ---- Клик върху кол → избор за нареждане ----
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const dom = renderer.domElement;
+  function setNDC(e) { const r = dom.getBoundingClientRect(); ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1; ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1; }
+  function pickKol() { const groups = Object.values(viz).filter(Boolean); const hits = ray.intersectObjects(groups, true);
+    for (const hkey of hits) { if (hkey.object.isSprite) continue; let o = hkey.object; while (o.parent && o.parent !== scene) o = o.parent; if (o.userData && o.userData.kolId) return o; } return null; }
+  let downXY = null;
+  dom.addEventListener("pointerdown", e => { downXY = [e.clientX, e.clientY]; });
+  dom.addEventListener("pointermove", e => { setNDC(e); ray.setFromCamera(ndc, camera); dom.style.cursor = pickKol() ? "pointer" : "default"; });
+  dom.addEventListener("pointerup", e => {
+    if (!downXY) return; const dx = e.clientX - downXY[0], dy = e.clientY - downXY[1]; downXY = null;
+    if (dx * dx + dy * dy > 36) return;                 // било е завъртане, не клик
+    setNDC(e); ray.setFromCamera(ndc, camera); const k = pickKol();
+    if (k && window.MANUAL_SELECT) window.MANUAL_SELECT(k.userData.kolId);
+  });
 
   // Изгледи / контроли
   let autorot = false, flyT = null;
@@ -711,15 +772,15 @@
   let toastT = null;
   function toast(msg) { let d = document.getElementById("toast3d"); if (!d) { d = document.createElement("div"); d.id = "toast3d"; d.style.cssText = "position:absolute;bottom:56px;left:50%;transform:translateX(-50%);background:rgba(31,56,100,.92);color:#fff;padding:7px 13px;border-radius:8px;font-size:12px;transition:opacity .3s;pointer-events:none;font-family:'IBM Plex Mono',monospace"; stage.appendChild(d); } d.textContent = msg; d.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(() => d.style.opacity = "0", 1600); }
 
-  // Анимация
+  // Анимация — тактово плъзгане на коловете напред по конвейра
   const clock = new THREE.Clock();
   function animate() {
     requestAnimationFrame(animate);
     const dt = clock.getDelta();
-    // тактово плъзгане на коловете към целевия параметър (винаги напред)
     Object.values(viz).forEach(g => {
+      if (!g) return;
       let u = g.userData.u, tu = g.userData.targetU;
-      if (tu < u - 1e-4) tu += 1;                 // движи се напред по конвейра
+      if (tu < u - 1e-4) tu += 1;                       // винаги напред
       if (Math.abs(tu - u) > 1e-4) { u += (tu - u) * Math.min(1, dt * 2.2); g.userData.u = u % 1; const p = curve.getPointAt(((u % 1) + 1) % 1); g.position.set(p.x, 0, p.z); }
     });
     if (flyT) { flyT.t = Math.min(1, flyT.t + dt * 1.6); const e = flyT.t * flyT.t * (3 - 2 * flyT.t);
@@ -730,10 +791,12 @@
   window.addEventListener("resize", resize);
   if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
 
-  window.LINE3D = { sync };
+  window.LINE3D = { sync: sync, stations: { booth: QBOOTH, oven: QOVEN } };
+  // Първоначален рендер, за да се появят коловете веднага (панелът вече е готов).
+  if (window.MANUAL_RENDER) window.MANUAL_RENDER();
 })();
 </script>
 
-<script src="sync.js?v=2"></script>
+<script src="sync.js?v=3"></script>
 </body>
 </html>
