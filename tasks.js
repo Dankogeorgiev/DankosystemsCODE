@@ -1125,10 +1125,12 @@ function renderReportUI() {
       до <input type="date" id="r-to" value="${today}" />
       <button id="r-go" class="btn btn-small btn-primary">Покажи</button>
     </div>
-    <div id="report-out"></div>`;
+    <div id="report-out"></div>
+    <div id="painting-reports"></div>`;
   v.querySelector("#r-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#r-go").addEventListener("click", computeReport);
   computeReport();
+  loadPaintingReports();
 }
 function computeReport() {
   const from = document.getElementById("r-from").value;
@@ -1836,14 +1838,12 @@ function renderTimes() {
         <td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
         <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
       </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
-    </table>
-    <div id="painting-reports"></div>`;
+    </table>`;
   v.querySelector("#times-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#tf-ws").addEventListener("change", e => { timesFilter.workshop = e.target.value; renderTimes(); });
   v.querySelector("#tf-m").addEventListener("change", e => { timesFilter.machine = e.target.value; renderTimes(); });
   v.querySelector("#tf-w").addEventListener("change", e => { timesFilter.worker = e.target.value; renderTimes(); });
   v.querySelector("#times-csv").addEventListener("click", () => exportTimesCsv(rows));
-  loadPaintingReports();
 }
 /* ---------- Дневни отчети от боядисването (в „Времена", само админи) ---------- */
 async function loadPaintingReports() {
@@ -1855,42 +1855,85 @@ async function loadPaintingReports() {
     list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
   } catch (e) {}
   list = list.slice().sort((a, b) => String(b.endedAt).localeCompare(String(a.endedAt)));
+  const passesOf = r => (r.passes != null ? r.passes : (r.batches || []).reduce((s, b) => s + (b.kols || 0), 0));
+  const lineOf = r => r.line ? r.line : "автоматична";
   box.innerHTML =
     `<div class="workers-head" style="margin-top:22px"><h3>🎨 Боядисване — дневни отчети</h3></div>` +
     (list.length
-      ? `<table class="report-table"><thead><tr><th>Дата</th><th>Цветове (RAL)</th><th class="num">Общо (бр.)</th><th>Оператор</th><th></th></tr></thead><tbody>` +
-        list.map((r, i) => `<tr>
+      ? `<table class="report-table"><thead><tr><th>Дата</th><th>Линия</th><th>Цветове (RAL)</th><th class="num">Пускания</th><th class="num">Общо (бр.)</th><th>Оператор</th><th></th></tr></thead><tbody>` +
+        list.map((r, i) => {
+          const passes = passesOf(r);
+          return `<tr>
           <td>${escapeHtml(fmtLogDate(r.date))}</td>
+          <td>${escapeHtml(lineOf(r))}</td>
           <td>${escapeHtml((r.paints || []).join(", ")) || "—"}</td>
+          <td class="num">${passes ? Number(passes).toLocaleString("bg") : "—"}</td>
           <td class="num">${Number(r.total || 0).toLocaleString("bg")}</td>
           <td>${escapeHtml(r.by || "—")}</td>
-          <td><button class="btn btn-small pr-csv" data-i="${i}">⤓ Excel</button></td>
-        </tr>`).join("") + `</tbody></table>`
+          <td style="white-space:nowrap"><button class="btn btn-small pr-toggle" data-i="${i}">▸ Детайли</button> <button class="btn btn-small pr-csv" data-i="${i}">⤓ Excel</button></td>
+        </tr>
+        <tr class="pr-detail" data-i="${i}" hidden><td colspan="7">${paintingReportDetailHtml(r)}</td></tr>`;
+        }).join("") + `</tbody></table>`
       : `<p class="report-empty">Още няма дневни отчети от боядисването.</p>`);
   box.querySelectorAll(".pr-csv").forEach(btn => btn.addEventListener("click", () => exportPaintingReportCsv(list[+btn.dataset.i])));
+  box.querySelectorAll(".pr-toggle").forEach(btn => btn.addEventListener("click", () => {
+    const dr = box.querySelector('.pr-detail[data-i="' + btn.dataset.i + '"]');
+    if (dr) { dr.hidden = !dr.hidden; btn.textContent = (dr.hidden ? "▸" : "▾") + " Детайли"; }
+  }));
+}
+// Разгъната структура на един дневен отчет: по подвеска + по партиди (цвят).
+function paintingReportDetailHtml(r) {
+  const THS = "text-align:left;font-size:11px;color:#6B7686;font-weight:600;padding:2px 10px 4px 0;border-bottom:1px solid #D2DAE4";
+  const TDS = "padding:2px 10px 2px 0;font-size:12px";
+  const num = "text-align:right";
+  const th = (t, extra) => `<th style="${THS};${extra || ""}">${t}</th>`;
+  const td = (t, extra) => `<td style="${TDS};${extra || ""}">${t}</td>`;
+  const kv = obj => Object.entries(obj || {}).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<tr>${td(escapeHtml(k))}${td(Number(v).toLocaleString("bg"), num)}</tr>`).join("");
+  const hangerRows = kv(r.totalsByHanger) || `<tr>${td("—")}</tr>`;
+  const detailRows = kv(r.totalsByDetail);
+  const batchRows = (r.batches || []).map(b => {
+    let hhmm = ""; try { hhmm = new Date(b.at).toLocaleTimeString("bg", { hour: "2-digit", minute: "2-digit" }); } catch (e) {}
+    const det = Object.entries(b.byHanger || b.byDetail || {}).map(([k, v]) => escapeHtml(k) + ":" + v).join(" ");
+    return `<tr>${td(escapeHtml(hhmm))}${td(escapeHtml(b.ral || ""))}${td(b.kols || "—", num)}${td(Number(b.total || 0).toLocaleString("bg"), num)}${td(det)}</tr>`;
+  }).join("") || `<tr>${td("—")}</tr>`;
+  const tblStyle = "border-collapse:collapse;width:100%";
+  const detailBlock = detailRows
+    ? `<div style="min-width:190px"><h5 style="margin:0 0 6px">По вид детайл</h5><table style="${tblStyle}"><thead><tr>${th("Детайл")}${th("Бр.", num)}</tr></thead><tbody>${detailRows}</tbody></table></div>`
+    : "";
+  return `<div style="display:flex;gap:26px;flex-wrap:wrap;padding:8px 0 12px">
+    <div style="min-width:190px"><h5 style="margin:0 0 6px">По подвеска</h5><table style="${tblStyle}"><thead><tr>${th("Подвеска")}${th("Детайли", num)}</tr></thead><tbody>${hangerRows}</tbody></table></div>
+    ${detailBlock}
+    <div style="min-width:340px;flex:1"><h5 style="margin:0 0 6px">По партиди (цвят)</h5><table style="${tblStyle}"><thead><tr>${th("Час")}${th("RAL")}${th("Пускания", num)}${th("Детайли", num)}${th("Подвески")}</tr></thead><tbody>${batchRows}</tbody></table></div>
+  </div>`;
 }
 function exportPaintingReportCsv(r) {
   if (!r) return;
   const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
   const L = [];
+  const passes = r.passes != null ? r.passes : (r.batches || []).reduce((s, b) => s + (b.kols || 0), 0);
   L.push([esc("Отчет боядисване")].join(","));
   L.push([esc("Дата"), esc(fmtLogDate(r.date))].join(","));
+  L.push([esc("Линия"), esc(r.line || "автоматична")].join(","));
   L.push([esc("Оператор"), esc(r.by || "")].join(","));
   L.push([esc("Цветове (RAL)"), esc((r.paints || []).join(" "))].join(","));
+  L.push([esc("Пускания (кол)"), esc(passes || 0)].join(","));
+  L.push([esc("Общо детайли"), esc(r.total || 0)].join(","));
   L.push("");
-  L.push([esc("Детайл"), esc("Боядисани (бр.)")].join(","));
-  Object.entries(r.totalsByDetail || {}).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
-  L.push([esc("ОБЩО"), esc(r.total || 0)].join(","));
-  L.push("");
-  L.push([esc("Подвеска"), esc("Минали (бр.)")].join(","));
+  L.push([esc("Подвеска"), esc("Детайли (бр.)")].join(","));
   Object.entries(r.totalsByHanger || {}).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
+  if (Object.keys(r.totalsByDetail || {}).length) {
+    L.push("");
+    L.push([esc("Детайл"), esc("Боядисани (бр.)")].join(","));
+    Object.entries(r.totalsByDetail).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
+  }
   L.push("");
   L.push([esc("Партиди (по цвят)")].join(","));
-  L.push([esc("Час"), esc("RAL"), esc("Общо (бр.)"), esc("Детайли")].join(","));
+  L.push([esc("Час"), esc("RAL"), esc("Пускания"), esc("Общо (бр.)"), esc("Подвески/детайли")].join(","));
   (r.batches || []).forEach(bt => {
     let hhmm = ""; try { hhmm = new Date(bt.at).toLocaleTimeString("bg", { hour: "2-digit", minute: "2-digit" }); } catch (e) {}
-    const det = Object.entries(bt.byDetail || {}).map(([k, v]) => k + ":" + v).join(" ");
-    L.push([esc(hhmm), esc(bt.ral || ""), esc(bt.total || 0), esc(det)].join(","));
+    const det = Object.entries(bt.byHanger || bt.byDetail || {}).map(([k, v]) => k + ":" + v).join(" ");
+    L.push([esc(hhmm), esc(bt.ral || ""), esc(bt.kols || 0), esc(bt.total || 0), esc(det)].join(","));
   });
   const blob = new Blob(["﻿" + L.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
