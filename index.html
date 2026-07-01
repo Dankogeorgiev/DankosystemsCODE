@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=139" />
+  <link rel="stylesheet" href="styles.css?v=143" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,25 +28,39 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 142</p>
+      <p class="login-version">версия 143</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
-    <div class="header-actions">
-      <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
-      <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
-      <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
-      <button id="btn-claim-report" class="btn">Регистър рекламации</button>
-      <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
-      <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
-      <button id="btn-painting-manual" class="btn btn-paint" onclick="location.href='boya-rachna/'">✋ Боядисване (ръчно)</button>
-      <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
-      <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
-      <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
-      <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
+    <div class="header-zone header-left">
+      <div class="hz-row">
+        <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
+        <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
+        <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
+        <button id="btn-claim-report" class="btn">Регистър рекламации</button>
+      </div>
+      <div class="hz-row">
+        <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
+        <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
+      </div>
+    </div>
+
+    <div class="header-zone header-center">
       <span class="user-box"><span id="user-email"></span>
         <button id="btn-logout" class="btn btn-small">Изход</button></span>
+    </div>
+
+    <div class="header-zone header-right">
+      <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
+      <div class="hz-row">
+        <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
+        <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
+      </div>
+      <div class="hz-row">
+        <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
+        <button id="btn-painting-manual" class="btn btn-paint" onclick="location.href='boya-rachna/'">✋ Боядисване (ръчно)</button>
+      </div>
     </div>
   </header>
 

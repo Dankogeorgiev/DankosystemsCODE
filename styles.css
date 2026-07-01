@@ -62,13 +62,41 @@ body {
 .app-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 16px;
   background: var(--panel);
   padding: 12px 20px;
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
   z-index: 10;
+}
+/* Трите зони на хедъра: ляво / център / дясно */
+.header-zone { display: flex; flex-direction: column; gap: 8px; }
+.header-left { align-items: flex-start; }
+.header-right { align-items: flex-end; }
+.header-center {
+  flex: 1;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.hz-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.header-right .hz-row { justify-content: flex-end; }
+/* Логнат потребител в центъра */
+.header-center .user-box {
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border-left: none;
+}
+.header-center #user-email {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  max-width: 260px;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-logo { height: 48px; width: auto; border-radius: 8px; display: block; }
@@ -594,13 +622,15 @@ input[type="date"] {
   .sample-form { max-width: 100%; }
 
   /* Хедър */
-  .app-header { padding: 8px 10px; }
+  .app-header { padding: 8px 10px; flex-direction: column; align-items: stretch; gap: 10px; }
   .brand-logo { height: 34px; }
   .app-header h1 { font-size: 16px; }
   .subtitle { display: none; }
-  .header-actions { gap: 6px; }
-  .header-actions .btn, .header-actions .tab, .header-actions label.btn { font-size: 12px; padding: 7px 10px; }
-  #user-email { display: none; }
+  .header-zone { width: 100%; }
+  .header-left, .header-right { align-items: stretch; }
+  .header-right .hz-row, .hz-row { justify-content: flex-start; }
+  .header-center .user-box { flex-direction: row; justify-content: center; }
+  .app-header .btn, .app-header .tab, .app-header label.btn { font-size: 12px; padding: 7px 10px; }
 
   /* Пълноекранни модули */
   .tasks-controls { flex-wrap: wrap; gap: 6px; }
