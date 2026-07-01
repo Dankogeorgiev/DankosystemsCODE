@@ -58,8 +58,13 @@
   .entry .det{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
   .entry select{font-size:12px;padding:4px 6px}
   .entry input[type=number]{width:46px}
-  .loopbox{background:radial-gradient(120% 120% at 50% 40%,#fff,#E9EDF2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .loopbox{position:relative;background:radial-gradient(120% 120% at 50% 40%,#fff,#E9EDF2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .loopbox svg{width:100%;height:auto;display:block}
+  #loop3d{width:100%;height:480px;display:block}
+  #loop3d canvas{display:block;width:100%;height:100%;border-radius:12px}
+  .viewtoggle{position:absolute;top:8px;right:8px;z-index:3;display:flex;gap:6px}
+  .viewtoggle .btn{padding:5px 10px}
+  .viewtoggle .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   #loop.jog g[data-hi]{cursor:pointer}
   #loop.jog g[data-hi]:hover circle:nth-of-type(1){stroke:#1F3864;stroke-width:3}
   .results{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
@@ -161,7 +166,11 @@
           </div>
         </fieldset>
       </div>
-      <div class="loopbox"><div id="loop"></div></div>
+      <div class="loopbox">
+        <div class="viewtoggle"><button class="btn" id="view2d">2D</button><button class="btn on" id="view3d">3D</button></div>
+        <div id="loop3d" hidden></div>
+        <div id="loop"></div>
+      </div>
       <div class="results">
         <div class="stat hero"><div class="k">Боядисани (бр.)</div><div class="v" id="r_done">0</div><div class="vsub" id="r_pct">обиколки: 0</div></div>
         <div class="stat"><div class="k">На линията (бр.)</div><div class="v" id="r_left">–</div><div class="vsub" id="r_cap"></div></div>
@@ -197,7 +206,7 @@ let parts=STANDARD_PARTS.map((nm,i)=>({id:nid(),name:nm,perRow:18,color:PARTPAL[
 function ensureStandardParts(){let added=false;STANDARD_PARTS.forEach((nm,i)=>{if(!parts.some(p=>p.name===nm)){parts.push({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:''});added=true;}});return added;}
 const pidByName=nm=>{const p=parts.find(x=>x.name===nm);return p?p.id:null;};
 let entries=[
-  {id:nid(),hanger:hangerTypes[1].id,count:30,rowParts:[pidByName('Тройка'),pidByName('Тройка'),pidByName('Тройка')]},
+  {id:nid(),hanger:hangerTypes[1].id,count:27,rowParts:[pidByName('Тройка'),pidByName('Тройка'),pidByName('Тройка')]},
   {id:nid(),hanger:hangerTypes[3].id,count:5,rowParts:[pidByName('Единичка'),pidByName('Единичка'),pidByName('Единичка'),pidByName('Единичка'),pidByName('Единичка')]},
   {id:nid(),hanger:hangerTypes[0].id,count:25,rowParts:[pidByName('Крак'),pidByName('Крак')]},
   {id:nid(),hanger:hangerTypes[4].id,count:5,rowParts:[pidByName('Разпънка')]},
@@ -382,7 +391,7 @@ function update(){
   if(np)np.innerHTML='<span class="lab2">на кабината сега</span>'+(ci
     ?`<b>№${boothNum()}</b><span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'};margin-left:4px"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
     :'<span style="color:var(--muted)">— линията е празна —</span>');
-  drawLoop();
+  if(window.Loop3D&&Loop3D.active){try{Loop3D.frame();}catch(e){Loop3D.fail(e);}}else{drawLoop();}
   // Ръчно завъртане е достъпно само в покой (преди СТАРТ / след Край) — без отчитане.
   const idle=!anchored;
   const jr=$('jogRow'); if(jr)jr.hidden=!idle;
@@ -484,6 +493,9 @@ window.__state=()=>({phi,total:totalPainted(),rev:revolutions(),L:L(),running});
 
 refresh();requestAnimationFrame(tick);
 </script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="loop3d.js?v=1"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
 <script src="sync.js?v=154"></script>
