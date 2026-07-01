@@ -18,9 +18,10 @@
   const fw = 0.7, fh = 1.1;
   const TwoPI = Math.PI * 2;
 
-  let ready = false, active = false, builtL = -1;
+  let ready = false, active = false, builtL = -1, locked = false;
   let scene, camera, renderer, controls, curve, container, ro, ray;
   let downX = 0, downY = 0;
+  const POSE_KEY = "boya_loop3d_view";       // запомнен ъгъл/заключване (за това устройство)
   const groups = [];                           // 3D подвеските
   let metalMat, partGeo, rodGeo, barH, barV, clickGeo;
 
@@ -208,11 +209,46 @@
     if (hit) { phi = hit.object.userData.k; if (typeof update === "function") update(); }
   }
 
+  // ---- запомняне на ъгъла + заключване (само за това устройство) ----
+  function savePose() {
+    try {
+      if (!camera || !controls) return;
+      localStorage.setItem(POSE_KEY, JSON.stringify({
+        p: [camera.position.x, camera.position.y, camera.position.z],
+        t: [controls.target.x, controls.target.y, controls.target.z],
+        locked
+      }));
+    } catch (e) { }
+  }
+  function loadPose() { try { return JSON.parse(localStorage.getItem(POSE_KEY) || "null"); } catch (e) { return null; } }
+  function applySaved() {
+    const s = loadPose(); if (!s) return;
+    try {
+      if (Array.isArray(s.p)) camera.position.set(s.p[0], s.p[1], s.p[2]);
+      if (Array.isArray(s.t)) controls.target.set(s.t[0], s.t[1], s.t[2]);
+      controls.update();
+      if (s.locked) setLock(true, true);      // възстанови заключването без повторен запис
+    } catch (e) { }
+  }
+  function setLock(on, silent) {
+    locked = !!on;
+    if (controls) controls.enabled = !locked;      // заключено = камерата не се мести
+    const b = document.getElementById("viewlock");
+    if (b) {
+      b.classList.toggle("on", locked);
+      b.textContent = locked ? "🔒" : "🔓";
+      b.title = locked ? "Отключи изгледа — камерата пак се върти с мишката" : "Заключи изгледа — камерата спира да се мести";
+    }
+    if (!silent) savePose();
+  }
+  function toggleLock() { if (active) setLock(!locked); }
+
   function init() {
     if (!T || ready) return;
     container = document.getElementById("loop3d");
     if (!container) return;
     buildScene();
+    applySaved();                    // възстанови запомнения ъгъл/заключване
     ready = true;
   }
 
@@ -237,20 +273,22 @@
   }
   function fail(e) { console.warn("3D визуализация: грешка, връщам 2D", e); hide(); }
   function setToggle(is3d) {
-    const b3 = document.getElementById("view3d"), b2 = document.getElementById("view2d");
+    const b3 = document.getElementById("view3d"), b2 = document.getElementById("view2d"), bl = document.getElementById("viewlock");
     if (b3) b3.classList.toggle("on", is3d);
     if (b2) b2.classList.toggle("on", !is3d);
+    if (bl) bl.disabled = !is3d;               // заключването важи само за 3D
   }
 
-  window.Loop3D = { show, hide, frame, fail, get active() { return active; }, get ready() { return ready; }, available: !!T };
+  window.Loop3D = { show, hide, frame, fail, toggleLock, get active() { return active; }, get ready() { return ready; }, get locked() { return locked; }, available: !!T };
 
   function wire() {
-    const b3 = document.getElementById("view3d"), b2 = document.getElementById("view2d");
+    const b3 = document.getElementById("view3d"), b2 = document.getElementById("view2d"), bl = document.getElementById("viewlock");
     if (b2) b2.onclick = hide;
     if (b3) {
       if (!T) { b3.disabled = true; b3.title = "3D изгледът се нуждае от интернет (three.js)"; }
       else b3.onclick = show;
     }
+    if (bl) { if (!T) bl.disabled = true; else bl.onclick = toggleLock; }
     if (T) show();          // 3D по подразбиране, когато е налично
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire);
