@@ -12,7 +12,14 @@
   *{box-sizing:border-box}
   [hidden]{display:none!important}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
-  .wrap{max-width:1480px;margin:0 auto;padding:16px}
+  .wrap{max-width:1720px;margin:0 auto;padding:16px}
+  /* Горна лента с бутоните за деня */
+  .daybar{display:flex;gap:12px;margin-top:14px}
+  .daybar .daybtn{flex:1;font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.01em;border:1.5px solid var(--line);border-radius:10px;padding:15px 16px;cursor:pointer;background:#F1F4F9;color:var(--ink)}
+  .daybar .daybtn:active{transform:translateY(1px)}
+  .daybar .daybtn.start{background:#E7F3EC;color:var(--ok);border-color:#BFE0CC}
+  .daybar .daybtn.start:hover{background:var(--ok);color:#fff;border-color:var(--ok)}
+  .daybar .daybtn.end:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 14px;border-bottom:2px solid var(--ink)}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
   .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
@@ -23,7 +30,7 @@
   .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 
   /* ---- 3D сцена ---- */
-  #stage{position:relative;margin-top:14px;height:min(46vh,420px);min-height:280px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
+  #stage{position:relative;margin-top:12px;height:min(62vh,660px);min-height:360px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
   #stage canvas{display:block;width:100%;height:100%}
   #stageBar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:7px;background:rgba(255,255,255,.9);backdrop-filter:blur(4px);padding:6px 8px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.12)}
   #stageBar button{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 10px;border-radius:7px;cursor:pointer}
@@ -35,9 +42,9 @@
   #ralNow i{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.2);display:inline-block}
 
   /* ---- операторски панел ---- */
-  .op{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-top:16px}
+  .op{display:grid;grid-template-columns:1fr 420px;gap:18px;margin-top:16px}
   @media(max-width:920px){.op{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
   .panel h2{font-family:var(--disp);font-size:16px;margin:0 0 4px}
   .legendrow{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft);
     padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -53,8 +60,8 @@
   .slots{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
   .slots b{color:var(--ink)}
 
-  .pods{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin-bottom:14px}
-  .pod{font-family:var(--disp);font-weight:600;font-size:14px;padding:12px 8px;border:1.5px solid var(--line);border-radius:10px;background:#F8FAFC;color:var(--ink);cursor:pointer;text-align:center;transition:.12s}
+  .pods{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+  .pod{font-family:var(--disp);font-weight:600;font-size:15.5px;padding:16px 10px;border:1.5px solid var(--line);border-radius:10px;background:#F8FAFC;color:var(--ink);cursor:pointer;text-align:center;transition:.12s}
   .pod:hover:not(:disabled){border-color:var(--ink);background:#fff}
   .pod:active{transform:translateY(1px)}
   .pod .cap{display:block;font-family:var(--mono);font-weight:500;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:3px}
@@ -101,12 +108,6 @@
   .linecol .kn{font-family:var(--disp);font-weight:700;white-space:nowrap}
   .linecol .ct{flex:1;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .linecol .sw{width:13px;height:13px;border-radius:4px;border:1px solid rgba(0,0,0,.2);flex:none}
-  .dayctl{display:flex;flex-direction:column;gap:9px;margin-top:16px}
-  .dayctl .btn-block{margin-top:0;padding:12px}
-  .dayctl .start{background:#E7F3EC;color:var(--ok);border-color:#BFE0CC}
-  .dayctl .start:hover{background:var(--ok);color:#fff;border-color:var(--ok)}
-  .dayctl .end{background:#F1F4F9}
-  .dayctl .end:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   .byhang{list-style:none;margin:8px 0 0;padding:0;font-size:12.5px}
   .byhang li{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line)}
   .byhang li:last-child{border-bottom:none}
@@ -142,6 +143,12 @@
       <a href="../boya/" class="btn" style="text-decoration:none">⟳ Автоматична линия</a>
       <a href="../" class="btn" style="text-decoration:none">← Към системата</a>
     </span></header>
+
+  <!-- ============ Бутони за деня (горе) ============ -->
+  <div class="daybar">
+    <button class="daybtn start" id="startDayBtn">🟢 НАЧАЛО НА ДЕНЯ</button>
+    <button class="daybtn end" id="endDayBtn">🏁 КРАЙ НА РАБОТНИЯ ДЕН</button>
+  </div>
 
   <!-- ============ Фронтален 3D изглед на линията ============ -->
   <div id="stage">
@@ -185,11 +192,6 @@
     <div class="panel side">
       <div class="legendrow"><span>Линията в момента</span></div>
       <ul class="linecol" id="lineCol"></ul>
-
-      <div class="dayctl">
-        <button class="btn btn-block start" id="startDayBtn">🟢 НАЧАЛО НА ДЕНЯ</button>
-        <button class="btn btn-block end" id="endDayBtn">🏁 КРАЙ НА РАБОТНИЯ ДЕН</button>
-      </div>
     </div>
   </div>
 </div>
