@@ -32,10 +32,6 @@
   /* ---- 3D сцена ---- */
   #stage{position:relative;margin-top:12px;height:min(62vh,660px);min-height:360px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
   #stage canvas{display:block;width:100%;height:100%}
-  #stageBar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:7px;background:rgba(255,255,255,.9);backdrop-filter:blur(4px);padding:6px 8px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.12)}
-  #stageBar button{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 10px;border-radius:7px;cursor:pointer}
-  #stageBar button:hover{background:#f1efe8}
-  #stageBar button.on{background:var(--ink);border-color:var(--ink);color:#fff}
   #stageInfo{position:absolute;top:10px;left:12px;background:rgba(255,255,255,.82);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;max-width:62%}
   #stageInfo b{font-family:var(--disp)}
   #ralNow{position:absolute;top:10px;right:12px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.9);border-radius:9px;padding:7px 10px;font-size:12px}
@@ -155,13 +151,6 @@
     <canvas id="c3d"></canvas>
     <div id="stageInfo"><b>Ръчна прахова линия</b><br><span id="stageHint">Кликни кол, за да го зареждаш · БОЯДИСВАНЕ завърта лентата с един такт</span></div>
     <div id="ralNow"><span>Цвят:</span><i id="ralNowSw"></i><span id="ralNowTx" style="font-family:var(--mono)"></span></div>
-    <div id="stageBar">
-      <button id="bTop">Отгоре</button>
-      <button id="bPersp" class="on">Перспектива</button>
-      <button id="bRot">Авто-въртене</button>
-      <button id="bLock">🔒 Заключи изгледа</button>
-      <button id="bReset">Нулирай изгледа</button>
-    </div>
   </div>
 
   <!-- ============ Операторски панел ============ -->
@@ -607,13 +596,15 @@
   scene.background = new THREE.Color(0xeef0ee);
   scene.fog = new THREE.Fog(0xeef0ee, 42, 95);
   function vp() { return { w: stage.clientWidth || 800, h: stage.clientHeight || 400 }; }
-  const camera = new THREE.PerspectiveCamera(45, vp().w / vp().h, 0.1, 500);
-  const perspPos = new THREE.Vector3(20, 15, 22), topPos = new THREE.Vector3(0.01, 40, 0.01);
-  camera.position.copy(perspPos);
+  const camera = new THREE.PerspectiveCamera(42, vp().w / vp().h, 0.1, 500);
+  // Фиксиран фронтален изглед — застопорен, без въртене/местене/зум.
+  const VIEW_POS = new THREE.Vector3(0, 6.2, 18), VIEW_LOOK = new THREE.Vector3(0, 3.2, 0);
+  camera.position.copy(VIEW_POS); camera.lookAt(VIEW_LOOK);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1.4, 0); controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxPolarAngle = Math.PI / 2.05;
+  controls.target.copy(VIEW_LOOK);
+  controls.enableRotate = false; controls.enablePan = false; controls.enableZoom = false; controls.autoRotate = false;
   function resize() { const { w, h } = vp(); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb8bcb6, 0.95));
@@ -782,27 +773,7 @@
     if (k && window.MANUAL_SELECT) window.MANUAL_SELECT(k.userData.kolId);
   });
 
-  // Изгледи / контроли
-  let autorot = false, flyT = null;
-  const bRot = document.getElementById("bRot"), bTop = document.getElementById("bTop"), bPersp = document.getElementById("bPersp");
-  bRot.onclick = () => { autorot = !autorot; controls.autoRotate = autorot; controls.autoRotateSpeed = 0.7; bRot.classList.toggle("on", autorot); };
-  bTop.onclick = () => { setView("top"); flyTo(topPos, new THREE.Vector3(0, 0, 0)); };
-  bPersp.onclick = () => { setView("persp"); flyTo(perspPos, new THREE.Vector3(0, 1.4, 0)); };
-  function setView(v) { bTop.classList.toggle("on", v === "top"); bPersp.classList.toggle("on", v === "persp"); }
-  function flyTo(pos, tgt) { flyT = { from: camera.position.clone(), to: pos.clone(), tf: controls.target.clone(), tt: tgt.clone(), t: 0 }; }
-
-  // Заключване на изгледа (камерата) — пази предпочитания ъгъл локално
-  const LS = "rachna_view_v1";
-  try { const sv = JSON.parse(localStorage.getItem(LS)); if (sv && sv.pos) { camera.position.set(sv.pos[0], sv.pos[1], sv.pos[2]); controls.target.set(sv.tgt[0], sv.tgt[1], sv.tgt[2]); } } catch (e) {}
-  document.getElementById("bLock").onclick = () => {
-    try { localStorage.setItem(LS, JSON.stringify({ pos: camera.position.toArray(), tgt: controls.target.toArray() })); toast("Изгледът е заключен ✓"); }
-    catch (e) { toast("Записът не е наличен тук"); }
-  };
-  document.getElementById("bReset").onclick = () => { try { localStorage.removeItem(LS); } catch (e) {} setView("persp"); flyTo(perspPos, new THREE.Vector3(0, 1.4, 0)); toast("Върнато към начален изглед"); };
-  let toastT = null;
-  function toast(msg) { let d = document.getElementById("toast3d"); if (!d) { d = document.createElement("div"); d.id = "toast3d"; d.style.cssText = "position:absolute;bottom:56px;left:50%;transform:translateX(-50%);background:rgba(31,56,100,.92);color:#fff;padding:7px 13px;border-radius:8px;font-size:12px;transition:opacity .3s;pointer-events:none;font-family:'IBM Plex Mono',monospace"; stage.appendChild(d); } d.textContent = msg; d.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(() => d.style.opacity = "0", 1600); }
-
-  // Анимация — тактово плъзгане на коловете напред по конвейра
+  // Анимация — само тактовото плъзгане на коловете (изгледът е застопорен).
   const clock = new THREE.Clock();
   function animate() {
     requestAnimationFrame(animate);
@@ -813,9 +784,7 @@
       if (tu < u - 1e-4) tu += 1;                       // винаги напред
       if (Math.abs(tu - u) > 1e-4) { u += (tu - u) * Math.min(1, dt * 2.2); g.userData.u = u % 1; const p = curve.getPointAt(((u % 1) + 1) % 1); g.position.set(p.x, 0, p.z); }
     });
-    if (flyT) { flyT.t = Math.min(1, flyT.t + dt * 1.6); const e = flyT.t * flyT.t * (3 - 2 * flyT.t);
-      camera.position.lerpVectors(flyT.from, flyT.to, e); controls.target.lerpVectors(flyT.tf, flyT.tt, e); if (flyT.t >= 1) flyT = null; }
-    controls.update(); renderer.render(scene, camera);
+    renderer.render(scene, camera);
   }
   resize(); animate();
   window.addEventListener("resize", resize);
