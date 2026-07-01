@@ -39,7 +39,7 @@ function krohneProgressHtml(t) {
 // Машини по цехове (за задължителното записване на време при изработка)
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
-  "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC 600", "VMC966", "Traub Turning", "Лазерно Гравиране"],
+  "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC850", "VMC966", "Traub TNS60", "Лазерно Гравиране"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
 const MACHINE_TIME_LABELS = {
