@@ -611,18 +611,6 @@
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(70, 48), new THREE.MeshStandardMaterial({ color: 0xdadbd8, roughness: 0.6 }));
   floor.rotation.x = -Math.PI / 2; scene.add(floor);
 
-  // Портали
-  const portalMat = new THREE.MeshStandardMaterial({ color: 0x8b9095, roughness: 0.5, metalness: 0.6 });
-  function makePortal(px, zc) { const g = new THREE.Group(); const H = 3.3, span = 1.8, t = 0.08;
-    [zc - span / 2, zc + span / 2].forEach(z => {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(t, H, t), portalMat); leg.position.set(px, H / 2, z); g.add(leg);
-      const base = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.22), portalMat); base.position.set(px, 0.025, z); g.add(base);
-    });
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(t, t, span + t), portalMat); beam.position.set(px, H, zc); g.add(beam);
-    const link = new THREE.Mesh(new THREE.BoxGeometry(0.05, H - RAIL_Y, 0.05), portalMat); link.position.set(px, (H + RAIL_Y) / 2, zc); g.add(link);
-    return g; }
-  scene.add(makePortal(-3.8, 3)); scene.add(makePortal(6.5, 3)); scene.add(makePortal(-7, -3)); scene.add(makePortal(7, -3));
-
   // Конвейр (стадион-овал)
   function stadiumPoints(n) { const p = [];
     for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + Math.PI * i / n; p.push(new THREE.Vector3(STRAIGHT + Math.cos(a) * R, RAIL_Y, Math.sin(a) * R)); }
