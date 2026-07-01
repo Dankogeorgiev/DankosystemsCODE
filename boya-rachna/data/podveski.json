@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "title": "Подвески за ръчно прахово боядисване",
+    "company": "Данко Системс ООД",
+    "line": "ръчна прахова линия",
+    "note": "Капацитет на подвеска = редове x куки_на_ред. Попълни реалните hooks_per_row, за да се смята автоматично.",
+    "capacity_formula": "capacity = rows * hooks_per_row"
+  },
+  "types": [
+    {
+      "code": "2ka",
+      "name": "Двойка",
+      "rows": 2,
+      "hooks_per_row": null,
+      "long": false,
+      "gauge": "standard",
+      "note": "2 реда — дълги детайли"
+    },
+    {
+      "code": "3ka",
+      "name": "Тройка",
+      "rows": 3,
+      "hooks_per_row": null,
+      "long": false,
+      "gauge": "standard",
+      "note": "3 реда — средни"
+    },
+    {
+      "code": "4ka",
+      "name": "Четворка",
+      "rows": 4,
+      "hooks_per_row": null,
+      "long": false,
+      "gauge": "standard",
+      "note": "4 реда — средно къси"
+    },
+    {
+      "code": "5ca",
+      "name": "Петица",
+      "rows": 5,
+      "hooks_per_row": null,
+      "long": false,
+      "gauge": "standard",
+      "note": "5 реда — къси детайли"
+    },
+    {
+      "code": "5ca_long",
+      "name": "Дълга Петица",
+      "rows": 5,
+      "hooks_per_row": null,
+      "long": true,
+      "gauge": "long_as_elha",
+      "note": "5 реда, но дълга колкото Елха (повече куки на ред)"
+    },
+    {
+      "code": "trabi",
+      "name": "Тръби",
+      "rows": null,
+      "hooks_per_row": null,
+      "long": false,
+      "gauge": "pair",
+      "special": "комплект ляво + дясно = 1 бр.",
+      "note": "две масивни вертикални желязà; тръбите лягат напречно върху срещуположните куки"
+    },
+    {
+      "code": "elha",
+      "name": "Елха",
+      "rows": 3,
+      "hooks_per_row": null,
+      "long": false,
+      "gauge": "angled_arms",
+      "note": "рамка с наклонени рамена"
+    }
+  ]
+}

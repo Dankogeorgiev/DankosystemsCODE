@@ -12,31 +12,96 @@
   *{box-sizing:border-box}
   [hidden]{display:none!important}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
-  .wrap{max-width:1480px;margin:0 auto;padding:20px}
-  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 16px;border-bottom:2px solid var(--ink)}
+  .wrap{max-width:1480px;margin:0 auto;padding:16px}
+  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 14px;border-bottom:2px solid var(--ink)}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
-  header.top .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
-  .grid{display:grid;grid-template-columns:380px 1fr;gap:18px;margin-top:18px}
-  @media(max-width:880px){.grid{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
-  fieldset{border:none;margin:0 0 16px;padding:0}fieldset:last-child{margin-bottom:0}
-  legend{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft);
-    padding:0 0 9px;border-bottom:1px solid var(--line);width:100%;margin-bottom:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .lab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap}
-  input[type=number],input[type=text]{font-family:var(--mono);font-size:13px;text-align:right;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:7px;padding:6px 8px;outline:none}
-  input[type=text]{text-align:left}
-  input:focus,select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
-  select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:#fff;color:var(--ink);outline:none}
+  .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
+  .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
   .btn{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);background:#F1F4F9;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer;white-space:nowrap}
   .btn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .btn.pri{background:var(--ink);color:#fff}.btn.pri:hover{background:#16294a}
   .btn:active{transform:translateY(1px)}
-  .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
-  .todo{background:#F8FAFC;border:1px dashed var(--line);border-radius:10px;padding:18px;font-size:13.5px;line-height:1.6}
-  .todo h3{font-family:var(--disp);margin:0 0 10px;font-size:16px}
-  .todo ol{margin:8px 0 0;padding-left:20px}
-  .todo li{margin:4px 0}
-  .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
+  .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  /* ---- 3D сцена ---- */
+  #stage{position:relative;margin-top:14px;height:min(46vh,420px);min-height:280px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
+  #stage canvas{display:block;width:100%;height:100%}
+  #stageBar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:7px;background:rgba(255,255,255,.9);backdrop-filter:blur(4px);padding:6px 8px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+  #stageBar button{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 10px;border-radius:7px;cursor:pointer}
+  #stageBar button:hover{background:#f1efe8}
+  #stageBar button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  #stageInfo{position:absolute;top:10px;left:12px;background:rgba(255,255,255,.82);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;max-width:60%}
+  #stageInfo b{font-family:var(--disp)}
+  #ralNow{position:absolute;top:10px;right:12px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.9);border-radius:9px;padding:7px 10px;font-size:12px}
+  #ralNow i{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.2);display:inline-block}
+
+  /* ---- операторски панел ---- */
+  .op{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-top:16px}
+  @media(max-width:920px){.op{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .panel h2{font-family:var(--disp);font-size:16px;margin:0 0 4px}
+  .legendrow{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft);
+    padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+
+  .kolhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .kolhead .no{font-family:var(--disp);font-weight:700;font-size:22px}
+  .kolhead .ral{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .kolhead .ral i{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.2)}
+  .slots{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .slots b{color:var(--ink)}
+
+  .pods{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin-bottom:14px}
+  .pod{font-family:var(--disp);font-weight:600;font-size:14px;padding:12px 8px;border:1.5px solid var(--line);border-radius:10px;background:#F8FAFC;color:var(--ink);cursor:pointer;text-align:center;transition:.12s}
+  .pod:hover:not(:disabled){border-color:var(--ink);background:#fff}
+  .pod:active{transform:translateY(1px)}
+  .pod .cap{display:block;font-family:var(--mono);font-weight:500;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:3px}
+  .pod:disabled{opacity:.4;cursor:not-allowed}
+  .pod.big{border-color:#b48a2e;background:#FBF6EC}
+  .pod.bare{border-color:var(--ink-soft);background:#EEF2F8}
+
+  .loaded{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:8px}
+  .loaded li{display:flex;align-items:center;gap:10px;background:#F8FAFC;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+  .loaded .nm{font-family:var(--disp);font-weight:600;font-size:14px;flex:1}
+  .loaded .nm small{display:block;font-family:var(--mono);font-weight:400;font-size:10px;color:var(--muted)}
+  .loaded input[type=number]{width:78px;font-family:var(--mono);font-size:15px;text-align:right;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:7px;padding:7px 8px;outline:none}
+  .loaded input:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,56,100,.1)}
+  .loaded .unit{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .loaded .del{border:none;background:none;color:var(--warn);font-size:18px;line-height:1;cursor:pointer;padding:2px 4px}
+  .empty{font-size:13px;color:var(--muted);background:#F8FAFC;border:1px dashed var(--line);border-radius:9px;padding:14px;text-align:center;margin-bottom:14px}
+
+  .actions{display:flex;gap:10px;flex-wrap:wrap}
+  .paint{flex:1;min-width:180px;font-family:var(--disp);font-weight:700;font-size:16px;color:#fff;background:var(--ok);border:1px solid var(--ok);border-radius:10px;padding:14px 16px;cursor:pointer}
+  .paint:hover:not(:disabled){background:#26643f}
+  .paint:disabled{opacity:.45;cursor:not-allowed}
+  .paint:active:not(:disabled){transform:translateY(1px)}
+
+  .side .row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  .side .row:last-child{border-bottom:none}
+  .side .row .k{color:var(--muted);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+  .side .row .v{font-family:var(--disp);font-weight:600}
+  .side .big{font-family:var(--disp);font-weight:700;font-size:26px}
+  .pipe{display:flex;gap:8px;margin:6px 0 14px}
+  .pipe .cell{flex:1;border:1px solid var(--line);border-radius:9px;padding:9px 8px;text-align:center;background:#F8FAFC}
+  .pipe .cell .t{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .pipe .cell .c{font-family:var(--disp);font-weight:700;font-size:15px;margin-top:2px}
+  .pipe .cell .d{font-size:10.5px;color:var(--muted);margin-top:1px;min-height:13px}
+  .pipe .cell.full{background:#EAF1FF;border-color:var(--ink-soft)}
+  .byhang{list-style:none;margin:8px 0 0;padding:0;font-size:12.5px}
+  .byhang li{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line)}
+  .byhang li:last-child{border-bottom:none}
+  .byhang .n{font-family:var(--mono)}
+  .btn-block{display:block;width:100%;text-align:center;margin-top:14px}
+  .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
+  dialog{border:none;border-radius:14px;padding:0;max-width:440px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  dialog::backdrop{background:rgba(15,25,45,.5)}
+  .dlg{padding:18px}
+  .dlg h3{font-family:var(--disp);margin:0 0 12px;font-size:17px}
+  .ralgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+  .ralbtn{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line);border-radius:9px;padding:9px 10px;background:#fff;cursor:pointer;font-size:13px;text-align:left}
+  .ralbtn:hover{border-color:var(--ink)}
+  .ralbtn.sel{border-color:var(--ink);background:#EEF2F8}
+  .ralbtn i{width:20px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.2);flex:none}
+  .ralbtn b{font-family:var(--mono);font-size:11px;display:block}
+  .ralbtn span{color:var(--muted);font-size:11px}
 </style>
 </head>
 <body>
@@ -47,6 +112,7 @@
     <a href="../" style="display:inline-block;background:#fff;color:#1F3864;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">→ Към системата</a>
   </div>
 </div>
+
 <div class="wrap">
   <header class="top"><h1>Ръчна линия за прахово боядисване <span class="tag">ръчна</span></h1>
     <span style="display:flex;align-items:center;gap:12px;margin-left:auto">
@@ -55,34 +121,619 @@
       <a href="../" class="btn" style="text-decoration:none">← Към системата</a>
     </span></header>
 
-  <div class="grid">
+  <!-- ============ Фронтален 3D изглед на линията ============ -->
+  <div id="stage">
+    <canvas id="c3d"></canvas>
+    <div id="stageInfo"><b>Ръчна прахова линия</b><br><span id="stageHint">Зареждаш КОЛ отпред → БОЯДИСВАНЕ → Камера → Фурна</span></div>
+    <div id="ralNow"><span>Цвят:</span><i id="ralNowSw"></i><span id="ralNowTx" style="font-family:var(--mono)"></span></div>
+    <div id="stageBar">
+      <button id="bTop">Отгоре</button>
+      <button id="bPersp" class="on">Перспектива</button>
+      <button id="bRot">Авто-въртене</button>
+      <button id="bLock">🔒 Заключи изгледа</button>
+      <button id="bReset">Нулирай изгледа</button>
+    </div>
+  </div>
+
+  <!-- ============ Операторски панел ============ -->
+  <div class="op">
+    <!-- Нареждане на текущия кол -->
     <div class="panel">
-      <fieldset>
-        <legend>Ръчна линия</legend>
-        <div class="note">Тук ще влезе отчитането за <b>ръчната</b> линия. Споделя
-          входа, конфигурацията (<code>config.js</code>) и дневните отчети със
-          системата — отчетите от двете линии се събират на едно място в
-          <b>Цехове → Времена</b>.</div>
-      </fieldset>
+      <div class="kolhead">
+        <span class="no" id="kolNo">КОЛ 1</span>
+        <span class="ral"><i id="kolRalSw"></i><span id="kolRalTx">—</span></span>
+        <span class="slots">Места: <b id="slotUse">0</b>/2</span>
+      </div>
+
+      <div class="pods" id="pods"><!-- бутони за подвески --></div>
+
+      <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
+      <div class="empty" id="loadedEmpty">Натисни подвеска отгоре, за да я закачиш на този кол.</div>
+
+      <div class="actions">
+        <button class="paint" id="paintBtn" disabled>🎨 БОЯДИСВАНЕ</button>
+        <button class="btn" id="colorBtn">Смяна на цвят</button>
+        <button class="btn" id="clearBtn">Изчисти кола</button>
+      </div>
+      <div class="note" id="flushNote" hidden></div>
     </div>
 
-    <div class="panel">
-      <div class="todo">
-        <h3>🛠 Скелетът е готов — следва логиката</h3>
-        Страницата е вързана към входа и облака. Когато опишеш как работи
-        ръчната линия, тук ще сглобим модела. Предстои да уточним:
-        <ol>
-          <li>Как се боядисва — детайл по детайл на маса/въртележка, или на стативи?</li>
-          <li>Какво отчитаме — брой детайли по вид + RAL цвят (като автоматичната)?</li>
-          <li>Кой и как въвежда бройките — партида по партида?</li>
-          <li>Смяна на цвят = нова партида и Край на деня → Excel в „Времена“ (както при автоматичната)?</li>
-        </ol>
+    <!-- Състояние на линията + отчет за деня -->
+    <div class="panel side">
+      <div class="legendrow"><span>Линията в момента</span></div>
+      <div class="pipe">
+        <div class="cell" id="cellBooth"><div class="t">Камера</div><div class="c" id="boothC">—</div><div class="d" id="boothD"></div></div>
+        <div class="cell" id="cellOven1"><div class="t">Фурна 1</div><div class="c" id="oven1C">—</div><div class="d" id="oven1D"></div></div>
+        <div class="cell" id="cellOven2"><div class="t">Фурна 2</div><div class="c" id="oven2C">—</div><div class="d" id="oven2D"></div></div>
       </div>
+
+      <div class="legendrow" style="margin-top:6px"><span>Днес</span><span id="dayColors" class="sub"></span></div>
+      <div class="row"><span class="k">Общо детайли</span><span class="big" id="dayTotal">0</span></div>
+      <div class="row"><span class="k">Кола боядисани</span><span class="v" id="dayKols">0</span></div>
+      <div class="row"><span class="k">Партиди (цветове)</span><span class="v" id="dayBatches">0</span></div>
+      <ul class="byhang" id="byHang"></ul>
+
+      <button class="btn btn-block" id="endDayBtn">🏁 Край на деня → отчет във „Времена“</button>
+      <div class="note">Отчетът се събира при админите в <b>Цехове → Времена</b>, заедно с автоматичната линия.</div>
     </div>
   </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- Диалог за смяна на цвят -->
+<dialog id="ralDlg"><div class="dlg">
+  <h3>Избери цвят на боядисване (RAL)</h3>
+  <div class="ralgrid" id="ralGrid"></div>
+  <div style="display:flex;gap:10px;justify-content:flex-end">
+    <button class="btn" id="ralCancel">Отказ</button>
+    <button class="btn" id="ralOk" style="background:var(--ink);color:#fff;border-color:var(--ink)">Потвърди</button>
+  </div>
+</div></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=1"></script>
+<script>
+/* ============================================================
+   Ръчна линия за прахово боядисване — логика на оператора.
+   Такт: нареждаш кол отпред → БОЯДИСВАНЕ → колът влиза в Камера,
+   предишният от Камерата минава във Фурна. Бройките се заключват
+   в момента на БОЯДИСВАНЕ и влизат в партидата за текущия цвят.
+   Състоянието се споделя на живо през sync.js (window.MANUAL_LINE).
+   ============================================================ */
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  // ---- Каталог подвески (от data/podveski.json) ----
+  // slots = колко от 2-те места на кола заема. Елха/Дълга Петица заемат целия кол.
+  const PODVESKI = [
+    { code: "2ka",      name: "Двойка",       slots: 1, rows: 2 },
+    { code: "3ka",      name: "Тройка",       slots: 1, rows: 3 },
+    { code: "4ka",      name: "Четворка",     slots: 1, rows: 4 },
+    { code: "5ca",      name: "Петица",       slots: 1, rows: 5 },
+    { code: "trabi",    name: "Тръби",        slots: 1, rows: 2, note: "ляво+дясно = 1 бр." },
+    { code: "elha",     name: "Елха",         slots: 2, rows: 3, big: true },
+    { code: "5ca_long", name: "Дълга Петица", slots: 2, rows: 5, big: true },
+  ];
+  const BARE = { code: "samo_kol", name: "Само кол", note: "гол кол с едри детайли" };
+  const POD_BY = {}; PODVESKI.forEach(p => POD_BY[p.code] = p);
+  const nameOf = code => code === BARE.code ? BARE.name : (POD_BY[code] ? POD_BY[code].name : code);
+  const SLOTS_PER_KOL = 2;
+
+  // ---- RAL палитра (от data/linia.json) ----
+  const RALS = [
+    { code: "RAL 9005", name: "черен",      hex: "#121212" },
+    { code: "RAL 9006", name: "сребрист",   hex: "#A5A8A6" },
+    { code: "RAL 7016", name: "антрацит",   hex: "#373F43" },
+    { code: "RAL 9010", name: "бял",        hex: "#F1EDE3" },
+    { code: "RAL 7035", name: "светло сив", hex: "#C6C8C4" },
+    { code: "RAL 6005", name: "зелен",      hex: "#2C5545" },
+    { code: "RAL 8017", name: "кафяв",      hex: "#45322E" },
+    { code: "RAL 5010", name: "син",        hex: "#0E294B" },
+    { code: "RAL 3020", name: "червен",     hex: "#C1121C" },
+    { code: "RAL 1023", name: "жълт",       hex: "#F0CA00" },
+  ];
+  const RAL_BY = {}; RALS.forEach(r => RAL_BY[r.code] = r);
+  const ralHex = code => (RAL_BY[code] && RAL_BY[code].hex) || "#888888";
+  const ralLabel = code => { const r = RAL_BY[code]; return r ? (r.code + " · " + r.name) : (code || "—"); };
+
+  // ---- Състояние ----
+  const KOLCOUNT = 6;
+  function newKol(no) { return { vid: "k" + (++state.seq), no: no, bare: false, bareCount: 0, items: [] }; }
+  let state = {
+    currentRal: "RAL 9005",
+    kolNo: 1,
+    seq: 0,
+    loading: null,      // текущият кол за нареждане
+    pipeline: [],       // [Камера, Фурна1, Фурна2] — заредени/движещи се кола (визуално)
+    batches: [],        // [{ral, at, byHanger:{}, total, kols}]
+    pendingColor: null, // заявена смяна на цвят (чака единичен кол)
+  };
+  state.loading = newKol(1);
+
+  // ---- Помощни за кола ----
+  function usedSlots(kol) {
+    if (kol.bare) return SLOTS_PER_KOL;
+    return kol.items.reduce((s, it) => s + (POD_BY[it.code] ? POD_BY[it.code].slots : 1), 0);
+  }
+  function kolTotal(kol) {
+    if (kol.bare) return +kol.bareCount || 0;
+    return kol.items.reduce((s, it) => s + (+it.count || 0), 0);
+  }
+  function kolByHanger(kol) {
+    const m = {};
+    if (kol.bare) { if (+kol.bareCount > 0) m[BARE.name] = +kol.bareCount; return m; }
+    kol.items.forEach(it => { const n = +it.count || 0; if (n > 0) m[nameOf(it.code)] = (m[nameOf(it.code)] || 0) + n; });
+    return m;
+  }
+  function kolSummary(kol) {
+    if (kol.bare) return "Само кол";
+    return kol.items.map(it => nameOf(it.code)).join(" + ") || "—";
+  }
+
+  // ---- Действия по нареждането ----
+  function addPod(code) {
+    const kol = state.loading;
+    if (code === BARE.code) {                     // Само кол → изчиства подвеските
+      kol.bare = true; kol.items = [];
+      render(); save(); return;
+    }
+    if (kol.bare) { kol.bare = false; kol.bareCount = 0; }
+    const p = POD_BY[code]; if (!p) return;
+    const has2 = kol.items.some(it => POD_BY[it.code] && POD_BY[it.code].slots === 2);
+    if (has2) { flash("Елха / Дълга Петица заема целия кол — няма място за друго."); return; }
+    if (p.slots === 2 && kol.items.length > 0) { flash("Елха / Дълга Петица се качва само на празен кол."); return; }
+    if (usedSlots(kol) + p.slots > SLOTS_PER_KOL) { flash("Колът е пълен (макс. 2 подвески)."); return; }
+    kol.items.push({ code: code, count: 0 });
+    render(); save();
+  }
+  function removeItem(i) { state.loading.items.splice(i, 1); render(); save(); }
+  function setCount(i, val) { state.loading.items[i].count = Math.max(0, val | 0); updatePaintBtn(); refresh3DHint(); save(); }
+  function setBareCount(val) { state.loading.bareCount = Math.max(0, val | 0); updatePaintBtn(); save(); }
+  function clearKol() { state.loading = newKol(state.kolNo); render(); save(); }
+
+  // ---- БОЯДИСВАНЕ: колът тръгва по линията ----
+  function sendToPaint() {
+    const kol = state.loading;
+    const total = kolTotal(kol);
+    if (total <= 0) { flash("Въведи поне една бройка, преди БОЯДИСВАНЕ."); return; }
+    if (!kol.bare && kol.items.some(it => (+it.count || 0) <= 0)) {
+      if (!confirm("Има подвеска без бройка. Да продължа само с попълнените?")) return;
+    }
+    // прилагане на заявена смяна на цвят — този кол вече е с новия цвят
+    if (state.pendingColor) { state.currentRal = state.pendingColor; state.pendingColor = null; }
+    const ral = state.currentRal;
+    commit(kol, ral);
+    // визуален конвейр: нов кол → Камера, изтласква останалите към Фурната
+    state.pipeline.unshift({ vid: kol.vid, no: kol.no, ral: ral, items: kol.items.slice(), bare: kol.bare, bareCount: kol.bareCount, total: total });
+    if (state.pipeline.length > 3) state.pipeline.pop();   // излиза от Фурната
+    // следващ кол за нареждане
+    state.kolNo = state.kolNo % KOLCOUNT + 1;
+    state.loading = newKol(state.kolNo);
+    render(); save();
+  }
+  // Заключва бройките в партидата за съответния цвят.
+  function commit(kol, ral) {
+    let b = state.batches.length ? state.batches[state.batches.length - 1] : null;
+    if (!b || b.ral !== ral) { b = { ral: ral, at: new Date().toISOString(), byHanger: {}, total: 0, kols: 0 }; state.batches.push(b); }
+    const bh = kolByHanger(kol);
+    Object.entries(bh).forEach(([k, v]) => b.byHanger[k] = (b.byHanger[k] || 0) + v);
+    b.total += kolTotal(kol); b.kols += 1;
+  }
+
+  // ---- Смяна на цвят ----
+  let ralPick = null;
+  function openColorDlg() {
+    ralPick = state.pendingColor || state.currentRal;
+    const grid = $("ralGrid"); grid.innerHTML = "";
+    RALS.forEach(r => {
+      const b = document.createElement("button");
+      b.className = "ralbtn" + (r.code === ralPick ? " sel" : "");
+      b.innerHTML = '<i style="background:' + r.hex + '"></i><span><b>' + r.code + '</b><span>' + r.name + '</span></span>';
+      b.onclick = () => { ralPick = r.code; grid.querySelectorAll(".ralbtn").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); };
+      grid.appendChild(b);
+    });
+    $("ralDlg").showModal();
+  }
+  function confirmColor() {
+    $("ralDlg").close();
+    if (!ralPick || ralPick === state.currentRal) { state.pendingColor = null; render(); save(); return; }
+    // Заявка за смяна: следващият (единичен) кол минава с новия цвят.
+    state.pendingColor = ralPick;
+    render(); save();
+  }
+
+  // ---- Край на деня → отчет във „Времена“ ----
+  async function endDay() {
+    const grand = state.batches.reduce((s, b) => s + b.total, 0);
+    if (grand <= 0) { flash("Няма боядисано за деня — няма какво да се отчете."); return; }
+    if (!confirm("Край на работния ден?\n\nОтчетът се записва за админите във „Времена“ и броячите за деня се нулират.")) return;
+    const now = new Date();
+    const totalsByHanger = {};
+    state.batches.forEach(b => Object.entries(b.byHanger).forEach(([k, v]) => totalsByHanger[k] = (totalsByHanger[k] || 0) + v));
+    const paints = [...new Set(state.batches.map(b => b.ral))];
+    const report = {
+      id: "r" + Date.now().toString(36),
+      date: now.toISOString().slice(0, 10),
+      endedAt: now.toISOString(),
+      by: (window.PAINT_USER || ""),
+      batches: state.batches.map(b => ({ at: b.at, ral: b.ral, total: b.total, byDetail: b.byHanger, byHanger: b.byHanger })),
+      totalsByDetail: {},          // ръчната линия още няма разбивка по вид детайл
+      totalsByHanger: totalsByHanger,
+      paints: paints,
+      total: grand,
+      runSec: 0,
+    };
+    let ok = false;
+    try { if (window.paintSaveReport) ok = await window.paintSaveReport(report); } catch (e) {}
+    // нулирай деня (линията остава каквато е физически, но отчетът тръгва наново)
+    state.batches = [];
+    render(); save();
+    alert(ok
+      ? ("Работният ден е приключен.\nОтчетът (" + grand.toLocaleString("bg") + " бр.) е изпратен във „Времена“.")
+      : "Денят е нулиран, но отчетът не се качи (няма връзка с облака). Опитай пак при връзка.");
+  }
+
+  // ---- Рендер на панела ----
+  function flash(msg) {
+    const n = $("flushNote"); n.hidden = false; n.textContent = "⚠ " + msg; n.style.color = "var(--warn)";
+    clearTimeout(flash._t); flash._t = setTimeout(() => { renderFlushNote(); }, 3200);
+  }
+  function renderFlushNote() {
+    const n = $("flushNote");
+    if (state.pendingColor) {
+      n.hidden = false; n.style.color = "var(--ink-soft)";
+      n.innerHTML = "🎨 Заявена смяна на цвят към <b>" + ralLabel(state.pendingColor) + "</b> — пусни един кол, за да преминеш.";
+    } else { n.hidden = true; }
+  }
+  function renderPods() {
+    const box = $("pods"); box.innerHTML = "";
+    const kol = state.loading;
+    const has2 = !kol.bare && kol.items.some(it => POD_BY[it.code] && POD_BY[it.code].slots === 2);
+    const free = SLOTS_PER_KOL - usedSlots(kol);
+    PODVESKI.forEach(p => {
+      const b = document.createElement("button");
+      b.className = "pod" + (p.big ? " big" : "");
+      b.innerHTML = p.name + (p.note ? '<span class="cap">' + p.note + "</span>" : "");
+      const blocked = kol.bare || has2 || (p.slots > free);
+      b.disabled = blocked;
+      b.onclick = () => addPod(p.code);
+      box.appendChild(b);
+    });
+    const bb = document.createElement("button");
+    bb.className = "pod bare"; bb.innerHTML = BARE.name + '<span class="cap">' + BARE.note + "</span>";
+    bb.onclick = () => addPod(BARE.code);
+    box.appendChild(bb);
+  }
+  function renderLoaded() {
+    const ul = $("loaded"); ul.innerHTML = "";
+    const kol = state.loading;
+    if (kol.bare) {
+      const li = document.createElement("li");
+      li.innerHTML = '<span class="nm">Само кол<small>едри детайли директно на кола</small></span>';
+      const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.value = kol.bareCount || "";
+      inp.placeholder = "бр."; inp.oninput = () => setBareCount(+inp.value);
+      li.appendChild(inp);
+      const u = document.createElement("span"); u.className = "unit"; u.textContent = "бр."; li.appendChild(u);
+      const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
+      del.onclick = () => { kol.bare = false; kol.bareCount = 0; render(); save(); };
+      li.appendChild(del);
+      ul.appendChild(li);
+    } else {
+      kol.items.forEach((it, i) => {
+        const p = POD_BY[it.code];
+        const li = document.createElement("li");
+        li.innerHTML = '<span class="nm">' + nameOf(it.code) + (p ? '<small>' + p.rows + ' реда' + (p.slots === 2 ? ' · заема целия кол' : '') + '</small>' : '') + '</span>';
+        const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.value = it.count || "";
+        inp.placeholder = "бр."; inp.oninput = () => setCount(i, +inp.value);
+        li.appendChild(inp);
+        const u = document.createElement("span"); u.className = "unit"; u.textContent = "бр."; li.appendChild(u);
+        const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
+        del.onclick = () => removeItem(i);
+        li.appendChild(del);
+        ul.appendChild(li);
+      });
+    }
+    const has = kol.bare || kol.items.length > 0;
+    $("loadedEmpty").hidden = has;
+    ul.hidden = !has;
+  }
+  function updatePaintBtn() {
+    const kol = state.loading;
+    $("paintBtn").disabled = kolTotal(kol) <= 0;
+    $("slotUse").textContent = usedSlots(kol);
+  }
+  function renderPipe() {
+    const cells = [["boothC", "boothD", "cellBooth"], ["oven1C", "oven1D", "cellOven1"], ["oven2C", "oven2D", "cellOven2"]];
+    cells.forEach((ids, i) => {
+      const p = state.pipeline[i];
+      const c = $(ids[0]), d = $(ids[1]), cell = $(ids[2]);
+      if (p) { c.textContent = p.total + " бр."; d.textContent = kolSummary(p) + " · " + p.ral.replace("RAL ", ""); cell.classList.add("full"); }
+      else { c.textContent = "—"; d.textContent = ""; cell.classList.remove("full"); }
+    });
+  }
+  function renderDay() {
+    const totalsByHanger = {};
+    state.batches.forEach(b => Object.entries(b.byHanger).forEach(([k, v]) => totalsByHanger[k] = (totalsByHanger[k] || 0) + v));
+    const grand = state.batches.reduce((s, b) => s + b.total, 0);
+    const kols = state.batches.reduce((s, b) => s + (b.kols || 0), 0);
+    const paints = [...new Set(state.batches.map(b => b.ral))];
+    $("dayTotal").textContent = grand.toLocaleString("bg");
+    $("dayKols").textContent = kols;
+    $("dayBatches").textContent = state.batches.length;
+    $("dayColors").textContent = paints.map(c => c.replace("RAL ", "")).join(", ");
+    const ul = $("byHang"); ul.innerHTML = "";
+    Object.entries(totalsByHanger).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
+      const li = document.createElement("li");
+      li.innerHTML = '<span>' + k + '</span><span class="n">' + v.toLocaleString("bg") + '</span>';
+      ul.appendChild(li);
+    });
+  }
+  function renderHead() {
+    $("kolNo").textContent = "КОЛ " + state.loading.no;
+    const showRal = state.pendingColor || state.currentRal;
+    $("kolRalSw").style.background = ralHex(showRal);
+    $("kolRalTx").textContent = ralLabel(showRal);
+    $("ralNowSw").style.background = ralHex(state.currentRal);
+    $("ralNowTx").textContent = state.currentRal;
+  }
+  function render() {
+    renderHead(); renderPods(); renderLoaded(); updatePaintBtn();
+    renderPipe(); renderDay(); renderFlushNote();
+    if (window.LINE3D) window.LINE3D.sync(state);
+  }
+  function refresh3DHint() { if (window.LINE3D) window.LINE3D.sync(state); }
+
+  // ---- Споделяне през sync.js ----
+  function save() { if (window.manualSaveSoon) window.manualSaveSoon(); }
+  window.MANUAL_LINE = {
+    serialize() {
+      return {
+        currentRal: state.currentRal, kolNo: state.kolNo, seq: state.seq,
+        loading: state.loading, pipeline: state.pipeline, batches: state.batches,
+        pendingColor: state.pendingColor,
+      };
+    },
+    apply(d) {
+      if (!d) return;
+      if (typeof d.currentRal === "string") state.currentRal = d.currentRal;
+      if (typeof d.kolNo === "number") state.kolNo = d.kolNo;
+      if (typeof d.seq === "number") state.seq = Math.max(state.seq, d.seq);
+      if (d.loading && typeof d.loading === "object") state.loading = normKol(d.loading);
+      state.pipeline = Array.isArray(d.pipeline) ? d.pipeline.map(normKol) : [];
+      state.batches = Array.isArray(d.batches) ? d.batches : [];
+      state.pendingColor = (typeof d.pendingColor === "string") ? d.pendingColor : null;
+      render();
+    },
+  };
+  function normKol(k) {
+    return {
+      vid: k.vid || ("k" + (++state.seq)), no: +k.no || 1,
+      bare: !!k.bare, bareCount: +k.bareCount || 0,
+      items: Array.isArray(k.items) ? k.items.map(it => ({ code: it.code, count: +it.count || 0 })) : [],
+      ral: k.ral, total: +k.total || 0,
+    };
+  }
+
+  // ---- Закачане на бутоните ----
+  function wire() {
+    $("paintBtn").onclick = sendToPaint;
+    $("colorBtn").onclick = openColorDlg;
+    $("clearBtn").onclick = clearKol;
+    $("endDayBtn").onclick = endDay;
+    $("ralOk").onclick = confirmColor;
+    $("ralCancel").onclick = () => $("ralDlg").close();
+  }
+
+  // Стартиране на панела веднага (3D се вдига отделно).
+  wire(); render();
+  window.MANUAL_PANEL_READY = true;
+})();
+</script>
+
+<script>
+/* ============================================================
+   Фронтален 3D изглед на ръчната линия (Three.js).
+   Показва овалния конвейр, порталите, Камера боядисване и Фурна
+   печене. Коловете се позиционират според състоянието на линията
+   и се плъзгат тактово при БОЯДИСВАНЕ. window.LINE3D.sync(state).
+   ============================================================ */
+(function () {
+  "use strict";
+  if (!window.THREE) return;
+  const stage = document.getElementById("stage");
+  const canvas = document.getElementById("c3d");
+  const RAIL_Y = 2.8, STRAIGHT = 8, R = 3;
+  const COL_PURPLE = 0x8E6BA8, COL_BLUE = 0x2E7BC4;
+  const ROWS = { "2ka": 2, "3ka": 3, "4ka": 4, "5ca": 5, "5ca_long": 5, "elha": 3, "trabi": 2 };
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xeef0ee);
+  scene.fog = new THREE.Fog(0xeef0ee, 42, 95);
+  function vp() { return { w: stage.clientWidth || 800, h: stage.clientHeight || 400 }; }
+  const camera = new THREE.PerspectiveCamera(45, vp().w / vp().h, 0.1, 500);
+  const perspPos = new THREE.Vector3(20, 15, 22), topPos = new THREE.Vector3(0.01, 40, 0.01);
+  camera.position.copy(perspPos);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.4, 0); controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxPolarAngle = Math.PI / 2.05;
+  function resize() { const { w, h } = vp(); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8bcb6, 0.95));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(16, 26, 12); scene.add(sun);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(70, 48), new THREE.MeshStandardMaterial({ color: 0xdadbd8, roughness: 0.6 }));
+  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+
+  // Портали
+  const portalMat = new THREE.MeshStandardMaterial({ color: 0x8b9095, roughness: 0.5, metalness: 0.6 });
+  function makePortal(px, zc) { const g = new THREE.Group(); const H = 3.3, span = 1.8, t = 0.08;
+    [zc - span / 2, zc + span / 2].forEach(z => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(t, H, t), portalMat); leg.position.set(px, H / 2, z); g.add(leg);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.22), portalMat); base.position.set(px, 0.025, z); g.add(base);
+    });
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(t, t, span + t), portalMat); beam.position.set(px, H, zc); g.add(beam);
+    const link = new THREE.Mesh(new THREE.BoxGeometry(0.05, H - RAIL_Y, 0.05), portalMat); link.position.set(px, (H + RAIL_Y) / 2, zc); g.add(link);
+    return g; }
+  scene.add(makePortal(-3.8, 3)); scene.add(makePortal(6.5, 3)); scene.add(makePortal(-7, -3)); scene.add(makePortal(7, -3));
+
+  // Конвейр (стадион-овал)
+  function stadiumPoints(n) { const p = [];
+    for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + Math.PI * i / n; p.push(new THREE.Vector3(STRAIGHT + Math.cos(a) * R, RAIL_Y, Math.sin(a) * R)); }
+    for (let i = 0; i <= n; i++) { const a = Math.PI / 2 + Math.PI * i / n; p.push(new THREE.Vector3(-STRAIGHT + Math.cos(a) * R, RAIL_Y, Math.sin(a) * R)); }
+    return p; }
+  const curve = new THREE.CatmullRomCurve3(stadiumPoints(24), true);
+  const rail = new THREE.Mesh(new THREE.TubeGeometry(curve, 260, 0.11, 16, true), new THREE.MeshStandardMaterial({ color: COL_PURPLE, roughness: 0.5, metalness: 0.35 }));
+  scene.add(rail);
+
+  // Точки за най-близък параметър по кривата (позициониране на кола)
+  const samples = []; for (let i = 0; i < 700; i++) { const u = i / 700, p = curve.getPointAt(u); samples.push({ u, x: p.x, z: p.z }); }
+  function nearestU(x, z) { let bu = 0, bd = 1e9; for (const s of samples) { const dx = s.x - x, dz = s.z - z, d = dx * dx + dz * dz; if (d < bd) { bd = d; bu = s.u; } } return bu; }
+
+  // Материали
+  const mTrolley = new THREE.MeshStandardMaterial({ color: 0x555550, roughness: 0.5, metalness: 0.7 });
+  const mBlue = new THREE.MeshStandardMaterial({ color: COL_BLUE, roughness: 0.45, metalness: 0.5 });
+  const mFrame = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.5, metalness: 0.55 });
+  const mRow = new THREE.MeshStandardMaterial({ color: 0x7f8489, roughness: 0.55, metalness: 0.5 });
+
+  function label(text, scale, color) { const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+    const x = c.getContext("2d"); x.font = "bold 60px Segoe UI, sans-serif"; x.fillStyle = color || "#2c2c2a";
+    x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(text, 128, 64);
+    const t = new THREE.CanvasTexture(c);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false }));
+    s.scale.set(scale, scale * 0.5, 1); return s; }
+
+  function makePodveska(rows, partMat) { const g = new THREE.Group(); const W = 0.72, H = 1.3, s = 0.045;
+    const top = new THREE.Mesh(new THREE.BoxGeometry(W, s, s), mFrame); g.add(top);
+    const bot = new THREE.Mesh(new THREE.BoxGeometry(W, s, s), mFrame); bot.position.y = -H; g.add(bot);
+    const l = new THREE.Mesh(new THREE.BoxGeometry(s, H, s), mFrame); l.position.set(-W / 2, -H / 2, 0); g.add(l);
+    const r = new THREE.Mesh(new THREE.BoxGeometry(s, H, s), mFrame); r.position.set(W / 2, -H / 2, 0); g.add(r);
+    for (let i = 0; i < rows; i++) { const y = -H * i / (rows - 1 || 1);
+      if (i > 0 && i < rows - 1) { const row = new THREE.Mesh(new THREE.BoxGeometry(W, 0.035, 0.035), mRow); row.position.y = y; g.add(row); }
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.03), partMat); p.position.set(0, y - 0.12, 0.05); g.add(p); }
+    return g; }
+
+  // Един кол: подвески по кодове (или гол кол), боядисан цвят tintHex
+  function makeKol(codes, bare, tintHex, name) {
+    const g = new THREE.Group();
+    const partMat = new THREE.MeshStandardMaterial({ color: tintHex != null ? tintHex : 0xb9bec4, roughness: 0.7, metalness: tintHex != null ? 0.15 : 0.25 });
+    const trolley = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.26), mTrolley); trolley.position.y = RAIL_Y; g.add(trolley);
+    const drop = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 10), mTrolley); drop.position.y = RAIL_Y - 0.28; g.add(drop);
+    const list = bare ? [] : (codes || []);
+    const barLen = (list.length > 1 || bare) ? 1.4 : 0.9;
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.07, 0.07), mBlue); bar.position.y = RAIL_Y - 0.55; g.add(bar);
+    if (bare) {
+      [-0.4, 0.4].forEach(xo => { const b = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.12), partMat); b.position.set(xo, RAIL_Y - 0.95, 0.05); g.add(b); });
+    } else {
+      const n = list.length || 1;
+      list.forEach((code, i) => { const pod = makePodveska(ROWS[code] || 3, partMat);
+        const xo = n === 1 ? 0 : (-barLen / 2 + barLen * (i + 0.5) / n); pod.position.set(xo, RAIL_Y - 0.6, 0); g.add(pod); });
+    }
+    if (name) { const lab = label(name, 1.7, "#1c4e80"); lab.position.set(0, RAIL_Y + 0.75, 0); lab.raycast = function () {}; g.add(lab); }
+    return g; }
+
+  // Камера боядисване + Фурна печене (прозрачни)
+  function textSprite(lines, scale, color) { lines = Array.isArray(lines) ? lines : [lines];
+    const c = document.createElement("canvas"); c.width = 512; c.height = 256; const x = c.getContext("2d");
+    x.font = "bold 58px Segoe UI, sans-serif"; x.fillStyle = color; x.textAlign = "center"; x.textBaseline = "middle";
+    const lh = 68, y0 = 128 - (lines.length - 1) * lh / 2; lines.forEach((ln, i) => x.fillText(ln, 256, y0 + i * lh));
+    const t = new THREE.CanvasTexture(c); const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false }));
+    s.scale.set(scale, scale * 0.5, 1); return s; }
+  function makeEnclosure(cx, len, Wz, H, mat, edgeColor, closedEnds) { const g = new THREE.Group(); const zc = -3, t = 0.06;
+    [zc - Wz / 2, zc + Wz / 2].forEach(z => { const w = new THREE.Mesh(new THREE.BoxGeometry(len, H, t), mat); w.position.set(cx, H / 2, z); g.add(w); });
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(len, t, Wz), mat); roof.position.set(cx, H, zc); g.add(roof);
+    if (closedEnds) { [cx - len / 2, cx + len / 2].forEach(x => { const e = new THREE.Mesh(new THREE.BoxGeometry(t, H, Wz), mat); e.position.set(x, H / 2, zc); g.add(e); }); }
+    const ed = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(len, H, Wz)), new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.9 }));
+    ed.position.set(cx, H / 2, zc); g.add(ed); return g; }
+  const boothMat = new THREE.MeshStandardMaterial({ color: 0x121212, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, roughness: 0.3 });
+  scene.add(makeEnclosure(-4.6, 3.6, 0.9, 3.0, boothMat, 0x1f8fd6, false));
+  const lB = textSprite(["Камера", "боядисване"], 3.2, "#1f8fd6"); lB.position.set(-4.6, 3.9, -3); lB.raycast = function () {}; scene.add(lB);
+  const ovenMat = new THREE.MeshStandardMaterial({ color: 0x9c4038, transparent: true, opacity: 0.26, depthWrite: false, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.2 });
+  const oven = makeEnclosure(4.2, 4.4, 0.9, 3.0, ovenMat, 0xd7263d, true);
+  [-0.9, 0.9].forEach(dx => { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.9, 12), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.6, metalness: 0.4 })); st.position.set(4.2 + dx, 3.45, -3); oven.add(st); });
+  scene.add(oven);
+  const lO = textSprite(["Фурна", "печене"], 3.2, "#d7263d"); lO.position.set(4.2, 3.9, -3); lO.raycast = function () {}; scene.add(lO);
+
+  // Станции по кривата (u-параметри)
+  const U_LOAD = nearestU(2, 3);     // отпред — операторът нарежда
+  const U_BOOTH = nearestU(-4.6, -3); // Камера
+  const U_OVEN1 = nearestU(1.8, -3);  // на влизане към Фурната
+  const U_OVEN2 = nearestU(4.2, -3);  // Фурна
+  const STATION_U = [U_BOOTH, U_OVEN1, U_OVEN2];
+
+  // Живи кола във визуализацията: vid -> group
+  const viz = {};
+  function hexNum(h) { return parseInt(String(h).replace("#", ""), 16); }
+  function placeSpawn(g, u) { g.userData.u = u; g.userData.targetU = u; const p = curve.getPointAt(((u % 1) + 1) % 1); g.position.set(p.x, 0, p.z); }
+
+  function sync(state) {
+    boothMat.color.setHex(hexNum(ralHexOf(state.currentRal)));
+    const want = [];
+    if (state.loading) want.push({ vid: state.loading.vid, no: state.loading.no, codes: state.loading.items.map(i => i.code), bare: state.loading.bare, tint: null, u: U_LOAD, name: "КОЛ " + state.loading.no });
+    (state.pipeline || []).slice(0, 3).forEach((p, i) => want.push({ vid: p.vid, no: p.no, codes: (p.items || []).map(x => x.code), bare: !!p.bare, tint: hexNum(ralHexOf(p.ral)), u: STATION_U[i], name: "КОЛ " + p.no }));
+    const keep = {};
+    want.forEach(d => {
+      keep[d.vid] = true;
+      const h = JSON.stringify([d.codes, d.bare, d.tint, d.name]);
+      let g = viz[d.vid];
+      if (g && g.userData.hash !== h) { scene.remove(g); disposeGroup(g); g = null; }
+      if (!g) { g = makeKol(d.codes, d.bare, d.tint, d.name); g.userData.hash = h; scene.add(g); viz[d.vid] = g; placeSpawn(g, d.vid === lastLoadingVid ? U_LOAD : U_LOAD); }
+      g.userData.targetU = d.u;
+    });
+    // махни излезлите
+    Object.keys(viz).forEach(vid => { if (!keep[vid]) { scene.remove(viz[vid]); disposeGroup(viz[vid]); delete viz[vid]; } });
+    lastLoadingVid = state.loading ? state.loading.vid : null;
+  }
+  let lastLoadingVid = null;
+  function disposeGroup(g) { g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map) o.material.map.dispose(); }); }
+
+  // RAL hex справка (огледало на палитрата в панела)
+  const RAL_HEX = { "RAL 9005": "#121212", "RAL 9006": "#A5A8A6", "RAL 7016": "#373F43", "RAL 9010": "#F1EDE3", "RAL 7035": "#C6C8C4", "RAL 6005": "#2C5545", "RAL 8017": "#45322E", "RAL 5010": "#0E294B", "RAL 3020": "#C1121C", "RAL 1023": "#F0CA00" };
+  function ralHexOf(code) { return RAL_HEX[code] || "#888888"; }
+
+  // Изгледи / контроли
+  let autorot = false, flyT = null;
+  const bRot = document.getElementById("bRot"), bTop = document.getElementById("bTop"), bPersp = document.getElementById("bPersp");
+  bRot.onclick = () => { autorot = !autorot; controls.autoRotate = autorot; controls.autoRotateSpeed = 0.7; bRot.classList.toggle("on", autorot); };
+  bTop.onclick = () => { setView("top"); flyTo(topPos, new THREE.Vector3(0, 0, 0)); };
+  bPersp.onclick = () => { setView("persp"); flyTo(perspPos, new THREE.Vector3(0, 1.4, 0)); };
+  function setView(v) { bTop.classList.toggle("on", v === "top"); bPersp.classList.toggle("on", v === "persp"); }
+  function flyTo(pos, tgt) { flyT = { from: camera.position.clone(), to: pos.clone(), tf: controls.target.clone(), tt: tgt.clone(), t: 0 }; }
+
+  // Заключване на изгледа (камерата) — пази предпочитания ъгъл локално
+  const LS = "rachna_view_v1";
+  try { const sv = JSON.parse(localStorage.getItem(LS)); if (sv && sv.pos) { camera.position.set(sv.pos[0], sv.pos[1], sv.pos[2]); controls.target.set(sv.tgt[0], sv.tgt[1], sv.tgt[2]); } } catch (e) {}
+  document.getElementById("bLock").onclick = () => {
+    try { localStorage.setItem(LS, JSON.stringify({ pos: camera.position.toArray(), tgt: controls.target.toArray() })); toast("Изгледът е заключен ✓"); }
+    catch (e) { toast("Записът не е наличен тук"); }
+  };
+  document.getElementById("bReset").onclick = () => { try { localStorage.removeItem(LS); } catch (e) {} setView("persp"); flyTo(perspPos, new THREE.Vector3(0, 1.4, 0)); toast("Върнато към начален изглед"); };
+  let toastT = null;
+  function toast(msg) { let d = document.getElementById("toast3d"); if (!d) { d = document.createElement("div"); d.id = "toast3d"; d.style.cssText = "position:absolute;bottom:56px;left:50%;transform:translateX(-50%);background:rgba(31,56,100,.92);color:#fff;padding:7px 13px;border-radius:8px;font-size:12px;transition:opacity .3s;pointer-events:none;font-family:'IBM Plex Mono',monospace"; stage.appendChild(d); } d.textContent = msg; d.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(() => d.style.opacity = "0", 1600); }
+
+  // Анимация
+  const clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    // тактово плъзгане на коловете към целевия параметър (винаги напред)
+    Object.values(viz).forEach(g => {
+      let u = g.userData.u, tu = g.userData.targetU;
+      if (tu < u - 1e-4) tu += 1;                 // движи се напред по конвейра
+      if (Math.abs(tu - u) > 1e-4) { u += (tu - u) * Math.min(1, dt * 2.2); g.userData.u = u % 1; const p = curve.getPointAt(((u % 1) + 1) % 1); g.position.set(p.x, 0, p.z); }
+    });
+    if (flyT) { flyT.t = Math.min(1, flyT.t + dt * 1.6); const e = flyT.t * flyT.t * (3 - 2 * flyT.t);
+      camera.position.lerpVectors(flyT.from, flyT.to, e); controls.target.lerpVectors(flyT.tf, flyT.tt, e); if (flyT.t >= 1) flyT = null; }
+    controls.update(); renderer.render(scene, camera);
+  }
+  resize(); animate();
+  window.addEventListener("resize", resize);
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+
+  window.LINE3D = { sync };
+})();
+</script>
+
+<script src="sync.js?v=2"></script>
 </body>
 </html>
