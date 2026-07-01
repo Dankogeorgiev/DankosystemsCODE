@@ -54,7 +54,7 @@ async function loadAccess(email) {
 }
 function applyAccess() {
   const adminOnly = document.querySelectorAll(
-    '#btn-new,#btn-new-order,#btn-new-claim,#btn-report,#btn-claim-report,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno,#btn-export,label[for="import-file"]');
+    '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {
     adminOnly.forEach(el => el.style.display = "");
     document.querySelector(".layout").style.display = "";
@@ -900,18 +900,12 @@ function wireHandlers() {
 
   document.getElementById("btn-new").addEventListener("click", () => newSample("sample"));
   document.getElementById("btn-new-order").addEventListener("click", () => newSample("order"));
-  document.getElementById("btn-report").addEventListener("click", renderReport);
   document.getElementById("btn-report-close").addEventListener("click", () => {
     document.getElementById("report").hidden = true; renderForm();
   });
   document.getElementById("btn-report-print").addEventListener("click", () => window.print());
   document.getElementById("btn-notify-overdue").addEventListener("click", notifyOverdue);
   document.getElementById("btn-notify-emails").addEventListener("click", editNotifyEmails);
-  document.getElementById("btn-export").addEventListener("click", exportData);
-  document.getElementById("import-file").addEventListener("change", e => {
-    if (e.target.files[0]) importData(e.target.files[0]);
-    e.target.value = "";
-  });
   document.getElementById("search").addEventListener("input", renderList);
   document.getElementById("type-filter").addEventListener("change", renderList);
   document.getElementById("btn-print").addEventListener("click", () => window.print());

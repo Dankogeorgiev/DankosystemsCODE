@@ -28,27 +28,15 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 141</p>
+      <p class="login-version">версия 142</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
-    <div class="brand">
-      <img src="logo.png?v=139" alt="Данко Системс" class="brand-logo"
-           onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
-      <div id="brand-fallback" class="brand-fallback">
-        <span class="logo">DS</span>
-        <div>
-          <h1>Данко Системс</h1>
-          <p class="subtitle">Следене на изпълнението на мострите</p>
-        </div>
-      </div>
-    </div>
     <div class="header-actions">
       <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
       <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
       <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
-      <button id="btn-report" class="btn">Обща справка</button>
       <button id="btn-claim-report" class="btn">Регистър рекламации</button>
       <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
       <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
@@ -57,9 +45,6 @@
       <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
       <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
       <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
-      <button id="btn-export" class="btn">Експорт</button>
-      <label class="btn" for="import-file">Импорт</label>
-      <input type="file" id="import-file" accept="application/json" hidden />
       <span class="user-box"><span id="user-email"></span>
         <button id="btn-logout" class="btn btn-small">Изход</button></span>
     </div>
@@ -466,7 +451,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js?v=139"></script>
-  <script src="app.js?v=142"></script>
+  <script src="app.js?v=143"></script>
   <script src="tasks.js?v=144"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
