@@ -54,7 +54,7 @@ async function loadAccess(email) {
 }
 function applyAccess() {
   const adminOnly = document.querySelectorAll(
-    '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
+    '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {
     adminOnly.forEach(el => el.style.display = "");
     document.querySelector(".layout").style.display = "";

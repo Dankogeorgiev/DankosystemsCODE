@@ -151,6 +151,8 @@ body {
 .btn-msg:hover { background: #c2410c; }
 .btn-claim-reg { background: #e11d48; color: #fff; border-color: #e11d48; }
 .btn-claim-reg:hover { background: #be123c; }
+.btn-offer { background: #d97706; color: #fff; border-color: #d97706; }
+.btn-offer:hover { background: #b45309; }
 
 /* Контакти */
 .contacts-table th, .contacts-table td { font-size: 13px; vertical-align: top; }
