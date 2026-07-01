@@ -43,13 +43,17 @@
   .dot{width:12px;height:12px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.15)}
   .item input[type=text]{flex:1 1 110px;min-width:0;background:transparent;border:none;font-family:var(--body)}
   .palette{display:block}
-  .folder{border:1px solid var(--line);border-radius:10px;margin:0 0 10px;background:#fff;overflow:hidden}
-  .fhead{display:flex;align-items:center;gap:7px;padding:7px 9px;background:#F6F8FB;border-bottom:1px solid var(--line)}
-  .fhead .fico{font-size:14px;flex:0 0 auto}
-  .fname{flex:1 1 auto;min-width:0;font-family:var(--body);font-weight:700;font-size:13px;background:transparent;border:1px solid transparent;border-radius:6px;padding:3px 5px;color:var(--ink)}
-  .fname:hover{border-color:var(--line)}.fname:focus{background:#fff;border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .folder{border:1px solid var(--line);border-radius:10px;margin:0 0 8px;background:#fff;overflow:hidden}
+  .fhead{display:flex;align-items:center;gap:7px;padding:9px 10px;background:#F6F8FB;cursor:pointer;user-select:none}
+  .fhead:hover{background:#EDF1F7}
+  .folder.open .fhead{border-bottom:1px solid var(--line)}
+  .fchev{flex:0 0 auto;font-size:11px;color:var(--muted);transition:transform .15s;display:inline-block}
+  .folder.open .fchev{transform:rotate(90deg)}
+  .fhead .fico{font-size:15px;flex:0 0 auto}
+  .fname{flex:1 1 auto;min-width:0;font-family:var(--body);font-weight:700;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .btn.xs{padding:3px 6px;font-size:11px;color:var(--muted);flex:0 0 auto}.btn.xs:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   .fcount{font-family:var(--mono);font-size:10px;color:var(--muted);background:#E9EEF5;border-radius:10px;padding:2px 7px;flex:0 0 auto}
-  .fbody{padding:7px 9px}
+  .fbody{padding:8px 9px}
   .fmove{font-size:11px;padding:3px 5px;max-width:118px;flex:0 0 auto}
   .chip{display:flex;align-items:center;gap:6px;font-family:var(--body);font-size:12.5px;border:1px solid var(--line);background:#F8FAFC;border-radius:20px;padding:5px 10px;cursor:pointer}
   .chip:hover{border-color:var(--ink)}
@@ -212,13 +216,16 @@ const PARTPAL=['#2C7A8C','#E07B39','#8E5BA6','#4E8A47','#C0518A','#B8842B','#3B6
 // Папки за детайли (каталогът е групиран). Стандартните влизат в „ЧЕРНО 9005“.
 const DEFAULT_GROUPS=['ДЕТАЙЛИ ЧЕРНО 9005','ДЕТАЙЛИ СИВО 9006','ДЕТАЙЛИ МАРКО ТЕКСТУРА','ДЕТАЙЛИ Tip Toe'];
 let groups=DEFAULT_GROUPS.map(nm=>({id:nid(),name:nm}));
+const openGroups=new Set();   // кои папки са отворени сега (по подразбиране всички са затворени)
 let parts=STANDARD_PARTS.map((nm,i)=>({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:'',group:groups[0].id}));
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 // Поддържа целостта: винаги поне една папка; всеки детайл сочи към валидна папка.
 // (Старите облачни данни нямат папки → всички детайли влизат в първата „ЧЕРНО 9005“.)
 function normalizeGroups(){if(!Array.isArray(groups)||!groups.length)groups=[{id:nid(),name:'Детайли'}];const ids=new Set(groups.map(g=>g.id)),f=groups[0].id;parts.forEach(p=>{if(!ids.has(p.group))p.group=f;});}
+function toggleGroup(gid){if(openGroups.has(gid))openGroups.delete(gid);else openGroups.add(gid);renderPalette();}
 function addGroup(){groups.push({id:nid(),name:'Нова папка'});refresh();}
-function addPartToGroup(gid){parts.push({id:nid(),name:'Нов детайл',perRow:18,color:PAL[parts.length%PAL.length],img:'',group:gid});refresh();}
+function renameGroup(gid){const g=groups.find(x=>x.id===gid);if(!g)return;const nm=prompt('Име на папката:',g.name);if(nm===null)return;g.name=nm.trim()||g.name;refresh();}
+function addPartToGroup(gid){openGroups.add(gid);parts.push({id:nid(),name:'Нов детайл',perRow:18,color:PAL[parts.length%PAL.length],img:'',group:gid});refresh();}
 function deleteGroup(gid){if(groups.length<=1){alert('Трябва да остане поне една папка.');return;}
   const other=groups.find(g=>g.id!==gid);const gp=parts.filter(p=>p.group===gid);
   if(gp.length&&!confirm('Папката съдържа '+gp.length+' детайл(а). Да ги преместя в „'+other.name+'“ и да изтрия папката?'))return;
@@ -300,13 +307,15 @@ function partRow(p){return `<div class="item"><input type="color" value="${p.col
     <select class="fmove" data-p="${p.id}" data-f="group" title="Премести в друга папка">${groups.map(g=>`<option value="${g.id}"${p.group===g.id?' selected':''}>${esc(g.name)}</option>`).join('')}</select>
     <button class="btn x" data-delp="${p.id}">×</button></div>`;}
 function renderPalette(){normalizeGroups();
-  $('palette').innerHTML=groups.map(g=>{const gp=parts.filter(p=>p.group===g.id);
-    return `<div class="folder"><div class="fhead"><span class="fico">📁</span>
-      <input type="text" class="fname" value="${esc(g.name)}" data-g="${g.id}" title="Име на папката">
-      <span class="fcount">${gp.length}</span>
+  $('palette').innerHTML=groups.map(g=>{const gp=parts.filter(p=>p.group===g.id),open=openGroups.has(g.id);
+    return `<div class="folder${open?' open':''}"><div class="fhead" data-toggle="${g.id}" title="${open?'Скрий детайлите':'Покажи детайлите'}">
+      <span class="fchev">▸</span><span class="fico">📁</span>
+      <span class="fname">${esc(g.name)}</span>
+      <button class="btn xs" data-editgroup="${g.id}" title="Преименувай папката">✎</button>
+      <span class="fcount">${gp.length} бр.</span>
       <button class="btn" data-addpart="${g.id}">+ детайл</button>
       <button class="btn x" data-delgroup="${g.id}" title="Изтрий папката">×</button></div>
-      <div class="fbody">${gp.map(partRow).join('')||'<div class="note">празна папка — натисни „+ детайл“</div>'}</div></div>`;}).join('');}
+      ${open?`<div class="fbody">${gp.map(partRow).join('')||'<div class="note">празна папка — натисни „+ детайл“</div>'}</div>`:''}</div>`;}).join('');}
 const hangerOpts=s=>hangerTypes.map(h=>`<option value="${h.id}"${h.id===s?' selected':''}>${h.name}</option>`).join('');
 function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.hanger);normalizeEntry(e);
   const used=e.rowParts.filter(Boolean).length,n=h?h.rows:0;
@@ -439,7 +448,6 @@ function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
 document.addEventListener('input',e=>{const t=e.target;
   if(t.dataset.h){const h=H(+t.dataset.h);if(t.dataset.f==='name')h.name=t.value;else h.rows=Math.max(1,+t.value||1);refresh();}
   else if(t.dataset.p&&t.dataset.f!=='group'){const p=P(+t.dataset.p);if(p){if(t.dataset.f==='name')p.name=t.value;else if(t.dataset.f==='color')p.color=t.value;else p.perRow=Math.max(0,+t.value||0);refresh();}}
-  else if(t.dataset.g){const g=groups.find(x=>x.id===+t.dataset.g);if(g)g.name=t.value;}   // преименуване на папка (без пре-рисуване, за да не подскача курсорът)
   else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
   else if(t.dataset.cfgn){const en=entries.find(x=>x.id===+t.dataset.cfgn);if(en){normalizeEntry(en);en.rowParts[+t.dataset.row].n=(t.value===''?null:Math.max(0,+t.value||0));buildHangers();renderEntries();update();const tot=document.querySelector('#entryConfig .cfg-total');if(tot)tot.innerHTML='Общо: <b>'+cap(en)+' бр/подв.</b>';}}
   else if(t.id==='paintRal'){paintRal=t.value.trim();const hx=ralToHex(paintRal);if(hx){$('paint').value=hx;if(paintToday.length)paintToday[paintToday.length-1]=hx;}renderColor();update();}
@@ -448,15 +456,17 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.e&&t.dataset.f==='hanger'){entries.find(x=>x.id===+t.dataset.e).hanger=+t.value;refresh();}
   if(t.dataset.cfg){const en=entries.find(x=>x.id===+t.dataset.cfg);if(en){normalizeEntry(en);const r=en.rowParts[+t.dataset.row];r.p=t.value?+t.value:null;r.n=null;refresh();}}
   if(t.dataset.p&&t.dataset.f==='group'){const p=P(+t.dataset.p);if(p){p.group=+t.value;refresh();}}   // преместване на детайл в друга папка
-  if(t.dataset.g){refresh();}   // преименуването е приключило (blur) → опресни списъците
   if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;if(ralToHex(paintRal)!==t.value)paintRal='';renderColor();update();}});
-document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-delh],[data-delp],[data-dele],[data-addpart],[data-delgroup]')||e.target;
+document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-delh],[data-delp],[data-dele],[data-addpart],[data-delgroup],[data-editgroup]')||e.target;
   if(t.dataset.sel){selEntry=+t.dataset.sel;renderEntries();renderConfig();return;}
   if(t.dataset.delh){hangerTypes=hangerTypes.filter(h=>h.id!=+t.dataset.delh);refresh();return;}
   if(t.dataset.delp){parts=parts.filter(p=>p.id!=+t.dataset.delp);refresh();return;}
   if(t.dataset.dele){entries=entries.filter(x=>x.id!=+t.dataset.dele);refresh();return;}
   if(t.dataset.addpart){addPartToGroup(+t.dataset.addpart);return;}
-  if(t.dataset.delgroup){deleteGroup(+t.dataset.delgroup);return;}});
+  if(t.dataset.delgroup){deleteGroup(+t.dataset.delgroup);return;}
+  if(t.dataset.editgroup){renameGroup(+t.dataset.editgroup);return;}
+  const tog=e.target.closest('[data-toggle]');   // клик върху папката (без бутоните) → отвори/затвори
+  if(tog){toggleGroup(+tog.dataset.toggle);return;}});
 $('addHanger').onclick=()=>{hangerTypes.push({id:nid(),name:'Нова подвеска',rows:3,color:PAL[hangerTypes.length%PAL.length]});refresh();};
 $('addGroup').onclick=addGroup;
 $('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,rowParts:[]};entries.push(e);selEntry=e.id;refresh();};
@@ -532,6 +542,6 @@ refresh();requestAnimationFrame(tick);
 <script src="loop3d.js?v=2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=155"></script>
+<script src="sync.js?v=156"></script>
 </body>
 </html>

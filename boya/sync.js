@@ -101,9 +101,9 @@
   // Записвай при действия. Тези слушатели се добавят СЛЕД тези на
   // приложението, затова при тях състоянието вече е променено.
   const CHANGE_IDS = ["belt", "pitch", "preview", "capacity", "paint", "paintRal"];
-  const CLICK_SEL = "#startBtn,#resetBtn,#newColor,#addHanger,#addGroup,#addEntry,[data-addpart],[data-delgroup],[data-delh],[data-delp],[data-dele]";
-  document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e || t.dataset.cfgn || t.dataset.g)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
-  document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || t.dataset.g || (t.dataset.p && t.dataset.f === "group") || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
+  const CLICK_SEL = "#startBtn,#resetBtn,#newColor,#addHanger,#addGroup,#addEntry,[data-addpart],[data-delgroup],[data-editgroup],[data-delh],[data-delp],[data-dele]";
+  document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e || t.dataset.cfgn)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
+  document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || (t.dataset.p && t.dataset.f === "group") || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
   document.addEventListener("click", e => { if (e.target.closest && e.target.closest(CLICK_SEL)) saveSoon(); });
 
   async function start() {
