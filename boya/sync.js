@@ -20,7 +20,7 @@
   function serialize() {
     return {
       v: 1, by: clientId, uid,
-      hangerTypes, parts, entries, selEntry, paintToday,
+      hangerTypes, parts, groups: (typeof groups !== "undefined" ? groups : []), entries, selEntry, paintToday,
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
       belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: 1, capacity: +$id("capacity").value || 62,
       partsSeeded, demoCleaned,
@@ -32,6 +32,7 @@
     if (!d) return;
     if (Array.isArray(d.hangerTypes)) hangerTypes = d.hangerTypes;
     if (Array.isArray(d.parts)) parts = d.parts;
+    if (Array.isArray(d.groups) && d.groups.length) groups = d.groups;   // папки на детайлите (стари данни → пазим стандартните)
     if (Array.isArray(d.entries)) entries = d.entries;
     if (Array.isArray(d.paintToday)) paintToday = d.paintToday;
     selEntry = (d.selEntry != null && entries.some(e => e.id === d.selEntry)) ? d.selEntry : (entries[0] ? entries[0].id : null);
@@ -100,9 +101,9 @@
   // Записвай при действия. Тези слушатели се добавят СЛЕД тези на
   // приложението, затова при тях състоянието вече е променено.
   const CHANGE_IDS = ["belt", "pitch", "preview", "capacity", "paint", "paintRal"];
-  const CLICK_SEL = "#startBtn,#resetBtn,#newColor,#addHanger,#addPart,#addEntry,[data-delh],[data-delp],[data-dele]";
-  document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e || t.dataset.cfgn)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
-  document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
+  const CLICK_SEL = "#startBtn,#resetBtn,#newColor,#addHanger,#addGroup,#addEntry,[data-addpart],[data-delgroup],[data-delh],[data-delp],[data-dele]";
+  document.addEventListener("input", e => { const t = e.target; if (t.dataset && (t.dataset.h || t.dataset.p || t.dataset.e || t.dataset.cfgn || t.dataset.g)) saveSoon(); else if (CHANGE_IDS.includes(t.id)) saveSoon(); });
+  document.addEventListener("change", e => { const t = e.target; if ((t.dataset && (t.dataset.cfg || t.dataset.g || (t.dataset.p && t.dataset.f === "group") || (t.dataset.e && t.dataset.f === "hanger"))) || t.id === "paint") saveSoon(); });
   document.addEventListener("click", e => { if (e.target.closest && e.target.closest(CLICK_SEL)) saveSoon(); });
 
   async function start() {

@@ -43,6 +43,14 @@
   .dot{width:12px;height:12px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.15)}
   .item input[type=text]{flex:1 1 110px;min-width:0;background:transparent;border:none;font-family:var(--body)}
   .palette{display:block}
+  .folder{border:1px solid var(--line);border-radius:10px;margin:0 0 10px;background:#fff;overflow:hidden}
+  .fhead{display:flex;align-items:center;gap:7px;padding:7px 9px;background:#F6F8FB;border-bottom:1px solid var(--line)}
+  .fhead .fico{font-size:14px;flex:0 0 auto}
+  .fname{flex:1 1 auto;min-width:0;font-family:var(--body);font-weight:700;font-size:13px;background:transparent;border:1px solid transparent;border-radius:6px;padding:3px 5px;color:var(--ink)}
+  .fname:hover{border-color:var(--line)}.fname:focus{background:#fff;border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .fcount{font-family:var(--mono);font-size:10px;color:var(--muted);background:#E9EEF5;border-radius:10px;padding:2px 7px;flex:0 0 auto}
+  .fbody{padding:7px 9px}
+  .fmove{font-size:11px;padding:3px 5px;max-width:118px;flex:0 0 auto}
   .chip{display:flex;align-items:center;gap:6px;font-family:var(--body);font-size:12.5px;border:1px solid var(--line);background:#F8FAFC;border-radius:20px;padding:5px 10px;cursor:pointer}
   .chip:hover{border-color:var(--ink)}
   .chip .pr{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
@@ -150,7 +158,7 @@
         <div class="note">Редове = напречни железа на подвеската.</div>
       </fieldset>
       <fieldset>
-        <legend><span>Детайли (каталог)</span><button class="btn" id="addPart">+ детайл</button></legend>
+        <legend><span>Детайли (каталог)</span><button class="btn" id="addGroup">+ папка</button></legend>
         <div class="palette" id="palette"></div>
         <div class="note">Това е базата с детайли. Закачаш ги по редовете на подвеската (вдясно). Числото е <b>бр/ред</b>.</div>
       </fieldset>
@@ -201,7 +209,20 @@ let hangerTypes=[
    Всеки ред е 18 бр. по подразбиране; снимка се добавя по-късно (поле img). */
 const STANDARD_PARTS=['Единичка','Двойка','Тройка','Дебела двойка','Дебела тройка','Винкел Италия','Крак','Винкел Потапящ','Дълго Потапящ','Късо Потапящ','Късо МБ','Бастун МБ','Криво МБ','Винкел МБ','Разпънка','Планка с колело'];
 const PARTPAL=['#2C7A8C','#E07B39','#8E5BA6','#4E8A47','#C0518A','#B8842B','#3B6FB0','#0E7490','#B45309','#7C3AED','#15803D','#BE185D','#0F766E','#C2410C','#6D28D9','#1D4ED8'];
-let parts=STANDARD_PARTS.map((nm,i)=>({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:''}));
+// Папки за детайли (каталогът е групиран). Стандартните влизат в „ЧЕРНО 9005“.
+const DEFAULT_GROUPS=['ДЕТАЙЛИ ЧЕРНО 9005','ДЕТАЙЛИ СИВО 9006','ДЕТАЙЛИ МАРКО ТЕКСТУРА','ДЕТАЙЛИ Tip Toe'];
+let groups=DEFAULT_GROUPS.map(nm=>({id:nid(),name:nm}));
+let parts=STANDARD_PARTS.map((nm,i)=>({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:'',group:groups[0].id}));
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// Поддържа целостта: винаги поне една папка; всеки детайл сочи към валидна папка.
+// (Старите облачни данни нямат папки → всички детайли влизат в първата „ЧЕРНО 9005“.)
+function normalizeGroups(){if(!Array.isArray(groups)||!groups.length)groups=[{id:nid(),name:'Детайли'}];const ids=new Set(groups.map(g=>g.id)),f=groups[0].id;parts.forEach(p=>{if(!ids.has(p.group))p.group=f;});}
+function addGroup(){groups.push({id:nid(),name:'Нова папка'});refresh();}
+function addPartToGroup(gid){parts.push({id:nid(),name:'Нов детайл',perRow:18,color:PAL[parts.length%PAL.length],img:'',group:gid});refresh();}
+function deleteGroup(gid){if(groups.length<=1){alert('Трябва да остане поне една папка.');return;}
+  const other=groups.find(g=>g.id!==gid);const gp=parts.filter(p=>p.group===gid);
+  if(gp.length&&!confirm('Папката съдържа '+gp.length+' детайл(а). Да ги преместя в „'+other.name+'“ и да изтрия папката?'))return;
+  parts.forEach(p=>{if(p.group===gid)p.group=other.id;});groups=groups.filter(g=>g.id!==gid);refresh();}
 // Влива липсващите стандартни детайли (по име) — без да трие/дублира съществуващи.
 function ensureStandardParts(){let added=false;STANDARD_PARTS.forEach((nm,i)=>{if(!parts.some(p=>p.name===nm)){parts.push({id:nid(),name:nm,perRow:18,color:PARTPAL[i%PARTPAL.length],img:''});added=true;}});return added;}
 const pidByName=nm=>{const p=parts.find(x=>x.name===nm);return p?p.id:null;};
@@ -273,12 +294,19 @@ function renderHangers(){$('hangerList').innerHTML=hangerTypes.map(h=>`
     <input type="text" value="${h.name}" data-h="${h.id}" data-f="name">
     <span class="lab">редове</span><input type="number" value="${h.rows}" data-h="${h.id}" data-f="rows" style="width:44px">
     <button class="btn x" data-delh="${h.id}">×</button></div>`).join('');}
-function renderPalette(){$('palette').innerHTML=parts.map(p=>`
-  <div class="item"><input type="color" value="${p.color||'#94a3b8'}" data-p="${p.id}" data-f="color" style="width:26px;height:26px;border:none;background:none;cursor:pointer;padding:0;flex:0 0 auto">
-    <input type="text" value="${p.name}" data-p="${p.id}" data-f="name">
+function partRow(p){return `<div class="item"><input type="color" value="${p.color||'#94a3b8'}" data-p="${p.id}" data-f="color" style="width:26px;height:26px;border:none;background:none;cursor:pointer;padding:0;flex:0 0 auto">
+    <input type="text" value="${esc(p.name)}" data-p="${p.id}" data-f="name">
     <span class="lab">бр/ред</span><input type="number" value="${p.perRow}" data-p="${p.id}" data-f="perRow" style="width:44px">
-    <button class="btn x" data-delp="${p.id}">×</button></div>`).join('')
-    ||'<div class="note">Няма детайли. Натисни „+ детайл“, за да попълниш базата.</div>';}
+    <select class="fmove" data-p="${p.id}" data-f="group" title="Премести в друга папка">${groups.map(g=>`<option value="${g.id}"${p.group===g.id?' selected':''}>${esc(g.name)}</option>`).join('')}</select>
+    <button class="btn x" data-delp="${p.id}">×</button></div>`;}
+function renderPalette(){normalizeGroups();
+  $('palette').innerHTML=groups.map(g=>{const gp=parts.filter(p=>p.group===g.id);
+    return `<div class="folder"><div class="fhead"><span class="fico">📁</span>
+      <input type="text" class="fname" value="${esc(g.name)}" data-g="${g.id}" title="Име на папката">
+      <span class="fcount">${gp.length}</span>
+      <button class="btn" data-addpart="${g.id}">+ детайл</button>
+      <button class="btn x" data-delgroup="${g.id}" title="Изтрий папката">×</button></div>
+      <div class="fbody">${gp.map(partRow).join('')||'<div class="note">празна папка — натисни „+ детайл“</div>'}</div></div>`;}).join('');}
 const hangerOpts=s=>hangerTypes.map(h=>`<option value="${h.id}"${h.id===s?' selected':''}>${h.name}</option>`).join('');
 function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.hanger);normalizeEntry(e);
   const used=e.rowParts.filter(Boolean).length,n=h?h.rows:0;
@@ -293,7 +321,8 @@ function partInitials(nm){return (nm||'').replace(/[^A-Za-zА-Яа-я0-9 ]/g,'')
 function partThumb(p,sz){if(!p)return '';const s=sz||26;return p.img
   ?`<img src="${p.img}" alt="${p.name}" title="${p.name}" style="width:${s}px;height:${s}px;object-fit:cover;border-radius:6px;border:1px solid var(--line);flex:0 0 auto">`
   :`<span title="${p.name}" style="width:${s}px;height:${s}px;border-radius:6px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:${p.color||'#94a3b8'};color:#fff;font-size:9px;font-weight:700;border:1px solid rgba(0,0,0,.15);line-height:1">${partInitials(p.name)}</span>`;}
-function partOpts(sel){return parts.map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${p.name} (${p.perRow})</option>`).join('');}
+function partOpts(sel){return groups.map(g=>{const gp=parts.filter(p=>p.group===g.id);if(!gp.length)return '';
+  return `<optgroup label="${esc(g.name)}">`+gp.map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${esc(p.name)} (${p.perRow})</option>`).join('')+`</optgroup>`;}).join('');}
 function renderConfig(){const box=$('entryConfig');if(!box)return;
   const e=entries.find(x=>x.id===selEntry);
   if(!e){box.innerHTML='<div class="cfg-empty">Избери подвеска отляво, за да зададеш какво има по нея.</div>';return;}
@@ -398,7 +427,7 @@ function update(){
   const jh=$('jogHint'); if(jh)jh.hidden=!idle;
   const lpEl=$('loop'); if(lpEl)lpEl.classList.toggle('jog',idle);
 }
-function refresh(){buildHangers();renderHangers();renderPalette();renderEntries();renderConfig();renderColor();update();}
+function refresh(){normalizeGroups();buildHangers();renderHangers();renderPalette();renderEntries();renderConfig();renderColor();update();}
 
 /* ===== анимация ===== */
 function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
@@ -409,7 +438,8 @@ function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
 /* ===== събития ===== */
 document.addEventListener('input',e=>{const t=e.target;
   if(t.dataset.h){const h=H(+t.dataset.h);if(t.dataset.f==='name')h.name=t.value;else h.rows=Math.max(1,+t.value||1);refresh();}
-  else if(t.dataset.p){const p=P(+t.dataset.p);if(t.dataset.f==='name')p.name=t.value;else if(t.dataset.f==='color')p.color=t.value;else p.perRow=Math.max(0,+t.value||0);refresh();}
+  else if(t.dataset.p&&t.dataset.f!=='group'){const p=P(+t.dataset.p);if(p){if(t.dataset.f==='name')p.name=t.value;else if(t.dataset.f==='color')p.color=t.value;else p.perRow=Math.max(0,+t.value||0);refresh();}}
+  else if(t.dataset.g){const g=groups.find(x=>x.id===+t.dataset.g);if(g)g.name=t.value;}   // преименуване на папка (без пре-рисуване, за да не подскача курсорът)
   else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
   else if(t.dataset.cfgn){const en=entries.find(x=>x.id===+t.dataset.cfgn);if(en){normalizeEntry(en);en.rowParts[+t.dataset.row].n=(t.value===''?null:Math.max(0,+t.value||0));buildHangers();renderEntries();update();const tot=document.querySelector('#entryConfig .cfg-total');if(tot)tot.innerHTML='Общо: <b>'+cap(en)+' бр/подв.</b>';}}
   else if(t.id==='paintRal'){paintRal=t.value.trim();const hx=ralToHex(paintRal);if(hx){$('paint').value=hx;if(paintToday.length)paintToday[paintToday.length-1]=hx;}renderColor();update();}
@@ -417,14 +447,18 @@ document.addEventListener('input',e=>{const t=e.target;
 document.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.e&&t.dataset.f==='hanger'){entries.find(x=>x.id===+t.dataset.e).hanger=+t.value;refresh();}
   if(t.dataset.cfg){const en=entries.find(x=>x.id===+t.dataset.cfg);if(en){normalizeEntry(en);const r=en.rowParts[+t.dataset.row];r.p=t.value?+t.value:null;r.n=null;refresh();}}
+  if(t.dataset.p&&t.dataset.f==='group'){const p=P(+t.dataset.p);if(p){p.group=+t.value;refresh();}}   // преместване на детайл в друга папка
+  if(t.dataset.g){refresh();}   // преименуването е приключило (blur) → опресни списъците
   if(t.id==='paint'){paintToday[paintToday.length-1]=t.value;if(ralToHex(paintRal)!==t.value)paintRal='';renderColor();update();}});
-document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-delh],[data-delp],[data-dele]')||e.target;
+document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data-delh],[data-delp],[data-dele],[data-addpart],[data-delgroup]')||e.target;
   if(t.dataset.sel){selEntry=+t.dataset.sel;renderEntries();renderConfig();return;}
   if(t.dataset.delh){hangerTypes=hangerTypes.filter(h=>h.id!=+t.dataset.delh);refresh();return;}
   if(t.dataset.delp){parts=parts.filter(p=>p.id!=+t.dataset.delp);refresh();return;}
-  if(t.dataset.dele){entries=entries.filter(x=>x.id!=+t.dataset.dele);refresh();return;}});
+  if(t.dataset.dele){entries=entries.filter(x=>x.id!=+t.dataset.dele);refresh();return;}
+  if(t.dataset.addpart){addPartToGroup(+t.dataset.addpart);return;}
+  if(t.dataset.delgroup){deleteGroup(+t.dataset.delgroup);return;}});
 $('addHanger').onclick=()=>{hangerTypes.push({id:nid(),name:'Нова подвеска',rows:3,color:PAL[hangerTypes.length%PAL.length]});refresh();};
-$('addPart').onclick=()=>{parts.push({id:nid(),name:'Нов детайл',perRow:18,color:PAL[parts.length%PAL.length]});refresh();};
+$('addGroup').onclick=addGroup;
 $('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,rowParts:[]};entries.push(e);selEntry=e.id;refresh();};
 // Записва текущата партида (боядисано по детайл/подвеска) в дневния отчет.
 function bankBatch(reason){const tot=totalPainted();if(tot<=0)return false;
@@ -498,6 +532,6 @@ refresh();requestAnimationFrame(tick);
 <script src="loop3d.js?v=2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=154"></script>
+<script src="sync.js?v=155"></script>
 </body>
 </html>
