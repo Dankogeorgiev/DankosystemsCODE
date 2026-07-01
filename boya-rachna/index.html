@@ -69,6 +69,7 @@
   .loaded input[type=number]{width:78px;font-family:var(--mono);font-size:15px;text-align:right;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:7px;padding:7px 8px;outline:none}
   .loaded input:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,56,100,.1)}
   .loaded .unit{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .loaded .fixedqty{font-family:var(--disp);font-weight:700;font-size:14px;color:var(--ink);background:#EEF2F8;border:1px solid var(--line);border-radius:7px;padding:6px 10px;white-space:nowrap}
   .loaded .del{border:none;background:none;color:var(--warn);font-size:18px;line-height:1;cursor:pointer;padding:2px 4px}
   .empty{font-size:13px;color:var(--muted);background:#F8FAFC;border:1px dashed var(--line);border-radius:9px;padding:14px;text-align:center;margin-bottom:14px}
 
@@ -229,7 +230,7 @@
     { code: "3ka",      name: "Тройка",       slots: 1, rows: 3 },
     { code: "4ka",      name: "Четворка",     slots: 1, rows: 4 },
     { code: "5ca",      name: "Петица",       slots: 1, rows: 5 },
-    { code: "trabi",    name: "Тръби",        slots: 1, rows: 2, note: "ляво+дясно = 1 бр." },
+    { code: "trabi",    name: "Тръби",        slots: 1, rows: 2, fixed: 40, note: "40 бр. · ляво+дясно" },
     { code: "elha",     name: "Елха",         slots: 2, rows: 3, big: true },
     { code: "5ca_long", name: "Дълга Петица", slots: 2, rows: 5, big: true },
   ];
@@ -317,7 +318,7 @@
     if (has2) { flash("Елха / Дълга Петица заема целия кол — няма място за друго."); return; }
     if (p.slots === 2 && kol.items.length > 0) { flash("Елха / Дълга Петица се качва само на празен кол."); return; }
     if (usedSlots(kol) + p.slots > SLOTS_PER_KOL) { flash("Колът е пълен (макс. 2 подвески)."); return; }
-    kol.items.push({ code: code, count: 0 });
+    kol.items.push({ code: code, count: p.fixed || 0 });   // Тръби = фиксирано 40 бр.
     render(); save();
   }
   function removeItem(i) { selKol().items.splice(i, 1); render(); save(); }
@@ -460,11 +461,16 @@
       kol.items.forEach((it, i) => {
         const p = POD_BY[it.code];
         const li = document.createElement("li");
-        li.innerHTML = '<span class="nm">' + nameOf(it.code) + (p ? '<small>' + p.rows + ' реда' + (p.slots === 2 ? ' · заема целия кол' : '') + '</small>' : '') + '</span>';
-        const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.value = it.count || "";
-        inp.placeholder = "бр."; inp.disabled = kol.painted; inp.oninput = () => setCount(i, +inp.value);
-        li.appendChild(inp);
-        const u = document.createElement("span"); u.className = "unit"; u.textContent = "бр."; li.appendChild(u);
+        const small = p ? ('<small>' + (p.fixed ? ("фиксирано " + p.fixed + " бр. · ляво+дясно") : (p.rows + " реда" + (p.slots === 2 ? " · заема целия кол" : ""))) + '</small>') : "";
+        li.innerHTML = '<span class="nm">' + nameOf(it.code) + small + '</span>';
+        if (p && p.fixed) {                              // Тръби — фиксирана бройка, без въвеждане
+          const fx = document.createElement("span"); fx.className = "fixedqty"; fx.textContent = p.fixed + " бр."; li.appendChild(fx);
+        } else {
+          const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.value = it.count || "";
+          inp.placeholder = "бр."; inp.disabled = kol.painted; inp.oninput = () => setCount(i, +inp.value);
+          li.appendChild(inp);
+          const u = document.createElement("span"); u.className = "unit"; u.textContent = "бр."; li.appendChild(u);
+        }
         if (!kol.painted) { const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.title = "Махни";
           del.onclick = () => removeItem(i); li.appendChild(del); }
         ul.appendChild(li);
