@@ -35,15 +35,15 @@ function erpRenderMaterials() {
       <tbody>
         ${rows.map(m => `
           <tr class="${m.below_min ? "erp-below" : ""}">
-            <td>${escapeHtml(m.code || "—")}</td>
-            <td>${escapeHtml(m.name || "")}</td>
-            <td>${escapeHtml(m.group_name || "")}</td>
-            <td>${m.is_purchased ? "Покупни" : "Метал"}</td>
-            <td class="num">${erpNum(m.stock)}${m.below_min ? " ⚠" : ""}</td>
-            <td class="num">${erpNum(m.min_stock)}</td>
-            <td>${escapeHtml(m.unit || "")}</td>
-            <td class="num">${erpEur(m.avg_cost)}</td>
-            <td class="erp-row-actions">
+            <td data-label="Код">${escapeHtml(m.code || "—")}</td>
+            <td data-label="Име">${escapeHtml(m.name || "")}</td>
+            <td data-label="Група">${escapeHtml(m.group_name || "")}</td>
+            <td data-label="Вид">${m.is_purchased ? "Покупни" : "Метал"}</td>
+            <td class="num" data-label="Наличност">${erpNum(m.stock)}${m.below_min ? " ⚠" : ""}</td>
+            <td class="num" data-label="Минимум">${erpNum(m.min_stock)}</td>
+            <td data-label="Мярка">${escapeHtml(m.unit || "")}</td>
+            <td class="num" data-label="Ср. цена">${erpEur(m.avg_cost)}</td>
+            <td class="erp-row-actions" data-label="">
               <button class="btn btn-small" data-move="${m.id}">Движение</button>
               <button class="btn btn-small" data-hist="${m.id}">История</button>
               <button class="btn btn-small" data-edit="${m.id}">✎</button>

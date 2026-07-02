@@ -74,15 +74,15 @@ function erpRenderOperations() {
           const r = ERP.opRouting[op.code];
           const altOpts = ws.filter(w => w !== r.primary && !(r.alt || []).includes(w));
           return `<tr class="${!r.primary ? "erp-below" : ""}" data-code="${escapeAttr(op.code || "")}">
-            <td>${escapeHtml(op.name || "")}<div class="t-code">${escapeHtml(op.code || "")}</div></td>
-            <td class="num">${ERP.opUsage[op.id] || 0}</td>
-            <td>
+            <td data-label="Операция">${escapeHtml(op.name || "")}<div class="t-code">${escapeHtml(op.code || "")}</div></td>
+            <td class="num" data-label="Ползв.">${ERP.opUsage[op.id] || 0}</td>
+            <td data-label="Основен цех">
               <select class="erp-route-primary">
                 <option value="">— избери —</option>
                 ${ws.map(w => `<option ${w === r.primary ? "selected" : ""}>${escapeHtml(w)}</option>`).join("")}
               </select>
             </td>
-            <td>
+            <td data-label="Може също">
               <span class="erp-alt-chips">${(r.alt || []).map(w =>
                 `<span class="erp-chip">${escapeHtml(w)} <button class="erp-chip-x" data-alt="${escapeAttr(w)}">×</button></span>`).join("")}</span>
               <select class="erp-route-alt-add">

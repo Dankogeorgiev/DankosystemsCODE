@@ -34,12 +34,12 @@ function erpRenderProducts() {
       <tbody>
         ${rows.map(p => `
           <tr class="erp-clickable ${p.needs_recipe ? "erp-needs" : ""}" data-prod="${p.id}">
-            <td>${escapeHtml(p.code || "—")}</td>
-            <td>${escapeHtml(p.name || "")}</td>
-            <td>${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
-            <td>${escapeHtml(p.group_name || "")}</td>
-            <td class="num">${p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur)}</td>
-            <td class="erp-row-actions"><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
+            <td data-label="Код">${escapeHtml(p.code || "—")}</td>
+            <td data-label="Име">${escapeHtml(p.name || "")}</td>
+            <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
+            <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
+            <td class="num" data-label="Себестойност">${p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur)}</td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
           `<tr><td colspan="6" class="report-empty">Няма продукти. Импортирай рецепти от таба „Импорт".</td></tr>`}
       </tbody>
@@ -78,9 +78,9 @@ function erpRenderNeeds() {
         <thead><tr><th>Код</th><th>Име</th><th></th></tr></thead>
         <tbody>${list.map(p => `
           <tr class="erp-clickable" data-prod="${p.id}">
-            <td>${escapeHtml(p.code || "—")}</td>
-            <td>${escapeHtml(p.name || "")}</td>
-            <td class="erp-row-actions"><button class="btn btn-small" data-open="${p.id}">Отвори →</button></td>
+            <td data-label="Код">${escapeHtml(p.code || "—")}</td>
+            <td data-label="Име">${escapeHtml(p.name || "")}</td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${p.id}">Отвори →</button></td>
           </tr>`).join("")}</tbody>
       </table>`).join("")
     : `<p class="report-empty">Няма заготовки, които чакат рецепта. 🎉</p>`}`;

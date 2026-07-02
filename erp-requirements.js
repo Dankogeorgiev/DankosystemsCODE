@@ -68,11 +68,11 @@ function erpReqTable(rows) {
       <thead><tr><th>Суровина</th><th>Мярка</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num">Недостиг</th></tr></thead>
       <tbody>${enriched.map(r => `
         <tr class="${r.shortage > 0 ? "erp-below" : ""}">
-          <td>${escapeHtml(r.name || "")}</td>
-          <td>${escapeHtml(r.unit)}</td>
-          <td class="num">${erpNum(r.required)}</td>
-          <td class="num">${erpNum(r.available)}</td>
-          <td class="num">${r.shortage > 0 ? `<span class="erp-warn">${erpNum(r.shortage)} ⚠</span>` : "0"}</td>
+          <td data-label="Суровина">${escapeHtml(r.name || "")}</td>
+          <td data-label="Мярка">${escapeHtml(r.unit)}</td>
+          <td class="num" data-label="Нужно">${erpNum(r.required)}</td>
+          <td class="num" data-label="Налично">${erpNum(r.available)}</td>
+          <td class="num" data-label="Недостиг">${r.shortage > 0 ? `<span class="erp-warn">${erpNum(r.shortage)} ⚠</span>` : "0"}</td>
         </tr>`).join("")}</tbody>
     </table>
     ${shortCount ? `<p class="hint">Редовете с недостиг са за поръчка към доставчик.</p>` : `<p class="hint">Складът покрива цялото производство. ✅</p>`}`;

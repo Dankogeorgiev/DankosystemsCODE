@@ -112,3 +112,42 @@
 .erp-dialog-box .erp-check { display: flex; }
 .erp-dialog-box .erp-check input { width: auto; margin: 0 6px 0 0; }
 .erp-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ==================== Телефон (карти вместо широки таблици) ==================== */
+@media (max-width: 760px) {
+  #erp-view { padding: 10px; }
+  .erp-toolbar { gap: 6px; }
+  .erp-toolbar input[type="search"] { flex: 1 1 100%; }
+
+  /* Таблиците стават карти (както в „Цехове") */
+  .erp-table { min-width: 0; width: 100%; }
+  .erp-table thead { display: none; }
+  .erp-table, .erp-table tbody, .erp-table tr, .erp-table td { display: block; width: auto; }
+  .erp-table tr { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; padding: 8px 10px; background: #fff; }
+  .erp-table td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border: none; text-align: right; word-break: break-word; }
+  .erp-table td::before { content: attr(data-label); font-weight: 700; color: var(--muted); text-align: left; flex: 0 0 40%; }
+  .erp-table td[data-label=""]::before { content: ""; flex: 0; }
+  .erp-table td.num { text-align: right; }
+  .erp-table .erp-row-actions { justify-content: flex-start; flex-wrap: wrap; gap: 6px; border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 8px; }
+  .erp-table .erp-row-actions .btn { margin-left: 0; }
+
+  /* Операции → Цех: етикет отгоре, контрола на цяла ширина */
+  .erp-routing td { flex-direction: column; align-items: stretch; text-align: left; }
+  .erp-routing td::before { flex: none; margin-bottom: 3px; }
+  .erp-routing select, .erp-route-alt-add { max-width: 100%; width: 100%; }
+  .erp-alt-chips { margin: 0 0 6px; }
+
+  /* Рецепта-дърво: пренасяне вместо отрязване */
+  .erp-tree { padding-left: 12px; }
+  .erp-node { flex-wrap: wrap; }
+  .erp-node-main { flex: 1 1 100%; }
+  .erp-node-qty, .erp-node-cost { min-width: 0; }
+  .erp-branch > .erp-node, .erp-leaf > .erp-node { width: calc(100% - 22px); }
+
+  /* Диалози на цял екран-ширина */
+  .erp-dialog-box { width: 94vw; padding: 16px; }
+
+  /* Панел „Производство" в поръчката */
+  .erp-order-actions { gap: 6px; }
+  .erp-order-actions .btn { flex: 1 1 auto; }
+}
