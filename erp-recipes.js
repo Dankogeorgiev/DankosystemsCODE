@@ -52,7 +52,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
     const qty = Number(l.quantity) || 0;
     const unit = l.unit || "";
     if (l.material_id) {
-      const m = l.material || ERP.matById[l.material_id] || {};
+      const m = ERP.matById[l.material_id] || {};
       const cost = qty * (Number(m.avg_cost) || 0);
       return `<li class="erp-leaf">
         <span class="erp-tw"></span>
@@ -63,7 +63,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
         </span></li>`;
     }
     if (l.operation_id) {
-      const o = l.operation || {};
+      const o = ERP.opById[l.operation_id] || {};
       const cost = qty * (Number(o.unit_cost) || 0);
       return `<li class="erp-leaf">
         <span class="erp-tw"></span>
@@ -74,7 +74,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
         </span></li>`;
     }
     if (l.child_product_id) {
-      const c = l.child || ERP.prodById[l.child_product_id] || {};
+      const c = ERP.prodById[l.child_product_id] || {};
       const unitCost = Number(ERP.costById[l.child_product_id]) || 0;
       const cost = qty * unitCost;
       const cycle = ancestors.has(l.child_product_id);

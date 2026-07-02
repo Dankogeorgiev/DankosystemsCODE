@@ -15,6 +15,7 @@ const ERP = {
   costById: {},        // product_id -> себестойност (EUR)
   matById: {},         // material_id -> материал
   prodById: {},        // product_id -> продукт
+  opById: {},          // operation_id -> операция
 };
 
 /* ---------- Помощници ---------- */
@@ -63,17 +64,14 @@ async function erpReload() {
 /* ---------- Зареждане на данните ---------- */
 async function erpLoadAll() {
   try {
+    // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
+    // (recipe_lines има две връзки към products, така избягваме двусмислието).
     const [matsRaw, stock, prods, ops, lines] = await Promise.all([
       sb.from("materials").select("id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
       sb.from("v_material_stock").select("id,stock,below_min"),
       sb.from("v_product_cost").select("id,code,name,is_semifinished,group_name,needs_recipe,cost_eur"),
       sb.from("operations").select("id,code,name,workshop,unit_cost,rate_per_min"),
-      sb.from("recipe_lines").select(
-        "id,product_id,position,quantity,unit,line_cost,material_id,child_product_id,operation_id," +
-        "material:materials(id,code,name,unit,avg_cost,is_purchased)," +
-        "operation:operations(id,code,name,unit_cost)," +
-        "child:products!child_product_id(id,code,name,is_semifinished,needs_recipe)"
-      ),
+      sb.from("recipe_lines").select("id,product_id,position,quantity,unit,line_cost,material_id,child_product_id,operation_id"),
     ]);
 
     const firstErr = matsRaw.error || stock.error || prods.error || ops.error || lines.error;
@@ -95,6 +93,8 @@ async function erpLoadAll() {
     ERP.products.forEach(p => { ERP.costById[p.id] = Number(p.cost_eur) || 0; ERP.prodById[p.id] = p; });
 
     ERP.operations = ops.data || [];
+    ERP.opById = {};
+    ERP.operations.forEach(o => { ERP.opById[o.id] = o; });
 
     ERP.lines = lines.data || [];
     ERP.linesByProduct = {};
