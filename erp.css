@@ -78,6 +78,19 @@
 .erp-report-box h3 { margin: 0 0 8px; }
 .erp-report-list { margin: 6px 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
 
+/* Панел „Производство (ЕРП)" в поръчката */
+.erp-order-card { border-color: #99f6e4 !important; background: #f0fdfa; }
+.erp-order-card legend { color: #0f766e; }
+.erp-linked { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.erp-order-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.erp-prod-status { margin-top: 10px; font-size: 14px; }
+.erp-prod-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.erp-prodbar { display: inline-block; width: 160px; height: 8px; background: #d1fae5; border-radius: 99px; overflow: hidden; }
+.erp-prodbar > span { display: block; height: 100%; background: var(--ok); }
+.erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
+.erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }
+
 /* Операции → Цех */
 .erp-routing select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 13px; max-width: 200px; }
 .erp-routing .t-code { font-size: 11px; color: var(--muted); margin-top: 2px; }

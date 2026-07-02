@@ -265,6 +265,7 @@ function renderSampleForm(s) {
   renderProcess(s);
   renderAnalysisFiles(s);
   updateProgress(s);
+  if (typeof erpRenderOrderPanel === "function") erpRenderOrderPanel(s);
   setStatus("");
 }
 

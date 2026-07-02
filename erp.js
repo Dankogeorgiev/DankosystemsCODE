@@ -58,6 +58,11 @@ async function openErp() {
 
 function closeErp() { document.getElementById("erp-modal").hidden = true; }
 
+// Гарантира, че ЕРП данните са заредени (ползва се и извън модала — напр. в поръчките).
+async function erpEnsureLoaded() {
+  if (!ERP.loaded) { await erpLoadAll(); ERP.loaded = true; }
+}
+
 // Презарежда данните от базата и пре-рендира текущия таб.
 async function erpReload() {
   await erpLoadAll();
