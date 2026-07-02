@@ -40,6 +40,18 @@ function erpToNum(v) {
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
 }
+// Следващ пореден код по логиката на Bizzio — една обща числова редица
+// за продукти, материали и операции (следващ = най-големият код + 1).
+function erpNextCode() {
+  let max = 0;
+  const scan = arr => (arr || []).forEach(x => {
+    const c = String((x && x.code) || "").trim();
+    if (/^\d+$/.test(c)) { const n = parseInt(c, 10); if (n > max) max = n; }
+  });
+  scan(ERP.materials); scan(ERP.products); scan(ERP.operations);
+  return max ? String(max + 1) : "";
+}
+
 function erpView() { return document.getElementById("erp-view"); }
 function erpAmWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
 

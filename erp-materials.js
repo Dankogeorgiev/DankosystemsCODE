@@ -176,7 +176,7 @@ function erpEditMaterial(matId) {
   const m = matId ? ERP.matById[matId] : null;
   const { wrap, close } = erpDialog(`
     <h3>${m ? "Редакция на материал" : "Нов материал"}</h3>
-    <label>Код<input type="text" id="mt-code" value="${m ? escapeAttr(m.code || "") : ""}" /></label>
+    <label>Код${m ? "" : ' <span class="erp-muted">(предложен пореден)</span>'}<input type="text" id="mt-code" value="${m ? escapeAttr(m.code || "") : escapeAttr(erpNextCode())}" /></label>
     <label>Име<input type="text" id="mt-name" value="${m ? escapeAttr(m.name || "") : ""}" /></label>
     <label>Група<input type="text" id="mt-group" value="${m ? escapeAttr(m.group_name || "") : ""}" /></label>
     <label>Мярка<input type="text" id="mt-unit" value="${m ? escapeAttr(m.unit || "кг") : "кг"}" /></label>

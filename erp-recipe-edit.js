@@ -11,7 +11,7 @@ async function erpReloadRecipe(productId) {
 function erpNewProduct() {
   const { wrap, close } = erpDialog(`
     <h3>Нов продукт</h3>
-    <label>Код<input type="text" id="np-code" placeholder="напр. 200001" /></label>
+    <label>Код <span class="erp-muted">(предложен пореден)</span><input type="text" id="np-code" value="${escapeAttr(erpNextCode())}" placeholder="код" /></label>
     <label>Име<input type="text" id="np-name" placeholder="Наименование" /></label>
     <label>Тип
       <select id="np-type">
