@@ -164,5 +164,22 @@ drop policy if exists "stock_movements auth all" on public.stock_movements;
 create policy "stock_movements auth all" on public.stock_movements
   for all to authenticated using (true) with check (true);
 
+-- ============ 9. ЗАЯВКИ ОТ КЛИЕНТИ ============
+-- Цялата заявка (редове, номера, забележка, статус) се пази в data (JSON),
+-- както samples/tasks в СИСТЕМАТА.
+create table if not exists public.customer_orders (
+  id          uuid primary key default gen_random_uuid(),
+  data        jsonb       not null default '{}'::jsonb,
+  done        boolean     not null default false,
+  updated_at  timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+create index if not exists customer_orders_updated_idx on public.customer_orders(updated_at desc);
+
+alter table public.customer_orders enable row level security;
+drop policy if exists "customer_orders auth all" on public.customer_orders;
+create policy "customer_orders auth all" on public.customer_orders
+  for all to authenticated using (true) with check (true);
+
 -- Готово! Изгледите (v_material_stock, v_product_cost) и функциите
 -- (product_cost, bom_requirements) наследяват достъпа на таблиците.

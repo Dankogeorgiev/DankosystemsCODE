@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=146" />
-  <link rel="stylesheet" href="erp.css?v=154" />
+  <link rel="stylesheet" href="erp.css?v=156" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 155</p>
+      <p class="login-version">версия 156</p>
     </form>
   </div>
 
@@ -480,7 +480,8 @@
         </div>
       </div>
       <div class="tasks-controls erp-tabs">
-        <button class="btn btn-small erp-tab active" data-tab="materials">🧱 Материали (склад)</button>
+        <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
+        <button class="btn btn-small erp-tab" data-tab="materials">🧱 Материали (склад)</button>
         <button class="btn btn-small erp-tab" data-tab="products">📦 Продукти</button>
         <button class="btn btn-small erp-tab" data-tab="needs">📝 Чака рецепта</button>
         <button class="btn btn-small erp-tab" data-tab="requirements">🧮 Разбивка на нуждите</button>
@@ -498,7 +499,7 @@
   <script src="tasks.js?v=150"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
-  <script src="erp.js?v=155"></script>
+  <script src="erp.js?v=156"></script>
   <script src="erp-import.js?v=150"></script>
   <script src="erp-materials.js?v=155"></script>
   <script src="erp-products.js?v=154"></script>
@@ -508,5 +509,6 @@
   <script src="erp-orders.js?v=151"></script>
   <script src="erp-workcard.js?v=152"></script>
   <script src="erp-recipe-edit.js?v=155"></script>
+  <script src="erp-customer-orders.js?v=156"></script>
 </body>
 </html>

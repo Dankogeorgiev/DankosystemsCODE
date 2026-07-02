@@ -153,3 +153,16 @@
   .erp-order-actions { gap: 6px; }
   .erp-order-actions .btn { flex: 1 1 auto; }
 }
+
+/* Заявки от клиенти */
+.erp-co-form { max-width: 900px; }
+.erp-co-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 14px; margin-bottom: 10px; }
+.erp-co-grid label, .erp-co-note { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+.erp-co-grid input, .erp-co-grid select, .erp-co-note textarea { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 14px; }
+.erp-co-note { margin-bottom: 6px; }
+.erp-co-actions { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+.erp-co-status { font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 999px; }
+.erp-co-status.s-нова { background: #dbeafe; color: #1e40af; }
+.erp-co-status.s-в\.производство, .erp-co-status[class*="производство"] { background: #fef3c7; color: #92400e; }
+.erp-co-status[class*="завършена"] { background: #dcfce7; color: #166534; }
+@media (max-width: 760px) { .erp-co-grid { grid-template-columns: 1fr; } }

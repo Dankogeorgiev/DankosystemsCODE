@@ -5,7 +5,7 @@
 
 // Общо състояние на модула (кеш от базата).
 const ERP = {
-  tab: "materials",
+  tab: "customer",
   loaded: false,
   materials: [],       // ред от materials + stock/below_min от v_material_stock
   products: [],        // ред от v_product_cost (+ owner_client)
@@ -147,6 +147,7 @@ function erpSetTab(tab) {
     case "needs":        erpRenderNeeds(); break;
     case "requirements": erpRenderRequirements(); break;
     case "operations":   erpRenderOperations(); break;
+    case "customer":     erpRenderCustomerOrders(); break;
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
   }
