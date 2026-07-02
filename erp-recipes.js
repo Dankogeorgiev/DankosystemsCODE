@@ -10,6 +10,8 @@ function erpRenderRecipe(productId) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="erp-recipe-back">← Назад към продуктите</button>
+      <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
+      <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
       <span class="spacer"></span>
       <span class="erp-count">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
     </div>
@@ -24,9 +26,13 @@ function erpRenderRecipe(productId) {
       <span class="erp-tag erp-tag-semi">полуфабрикат / възел</span>
       <span class="erp-tag erp-tag-mat">материал</span>
       <span class="erp-tag erp-tag-op">операция</span>
-    </div>`;
+    </div>
+    <div id="erp-prod-drawings" class="erp-prod-drawings"></div>`;
 
   document.getElementById("erp-recipe-back").addEventListener("click", () => erpSetTab("products"));
+  document.getElementById("erp-wc-print").addEventListener("click", () =>
+    erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
+  erpRenderProductDrawings(productId);
   // Разгъване/свиване на възлите.
   v.querySelectorAll(".erp-toggle").forEach(t =>
     t.addEventListener("click", () => {
@@ -92,4 +98,65 @@ function erpRecipeChildren(productId, depth, ancestors) {
     }
     return "";
   }).join("");
+}
+
+/* ---------- Чертежи към продукта ---------- */
+async function erpRenderProductDrawings(productId) {
+  const host = document.getElementById("erp-prod-drawings");
+  if (!host) return;
+  const p = ERP.prodById[productId];
+  if (!p) return;
+  // Мързеливо зареждане на чертежите (пазят се в products.drawings).
+  if (p.drawings === undefined) {
+    host.innerHTML = `<h4 class="erp-group-head">Чертежи</h4><p class="erp-loading">Зареждане…</p>`;
+    const { data } = await sb.from("products").select("drawings").eq("id", productId).maybeSingle();
+    p.drawings = (data && data.drawings) || [];
+  }
+  host.innerHTML = `
+    <h4 class="erp-group-head">Чертежи на продукта</h4>
+    <label class="btn btn-small" for="erp-draw-file">+ Прикачи чертеж</label>
+    <input type="file" id="erp-draw-file" multiple hidden />
+    <ul class="files-list erp-draw-list">
+      ${(p.drawings || []).map((f, i) => {
+        const isImg = (f.type || "").startsWith("image/");
+        const prev = isImg ? `<img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}" />` : `<span class="pdf-icon">📄</span>`;
+        return `<li>
+          <a href="${escapeAttr(f.url)}" target="_blank" download="${escapeAttr(f.name)}">${prev}</a>
+          <div class="file-name">${escapeHtml(f.name)}</div>
+          <button type="button" class="remove-file" data-i="${i}" title="Премахни">×</button>
+        </li>`;
+      }).join("") || `<li class="erp-muted">Няма прикачени чертежи.</li>`}
+    </ul>`;
+
+  const input = document.getElementById("erp-draw-file");
+  if (input) input.addEventListener("change", e => { erpAttachProductDrawing(productId, [...e.target.files]); e.target.value = ""; });
+  host.querySelectorAll(".remove-file").forEach(b =>
+    b.addEventListener("click", () => erpRemoveProductDrawing(productId, Number(b.dataset.i))));
+}
+
+async function erpAttachProductDrawing(productId, files) {
+  const p = ERP.prodById[productId]; if (!p) return;
+  p.drawings = p.drawings || [];
+  const host = document.getElementById("erp-prod-drawings");
+  for (const file of files) {
+    const path = `products/${productId}/${Date.now()}-${safeName(file.name)}`;
+    const { error } = await sb.storage.from(BUCKET).upload(path, file);
+    if (error) { alert("Грешка при качване на „" + file.name + "“: " + error.message); continue; }
+    const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+    p.drawings.push({ name: file.name, type: file.type, path, url: data.publicUrl });
+  }
+  const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", productId);
+  if (error) alert("Грешка при запис на чертежите: " + error.message +
+    "\n\nАко пише за липсваща колона drawings — пусни обновения erp-setup.sql в Supabase.");
+  erpRenderProductDrawings(productId);
+}
+
+async function erpRemoveProductDrawing(productId, i) {
+  const p = ERP.prodById[productId]; if (!p || !p.drawings) return;
+  const f = p.drawings[i];
+  if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
+  p.drawings.splice(i, 1);
+  const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", productId);
+  if (error) alert("Грешка при запис: " + error.message);
+  erpRenderProductDrawings(productId);
 }

@@ -43,8 +43,12 @@ create table if not exists public.products (
   needs_recipe    boolean default false,   -- true = заготовка без рецепта („Чака рецепта")
   owner_client    text,                    -- незадължителен етикет (напр. SD Heat Exchangers)
   unit            text default 'бр.',
+  drawings        jsonb not null default '[]'::jsonb,   -- прикачени чертежи (име/url/път)
   created_at      timestamptz default now()
 );
+
+-- Ако таблицата вече съществува (по-стар вариант) — добавяме колоната за чертежи.
+alter table public.products add column if not exists drawings jsonb not null default '[]'::jsonb;
 
 -- ============ 4. РЕЦЕПТА (BOM) — сърцето. Всеки ред сочи ТОЧНО ЕДНО от три неща ============
 create table if not exists public.recipe_lines (

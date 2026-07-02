@@ -78,6 +78,10 @@
 .erp-report-box h3 { margin: 0 0 8px; }
 .erp-report-list { margin: 6px 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
 
+/* Чертежи към продукта (в рецептата) */
+.erp-prod-drawings { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.erp-draw-list { margin-top: 8px; }
+
 /* Панел „Производство (ЕРП)" в поръчката */
 .erp-order-card { border-color: #99f6e4 !important; background: #f0fdfa; }
 .erp-order-card legend { color: #0f766e; }
