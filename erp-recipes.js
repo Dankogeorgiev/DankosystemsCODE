@@ -12,6 +12,7 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small" id="erp-recipe-back">← Назад към продуктите</button>
       <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
+      <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
       <span class="spacer"></span>
       <span class="erp-count">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
     </div>
@@ -32,6 +33,9 @@ function erpRenderRecipe(productId) {
   document.getElementById("erp-recipe-back").addEventListener("click", () => erpSetTab("products"));
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
+  document.getElementById("erp-rl-add").addEventListener("click", () => erpAddRecipeLine(productId));
+  v.querySelectorAll(".erp-rl-x").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpRemoveRecipeLine(Number(b.dataset.line), productId); }));
   erpRenderProductDrawings(productId);
   // Разгъване/свиване на възлите.
   v.querySelectorAll(".erp-toggle").forEach(t =>
@@ -57,6 +61,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
   return lines.map(l => {
     const qty = Number(l.quantity) || 0;
     const unit = l.unit || "";
+    const rmBtn = depth === 0 ? `<button class="erp-rl-x" data-line="${l.id}" title="Премахни от рецептата">×</button>` : "";
     if (l.material_id) {
       const m = ERP.matById[l.material_id] || {};
       const cost = qty * (Number(m.avg_cost) || 0);
@@ -65,7 +70,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
         <span class="erp-node erp-node-material">
           <span class="erp-node-main"><span class="erp-tag erp-tag-mat">мат.</span> ${escapeHtml(m.code || "")} ${escapeHtml(m.name || "")}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
-          <span class="erp-node-cost">${erpEur(cost)}</span>
+          <span class="erp-node-cost">${erpEur(cost)}</span>${rmBtn}
         </span></li>`;
     }
     if (l.operation_id) {
@@ -76,7 +81,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
         <span class="erp-node erp-node-operation">
           <span class="erp-node-main"><span class="erp-tag erp-tag-op">опер.</span> ${escapeHtml(o.code || "")} ${escapeHtml(o.name || "")}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
-          <span class="erp-node-cost">${erpEur(cost)}</span>
+          <span class="erp-node-cost">${erpEur(cost)}</span>${rmBtn}
         </span></li>`;
     }
     if (l.child_product_id) {
@@ -91,7 +96,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
         <span class="erp-node erp-node-semi">
           <span class="erp-node-main"><span class="erp-tag erp-tag-semi">възел</span> ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")}${cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}${c.needs_recipe ? ' <span class="erp-warn">(чака рецепта)</span>' : ""}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
-          <span class="erp-node-cost">${erpEur(cost)}</span>
+          <span class="erp-node-cost">${erpEur(cost)}</span>${rmBtn}
         </span>
         ${sub ? `<ul class="erp-tree">${sub}</ul>` : ""}
       </li>`;

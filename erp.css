@@ -67,6 +67,8 @@
 .erp-branch > .erp-tw, .erp-leaf > .erp-tw { display: inline-block; vertical-align: middle; }
 .erp-branch > .erp-node, .erp-leaf > .erp-node { display: inline-flex; width: calc(100% - 24px); vertical-align: middle; }
 .erp-toggle { border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--muted); padding: 0; width: 18px; }
+.erp-rl-x { border: none; background: #fee2e2; color: #b91c1c; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 12px; line-height: 1; margin-left: 8px; flex: 0 0 auto; }
+.erp-rl-x:hover { background: #fecaca; }
 .erp-leaf.erp-warn, .erp-leaf.erp-muted { padding: 4px 0 4px 24px; font-size: 13px; }
 .erp-legend { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 

@@ -26,6 +26,7 @@ function erpRenderProducts() {
       </select>
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} продукта</span>
+      <button class="btn btn-small btn-primary" id="erp-prod-add">+ Нов продукт</button>
     </div>
     <table class="report-table erp-table">
       <thead>
@@ -52,6 +53,7 @@ function erpRenderProducts() {
   document.getElementById("erp-prod-filter").addEventListener("change", e => {
     erpProdFilter = e.target.value; erpRenderProducts();
   });
+  document.getElementById("erp-prod-add").addEventListener("click", erpNewProduct);
   v.querySelectorAll("[data-open]").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpRenderRecipe(Number(b.dataset.open)); }));
   v.querySelectorAll("tr[data-prod]").forEach(tr =>
