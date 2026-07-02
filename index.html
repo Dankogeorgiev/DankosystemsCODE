@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=146" />
-  <link rel="stylesheet" href="erp.css?v=149" />
+  <link rel="stylesheet" href="erp.css?v=150" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 149</p>
+      <p class="login-version">версия 150</p>
     </form>
   </div>
 
@@ -481,6 +481,7 @@
         <button class="btn btn-small erp-tab" data-tab="products">📦 Продукти</button>
         <button class="btn btn-small erp-tab" data-tab="needs">📝 Чака рецепта</button>
         <button class="btn btn-small erp-tab" data-tab="requirements">🧮 Разбивка на нуждите</button>
+        <button class="btn btn-small erp-tab" data-tab="operations">🏭 Операции → Цех</button>
         <button class="btn btn-small erp-tab" data-tab="import">⤓ Импорт (xlsx)</button>
       </div>
       <div id="erp-view"></div>
@@ -491,14 +492,15 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="app.js?v=146"></script>
-  <script src="tasks.js?v=144"></script>
+  <script src="tasks.js?v=150"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
-  <script src="erp.js?v=149"></script>
-  <script src="erp-import.js?v=149"></script>
-  <script src="erp-materials.js?v=149"></script>
-  <script src="erp-products.js?v=149"></script>
-  <script src="erp-recipes.js?v=149"></script>
-  <script src="erp-requirements.js?v=149"></script>
+  <script src="erp.js?v=150"></script>
+  <script src="erp-import.js?v=150"></script>
+  <script src="erp-materials.js?v=150"></script>
+  <script src="erp-products.js?v=150"></script>
+  <script src="erp-recipes.js?v=150"></script>
+  <script src="erp-requirements.js?v=150"></script>
+  <script src="erp-operations.js?v=150"></script>
 </body>
 </html>

@@ -47,15 +47,23 @@ function erpNormType(v) {
   if (s.startsWith("услуга")) return "service";
   return "";
 }
+// Първоначален цех по подразбиране при импорт (само fallback — истинската
+// маршрутизация се пази в „Операции → Цех" и я контролира собственикът).
 function erpMapWorkshop(group, name) {
   const s = ((group || "") + " " + (name || "")).toLowerCase();
   if (s.includes("лазер")) return "Лазери";
-  if (s.includes("огъв") || s.includes("абкант")) return "Абкант";
-  if (s.includes("преса") || s.includes("щанц")) return "Преси";
+  if (s.includes("боядис") || s.includes("прах")) return "Бояджийно";
   if (s.includes("завар")) return "Заваръчно";
-  if (s.includes("бояд") || s.includes("прах")) return "Бояджийно";
+  if (s.includes("фрезов") || s.includes("фрезенк") || s.includes("струг") || s.includes("cnc")) return "CNC цех";
+  if (s.includes("огъв")) return "Абкант";
+  if (s.includes("занитв")) return "Занитване";
+  if (s.includes("зачистван") || s.includes("лентоотрез")) return "Заготовки";
   if (s.includes("поцинк") || s.includes("галван") || s.includes("гълван")) return "Външна услуга";
-  if (s.includes("струг") || s.includes("cnc") || s.includes("фрез")) return "CNC цех";
+  if (s.includes("монтаж")) return "Сглобяване";
+  if (s.includes("опакова")) return "Опаковане/Експедиция";
+  if (s.includes("резбов") || s.includes("набиване") || s.includes("оребр") ||
+      s.includes("пробиван") || s.includes("щанц") || s.includes("сечене") ||
+      s.includes("гилотина") || s.includes("преса")) return "Преси";
   return "";
 }
 function erpMatKey(code, name) { return code ? "c:" + code : "n:" + erpNormKey(name); }

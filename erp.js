@@ -16,6 +16,9 @@ const ERP = {
   matById: {},         // material_id -> материал
   prodById: {},        // product_id -> продукт
   opById: {},          // operation_id -> операция
+  opUsage: {},         // operation_id -> брой редове, които я ползват
+  opRoutingSaved: {},  // { <op_code>: {primary, alt:[...]} } — запазена маршрутизация
+  opRouting: {},       // работно копие в екрана „Операции → Цех"
 };
 
 /* ---------- Помощници ---------- */
@@ -66,16 +69,18 @@ async function erpLoadAll() {
   try {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
     // (recipe_lines има две връзки към products, така избягваме двусмислието).
-    const [matsRaw, stock, prods, ops, lines] = await Promise.all([
+    const [matsRaw, stock, prods, ops, lines, routing] = await Promise.all([
       sb.from("materials").select("id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
       sb.from("v_material_stock").select("id,stock,below_min"),
       sb.from("v_product_cost").select("id,code,name,is_semifinished,group_name,needs_recipe,cost_eur"),
       sb.from("operations").select("id,code,name,workshop,unit_cost,rate_per_min"),
       sb.from("recipe_lines").select("id,product_id,position,quantity,unit,line_cost,material_id,child_product_id,operation_id"),
+      sb.from("app_config").select("data").eq("id", "erp_op_routing").maybeSingle(),
     ]);
 
     const firstErr = matsRaw.error || stock.error || prods.error || ops.error || lines.error;
     if (firstErr) throw firstErr;
+    ERP.opRoutingSaved = (routing && routing.data && routing.data.data && routing.data.data.byCode) || {};
 
     // Наличности по материал.
     const stockById = {};
@@ -98,8 +103,10 @@ async function erpLoadAll() {
 
     ERP.lines = lines.data || [];
     ERP.linesByProduct = {};
+    ERP.opUsage = {};
     ERP.lines.forEach(l => {
       (ERP.linesByProduct[l.product_id] = ERP.linesByProduct[l.product_id] || []).push(l);
+      if (l.operation_id) ERP.opUsage[l.operation_id] = (ERP.opUsage[l.operation_id] || 0) + 1;
     });
     Object.values(ERP.linesByProduct).forEach(arr =>
       arr.sort((a, b) => (a.position || 0) - (b.position || 0)));
@@ -122,6 +129,7 @@ function erpSetTab(tab) {
     case "products":     erpRenderProducts(); break;
     case "needs":        erpRenderNeeds(); break;
     case "requirements": erpRenderRequirements(); break;
+    case "operations":   erpRenderOperations(); break;
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
   }
