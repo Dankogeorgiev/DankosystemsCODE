@@ -125,11 +125,14 @@ async function erpFillMaterials(s) {
   alert(`Заредени ${data.length} материала от рецептата за ${erpNum(qty)} бр.` + (short ? `\n${short} от тях са с недостиг (виж раздел 5).` : ""));
 }
 
-/* ---------- Пускане в производство ---------- */
-// Обхожда рецептата и връща задачите по цехове (+ външните операции).
-function erpBuildTasks(s) {
+/* ---------- Пускане в производство (последователно) ---------- */
+// Обхожда рецептата в реда на позициите и връща подредена ВЕРИГА от стъпки
+// (операция → цех), + външните услуги. Възлите (полуфабрикатите) се разгъват
+// на място, така че операциите им идват преди операциите на родителя, които
+// следват в рецептата — точно както е наредена технологията.
+function erpBuildChain(s) {
   const qty = erpToNum(s.erpQty) || 1;
-  const tasks = [], external = [];
+  const steps = [], external = [];
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
   (function walk(pid, mult, anc) {
     const p = ERP.prodById[pid] || {};
@@ -139,18 +142,73 @@ function erpBuildTasks(s) {
         const ws = (route(op).primary) || "";
         const cnt = mult * (Number(l.quantity) || 1);
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
-        tasks.push({
-          client: s.clientName || "", product: p.name || "", code: p.code || "",
-          operation: op.name || "", workshop: ws, qty: cnt, produced: 0,
-          due: s.deadline || "", thickness: "", files: [], logs: [],
-          source: { kind: "order", sampleId: s.id, sampleType: s.type || "order" },
-        });
+        steps.push({ product: p.name || "", code: p.code || "", operation: op.name || "", workshop: ws, qty: cnt });
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
         walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]));
       }
     });
   })(s.erpProductId, qty, new Set([s.erpProductId]));
+  return { steps, external };
+}
+
+// Съвместимост: плосък списък със задачи по цехове (ползва се от Работната карта
+// за показване на целия маршрут). Пуска се цялата верига наведнъж — за печат/справка.
+function erpBuildTasks(s) {
+  const { steps, external } = erpBuildChain(s);
+  const tasks = steps.map(step => ({
+    client: s.clientName || "", product: step.product, code: step.code,
+    operation: step.operation, workshop: step.workshop, qty: step.qty, produced: 0,
+    due: s.deadline || "", thickness: "", files: [], logs: [],
+    source: { kind: "order", sampleId: s.id, sampleType: s.type || "order" },
+  }));
   return { tasks, external };
+}
+
+// Създава task-обект за конкретна стъпка от веригата.
+function erpSeqTask(step, i, meta) {
+  return {
+    client: meta.clientName || "", product: step.product || "", code: step.code || "",
+    operation: step.operation || "", workshop: step.workshop || "",
+    qty: step.qty, produced: 0, due: meta.deadline || "", thickness: "", files: [], logs: [],
+    source: {
+      kind: meta.kind || "order", sampleId: meta.sampleId, sampleType: meta.sampleType || "order",
+      seq: true, chainId: meta.chainId, step: i, total: meta.steps.length, steps: meta.steps,
+    },
+  };
+}
+
+// Ако задачата е част от последователна верига и вече е готова — автоматично
+// пуска СЛЕДВАЩАТА операция към следващия цех. Ползва се от tasks.js (logProduction).
+async function erpAdvanceSeq(t) {
+  const src = t && t.source;
+  if (!src || !src.seq) return;
+  const steps = src.steps || [];
+  const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+  if (!(qty > 0 && prod >= qty)) return;        // още не е готова
+  const next = (Number(src.step) || 0) + 1;
+  if (next >= steps.length) return;             // това беше последната операция
+  if (src.advanced) return;                     // вече сме пуснали следващата
+
+  // Маркираме тази задача, за да не пуснем следващата два пъти (напр. при повторно отчитане).
+  src.advanced = true;
+  if (typeof tSaveTask === "function") await tSaveTask(t);
+
+  // Защита от дубли между няколко отворени клиента: има ли вече следваща стъпка?
+  try {
+    const { data } = await sb.from("tasks").select("data").eq("data->source->>sampleId", String(src.sampleId));
+    const exists = (data || []).some(r => {
+      const s2 = r.data && r.data.source;
+      return s2 && String(s2.chainId) === String(src.chainId) && (Number(s2.step) || 0) === next;
+    });
+    if (exists) return;
+  } catch (e) { /* при грешка пак опитваме да създадем — по-добре дубъл, отколкото спряна верига */ }
+
+  const nt = erpSeqTask(steps[next], next, {
+    clientName: t.client || "", deadline: t.due || "", kind: src.kind,
+    sampleId: src.sampleId, sampleType: src.sampleType, chainId: src.chainId, steps,
+  });
+  const { error } = await sb.from("tasks").insert({ data: nt });
+  if (error) console.error("seq advance", error);
 }
 
 async function erpProduce(s) {
@@ -158,43 +216,58 @@ async function erpProduce(s) {
   catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return; }
   if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
 
-  const { tasks, external } = erpBuildTasks(s);
-  if (!tasks.length) {
+  const { steps, external } = erpBuildChain(s);
+  if (!steps.length) {
     alert("Няма операции за пускане. Проверете дали продуктът има рецепта с операции и дали операциите са насочени към цех (таб Операции → Цех).");
     return;
   }
   const already = s.production && s.production.count;
-  let msg = `Ще създам ${tasks.length} задачи в цеховете за „${s.erpProductName}" × ${erpNum(erpToNum(s.erpQty) || 1)} бр.`;
+  const first = steps[0];
+  let msg = `Ще пусна производството ПОСЛЕДОВАТЕЛНО за „${s.erpProductName}" × ${erpNum(erpToNum(s.erpQty) || 1)} бр.\n\n`
+    + `${steps.length} операции една след друга. Първа тръгва:\n„${first.operation}" → цех ${first.workshop}.\n\n`
+    + `След като цехът я отчете като готова, следващата операция тръгва автоматично.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) няма да отидат в цех — те са за подизпълнител.`;
-  if (already) msg += `\n\n⚠ Вече има пуснато производство (${s.production.count} задачи). Ще ги заменя с новите.`;
+  if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще го заменя с ново.`;
   if (!confirm(msg)) return;
 
-  // Идемпотентност: махаме старите задачи за тази поръчка, после създаваме наново.
+  // Идемпотентност: махаме старите задачи за тази поръчка, после пускаме първата стъпка.
   const del = await sb.from("tasks").delete().eq("data->source->>sampleId", String(s.id));
   if (del.error) { alert("Грешка при изчистване на старите задачи: " + del.error.message); return; }
-  const { error } = await sb.from("tasks").insert(tasks.map(t => ({ data: t })));
-  if (error) { alert("Грешка при създаване на задачи: " + error.message); return; }
+  const task = erpSeqTask(first, 0, {
+    clientName: s.clientName || "", deadline: s.deadline || "", kind: "order",
+    sampleId: s.id, sampleType: s.type || "order", chainId: String(s.id) + ":0", steps,
+  });
+  const { error } = await sb.from("tasks").insert({ data: task });
+  if (error) { alert("Грешка при създаване на задача: " + error.message); return; }
 
-  s.production = { at: new Date().toISOString(), count: tasks.length, external: external.length };
+  s.production = { at: new Date().toISOString(), count: steps.length, external: external.length, seq: true };
   touch(s);
   erpRenderOrderPanel(s);
-  alert(`Готово! Създадени ${tasks.length} задачи в цеховете.` + (external.length ? `\n(${external.length} външни операции пропуснати.)` : ""));
+  alert(`Готово! Пуснах първата операция „${first.operation}" към цех ${first.workshop}.\n`
+    + `Следващите ${steps.length - 1} операции ще тръгват автоматично след отчитане.`
+    + (external.length ? `\n(${external.length} външни операции са за подизпълнител.)` : ""));
 }
 
 /* ---------- Проследяване на напредъка ---------- */
 async function erpShowProduction(s) {
   const box = document.getElementById("erp-op-status");
   if (!box) return;
-  box.innerHTML = `<span class="erp-muted">Производство: пуснато (${s.production.count} задачи) — зареждане на напредъка…</span>`;
-  const { data, error } = await sb.from("tasks").select("done").eq("data->source->>sampleId", String(s.id));
+  box.innerHTML = `<span class="erp-muted">Производство: зареждане на напредъка…</span>`;
+  const { data, error } = await sb.from("tasks").select("data,done").eq("data->source->>sampleId", String(s.id));
   if (error) { box.innerHTML = `<span class="erp-warn">Не мога да заредя напредъка: ${escapeHtml(error.message)}</span>`; return; }
-  const total = (data || []).length;
-  const done = (data || []).filter(r => r.done).length;
-  const pct = total ? Math.round(done / total * 100) : 0;
-  box.innerHTML = total
-    ? `<div class="erp-prod-line"><b>Производство:</b> ${done} / ${total} задачи готови (${pct}%)
+  const rows = data || [];
+  const planned = (s.production && s.production.count) || rows.length;
+  const done = rows.filter(r => r.done).length;
+  const active = rows.filter(r => !r.done).map(r => r.data || {});
+  const pct = planned ? Math.round(done / planned * 100) : 0;
+  const activeHtml = active.length
+    ? active.map(a => `↳ сега в цех <b>${escapeHtml(a.workshop || "")}</b>: ${escapeHtml(a.operation || "")}`).join("<br>")
+    : (done ? "✓ всички операции са готови" : "");
+  box.innerHTML = rows.length
+    ? `<div class="erp-prod-line"><b>Производство (последователно):</b> ${done} / ${planned} операции готови (${pct}%)
          <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
-         <button type="button" class="btn btn-small" id="erp-op-refresh">↻</button></div>`
+         <button type="button" class="btn btn-small" id="erp-op-refresh">↻</button></div>
+       <div class="erp-prod-active">${activeHtml}</div>`
     : `<span class="erp-muted">Няма задачи за тази поръчка (възможно е да са изчистени от цеха).</span>`;
   const rb = document.getElementById("erp-op-refresh");
   if (rb) rb.addEventListener("click", () => erpShowProduction(s));

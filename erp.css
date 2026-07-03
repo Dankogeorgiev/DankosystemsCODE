@@ -93,6 +93,7 @@
 .erp-prod-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .erp-prodbar { display: inline-block; width: 160px; height: 8px; background: #d1fae5; border-radius: 99px; overflow: hidden; }
 .erp-prodbar > span { display: block; height: 100%; background: var(--ok); }
+.erp-prod-active { margin-top: 6px; font-size: 13px; color: #0f766e; line-height: 1.5; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }

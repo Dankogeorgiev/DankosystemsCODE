@@ -680,6 +680,8 @@ async function logProduction(t, qtyVal, extra) {
   if (extra) Object.assign(entry, extra);   // machine, tPiece, tSheet, tOrder, consumables...
   t.logs.push(entry);
   await tSaveTask(t);
+  // Последователно производство: ако задачата стана готова — пусни следващата операция.
+  if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
   renderTasks();
 }
 
@@ -708,6 +710,7 @@ async function logProductionKrohne(t, opKey, qtyVal, extra) {
   if (extra) Object.assign(entry, extra);
   t.logs.push(entry);
   await tSaveTask(t);
+  if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
   renderTasks();
 }
 
