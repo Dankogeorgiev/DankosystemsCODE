@@ -219,9 +219,12 @@ async function erpApplyImport(staging, progress) {
   const matsCodeless = mats.filter(m => !m.code);
   const newMats = mats.filter(m => (m.code ? !before.matByCode[m.code] : !before.matByName[erpNormKey(m.name)]));
   log("Записване на материали…");
-  if (matsCoded.length) await erpChunkInsert("materials", matsCoded, { upsert: { onConflict: "code" } });
+  // Не пипаме средната цена (avg_cost) при импорт на рецепти — тя се управлява
+  // само от „Покупки" / ценовата листа, за да не се губят вече заредените цени.
+  const stripPrice = m => { const { avg_cost, ...rest } = m; return rest; };
+  if (matsCoded.length) await erpChunkInsert("materials", matsCoded.map(stripPrice), { upsert: { onConflict: "code" } });
   const matsCodelessNew = matsCodeless.filter(m => !before.matByName[erpNormKey(m.name)]);
-  if (matsCodelessNew.length) await erpChunkInsert("materials", matsCodelessNew);
+  if (matsCodelessNew.length) await erpChunkInsert("materials", matsCodelessNew.map(stripPrice));
 
   // 4) Операции (upsert по код; безкодовите — по име, само новите).
   const ops = [...staging.operations.values()];
