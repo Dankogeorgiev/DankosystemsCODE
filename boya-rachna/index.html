@@ -43,6 +43,12 @@
   .op{display:grid;grid-template-columns:1fr 400px;gap:16px;margin-top:12px;flex:1 1 0;min-height:0}
   @media(max-width:920px){.op{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-height:0;overflow:auto}
+  /* Левият панел: БОЯДИСВАНЕ винаги долу и видимо; подвески/заредени се
+     скролват вътрешно при по-нисък екран (напр. 24" на 150% мащаб). */
+  .panel.builder{display:flex;flex-direction:column;overflow:hidden}
+  .panel.builder .kolhead,.panel.builder .actions,.panel.builder .note{flex:0 0 auto}
+  .panel.builder .buildscroll{flex:1 1 auto;min-height:0;overflow:auto}
+  .panel.builder .actions{margin-top:12px}
   .panel h2{font-family:var(--disp);font-size:16px;margin:0 0 4px}
   .legendrow{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft);
     padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -123,6 +129,19 @@
   .ralbtn i{width:20px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.2);flex:none}
   .ralbtn b{font-family:var(--mono);font-size:11px;display:block}
   .ralbtn span{color:var(--muted);font-size:11px}
+  /* Ниски екрани (напр. 24" на 150% мащаб ≈ 720px) — компактно, за да се
+     събере всичко (подвески в 1 ред + бройки + БОЯДИСВАНЕ) без скрол.
+     В края на стиловете, за да надвие базовите правила. */
+  @media(max-height:840px){
+    #stage{height:30vh}
+    .daybar .daybtn{padding:11px 14px;font-size:14px}
+    .pods{gap:8px;margin-bottom:10px;grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+    .pod{padding:10px 6px;font-size:13.5px}
+    .pod .cap{font-size:8.5px}
+    .panel{padding:12px 14px}
+    .loaded li{padding:6px 9px}
+    .loaded input[type=number]{padding:5px 8px}
+  }
 </style>
 </head>
 <body>
@@ -158,7 +177,7 @@
   <!-- ============ Операторски панел ============ -->
   <div class="op">
     <!-- Нареждане на избрания кол -->
-    <div class="panel">
+    <div class="panel builder">
       <div class="kolhead">
         <span class="no" id="kolNo">КОЛ 1</span>
         <span class="badge entry" id="kolBadge">за боядисване</span>
@@ -166,10 +185,11 @@
         <span class="slots">Места: <b id="slotUse">0</b>/2</span>
       </div>
 
-      <div class="pods" id="pods"><!-- бутони за подвески --></div>
-
-      <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
-      <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
+      <div class="buildscroll">
+        <div class="pods" id="pods"><!-- бутони за подвески --></div>
+        <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
+        <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
+      </div>
 
       <div class="actions">
         <button class="paint" id="paintBtn" disabled>🎨 БОЯДИСВАНЕ</button>
