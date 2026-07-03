@@ -16,9 +16,9 @@ async function erpLoadCustomerOrders() {
 async function erpLoadClients() {
   if (erpClientsCache) return erpClientsCache;
   try {
-    const { data } = await sb.from("contacts").select("id,data");
-    erpClientsCache = (data || []).map(r => ({ id: r.id, ...(r.data || {}) }))
-      .filter(c => /^Клиент/i.test(c.category || ""))
+    // Клиентите идват от новата ЕРП директория (таблица partners, kind=customer).
+    const { data } = await sb.from("partners").select("id,name").eq("kind", "customer");
+    erpClientsCache = (data || []).map(r => ({ id: r.id, company: r.name }))
       .sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
   } catch { erpClientsCache = []; }
   return erpClientsCache;
