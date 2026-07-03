@@ -6,7 +6,7 @@ let erpPartners = null;
 let erpPartnerSearch = "";
 
 async function erpLoadPartners() {
-  const { data, error } = await sb.from("partners").select("*").order("name");
+  const { data, error } = await erpSelectAll("partners", "*");
   if (error) throw error;
   erpPartners = data || [];
 }
@@ -23,7 +23,8 @@ async function erpRenderPartners() {
     }
   }
   const q = erpPartnerSearch.trim().toLowerCase();
-  let rows = erpPartners.filter(p => p.kind === erpPartnerKind);
+  let rows = erpPartners.filter(p => p.kind === erpPartnerKind)
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   if (q) rows = rows.filter(p =>
     ((p.name || "") + " " + (p.person || "") + " " + (p.city || "") + " " + (p.vat || "") + " " + (p.email || "")).toLowerCase().includes(q));
 

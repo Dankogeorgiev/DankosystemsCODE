@@ -23,7 +23,7 @@ async function erpSavePurchase(o) {
 }
 async function erpLoadSuppliers() {
   try {
-    const { data } = await sb.from("partners").select("id,name").eq("kind", "supplier");
+    const { data } = await erpSelectAll("partners", "id,name", "kind", "supplier");
     return (data || []).map(r => ({ id: r.id, name: r.name })).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   } catch { return []; }
 }

@@ -52,6 +52,23 @@ function erpNextCode() {
   return max ? String(max + 1) : "";
 }
 
+// Тегли ВСИЧКИ редове (Supabase връща макс 1000/заявка) чрез странициране.
+async function erpSelectAll(table, cols, eqCol, eqVal) {
+  const PAGE = 1000;
+  let from = 0, out = [];
+  for (;;) {
+    let q = sb.from(table).select(cols);
+    if (eqCol !== undefined) q = q.eq(eqCol, eqVal);
+    q = q.order("id", { ascending: true }).range(from, from + PAGE - 1);
+    const { data, error } = await q;
+    if (error) return { data: out, error };
+    out = out.concat(data || []);
+    if (!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  return { data: out, error: null };
+}
+
 function erpView() { return document.getElementById("erp-view"); }
 function erpAmWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
 
@@ -87,11 +104,11 @@ async function erpLoadAll() {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
     // (recipe_lines има две връзки към products, така избягваме двусмислието).
     const [matsRaw, stock, prods, ops, lines, routing] = await Promise.all([
-      sb.from("materials").select("id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
-      sb.from("v_material_stock").select("id,stock,below_min"),
-      sb.from("v_product_cost").select("id,code,name,is_semifinished,group_name,needs_recipe,cost_eur"),
-      sb.from("operations").select("id,code,name,workshop,unit_cost,rate_per_min"),
-      sb.from("recipe_lines").select("id,product_id,position,quantity,unit,line_cost,material_id,child_product_id,operation_id"),
+      erpSelectAll("materials", "id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
+      erpSelectAll("v_material_stock", "id,stock,below_min"),
+      erpSelectAll("v_product_cost", "id,code,name,is_semifinished,group_name,needs_recipe,cost_eur"),
+      erpSelectAll("operations", "id,code,name,workshop,unit_cost,rate_per_min"),
+      erpSelectAll("recipe_lines", "id,product_id,position,quantity,unit,line_cost,material_id,child_product_id,operation_id"),
       sb.from("app_config").select("data").eq("id", "erp_op_routing").maybeSingle(),
     ]);
 

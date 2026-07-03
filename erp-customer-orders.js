@@ -17,7 +17,7 @@ async function erpLoadClients() {
   if (erpClientsCache) return erpClientsCache;
   try {
     // Клиентите идват от новата ЕРП директория (таблица partners, kind=customer).
-    const { data } = await sb.from("partners").select("id,name").eq("kind", "customer");
+    const { data } = await erpSelectAll("partners", "id,name", "kind", "customer");
     erpClientsCache = (data || []).map(r => ({ id: r.id, company: r.name }))
       .sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
   } catch { erpClientsCache = []; }

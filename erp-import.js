@@ -165,9 +165,9 @@ function erpRowsToStaging(rows) {
 
 async function erpFetchIndex() {
   const [p, m, o] = await Promise.all([
-    sb.from("products").select("id,code,name,needs_recipe"),
-    sb.from("materials").select("id,code,name"),
-    sb.from("operations").select("id,code,name"),
+    erpSelectAll("products", "id,code,name,needs_recipe"),
+    erpSelectAll("materials", "id,code,name"),
+    erpSelectAll("operations", "id,code,name"),
   ]);
   if (p.error) throw p.error; if (m.error) throw m.error; if (o.error) throw o.error;
   const idx = {
@@ -276,8 +276,7 @@ async function erpApplyImport(staging, progress) {
   if (lineRows.length) await erpChunkInsert("recipe_lines", lineRows);
 
   // 8) Списък „Чака рецепта" (актуален от базата).
-  const { data: needsData } = await sb.from("products")
-    .select("code,name,group_name").eq("needs_recipe", true).order("group_name");
+  const { data: needsData } = await erpSelectAll("products", "code,name,group_name", "needs_recipe", true);
   const needs = needsData || [];
   const needsByGroup = {};
   needs.forEach(n => { const g = n.group_name || "—"; needsByGroup[g] = (needsByGroup[g] || 0) + 1; });
