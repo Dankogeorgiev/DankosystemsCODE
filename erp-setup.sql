@@ -181,5 +181,22 @@ drop policy if exists "customer_orders auth all" on public.customer_orders;
 create policy "customer_orders auth all" on public.customer_orders
   for all to authenticated using (true) with check (true);
 
+-- ============ 10. ПОКУПКИ (доставки/фактури) ============
+-- Всяка покупка (доставчик, № фактура, редове материали с цени) в data (JSON).
+-- При „заприходяване" се създават движения „входящ" + обновяват се средните цени.
+create table if not exists public.purchases (
+  id          uuid primary key default gen_random_uuid(),
+  data        jsonb       not null default '{}'::jsonb,
+  posted      boolean     not null default false,
+  updated_at  timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+create index if not exists purchases_updated_idx on public.purchases(updated_at desc);
+
+alter table public.purchases enable row level security;
+drop policy if exists "purchases auth all" on public.purchases;
+create policy "purchases auth all" on public.purchases
+  for all to authenticated using (true) with check (true);
+
 -- Готово! Изгледите (v_material_stock, v_product_cost) и функциите
 -- (product_cost, bom_requirements) наследяват достъпа на таблиците.

@@ -148,6 +148,7 @@ function erpSetTab(tab) {
     case "requirements": erpRenderRequirements(); break;
     case "operations":   erpRenderOperations(); break;
     case "customer":     erpRenderCustomerOrders(); break;
+    case "purchases":    erpRenderPurchases(); break;
     case "partners":     erpRenderPartners(); break;
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
