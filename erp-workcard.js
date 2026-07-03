@@ -25,7 +25,6 @@ function erpWorkCardHtml(p, qty) {
   const built = (typeof erpBuildTasks === "function")
     ? erpBuildTasks({ id: "wc", type: "order", clientName: "", deadline: "", erpProductId: p.id, erpQty: qty })
     : { tasks: [], external: [] };
-  const cost = Number(ERP.costById[p.id]) || 0;
   const dateStr = new Date().toLocaleDateString("bg-BG");
   const firstImg = (p.drawings || []).find(f => (f.type || "").startsWith("image/"));
 
@@ -79,8 +78,7 @@ function erpWorkCardHtml(p, qty) {
     <div class="prod">
       <div>
         <div class="big">${escapeHtml(p.code || "")} · ${escapeHtml(p.name || "")}</div>
-        <div>${p.is_semifinished ? "Полуфабрикат / възел" : "Артикул"} · Себестойност/бр: <b>${cost.toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</b></div>
-        <div>Общо за партидата: <b>${(cost * qty).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</b></div>
+        <div>${p.is_semifinished ? "Полуфабрикат / възел" : "Артикул"}</div>
       </div>
       <div class="qtybox"><div>Количество</div><div class="n">${(Math.round(qty * 1000) / 1000).toLocaleString("bg-BG")}</div><div>бр.</div></div>
     </div>
