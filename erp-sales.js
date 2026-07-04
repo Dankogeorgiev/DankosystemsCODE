@@ -66,6 +66,45 @@ function erpNextSaleNo() {
   return String(max + 1);
 }
 
+// Последната продажна цена на даден продукт/материал за конкретен клиент —
+// така един и същ продукт се предлага автоматично на различни клиенти на
+// различни цени (учи се от историята в erpSales). Връща {price,date,saleNo,currency} или null.
+function erpLastPriceFor(o, itemKind, refId) {
+  const byId = o && o.clientId;
+  const name = ((o && o.clientName) || "").trim().toLowerCase();
+  if (!byId && !name) return null;
+  const cur = (o && o.currency) || "EUR";
+  const hits = [];
+  (erpSales || []).forEach(s => {
+    if (o && o.id && s.id === o.id) return;                 // не броим текущата продажба
+    const sameClient = byId ? (s.clientId === byId) : ((s.clientName || "").trim().toLowerCase() === name);
+    if (!sameClient) return;
+    (s.lines || []).forEach(l => {
+      if (l.itemKind !== itemKind || String(l.refId) !== String(refId)) return;
+      const p = erpToNum(l.unitPrice);
+      if (p > 0) hits.push({ price: p, date: s.date || "", saleNo: s.saleNo || "", currency: s.currency || "EUR" });
+    });
+  });
+  if (!hits.length) return null;
+  hits.sort((a, b) => {
+    const ca = a.currency === cur ? 1 : 0, cb = b.currency === cur ? 1 : 0;
+    if (ca !== cb) return cb - ca;                          // първо със същата валута
+    return String(b.date).localeCompare(String(a.date));    // после най-скорошната
+  });
+  return hits[0];
+}
+
+// Попълва празните цени по редовете с последната цена за избрания клиент.
+function erpFillClientPrices(o) {
+  let filled = 0;
+  (o.lines || []).forEach(l => {
+    if (erpToNum(l.unitPrice) > 0) return;
+    const last = erpLastPriceFor(o, l.itemKind, l.refId);
+    if (last) { l.unitPrice = last.price; filled++; }
+  });
+  return filled;
+}
+
 /* ---------- Списък ---------- */
 async function erpRenderSales() {
   const v = erpView();
@@ -138,7 +177,10 @@ function erpNewSaleFromOrder(order) {
 async function erpRenderSaleForm(o) {
   const v = erpView();
   const clients = await erpLoadSaleClients();
+  if (!erpSales) { try { await erpLoadSales(); } catch (e) {} }   // за авто-цените (история)
   const locked = !!o.posted;
+  // Авто-цени: попълни празните цени с последната за този клиент.
+  if (!locked && (o.clientId || o.clientName)) erpFillClientPrices(o);
   const cur = erpSaleCur(o);
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -195,6 +237,8 @@ async function erpRenderSaleForm(o) {
         // опресни попълнените полета
         const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
         set("sa-cvat", o.clientVat); set("sa-ccity", o.clientCity); set("sa-cstreet", o.clientStreet);
+        // авто-цени за този клиент (само празните редове)
+        if (erpFillClientPrices(o)) erpSaRefreshFull(o);
       } else { o.clientId = null; }
     });
     document.getElementById("sa-pay").addEventListener("change", e => { o.paymentMethod = e.target.value; });
@@ -273,13 +317,16 @@ function erpSaAddLine(o, kind) {
     listEl.innerHTML = list.slice(0, 80).map(x => {
       const hint = isMat ? (x.unit || "") : (x.is_semifinished ? "полуфабрикат" : "артикул");
       const cost = isMat ? (Number(x.avg_cost) || 0) : (Number(ERP.costById[x.id]) || 0);
-      return `<button type="button" class="erp-lp-item" data-id="${x.id}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml(x.name || "")} <span class="erp-muted">${escapeHtml(hint)}${cost ? " · себест. " + erpEur(cost) : ""}</span></button>`;
+      const last = erpLastPriceFor(o, kind, x.id);
+      const lastHint = last ? ` · <b>посл. за клиента: ${erpSaleMoney(last.price, erpSaleCur(o))}</b>` : "";
+      return `<button type="button" class="erp-lp-item" data-id="${x.id}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml(x.name || "")} <span class="erp-muted">${escapeHtml(hint)}${cost ? " · себест. " + erpEur(cost) : ""}${lastHint}</span></button>`;
     }).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
       const id = Number(b.dataset.id);
       const x = isMat ? ERP.matById[id] : ERP.prodById[id];
       o.lines = o.lines || [];
-      o.lines.push({ itemKind: kind, refId: x.id, code: x.code || "", name: x.name || "", unit: isMat ? (x.unit || "") : "бр.", qty: 1, unitPrice: "" });
+      const last = erpLastPriceFor(o, kind, x.id);
+      o.lines.push({ itemKind: kind, refId: x.id, code: x.code || "", name: x.name || "", unit: isMat ? (x.unit || "") : "бр.", qty: 1, unitPrice: last ? last.price : "" });
       close(); erpSaRefreshFull(o);
     }));
   };
