@@ -535,7 +535,9 @@ function renderTasks() {
     const pi = priInfo(t);
     // Цеховете/служителите с Отчетен прозорец нямат нужда от инлайн поле „днес“ (бройката се въвежда в прозореца)
     const rowWho = MY_WORKER || t.assignee || "";
-    const usesDialog = WORKSHOPS_WITH_TIME.includes(t.workshop) || (FIELDS_BY_WORKER && FIELDS_BY_WORKER[rowWho]) || isKrohne(t);
+    // Всички цехове отчитат през Отчетния прозорец (машина/време) — за да
+    // събираме времена за всяка операция (нужно за ценообразуването).
+    const usesDialog = true;
     const prioCell = amWorker()
       ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
       : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
@@ -870,8 +872,11 @@ function openProductionDialog(t, qtyPrefill) {
   if (machineSel) machineSel.addEventListener("change", rebuild);
 
   wrap.querySelector("#pd-save").addEventListener("click", async () => {
+    // Машината е задължителна само когато има списък (падащо меню); при
+    // цехове без машини полето е свободен текст и е по желание.
+    const machineRequired = machineSel && machineSel.tagName === "SELECT";
     const machine = (machineSel && machineSel.value || "").trim();
-    if (machineSel && !machine) { alert("Избери машина."); return; }
+    if (machineRequired && !machine) { alert("Избери машина."); return; }
     const c = cfgFor(machine);
     const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
     if (!qty || qty <= 0) { alert("Въведи " + c.qtyLabel.toLowerCase() + "."); return; }
@@ -1114,7 +1119,7 @@ function renderWorkers() {
 function toggleReport() {
   const v = document.getElementById("report-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  renderReportUI();
+  if (typeof renderProdReport === "function") renderProdReport(); else renderReportUI();
 }
 function renderReportUI() {
   showSub("report");
@@ -1798,7 +1803,7 @@ function collectTimeRows() {
 function toggleTimes() {
   const v = document.getElementById("times-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  renderTimes();
+  if (typeof renderTimesReport === "function") renderTimesReport(); else renderTimes();
 }
 function renderTimes() {
   showSub("times");

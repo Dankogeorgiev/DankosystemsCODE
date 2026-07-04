@@ -99,6 +99,12 @@
 .erp-sale-sum td { padding: 4px 10px; font-size: 14px; }
 .erp-sale-sum td.num { text-align: right; }
 .erp-sale-sum tr.grand td { border-top: 2px solid #0f766e; font-size: 16px; padding-top: 6px; }
+/* Производствен отчет */
+.pr-controls { margin: 10px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+.pr-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pr-lbl { font-weight: 600; color: #475569; margin-right: 4px; }
+.pr-summary { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 8px 12px; margin: 8px 0 12px; font-size: 14px; }
+.pr-table tr.pr-total td { background: #f0fdfa; font-weight: bold; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }
