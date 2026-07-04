@@ -11,7 +11,7 @@
     // 2) ЕРП модал: първо назад от детайл (рецепта/заявка) към списъка.
     const erp = document.getElementById("erp-modal");
     if (erp && !erp.hidden) {
-      const detailBack = erp.querySelector("#erp-recipe-back, #co-back");
+      const detailBack = erp.querySelector("#erp-recipe-back, #co-back, #sa-back");
       if (detailBack) { detailBack.click(); return true; }
       const close = document.getElementById("erp-close");
       if (close) close.click(); else erp.hidden = true;

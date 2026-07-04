@@ -198,5 +198,25 @@ drop policy if exists "purchases auth all" on public.purchases;
 create policy "purchases auth all" on public.purchases
   for all to authenticated using (true) with check (true);
 
+-- ============ 11. ПРОДАЖБИ (фактуриране) ============
+-- Всяка продажба (клиент, № продажба, редове продукти/материали с продажни
+-- цени, ДДС, начин на плащане) се пази в data (JSON) — като данните за фактура.
+-- При „Осчетоводи" се създават движения „изписване" (с отрицателно количество)
+-- за материалите (директно или чрез разбивка на рецептата на продуктите) →
+-- наличностите се чистят автоматично. Средните цени НЕ се променят при продажба.
+create table if not exists public.sales (
+  id          uuid primary key default gen_random_uuid(),
+  data        jsonb       not null default '{}'::jsonb,
+  posted      boolean     not null default false,
+  updated_at  timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+create index if not exists sales_updated_idx on public.sales(updated_at desc);
+
+alter table public.sales enable row level security;
+drop policy if exists "sales auth all" on public.sales;
+create policy "sales auth all" on public.sales
+  for all to authenticated using (true) with check (true);
+
 -- Готово! Изгледите (v_material_stock, v_product_cost) и функциите
 -- (product_cost, bom_requirements) наследяват достъпа на таблиците.
