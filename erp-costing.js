@@ -217,9 +217,9 @@ async function erpRenderCostRates(host) {
         <td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.ws)}</td><td class="num">${money(m.deprAnnual)}</td><td class="num">${money(m.maint)}</td><td class="num">${money(m.kwh)}</td><td class="num">${money(R.machineRate[m.name])}</td></tr>`).join("")}</tbody></table>
     </details>
 
-    <details class="cost-details"><summary>👥 Заплати по служители (${(COST_CFG.employees || []).length})</summary>
-      <table class="report-table erp-table"><thead><tr><th>Служител</th><th>Цех</th><th class="num">Заплата €/мес</th><th>Роля</th></tr></thead>
-      <tbody>${(COST_CFG.employees || []).map(e => `<tr><td>${escapeHtml(e.name || "")}</td><td>${escapeHtml(e.ws || "")}</td><td class="num">${money(e.pay)}</td><td>${escapeHtml(e.role || "")}</td></tr>`).join("")}</tbody></table>
+    <details class="cost-details"><summary>👥 Досие на служители (${(COST_CFG.employees || []).length}) — натисни за детайли</summary>
+      <table class="report-table erp-table"><thead><tr><th>Служител</th><th>Цех</th><th class="num">Заплата €/мес</th><th>Длъжност</th><th></th></tr></thead>
+      <tbody>${(COST_CFG.employees || []).map(e => { const d = erpDossierFor(e.name) || {}; return `<tr class="erp-clickable" data-emp="${escapeAttr(e.name || "")}"><td><b>${escapeHtml(e.name || "")}</b></td><td>${escapeHtml(e.ws || "")}</td><td class="num">${money(e.pay)}</td><td>${escapeHtml(d.position || e.role || "")}</td><td class="erp-row-actions">${erpDossierFor(e.name) ? "📄" : ""}</td></tr>`; }).join("")}</tbody></table>
     </details>
 
     <div class="erp-co-linebar"><button class="btn btn-small" id="cp-apply">📥 Запиши себестойностите в операциите (рецепти)</button><span class="spacer"></span><button class="btn btn-small btn-primary" id="cp-save">💾 Запази</button><span class="save-status" id="cp-status"></span></div>
@@ -248,4 +248,43 @@ async function erpRenderCostRates(host) {
     setTimeout(() => { if (st) st.textContent = ""; }, 1500);
   });
   v.querySelector("#cp-apply").addEventListener("click", () => erpApplyOpCosts(v.querySelector("#cp-status")));
+  v.querySelectorAll("[data-emp]").forEach(tr => tr.addEventListener("click", () => {
+    const e = (COST_CFG.employees || []).find(x => x.name === tr.dataset.emp) || { name: tr.dataset.emp };
+    erpShowDossier(e.name, e.pay);
+  }));
+}
+
+// Намира досие по име (съвпадение по първо и последно име).
+function erpDossierFor(name) {
+  if (typeof DOSSIER_SEED === "undefined") return null;
+  const toks = String(name || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!toks.length) return null;
+  const first = toks[0], last = toks[toks.length - 1];
+  return DOSSIER_SEED.find(d => { const dn = String(d.name || "").toLowerCase(); return dn.includes(first) && dn.includes(last); }) || null;
+}
+
+// Показва досието на служителя (без чувствителните заплати от файловете — заплатата
+// идва от справочните данни).
+function erpShowDossier(name, pay) {
+  const d = erpDossierFor(name) || {};
+  const money = n => (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const row = (lbl, val) => val ? `<div class="dos-row"><span class="dos-l">${lbl}</span><span class="dos-v">${escapeHtml(val)}</span></div>` : "";
+  const phone = d.phone ? `<a href="tel:${escapeAttr(String(d.phone).replace(/\s+/g, ""))}">${escapeHtml(d.phone)}</a>` : "";
+  const { wrap, close } = erpDialog(`
+    <h3>📄 ${escapeHtml(name)}</h3>
+    ${d.position ? `<div class="dos-row"><span class="dos-l">Длъжност</span><span class="dos-v">${escapeHtml(d.position)}</span></div>` : ""}
+    ${phone ? `<div class="dos-row"><span class="dos-l">Телефон</span><span class="dos-v">${phone}</span></div>` : ""}
+    ${row("Рождена дата", d.birth)}
+    ${row("Семеен статус", d.family)}
+    ${row("Деца", d.children)}
+    ${row("Операции / какво извършва", d.operations)}
+    ${row("Отговорности", d.responsibilities)}
+    ${row("От какво има нужда", d.needs)}
+    ${row("Идеи за подобрение", d.ideas)}
+    ${row("Какво не обича да прави", d.dislikes)}
+    ${row("Лично мнение", d.opinion)}
+    ${(pay != null && pay !== "") ? `<div class="dos-row"><span class="dos-l">Заплата (нето)</span><span class="dos-v">${money(pay)} €/мес</span></div>` : ""}
+    ${erpDossierFor(name) ? "" : `<p class="hint">Няма попълнено досие за този служител.</p>`}
+    <div class="erp-dialog-actions"><button class="btn" id="dos-close">Затвори</button></div>`);
+  wrap.querySelector("#dos-close").addEventListener("click", close);
 }

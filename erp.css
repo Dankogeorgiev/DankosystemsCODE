@@ -155,6 +155,17 @@
 .cost-details summary { cursor: pointer; font-weight: 600; color: #0f766e; padding: 4px 0; }
 .btn-finance { background: #ca8a04; color: #fff; border-color: #ca8a04; }
 .btn-finance:hover { background: #a16207; }
+/* Досие */
+.dos-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #eef2f7; font-size: 13px; }
+.dos-l { flex: 0 0 190px; color: #64748b; font-weight: 600; }
+.dos-v { flex: 1; white-space: pre-wrap; }
+/* Заплати (седмично) */
+.pay-scroll { overflow-x: auto; }
+.pay-table th, .pay-table td { white-space: nowrap; }
+.pay-table .pay-in { width: 78px; }
+.pay-table .pay-note { width: 160px; }
+.pay-table tr.pay-ws td { background: #ecfdf5; color: #065f46; font-weight: 700; }
+.pay-total { font-weight: 700; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }

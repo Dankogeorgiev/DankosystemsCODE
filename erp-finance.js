@@ -38,14 +38,21 @@ async function erpRenderFinance() {
   const v = erpView();
   const nav = `<div class="pr-row" style="margin-bottom:8px">
     <button class="btn btn-small ${erpFinView === "margin" ? "btn-primary" : ""}" id="fin-nav-m">📊 Маржин по поръчка</button>
-    <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button></div>`;
+    <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button>
+    <button class="btn btn-small ${erpFinView === "payroll" ? "btn-primary" : ""}" id="fin-nav-p">🧾 Заплати (седмично)</button></div>`;
   v.innerHTML = nav + `<div id="fin-body"><p class="erp-loading">Зареждане…</p></div>`;
   v.querySelector("#fin-nav-m").addEventListener("click", () => { erpFinView = "margin"; erpRenderFinance(); });
   v.querySelector("#fin-nav-r").addEventListener("click", () => { erpFinView = "rates"; erpRenderFinance(); });
+  v.querySelector("#fin-nav-p").addEventListener("click", () => { erpFinView = "payroll"; erpRenderFinance(); });
   const body = v.querySelector("#fin-body");
   if (erpFinView === "rates") {
     if (typeof erpRenderCostRates === "function") await erpRenderCostRates(body);
     else body.innerHTML = `<p class="erp-error">Модул „Разходи" не е зареден.</p>`;
+    return;
+  }
+  if (erpFinView === "payroll") {
+    if (typeof erpRenderPayroll === "function") await erpRenderPayroll(body);
+    else body.innerHTML = `<p class="erp-error">Модул „Заплати" не е зареден.</p>`;
     return;
   }
   await erpRenderMargin(body);
