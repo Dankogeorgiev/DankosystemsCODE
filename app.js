@@ -52,7 +52,17 @@ async function loadAccess(email) {
     MY_ACCESS = { isAdmin: true, email: e };
   }
 }
+// Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
+// Добави имейлите за вход на Григор и Кристина, за да ги пуснеш.
+const FINANCE_EMAILS = ["dankog@gmail.com"];
+function financeAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return FINANCE_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
+
 function applyAccess() {
+  const fin = document.getElementById("btn-finance");
+  if (fin) fin.style.display = financeAllowed() ? "" : "none";
   const adminOnly = document.querySelectorAll(
     '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-erp,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {

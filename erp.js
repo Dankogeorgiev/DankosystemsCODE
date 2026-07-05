@@ -77,6 +77,11 @@ async function openErp() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   if (erpAmWorker()) { alert("Този модул е достъпен само за офиса."); return; }
   document.getElementById("erp-modal").hidden = false;
+  // Табът „Финанси" се вижда само от оторизираните за финанси.
+  const finTab = document.querySelector('.erp-tab[data-tab="finance"]');
+  const finOk = (typeof financeAllowed !== "function") || financeAllowed();
+  if (finTab) finTab.style.display = finOk ? "" : "none";
+  if (ERP.tab === "finance" && !finOk) ERP.tab = "customer";
   if (!ERP.loaded) {
     erpView().innerHTML = `<p class="erp-loading">Зареждане…</p>`;
     await erpLoadAll();
@@ -166,7 +171,11 @@ function erpSetTab(tab) {
     case "operations":   erpRenderOperations(); break;
     case "customer":     erpRenderCustomerOrders(); break;
     case "sales":        erpRenderSales(); break;
-    case "finance":      erpRenderFinance(); break;
+    case "finance":
+      if (typeof financeAllowed === "function" && !financeAllowed()) {
+        erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>Модул „Финанси" е достъпен само за оторизирани потребители.</p></div>`;
+      } else erpRenderFinance();
+      break;
     case "purchases":    erpRenderPurchases(); break;
     case "partners":     erpRenderPartners(); break;
     case "import":       erpRenderImport(); break;
@@ -178,6 +187,8 @@ function erpSetTab(tab) {
 function erpInit() {
   const btn = document.getElementById("btn-erp");
   if (btn) btn.addEventListener("click", openErp);
+  const finBtn = document.getElementById("btn-finance");
+  if (finBtn) finBtn.addEventListener("click", () => { ERP.tab = "finance"; openErp(); });
   const closeBtn = document.getElementById("erp-close");
   if (closeBtn) closeBtn.addEventListener("click", closeErp);
   document.querySelectorAll(".erp-tab").forEach(b =>

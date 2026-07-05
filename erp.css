@@ -153,6 +153,8 @@
 .cost-rate-table td.num, .cost-rate-table th.num { text-align: right; }
 .cost-details { margin: 10px 0; }
 .cost-details summary { cursor: pointer; font-weight: 600; color: #0f766e; padding: 4px 0; }
+.btn-finance { background: #ca8a04; color: #fff; border-color: #ca8a04; }
+.btn-finance:hover { background: #a16207; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }
