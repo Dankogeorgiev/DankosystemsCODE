@@ -189,7 +189,7 @@ async function erpRenderCostRates(host) {
       <p class="hint">Продуктивни часове/мес: <b>${money(hpm)}</b> · произв. работници: <b>${prodWorkers}</b> · режийни: <b>${money(overheadRate)} €/ч</b></p>
     </div>
 
-    <h4 class="erp-group-head">Ставка на час по цех</h4>
+    <details class="cost-details"><summary>💶 Ставка на час по цех</summary>
     <table class="report-table erp-table cost-rate-table">
       <thead><tr><th>Цех</th><th class="num">Работници</th><th class="num">Машини</th><th class="num">Труд €/ч</th><th class="num">Машина (ср) €/ч</th><th class="num">Режийни €/ч</th><th class="num">Обща ставка €/ч</th></tr></thead>
       <tbody>${ws.map(w => { const r = rate[w]; return `<tr>
@@ -198,8 +198,9 @@ async function erpRenderCostRates(host) {
         <td class="num"><b>${money(r.full)}</b></td></tr>`; }).join("")}</tbody>
     </table>
     <p class="hint">Себестойност на операция = време за 1 брой (Времена) × (труд + ставка на реалната машина + режийни). Соларите не се смятат (отделна инвестиция).</p>
+    </details>
 
-    <details class="cost-details" open><summary>🔗 Свързване на машини (Времена ↔ разходи) — за точна машинна ставка</summary>
+    <details class="cost-details"><summary>🔗 Свързване на машини (Времена ↔ разходи) — за точна машинна ставка</summary>
       <table class="report-table erp-table"><thead><tr><th>Машина във „Времена"</th><th>= машина от разходите</th><th class="num">€/ч на машината</th></tr></thead>
       <tbody>${vremena.map(nm => {
         const cur = (COST_CFG.machineAlias[nm] || "");
