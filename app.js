@@ -54,7 +54,7 @@ async function loadAccess(email) {
 }
 // Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
 // Добави имейлите за вход на Григор и Кристина, за да ги пуснеш.
-const FINANCE_EMAILS = ["dankog@gmail.com"];
+const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com"];
 function financeAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return FINANCE_EMAILS.map(x => x.toLowerCase()).includes(e);

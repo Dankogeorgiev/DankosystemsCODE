@@ -136,6 +136,31 @@ function erpVremenaMachines() {
   return [...set].filter(Boolean).sort((a, b) => String(a).localeCompare(String(b), "bg"));
 }
 
+// Записва реалните себестойности (време × ставка) в операциите (operations.unit_cost),
+// за да ги отразят рецептите и себестойността навсякъде. Обновяват се само
+// операциите с измерено време.
+async function erpApplyOpCosts(statusEl) {
+  const R = erpCostRates();
+  const opCost = erpOpUnitCost(R);
+  const ups = [];
+  (ERP.operations || []).forEach(op => {
+    const c = opCost[op.name || ""];
+    if (c != null) ups.push({ id: op.id, unit_cost: Math.round(c * 10000) / 10000, name: op.name });
+  });
+  if (!ups.length) { alert("Още няма измерени времена, за да се сметнат себестойности на операции. Първо цеховете да отчетат време."); return; }
+  if (!confirm(`Ще запиша реалната себестойност (труд+машина+режийни) на ${ups.length} операции в рецептите. Това презаписва досегашните им стойности. Да продължа?`)) return;
+  let done = 0;
+  for (const u of ups) {
+    const { error } = await sb.from("operations").update({ unit_cost: u.unit_cost }).eq("id", u.id);
+    if (error) { alert("Грешка при операция " + (u.name || "") + ": " + error.message); return; }
+    done++;
+    if (statusEl) statusEl.textContent = `Записва… ${done}/${ups.length}`;
+  }
+  await erpLoadAll();   // опреснява себестойностите (v_product_cost)
+  if (statusEl) statusEl.textContent = "✓ Записано";
+  alert(`Готово! Записани себестойности за ${done} операции. Рецептите и маржинът вече ги отразяват.`);
+}
+
 /* ---------- Екран „Разходи и ставки" ---------- */
 async function erpRenderCostRates(host) {
   const v = host || erpView();
@@ -197,7 +222,8 @@ async function erpRenderCostRates(host) {
       <tbody>${(COST_CFG.employees || []).map(e => `<tr><td>${escapeHtml(e.name || "")}</td><td>${escapeHtml(e.ws || "")}</td><td class="num">${money(e.pay)}</td><td>${escapeHtml(e.role || "")}</td></tr>`).join("")}</tbody></table>
     </details>
 
-    <div class="erp-co-linebar"><span class="spacer"></span><button class="btn btn-small btn-primary" id="cp-save">💾 Запази</button><span class="save-status" id="cp-status"></span></div>`;
+    <div class="erp-co-linebar"><button class="btn btn-small" id="cp-apply">📥 Запиши себестойностите в операциите (рецепти)</button><span class="spacer"></span><button class="btn btn-small btn-primary" id="cp-save">💾 Запази</button><span class="save-status" id="cp-status"></span></div>
+    <p class="hint">„Запиши в операциите" презаписва себестойността на операциите (unit_cost) с реалната (време × ставка), за да я отразят рецептите и калкулациите. Прави се когато решиш да обновиш — не автоматично.</p>`;
 
   const upd = () => {
     p.hoursPerDay = erpToNum(v.querySelector("#cp-hpd").value) || 7.5;
@@ -221,4 +247,5 @@ async function erpRenderCostRates(host) {
     st.textContent = ok ? "✓ Записано" : "";
     setTimeout(() => { if (st) st.textContent = ""; }, 1500);
   });
+  v.querySelector("#cp-apply").addEventListener("click", () => erpApplyOpCosts(v.querySelector("#cp-status")));
 }
