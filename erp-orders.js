@@ -125,17 +125,19 @@ async function erpFillMaterials(s) {
   alert(`Заредени ${data.length} материала от рецептата за ${erpNum(qty)} бр.` + (short ? `\n${short} от тях са с недостиг (виж раздел 5).` : ""));
 }
 
-/* ---------- Пускане в производство (последователно) ---------- */
-// Обхожда рецептата в реда на позициите и връща подредена ВЕРИГА от стъпки
-// (операция → цех), + външните услуги. Възлите (полуфабрикатите) се разгъват
-// на място, така че операциите им идват преди операциите на родителя, които
-// следват в рецептата — точно както е наредена технологията.
-function erpBuildChain(s) {
+/* ---------- Пускане в производство (последователно, паралелно по възли) ---------- */
+// Обхожда рецептата и връща по ЕДНА верига за ВСЕКИ детайл/възел (продуктов
+// възел със свои операции), + външните услуги. Всеки възел си върви
+// последователно през своите операции, но различните възли се стартират
+// наведнъж. Веригата на самия краен продукт е маркирана с isTop (финално
+// сглобяване/опаковане — тя тръгва след като всички възли са готови).
+function erpBuildChains(s) {
   const qty = erpToNum(s.erpQty) || 1;
-  const steps = [], external = [];
+  const chains = [], external = [];
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
-  (function walk(pid, mult, anc) {
+  (function walk(pid, mult, anc, depth) {
     const p = ERP.prodById[pid] || {};
+    const steps = [];
     (ERP.linesByProduct[pid] || []).forEach(l => {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
@@ -144,71 +146,132 @@ function erpBuildChain(s) {
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         steps.push({ product: p.name || "", code: p.code || "", operation: op.name || "", workshop: ws, qty: cnt });
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
-        walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]));
+        walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]), depth + 1);
       }
     });
-  })(s.erpProductId, qty, new Set([s.erpProductId]));
-  return { steps, external };
+    if (steps.length) chains.push({ product: p.name || "", code: p.code || "", steps, isTop: depth === 0 });
+  })(s.erpProductId, qty, new Set([s.erpProductId]), 0);
+  return { chains, external };
 }
 
-// Съвместимост: плосък списък със задачи по цехове (ползва се от Работната карта
-// за показване на целия маршрут). Пуска се цялата верига наведнъж — за печат/справка.
+// Съвместимост: плосък списък със задачи (ползва се от Работната карта за
+// показване на целия маршрут). Групиран по възел (детайлите първо, финалът накрая).
 function erpBuildTasks(s) {
-  const { steps, external } = erpBuildChain(s);
-  const tasks = steps.map(step => ({
+  const { chains, external } = erpBuildChains(s);
+  const tasks = [];
+  chains.forEach(c => c.steps.forEach(step => tasks.push({
     client: s.clientName || "", product: step.product, code: step.code,
     operation: step.operation, workshop: step.workshop, qty: step.qty, produced: 0,
     due: s.deadline || "", thickness: "", files: [], logs: [],
     source: { kind: "order", sampleId: s.id, sampleType: s.type || "order" },
-  }));
+  })));
   return { tasks, external };
 }
 
-// Създава task-обект за конкретна стъпка от веригата.
+// Създава task-обект за конкретна стъпка от верига.
 function erpSeqTask(step, i, meta) {
+  const src = {
+    kind: meta.kind || "order", sampleId: meta.sampleId, sampleType: meta.sampleType || "order",
+    seq: true, group: meta.group, chainId: meta.chainId, step: i, total: meta.steps.length, steps: meta.steps,
+    role: meta.role || "part",
+  };
+  if (meta.finalChainId) { src.finalChainId = meta.finalChainId; src.finalSteps = meta.finalSteps; }
   return {
     client: meta.clientName || "", product: step.product || "", code: step.code || "",
     operation: step.operation || "", workshop: step.workshop || "",
     qty: step.qty, produced: 0, due: meta.deadline || "", thickness: "", files: [], logs: [],
-    source: {
-      kind: meta.kind || "order", sampleId: meta.sampleId, sampleType: meta.sampleType || "order",
-      seq: true, chainId: meta.chainId, step: i, total: meta.steps.length, steps: meta.steps,
-    },
+    source: src,
   };
 }
 
-// Ако задачата е част от последователна верига и вече е готова — автоматично
-// пуска СЛЕДВАЩАТА операция към следващия цех. Ползва се от tasks.js (logProduction).
+// Планира пускането на един продукт: първите задачи (по една за всеки възел),
+// общ брой стъпки, и дали има изчакващо финално сглобяване.
+function erpPlanProduction(productId, qty, meta) {
+  const { chains, external } = erpBuildChains({ erpProductId: productId, erpQty: qty });
+  const partChains = chains.filter(c => !c.isTop);
+  const finalChain = chains.find(c => c.isTop) || null;
+  // Ако има възли — стартираме тях, а финалът чака. Ако няма възли (прост
+  // продукт от един детайл) — стартираме директно веригата на продукта.
+  const launch = partChains.length ? partChains : (finalChain ? [finalChain] : []);
+  const gatedFinal = (partChains.length && finalChain) ? finalChain : null;
+  const totalSteps = chains.reduce((n, c) => n + c.steps.length, 0);
+  const finalChainId = gatedFinal ? (meta.group + ":final") : null;
+  const firstTasks = launch.map((c, ci) => erpSeqTask(c.steps[0], 0, {
+    clientName: meta.clientName || "", deadline: meta.deadline || "", kind: meta.kind, sampleId: meta.sampleId,
+    sampleType: meta.sampleType, group: meta.group, chainId: meta.group + ":" + ci, steps: c.steps,
+    role: "part", finalChainId, finalSteps: gatedFinal ? gatedFinal.steps : null,
+  }));
+  return { firstTasks, totalSteps, chainCount: launch.length, external, hasFinal: !!gatedFinal };
+}
+
+// Ако задачата е част от последователна верига и е готова — пуска следващата
+// операция на СЪЩИЯ възел; а ако възелът приключи — проверява дали всички възли
+// са готови, за да пусне финалното сглобяване. Ползва се от tasks.js.
 async function erpAdvanceSeq(t) {
   const src = t && t.source;
   if (!src || !src.seq) return;
   const steps = src.steps || [];
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
-  if (!(qty > 0 && prod >= qty)) return;        // още не е готова
+  if (!(qty > 0 && prod >= qty)) return;             // още не е готова
   const next = (Number(src.step) || 0) + 1;
-  if (next >= steps.length) return;             // това беше последната операция
-  if (src.advanced) return;                     // вече сме пуснали следващата
 
-  // Маркираме тази задача, за да не пуснем следващата два пъти (напр. при повторно отчитане).
-  src.advanced = true;
-  if (typeof tSaveTask === "function") await tSaveTask(t);
-
-  // Защита от дубли между няколко отворени клиента: има ли вече следваща стъпка?
-  try {
-    const { data } = await sb.from("tasks").select("data").eq("data->source->>sampleId", String(src.sampleId));
-    const exists = (data || []).some(r => {
-      const s2 = r.data && r.data.source;
-      return s2 && String(s2.chainId) === String(src.chainId) && (Number(s2.step) || 0) === next;
+  // 1) Следваща операция на същия възел.
+  if (next < steps.length) {
+    if (src.advanced) return;
+    src.advanced = true;
+    if (typeof tSaveTask === "function") await tSaveTask(t);
+    try {
+      const { data } = await sb.from("tasks").select("data").eq("data->source->>sampleId", String(src.sampleId));
+      const exists = (data || []).some(r => {
+        const s2 = r.data && r.data.source;
+        return s2 && String(s2.chainId) === String(src.chainId) && (Number(s2.step) || 0) === next;
+      });
+      if (exists) return;
+    } catch (e) { /* по-добре дубъл, отколкото спряна верига */ }
+    const nt = erpSeqTask(steps[next], next, {
+      clientName: t.client || "", deadline: t.due || "", kind: src.kind, sampleId: src.sampleId,
+      sampleType: src.sampleType, group: src.group, chainId: src.chainId, steps,
+      role: src.role, finalChainId: src.finalChainId, finalSteps: src.finalSteps,
     });
-    if (exists) return;
-  } catch (e) { /* при грешка пак опитваме да създадем — по-добре дубъл, отколкото спряна верига */ }
+    const { error } = await sb.from("tasks").insert({ data: nt });
+    if (error) console.error("seq advance", error);
+    return;
+  }
 
-  const nt = erpSeqTask(steps[next], next, {
-    clientName: t.client || "", deadline: t.due || "", kind: src.kind,
-    sampleId: src.sampleId, sampleType: src.sampleType, chainId: src.chainId, steps,
+  // 2) Възелът приключи. Ако има изчакващо финално сглобяване — проверяваме
+  //    дали ВСИЧКИ възли (от същата група) са готови и го пускаме.
+  if (src.role === "part" && src.finalChainId && (src.finalSteps || []).length) {
+    await erpMaybeStartFinal(t, src);
+  }
+}
+
+// Пуска финалната верига (сглобяване/опаковане на целия продукт), когато всички
+// възли от групата са завършили.
+async function erpMaybeStartFinal(t, src) {
+  let rows = [];
+  try {
+    const { data } = await sb.from("tasks").select("data,done").eq("data->source->>sampleId", String(src.sampleId));
+    rows = data || [];
+  } catch (e) { return; }
+  // Вече пуснат ли е финалът?
+  if (rows.some(r => { const s = r.data && r.data.source; return s && String(s.chainId) === String(src.finalChainId); })) return;
+  // Всички възли от групата готови ли са? (последната стъпка на всяка верига е отчетена)
+  const parts = {};
+  rows.forEach(r => {
+    const s = r.data && r.data.source;
+    if (!s || s.role !== "part" || String(s.group) !== String(src.group)) return;
+    const g = parts[s.chainId] || (parts[s.chainId] = { done: false });
+    const stepN = Number(s.step) || 0, len = (s.steps || []).length;
+    if (stepN === len - 1) g.done = !!r.done;
+  });
+  const ids = Object.keys(parts);
+  if (!ids.length || !ids.every(id => parts[id].done)) return;
+  const nt = erpSeqTask(src.finalSteps[0], 0, {
+    clientName: t.client || "", deadline: t.due || "", kind: src.kind, sampleId: src.sampleId,
+    sampleType: src.sampleType, group: src.group, chainId: src.finalChainId, steps: src.finalSteps, role: "final",
   });
   const { error } = await sb.from("tasks").insert({ data: nt });
-  if (error) console.error("seq advance", error);
+  if (error) console.error("seq final", error);
 }
 
 async function erpProduce(s) {
@@ -216,36 +279,35 @@ async function erpProduce(s) {
   catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return; }
   if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
 
-  const { steps, external } = erpBuildChain(s);
-  if (!steps.length) {
+  const plan = erpPlanProduction(s.erpProductId, erpToNum(s.erpQty) || 1, {
+    clientName: s.clientName || "", deadline: s.deadline || "", kind: "order",
+    sampleId: s.id, sampleType: s.type || "order", group: String(s.id),
+  });
+  if (!plan.totalSteps) {
     alert("Няма операции за пускане. Проверете дали продуктът има рецепта с операции и дали операциите са насочени към цех (таб Операции → Цех).");
     return;
   }
   const already = s.production && s.production.count;
-  const first = steps[0];
-  let msg = `Ще пусна производството ПОСЛЕДОВАТЕЛНО за „${s.erpProductName}" × ${erpNum(erpToNum(s.erpQty) || 1)} бр.\n\n`
-    + `${steps.length} операции една след друга. Първа тръгва:\n„${first.operation}" → цех ${first.workshop}.\n\n`
-    + `След като цехът я отчете като готова, следващата операция тръгва автоматично.`;
-  if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) няма да отидат в цех — те са за подизпълнител.`;
+  let msg = `Ще пусна производството за „${s.erpProductName}" × ${erpNum(erpToNum(s.erpQty) || 1)} бр.\n\n`
+    + `Стартират НАВЕДНЪЖ първите операции на ${plan.chainCount} възела/детайла. Всеки възел после върви последователно през своите операции.`;
+  if (plan.hasFinal) msg += `\n\nФиналното сглобяване на целия продукт тръгва след като всички възли са готови.`;
+  if (plan.external.length) msg += `\n\n${plan.external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще го заменя с ново.`;
   if (!confirm(msg)) return;
 
-  // Идемпотентност: махаме старите задачи за тази поръчка, после пускаме първата стъпка.
+  // Идемпотентност: махаме старите задачи за тази поръчка, после пускаме първите операции.
   const del = await sb.from("tasks").delete().eq("data->source->>sampleId", String(s.id));
   if (del.error) { alert("Грешка при изчистване на старите задачи: " + del.error.message); return; }
-  const task = erpSeqTask(first, 0, {
-    clientName: s.clientName || "", deadline: s.deadline || "", kind: "order",
-    sampleId: s.id, sampleType: s.type || "order", chainId: String(s.id) + ":0", steps,
-  });
-  const { error } = await sb.from("tasks").insert({ data: task });
-  if (error) { alert("Грешка при създаване на задача: " + error.message); return; }
+  const { error } = await sb.from("tasks").insert(plan.firstTasks.map(t => ({ data: t })));
+  if (error) { alert("Грешка при създаване на задачи: " + error.message); return; }
 
-  s.production = { at: new Date().toISOString(), count: steps.length, external: external.length, seq: true };
+  s.production = { at: new Date().toISOString(), count: plan.totalSteps, chains: plan.chainCount, external: plan.external.length, seq: true, hasFinal: plan.hasFinal };
   touch(s);
   erpRenderOrderPanel(s);
-  alert(`Готово! Пуснах първата операция „${first.operation}" към цех ${first.workshop}.\n`
-    + `Следващите ${steps.length - 1} операции ще тръгват автоматично след отчитане.`
-    + (external.length ? `\n(${external.length} външни операции са за подизпълнител.)` : ""));
+  alert(`Готово! Стартирах първите операции на ${plan.chainCount} възела наведнъж.\n`
+    + `Всеки възел ще върви последователно; следващите операции тръгват автоматично след отчитане.`
+    + (plan.hasFinal ? `\nФиналното сглобяване ще тръгне след като всички възли са готови.` : "")
+    + (plan.external.length ? `\n(${plan.external.length} външни операции са за подизпълнител.)` : ""));
 }
 
 /* ---------- Проследяване на напредъка ---------- */

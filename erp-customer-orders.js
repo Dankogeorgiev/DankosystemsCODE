@@ -261,38 +261,41 @@ async function erpCOProduce(o) {
   // Първо запазваме, за да има № и id за връзката към задачите.
   try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
 
-  // Всеки продукт от заявката е самостоятелна верига — операциите му вървят
-  // последователно, но различните продукти могат да се произвеждат паралелно.
-  const chains = []; let external = [], totalSteps = 0;
+  // Всеки продукт от заявката се планира отделно: възлите му стартират наведнъж
+  // (всеки върви последователно), а финалното сглобяване чака готови възли.
+  let firstTasks = [], external = [], totalSteps = 0, chainCount = 0, hasFinal = false;
   (o.lines || []).forEach((l, li) => {
-    const b = erpBuildChain({ id: o.id, type: "customer_order", clientName: o.clientName || "", deadline: o.deadline || "", erpProductId: l.productId, erpQty: erpToNum(l.qty) || 1 });
-    external = external.concat(b.external);
-    if (b.steps.length) { chains.push({ li, steps: b.steps }); totalSteps += b.steps.length; }
+    const plan = erpPlanProduction(l.productId, erpToNum(l.qty) || 1, {
+      clientName: o.clientName || "", deadline: o.deadline || "", kind: "customer_order",
+      sampleId: o.id, sampleType: "customer_order", group: String(o.id) + ":" + li,
+    });
+    firstTasks = firstTasks.concat(plan.firstTasks);
+    external = external.concat(plan.external);
+    totalSteps += plan.totalSteps; chainCount += plan.chainCount;
+    if (plan.hasFinal) hasFinal = true;
   });
-  if (!chains.length) { alert("Няма операции за пускане (продуктите нямат рецепта с операции)."); return; }
+  if (!firstTasks.length) { alert("Няма операции за пускане (продуктите нямат рецепта с операции)."); return; }
 
   const already = o.production && o.production.count;
-  let msg = `Ще пусна ПОСЛЕДОВАТЕЛНО производство за заявка №${o.ourNo} (${chains.length} продукта, ${totalSteps} операции общо).\n\n`
-    + `За всеки продукт тръгва първата му операция; следващата се пуска автоматично след отчитане.`;
+  let msg = `Ще пусна производство за заявка №${o.ourNo} (${(o.lines || []).length} продукта).\n\n`
+    + `Стартират наведнъж първите операции на ${chainCount} възела/детайла; всеки върви последователно.`;
+  if (hasFinal) msg += `\n\nФиналното сглобяване на продуктите тръгва след готови възли.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще го заменя с ново.`;
   if (!confirm(msg)) return;
 
   const del = await sb.from("tasks").delete().eq("data->source->>sampleId", String(o.id));
   if (del.error) { alert("Грешка при изчистване: " + del.error.message); return; }
-  const firstTasks = chains.map(c => erpSeqTask(c.steps[0], 0, {
-    clientName: o.clientName || "", deadline: o.deadline || "", kind: "customer_order",
-    sampleId: o.id, sampleType: "customer_order", chainId: String(o.id) + ":" + c.li, steps: c.steps,
-  }));
   const { error } = await sb.from("tasks").insert(firstTasks.map(t => ({ data: t })));
   if (error) { alert("Грешка при създаване на задачи: " + error.message); return; }
 
-  o.production = { at: new Date().toISOString(), count: totalSteps, chains: chains.length, external: external.length, seq: true };
+  o.production = { at: new Date().toISOString(), count: totalSteps, chains: chainCount, external: external.length, seq: true, hasFinal };
   o.status = "в производство";
   try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
-  alert(`Готово! Пуснах първите операции за ${chains.length} продукта.\n`
-    + `Останалите ще тръгват автоматично след отчитане в цеховете.`
+  alert(`Готово! Стартирах първите операции на ${chainCount} възела/детайла.\n`
+    + `Всеки върви последователно; следващите операции тръгват автоматично след отчитане.`
+    + (hasFinal ? `\nФиналното сглобяване тръгва след готови възли.` : "")
     + (external.length ? `\n(${external.length} външни операции са за подизпълнител.)` : ""));
   erpCOTracking(o);
 }
