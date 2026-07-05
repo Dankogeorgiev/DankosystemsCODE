@@ -19,6 +19,13 @@ let ET_ROWS = null;
 function etMoney(n) { return (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function etDate(d) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ""); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || ""); }
 function etMondayIso() { const d = new Date(); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+// Номер на седмицата в годината (ISO) по датата.
+function etWeekNo(dateStr) {
+  const d = new Date((dateStr || "") + "T00:00:00"); if (isNaN(d.getTime())) return "";
+  const t = new Date(d); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
+  const w1 = new Date(t.getFullYear(), 0, 4);
+  return 1 + Math.round(((t - w1) / 864e5 - 3 + ((w1.getDay() + 6) % 7)) / 7);
+}
 
 async function erpETLoad() {
   try { const { data } = await sb.from("app_config").select("data").eq("id", "erp_weekly_table").maybeSingle(); ET_ROWS = (data && data.data && data.data.rows) || []; }
@@ -32,7 +39,7 @@ async function erpETSave() {
 
 async function erpRenderETable(v) {
   if (!ET_ROWS) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpETLoad(); }
-  const rows = (ET_ROWS || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const rows = (ET_ROWS || []).slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
   const calc = r => {
     const liab = Number(r.liabilities) || 0, recv = Number(r.receivables) || 0;
     return { ratio: liab > 0 ? recv / liab : null, diff: recv - liab };
@@ -46,11 +53,12 @@ async function erpRenderETable(v) {
     </div>
     <div class="pay-scroll"><table class="report-table erp-table et-table">
       <thead><tr>
-        <th>Дата</th><th class="num">Задължения</th><th class="num">Вземания</th><th class="num">Съотн.</th><th class="num">Разлика</th>
+        <th class="num">№ седм.</th><th>Дата</th><th class="num">Задължения</th><th class="num">Вземания</th><th class="num">Съотн.</th><th class="num">Разлика</th>
         <th class="num">Заявки</th><th class="num">Банка</th><th class="num">Материали (т)</th><th class="num">Външен об.</th><th class="num">Вътр. об.</th><th class="num">Инвестиции</th><th>Забележка</th><th></th>
       </tr></thead>
       <tbody>${rows.map(r => { const c = calc(r); const i = ET_ROWS.indexOf(r); return `
         <tr class="erp-clickable" data-i="${i}">
+          <td class="num" data-label="№ седм."><b>${etWeekNo(r.date)}</b></td>
           <td data-label="Дата"><b>${etDate(r.date)}</b></td>
           <td class="num" data-label="Задължения">${etMoney(r.liabilities)}</td>
           <td class="num" data-label="Вземания">${etMoney(r.receivables)}</td>
@@ -64,7 +72,7 @@ async function erpRenderETable(v) {
           <td class="num" data-label="Инвестиции">${etMoney(r.investments)}</td>
           <td data-label="Забележка">${escapeHtml(r.note || "")}</td>
           <td class="erp-row-actions"><button class="btn btn-small" data-edit="${i}">✎</button></td>
-        </tr>`; }).join("") || `<tr><td colspan="13" class="report-empty">Още няма записи. Натисни „+ Нов ред".</td></tr>`}
+        </tr>`; }).join("") || `<tr><td colspan="14" class="report-empty">Още няма записи. Натисни „+ Нов ред".</td></tr>`}
       </tbody>
     </table></div>
     <p class="hint">Съотношение = Вземания ÷ Задължения; Разлика = Вземания − Задължения (смятат се автоматично). Данните са с ДДС, в евро.</p>`;
@@ -107,9 +115,9 @@ function erpETEdit(index, v) {
 function erpETExport(rows, calc) {
   const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
   const n = x => String(Math.round((Number(x) || 0) * 100) / 100).replace(".", ",");
-  const head = ["Дата", "Задължения", "Вземания", "Съотношение", "Разлика", "Заявки", "Банкова наличност", "Материали (тон)", "Външен оборот", "Вътрешен оборот", "Инвестиции", "Забележка"];
+  const head = ["№ седм.", "Дата", "Задължения", "Вземания", "Съотношение", "Разлика", "Заявки", "Банкова наличност", "Материали (тон)", "Външен оборот", "Вътрешен оборот", "Инвестиции", "Забележка"];
   const lines = [head.map(esc).join(",")];
-  rows.forEach(r => { const c = calc(r); lines.push([etDate(r.date), n(r.liabilities), n(r.receivables), c.ratio != null ? n(c.ratio) : "", n(c.diff), n(r.orders), n(r.bank), n(r.materialTons), n(r.extTurnover), n(r.intTurnover), n(r.investments), r.note || ""].map(esc).join(",")); });
+  rows.forEach(r => { const c = calc(r); lines.push([etWeekNo(r.date), etDate(r.date), n(r.liabilities), n(r.receivables), c.ratio != null ? n(c.ratio) : "", n(c.diff), n(r.orders), n(r.bank), n(r.materialTons), n(r.extTurnover), n(r.intTurnover), n(r.investments), r.note || ""].map(esc).join(",")); });
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tablica-erp.csv"; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
