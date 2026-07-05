@@ -166,6 +166,7 @@
 .pay-table .pay-note { width: 160px; }
 .pay-table tr.pay-ws td { background: #ecfdf5; color: #065f46; font-weight: 700; }
 .pay-total { font-weight: 700; }
+.erp-recipe-add { margin: 12px 0 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }

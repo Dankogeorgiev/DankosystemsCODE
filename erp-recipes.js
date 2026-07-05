@@ -23,6 +23,10 @@ function erpRenderRecipe(productId) {
       </div>
       <ul class="erp-tree">${erpRecipeChildren(productId, 0, new Set([productId]))}</ul>
     </div>
+    <div class="erp-recipe-add">
+      <button class="btn btn-small btn-primary" id="erp-rl-add2">➕ Добави ред към рецептата</button>
+      ${p.needs_recipe ? '<span class="erp-muted">Рецептата е празна — добави материали, операции или възли (полуфабрикати).</span>' : ""}
+    </div>
     <div class="erp-legend">
       <span class="erp-tag erp-tag-semi">полуфабрикат / възел</span>
       <span class="erp-tag erp-tag-mat">материал</span>
@@ -34,6 +38,8 @@ function erpRenderRecipe(productId) {
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
   document.getElementById("erp-rl-add").addEventListener("click", () => erpAddRecipeLine(productId));
+  const add2 = document.getElementById("erp-rl-add2");
+  if (add2) add2.addEventListener("click", () => erpAddRecipeLine(productId));
   v.querySelectorAll(".erp-rl-x").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpRemoveRecipeLine(Number(b.dataset.line), productId); }));
   erpRenderProductDrawings(productId);
