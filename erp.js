@@ -77,10 +77,9 @@ async function openErp() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   if (erpAmWorker()) { alert("Този модул е достъпен само за офиса."); return; }
   document.getElementById("erp-modal").hidden = false;
-  // Табът „Финанси" се вижда само от оторизираните за финанси.
-  const finTab = document.querySelector('.erp-tab[data-tab="finance"]');
+  // Финансите се отварят само през бутона на началната страница (не като таб в ЕРП)
+  // и само от оторизираните.
   const finOk = (typeof financeAllowed !== "function") || financeAllowed();
-  if (finTab) finTab.style.display = finOk ? "" : "none";
   if (ERP.tab === "finance" && !finOk) ERP.tab = "customer";
   if (!ERP.loaded) {
     erpView().innerHTML = `<p class="erp-loading">Зареждане…</p>`;
@@ -186,7 +185,7 @@ function erpSetTab(tab) {
 /* ---------- Инициализация ---------- */
 function erpInit() {
   const btn = document.getElementById("btn-erp");
-  if (btn) btn.addEventListener("click", openErp);
+  if (btn) btn.addEventListener("click", () => { if (ERP.tab === "finance") ERP.tab = "customer"; openErp(); });
   const finBtn = document.getElementById("btn-finance");
   if (finBtn) finBtn.addEventListener("click", () => { ERP.tab = "finance"; openErp(); });
   const closeBtn = document.getElementById("erp-close");
