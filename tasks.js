@@ -354,7 +354,7 @@ async function openWorkshopDirect(ws) {
 }
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-times", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
@@ -403,6 +403,7 @@ function showSub(which) {
   document.getElementById("report-view").hidden = which !== "report";
   const mv = document.getElementById("messages-view"); if (mv) mv.hidden = which !== "messages";
   const tv = document.getElementById("times-view"); if (tv) tv.hidden = which !== "times";
+  const pv = document.getElementById("planning-view"); if (pv) pv.hidden = which !== "planning";
 }
 
 /* ---------- Падащи менюта ---------- */
@@ -2001,6 +2002,7 @@ function tInit() {
   document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
+  const bp = document.getElementById("btn-planning"); if (bp && typeof togglePlanning === "function") bp.addEventListener("click", togglePlanning);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
   const bidea = document.getElementById("btn-ideas"); if (bidea) bidea.addEventListener("click", openIdeas);

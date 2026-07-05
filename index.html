@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=146" />
-  <link rel="stylesheet" href="erp.css?v=163" />
+  <link rel="stylesheet" href="erp.css?v=165" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 164</p>
+      <p class="login-version">версия 165</p>
     </form>
   </div>
 
@@ -386,6 +386,7 @@
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
+        <button id="btn-planning" class="btn btn-small">📅 Планиране</button>
         <button id="btn-times" class="btn btn-small">⏱ Времена</button>
         <label class="btn btn-small" for="erp-file">⤓ Импорт ERP</label>
         <input type="file" id="erp-file" accept=".xlsx,.xls" hidden />
@@ -436,6 +437,7 @@
       <div id="report-view" hidden></div>
       <div id="messages-view" hidden></div>
       <div id="times-view" hidden></div>
+      <div id="planning-view" hidden></div>
     </div>
   </div>
 
@@ -499,9 +501,10 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="app.js?v=151"></script>
-  <script src="tasks.js?v=163"></script>
+  <script src="tasks.js?v=165"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
+  <script src="planning.js?v=165"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
   <script src="erp.js?v=163"></script>
