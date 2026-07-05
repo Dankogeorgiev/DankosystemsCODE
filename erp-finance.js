@@ -57,11 +57,11 @@ async function erpRenderMargin(v) {
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя финансовите данни</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
   }
-  // Реална себестойност: материали + операции (време × ставка на цеха).
-  const rates = (typeof erpCostRates === "function") ? erpCostRates().rate : {};
-  const opSec = (typeof erpOpAvgSec === "function") ? erpOpAvgSec() : {};
+  // Реална себестойност: материали + операции (време × ставка на реалната машина).
+  const R = (typeof erpCostRates === "function") ? erpCostRates() : null;
+  const opCost = (typeof erpOpUnitCost === "function") ? erpOpUnitCost(R) : {};
   const cache = {};
-  const costOf = pid => { if (!cache[pid]) cache[pid] = (typeof erpRealCost === "function") ? erpRealCost(pid, rates, opSec) : { cost: Number(ERP.costById[pid]) || 0, opsCovered: 0, opsTotal: 0 }; return cache[pid]; };
+  const costOf = pid => { if (!cache[pid]) cache[pid] = (typeof erpRealCost === "function") ? erpRealCost(pid, opCost) : { cost: Number(ERP.costById[pid]) || 0, opsCovered: 0, opsTotal: 0 }; return cache[pid]; };
 
   let list = (erpCOList || []).slice();
   if (erpFinFrom) list = list.filter(o => (o.date || "") >= erpFinFrom);

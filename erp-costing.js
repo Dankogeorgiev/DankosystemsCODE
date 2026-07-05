@@ -1,8 +1,21 @@
 /* Данко Системс — ЕРП „Разходи и ставки" + реална себестойност.
    От справочните данни (машини, заплати, режийни) смята ставка €/час по цех
-   (труд + средна машина + режийни) и я връзва с Времената:
-   реална себестойност на операция = време/брой × ставка на цеха.
-   Оттам идва реалният маржин. Конфигурацията се пази в app_config (id=cost_rates). */
+   (труд + машина + режийни). Връзва се с Времената: реалната себестойност на
+   операция = време/брой × ставка, като ползва ставката на РЕАЛНАТА машина
+   (по таблицата за свързване Времена↔разходи), с резерва „средно по цех".
+   Конфигурацията се пази в app_config (id=cost_rates). */
+
+// Начално свързване на имената: машина във „Времена" → машина в разходите.
+// Празно / липсва → ползва се средната машинна ставка на цеха.
+const DEFAULT_MACHINE_ALIAS = {
+  "DURMA 6kw": "Лазер 1", "DURMA 3kw": "Лазер 2",
+  "Gweike 3kw": "Лазер LF3015GA 1", "Gweike 3kw 1": "Лазер LF3015GA 1", "Gweike 3kw 2": "Лазер LF3015GA 2",
+  "Gweike combi": "Тръбен лазер", "Gweike Tube": "Тръбен лазер",
+  "DURMA щанца": "CNC щанца",
+  "Swiss Type 1": "Автоматичен CNC струг 1", "Swiss Type 2": "Автоматичен CNC струг 2",
+  "VMC966": "CNC фреза / обработващ център 1", "VMC850": "CNC фреза / обработващ център 2",
+  "Автоматична Преса 1": "Автоматична пресова линия ЕП63 + Decoiler",
+};
 
 let COST_CFG = null;
 
@@ -17,6 +30,7 @@ async function erpLoadCostCfg() {
   COST_CFG.prodWorkshops = COST_CFG.prodWorkshops || COST_SEED.prodWorkshops;
   COST_CFG.machines = COST_CFG.machines || COST_SEED.machines;
   COST_CFG.employees = COST_CFG.employees || COST_SEED.employees;
+  COST_CFG.machineAlias = Object.assign({}, DEFAULT_MACHINE_ALIAS, COST_CFG.machineAlias || {});
   return COST_CFG;
 }
 async function erpSaveCostCfg() {
@@ -25,7 +39,7 @@ async function erpSaveCostCfg() {
   return true;
 }
 
-// Ставки от конфигурацията: труд/машина/режийни/обща по цех.
+// Ставки: труд/машина(средно)/режийни/обща по цех + машинна ставка по име.
 function erpCostRates(cfg) {
   cfg = cfg || COST_CFG || COST_SEED;
   const p = cfg.params;
@@ -33,49 +47,64 @@ function erpCostRates(cfg) {
   const hpy = p.hoursPerDay * p.daysPerMonth * 12 * p.utilization;
   const load = p.salaryHasSocial ? 1 : (Number(p.socialLoad) || 1.2);
   const ws = cfg.prodWorkshops;
-  const labor = {}, count = {}, mSum = {}, mCnt = {};
+  const labor = {}, count = {}, mSum = {}, mCnt = {}, machineRate = {};
   ws.forEach(w => { labor[w] = 0; count[w] = 0; mSum[w] = 0; mCnt[w] = 0; });
   (cfg.employees || []).forEach(e => { if (labor[e.ws] !== undefined) { labor[e.ws] += Number(e.pay) || 0; count[e.ws]++; } });
   (cfg.machines || []).forEach(m => {
-    if (mSum[m.ws] === undefined) return;
-    mSum[m.ws] += (Number(m.deprAnnual || 0) + Number(m.maint || 0)) / hpy + Number(m.kwh || 0) * p.elec;
-    mCnt[m.ws]++;
+    const r = (Number(m.deprAnnual || 0) + Number(m.maint || 0)) / hpy + Number(m.kwh || 0) * p.elec;
+    machineRate[m.name] = r;
+    if (mSum[m.ws] !== undefined) { mSum[m.ws] += r; mCnt[m.ws]++; }
   });
   const prodWorkers = ws.reduce((n, w) => n + count[w], 0);
   const overheadRate = (prodWorkers > 0 && hpm > 0) ? p.overheadMonthly / (prodWorkers * hpm) : 0;
   const rate = {};
   ws.forEach(w => {
     const laborRate = count[w] > 0 && hpm > 0 ? (labor[w] / count[w] * load) / hpm : 0;
-    const machineRate = mCnt[w] > 0 ? mSum[w] / mCnt[w] : 0;
-    rate[w] = { labor: laborRate, machine: machineRate, overhead: overheadRate, full: laborRate + machineRate + overheadRate, workers: count[w], machines: mCnt[w] };
+    const machAvg = mCnt[w] > 0 ? mSum[w] / mCnt[w] : 0;
+    rate[w] = { labor: laborRate, machine: machAvg, overhead: overheadRate, full: laborRate + machAvg + overheadRate, workers: count[w], machines: mCnt[w] };
   });
-  return { rate, overheadRate, prodWorkers, hpm, hpy };
+  return { rate, machineRate, overheadRate, prodWorkers, hpm, hpy };
 }
 
-// Средно време за 1 брой по операция (име) от Времената.
-function erpOpAvgSec() {
+// Машинна ставка за име от „Времена": по свързването → конкретна машина; иначе средно по цех.
+function erpMachineRateFor(machineName, ws, R) {
+  const alias = (COST_CFG && COST_CFG.machineAlias && COST_CFG.machineAlias[machineName]) || "";
+  const target = alias || machineName;
+  if (target && R.machineRate[target] != null) return R.machineRate[target];
+  return (R.rate[ws] ? R.rate[ws].machine : 0);
+}
+
+function erpTimePerPiece(r) {
+  if (r.tPiece && r.tPiece.sec) return r.tPiece.sec;
+  if (r.tOrder && r.tOrder.sec && (Number(r.qty) || 0) > 0) return r.tOrder.sec / Number(r.qty);
+  return null;
+}
+
+// Реална себестойност на 1 брой по операция (име) — от Времената, с ставката
+// на реалната машина. Връща { opName: €/брой }.
+function erpOpUnitCost(R) {
+  R = R || erpCostRates();
   const rows = (typeof collectTimeRows === "function") ? collectTimeRows() : [];
   const m = {};
   rows.forEach(r => {
-    let pp = null;
-    if (r.tPiece && r.tPiece.sec) pp = r.tPiece.sec;
-    else if (r.tOrder && r.tOrder.sec && (Number(r.qty) || 0) > 0) pp = r.tOrder.sec / Number(r.qty);
-    if (pp == null) return;
-    const g = m[r.operation || ""] || (m[r.operation || ""] = { sum: 0, q: 0 });
-    const q = Number(r.qty) || 1; g.sum += pp * q; g.q += q;
+    const pp = erpTimePerPiece(r); if (pp == null) return;
+    const ws = r.workshop || "";
+    const lr = R.rate[ws] ? R.rate[ws].labor : 0;
+    const mr = erpMachineRateFor(r.machine || "", ws, R);
+    const full = lr + mr + R.overheadRate;
+    const q = Number(r.qty) || 1;
+    const g = m[r.operation || ""] || (m[r.operation || ""] = { cost: 0, q: 0 });
+    g.cost += pp / 3600 * full * q; g.q += q;
   });
   const out = {};
-  Object.keys(m).forEach(k => { if (m[k].q > 0) out[k] = m[k].sum / m[k].q; });
+  Object.keys(m).forEach(k => { if (m[k].q > 0) out[k] = m[k].cost / m[k].q; });
   return out;
 }
 
-// Реална себестойност на продукт (за 1 брой): материали + операции (време×ставка),
-// рекурсивно през възлите. Връща { material, opcost, cost, opsCovered, opsTotal }.
-function erpRealCost(pid, rates, opSec, anc) {
-  rates = rates || erpCostRates().rate;
-  opSec = opSec || erpOpAvgSec();
+// Реална себестойност на продукт (за 1 брой): материали + операции, рекурсивно.
+function erpRealCost(pid, opCost, anc) {
+  opCost = opCost || erpOpUnitCost();
   anc = anc || new Set([pid]);
-  const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "" };
   let material = 0, opcost = 0, opsCovered = 0, opsTotal = 0;
   (ERP.linesByProduct[pid] || []).forEach(l => {
     const q = Number(l.quantity) || 1;
@@ -83,12 +112,11 @@ function erpRealCost(pid, rates, opSec, anc) {
       material += q * (Number((ERP.matById[l.material_id] || {}).avg_cost) || 0);
     } else if (l.operation_id) {
       const op = ERP.opById[l.operation_id] || {};
-      const wsn = (route(op).primary) || op.workshop || "";
-      const r = rates[wsn]; const sec = opSec[op.name || ""];
       opsTotal++;
-      if (r && sec != null) { opcost += q * (sec / 3600) * r.full; opsCovered++; }
+      const c = opCost[op.name || ""];
+      if (c != null) { opcost += q * c; opsCovered++; }
     } else if (l.child_product_id && !anc.has(l.child_product_id)) {
-      const s = erpRealCost(l.child_product_id, rates, opSec, new Set([...anc, l.child_product_id]));
+      const s = erpRealCost(l.child_product_id, opCost, new Set([...anc, l.child_product_id]));
       material += q * s.material; opcost += q * s.opcost;
       opsCovered += s.opsCovered; opsTotal += s.opsTotal;
     }
@@ -96,14 +124,29 @@ function erpRealCost(pid, rates, opSec, anc) {
   return { material, opcost, cost: material + opcost, opsCovered, opsTotal };
 }
 
+// Всички имена на машини, познати във „Времена" (за таблицата за свързване).
+function erpVremenaMachines() {
+  const set = new Set();
+  if (typeof MACHINES_BY_WORKSHOP === "object") Object.values(MACHINES_BY_WORKSHOP).forEach(a => (a || []).forEach(x => set.add(x)));
+  if (typeof FIELDS_BY_WORKER === "object") Object.values(FIELDS_BY_WORKER || {}).forEach(w => {
+    if (w.byMachine) Object.keys(w.byMachine).forEach(x => set.add(x));
+    if (w.byWorkshop) Object.values(w.byWorkshop).forEach(c => { if (Array.isArray(c.machines)) c.machines.forEach(x => set.add(x)); });
+  });
+  if (typeof collectTimeRows === "function") collectTimeRows().forEach(r => { if (r.machine) set.add(r.machine); });
+  return [...set].filter(Boolean).sort((a, b) => String(a).localeCompare(String(b), "bg"));
+}
+
 /* ---------- Екран „Разходи и ставки" ---------- */
 async function erpRenderCostRates(host) {
   const v = host || erpView();
   await erpLoadCostCfg();
   const p = COST_CFG.params;
-  const { rate, overheadRate, prodWorkers, hpm } = erpCostRates();
+  const R = erpCostRates();
+  const { rate, overheadRate, prodWorkers, hpm } = R;
   const ws = COST_CFG.prodWorkshops;
   const money = n => (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const vremena = erpVremenaMachines();
+  const costMachines = (COST_CFG.machines || []).map(m => m.name);
 
   v.innerHTML = `
     <div class="cost-params">
@@ -121,18 +164,32 @@ async function erpRenderCostRates(host) {
 
     <h4 class="erp-group-head">Ставка на час по цех</h4>
     <table class="report-table erp-table cost-rate-table">
-      <thead><tr><th>Цех</th><th class="num">Работници</th><th class="num">Машини</th><th class="num">Труд €/ч</th><th class="num">Машина €/ч</th><th class="num">Режийни €/ч</th><th class="num">Обща ставка €/ч</th></tr></thead>
+      <thead><tr><th>Цех</th><th class="num">Работници</th><th class="num">Машини</th><th class="num">Труд €/ч</th><th class="num">Машина (ср) €/ч</th><th class="num">Режийни €/ч</th><th class="num">Обща ставка €/ч</th></tr></thead>
       <tbody>${ws.map(w => { const r = rate[w]; return `<tr>
         <td><b>${escapeHtml(w)}</b></td><td class="num">${r.workers}</td><td class="num">${r.machines}</td>
         <td class="num">${money(r.labor)}</td><td class="num">${money(r.machine)}</td><td class="num">${money(r.overhead)}</td>
         <td class="num"><b>${money(r.full)}</b></td></tr>`; }).join("")}</tbody>
     </table>
-    <p class="hint">Себестойност на операция = време за 1 брой (от „Времена") × обща ставка на цеха. Машинната ставка е средна за машините в цеха; амортизация + поддръжка + ток (соларите са отделна инвестиция и не се смятат).</p>
+    <p class="hint">Себестойност на операция = време за 1 брой (Времена) × (труд + ставка на реалната машина + режийни). Соларите не се смятат (отделна инвестиция).</p>
+
+    <details class="cost-details" open><summary>🔗 Свързване на машини (Времена ↔ разходи) — за точна машинна ставка</summary>
+      <table class="report-table erp-table"><thead><tr><th>Машина във „Времена"</th><th>= машина от разходите</th><th class="num">€/ч на машината</th></tr></thead>
+      <tbody>${vremena.map(nm => {
+        const cur = (COST_CFG.machineAlias[nm] || "");
+        const eff = cur || nm;
+        const mr = R.machineRate[eff];
+        return `<tr>
+          <td>${escapeHtml(nm)}</td>
+          <td><select class="cost-alias" data-nm="${escapeAttr(nm)}"><option value="">— средно по цех —</option>${costMachines.map(cm => `<option value="${escapeAttr(cm)}" ${cm === cur ? "selected" : ""}>${escapeHtml(cm)}</option>`).join("")}</select></td>
+          <td class="num">${mr != null ? money(mr) : '<span class="muted">средно</span>'}</td></tr>`;
+      }).join("") || `<tr><td colspan="3" class="report-empty">Няма машини за свързване.</td></tr>`}</tbody></table>
+      <p class="hint">Където не е свързано, се ползва средната машинна ставка на цеха. Свържи каквото знаеш — колкото повече, толкова по-точна е себестойността.</p>
+    </details>
 
     <details class="cost-details"><summary>🏭 Машини (${(COST_CFG.machines || []).length})</summary>
       <table class="report-table erp-table"><thead><tr><th>Машина</th><th>Цех</th><th class="num">Год. аморт.</th><th class="num">Поддр./год</th><th class="num">kWh/ч</th><th class="num">€/ч</th></tr></thead>
-      <tbody>${(COST_CFG.machines || []).map(m => { const mr = (Number(m.deprAnnual || 0) + Number(m.maint || 0)) / (p.hoursPerDay * p.daysPerMonth * 12 * p.utilization) + Number(m.kwh || 0) * p.elec; return `<tr>
-        <td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.ws)}</td><td class="num">${money(m.deprAnnual)}</td><td class="num">${money(m.maint)}</td><td class="num">${money(m.kwh)}</td><td class="num">${money(mr)}</td></tr>`; }).join("")}</tbody></table>
+      <tbody>${(COST_CFG.machines || []).map(m => `<tr>
+        <td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.ws)}</td><td class="num">${money(m.deprAnnual)}</td><td class="num">${money(m.maint)}</td><td class="num">${money(m.kwh)}</td><td class="num">${money(R.machineRate[m.name])}</td></tr>`).join("")}</tbody></table>
     </details>
 
     <details class="cost-details"><summary>👥 Заплати по служители (${(COST_CFG.employees || []).length})</summary>
@@ -140,7 +197,7 @@ async function erpRenderCostRates(host) {
       <tbody>${(COST_CFG.employees || []).map(e => `<tr><td>${escapeHtml(e.name || "")}</td><td>${escapeHtml(e.ws || "")}</td><td class="num">${money(e.pay)}</td><td>${escapeHtml(e.role || "")}</td></tr>`).join("")}</tbody></table>
     </details>
 
-    <div class="erp-co-linebar"><span class="spacer"></span><button class="btn btn-small btn-primary" id="cp-save">💾 Запази параметрите</button><span class="save-status" id="cp-status"></span></div>`;
+    <div class="erp-co-linebar"><span class="spacer"></span><button class="btn btn-small btn-primary" id="cp-save">💾 Запази</button><span class="save-status" id="cp-status"></span></div>`;
 
   const upd = () => {
     p.hoursPerDay = erpToNum(v.querySelector("#cp-hpd").value) || 7.5;
@@ -153,6 +210,11 @@ async function erpRenderCostRates(host) {
   };
   ["cp-hpd", "cp-dpm", "cp-util", "cp-elec", "cp-oh"].forEach(id => v.querySelector("#" + id).addEventListener("change", upd));
   v.querySelector("#cp-soc").addEventListener("change", upd);
+  v.querySelectorAll(".cost-alias").forEach(sel => sel.addEventListener("change", () => {
+    const nm = sel.dataset.nm;
+    if (sel.value) COST_CFG.machineAlias[nm] = sel.value; else delete COST_CFG.machineAlias[nm];
+    erpRenderCostRates(v);
+  }));
   v.querySelector("#cp-save").addEventListener("click", async () => {
     const st = v.querySelector("#cp-status"); st.textContent = "Записва…";
     const ok = await erpSaveCostCfg();
