@@ -49,7 +49,9 @@ function erpCostRates(cfg) {
   const ws = cfg.prodWorkshops;
   const labor = {}, count = {}, mSum = {}, mCnt = {}, machineRate = {};
   ws.forEach(w => { labor[w] = 0; count[w] = 0; mSum[w] = 0; mCnt[w] = 0; });
-  (cfg.employees || []).forEach(e => { if (labor[e.ws] !== undefined) { labor[e.ws] += Number(e.pay) || 0; count[e.ws]++; } });
+  // Само служители с въведена заплата участват в ставката (добавените само за
+  // седмичния отчет, без заплата, не изкривяват себестойността).
+  (cfg.employees || []).forEach(e => { const pay = Number(e.pay) || 0; if (labor[e.ws] !== undefined && pay > 0) { labor[e.ws] += pay; count[e.ws]++; } });
   (cfg.machines || []).forEach(m => {
     const r = (Number(m.deprAnnual || 0) + Number(m.maint || 0)) / hpy + Number(m.kwh || 0) * p.elec;
     machineRate[m.name] = r;

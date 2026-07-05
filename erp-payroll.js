@@ -71,8 +71,8 @@ async function erpPayWeekView(v) {
   const empRow = e => {
     const r = entries[e.name] || {};
     return `<tr>
-      <td>${escapeHtml(e.name)}</td>
-      ${PAY_MONEY.map(c => `<td class="num">${cell(e.name, c.k, r[c.k])}</td>`).join("")}
+      <td>${escapeHtml(e.name)} <button class="btn btn-small pay-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button></td>
+      ${PAY_MONEY.map(c => { let val = r[c.k]; if (c.k === "nadnik" && (val == null || val === "")) val = e.nadnik; return `<td class="num">${cell(e.name, c.k, val)}</td>`; }).join("")}
       <td class="num">${cell(e.name, "days", r.days)}</td>
       <td class="num">${cell(e.name, "leave", r.leave)}</td>
       <td class="num pay-total" data-total="${escapeAttr(e.name)}">${payEur(payRowTotal(r))}</td>
@@ -84,6 +84,7 @@ async function erpPayWeekView(v) {
     <div class="erp-toolbar">
       <label class="erp-inline">Седмица (дата от седмицата) <input type="date" id="pay-date" value="${escapeAttr(erpPayMonday)}" /></label>
       <span class="erp-count">Седмица ${payWeekNo(mon)} · ${payFmt(mon)} – ${payFmt(sun)}</span>
+      <button class="btn btn-small" id="pay-add-emp">+ Добави служител</button>
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="pay-save">💾 Запази седмицата</button>
       <span class="save-status" id="pay-status"></span>
@@ -97,6 +98,8 @@ async function erpPayWeekView(v) {
     <p class="hint">Сумите са в евро. „Получено" = банка + в брой + надник + извънреден + бонус. Този отчет е за изплатеното (без осигуровки) — не влиза в себестойността.</p>`;
 
   v.querySelector("#pay-date").addEventListener("change", e => { erpPayMonday = payIso(payMondayOf(e.target.value)); erpPayWeekView(v); });
+  v.querySelector("#pay-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
+  v.querySelectorAll(".pay-rm").forEach(b => b.addEventListener("click", () => erpPayRemoveEmployee(b.dataset.name, v)));
   const recompute = name => {
     let t = 0;
     v.querySelectorAll(`.pay-in[data-name="${CSS.escape(name)}"]`).forEach(i => { if (PAY_MONEY.some(c => c.k === i.dataset.f)) t += Number(i.value) || 0; });
@@ -111,10 +114,52 @@ async function erpPayWeekView(v) {
       (ent[i.dataset.name] = ent[i.dataset.name] || {})[i.dataset.f] = Number(String(val).replace(",", ".")) || 0;
     });
     v.querySelectorAll(".pay-note").forEach(i => { const val = i.value.trim(); if (val) (ent[i.dataset.name] = ent[i.dataset.name] || {}).note = val; });
+    // Надникът е ставка (заплата) — стои запаметен; при промяна се отбелязва (увеличение).
+    let cfgChanged = false;
+    (COST_CFG.employees || []).forEach(e => {
+      const nv = Number((ent[e.name] || {}).nadnik) || 0;
+      const prev = Number(e.nadnik) || 0;
+      if (nv > 0 && nv !== prev) {
+        if (prev > 0) { e.nadnikLog = e.nadnikLog || []; e.nadnikLog.push({ date: erpPayMonday, from: prev, to: nv }); }
+        e.nadnik = nv; cfgChanged = true;
+      }
+    });
     const ok = await erpPaySaveWeek(erpPayMonday, ent);
+    if (cfgChanged && typeof erpSaveCostCfg === "function") await erpSaveCostCfg();
     st.textContent = ok ? "✓ Записано" : "";
     setTimeout(() => { if (st) st.textContent = ""; }, 1500);
   });
+}
+
+// Добавя служител в общия списък (ползва се и от заплати, и от досие/себестойност).
+function erpPayAddEmployee(v) {
+  const wsSet = new Set([...(COST_CFG.prodWorkshops || []), ...((COST_CFG.employees || []).map(e => e.ws))]);
+  const wsList = [...wsSet].filter(Boolean).sort((a, b) => a.localeCompare(b, "bg"));
+  const { wrap, close } = erpDialog(`
+    <h3>Добави служител</h3>
+    <label>Име <input type="text" id="pe-name" placeholder="Име Фамилия" /></label>
+    <label>Цех <input type="text" id="pe-ws" list="pe-ws-list" placeholder="избери или въведи" />
+      <datalist id="pe-ws-list">${wsList.map(w => `<option value="${escapeAttr(w)}"></option>`).join("")}</datalist></label>
+    <label>Заплата €/мес (по избор — за себестойността) <input type="number" id="pe-pay" step="any" /></label>
+    <div class="erp-dialog-actions"><button class="btn" id="pe-cancel">Отказ</button><button class="btn btn-primary" id="pe-save">Добави</button></div>`);
+  wrap.querySelector("#pe-cancel").addEventListener("click", close);
+  wrap.querySelector("#pe-save").addEventListener("click", async () => {
+    const name = wrap.querySelector("#pe-name").value.trim();
+    if (!name) { alert("Въведи име."); return; }
+    const ws = wrap.querySelector("#pe-ws").value.trim();
+    const pay = erpToNum(wrap.querySelector("#pe-pay").value) || 0;
+    COST_CFG.employees = COST_CFG.employees || [];
+    if (COST_CFG.employees.some(e => e.name === name)) { alert("Вече има служител с това име."); return; }
+    COST_CFG.employees.push({ name, ws, pay });
+    await erpSaveCostCfg();
+    close(); erpPayWeekView(v);
+  });
+}
+async function erpPayRemoveEmployee(name, v) {
+  if (!confirm(`Да махна ли „${name}" от списъка със служители? Историята на изплатеното за миналите седмици остава непроменена.`)) return;
+  COST_CFG.employees = (COST_CFG.employees || []).filter(e => e.name !== name);
+  await erpSaveCostCfg();
+  erpPayWeekView(v);
 }
 
 async function erpPayMonthView(v) {
@@ -126,7 +171,7 @@ async function erpPayMonthView(v) {
     const d = new Date(mon + "T00:00:00");
     return d.getFullYear() === Y && (d.getMonth() + 1) === M;
   });
-  const wsByName = {}; (COST_CFG.employees || []).forEach(e => wsByName[e.name] = e.ws);
+  const wsByName = {}, empByName = {}; (COST_CFG.employees || []).forEach(e => { wsByName[e.name] = e.ws; empByName[e.name] = e; });
   const tot = {};
   weeks.forEach(w => {
     const e = (w.data && w.data.entries) || {};
@@ -153,7 +198,15 @@ async function erpPayMonthView(v) {
       <tbody>
         ${list.map(r => `<tr>
           <td><b>${escapeHtml(r.name)}</b></td><td>${escapeHtml(r.ws)}</td>
-          ${PAY_MONEY.map(c => `<td class="num">${payEur(r[c.k])}</td>`).join("")}
+          ${PAY_MONEY.map(c => {
+            let extra = "";
+            if (c.k === "nadnik") {
+              const e = empByName[r.name] || {};
+              const ch = (e.nadnikLog || []).filter(l => { const d = new Date((l.date || "") + "T00:00:00"); return d.getFullYear() === Y && (d.getMonth() + 1) === M; });
+              if (ch.length) { const last = ch[ch.length - 1]; extra = ` <span class="pay-raise" title="Надникът е променен през месеца">⬆ ${payEur(last.from)}→${payEur(last.to)}</span>`; }
+            }
+            return `<td class="num">${payEur(r[c.k])}${extra}</td>`;
+          }).join("")}
           <td class="num"><b>${payEur(r.total)}</b></td></tr>`).join("") ||
           `<tr><td colspan="8" class="report-empty">Няма попълнени седмици за този месец.</td></tr>`}
         ${list.length ? `<tr class="pr-total"><td colspan="7"><b>ОБЩО за месеца</b></td><td class="num"><b>${payEur(grand)}</b></td></tr>` : ""}
