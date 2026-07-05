@@ -144,6 +144,15 @@
 .fin-sub th, .fin-sub td { border: 1px solid #e2e8f0; padding: 3px 7px; font-size: 12px; text-align: left; }
 .fin-sub th { background: #eef2f7; }
 .fin-sub td.num, .fin-sub th.num { text-align: right; }
+/* Разходи и ставки */
+.cost-params { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.cost-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.cost-grid label { display: flex; flex-direction: column; font-size: 12px; color: #475569; gap: 3px; }
+.cost-grid input[type="number"] { width: 110px; }
+.cost-grid .cost-chk { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; align-self: end; }
+.cost-rate-table td.num, .cost-rate-table th.num { text-align: right; }
+.cost-details { margin: 10px 0; }
+.cost-details summary { cursor: pointer; font-weight: 600; color: #0f766e; padding: 4px 0; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }

@@ -6,13 +6,16 @@
    (заявки), erpEnsureLoaded/erpLoadCustomerOrders, erpEur/erpNum/erpToNum. */
 
 let erpFinFrom = "", erpFinTo = "";
+let erpFinView = "margin";   // margin | rates
 
-function erpFinOrderCalc(o) {
-  let rev = 0, cost = 0, missing = 0;
+function erpFinOrderCalc(o, costOf) {
+  let rev = 0, cost = 0, missing = 0, opsCov = 0, opsTot = 0;
   const lines = (o.lines || []).map(l => {
     const qty = erpToNum(l.qty) || 0;
     const price = erpToNum(l.unitPrice) || 0;
-    const unitCost = Number(ERP.costById[l.productId]) || 0;
+    const rc = costOf ? costOf(l.productId) : { cost: Number(ERP.costById[l.productId]) || 0, opsCovered: 0, opsTotal: 0 };
+    const unitCost = Number(rc.cost) || 0;
+    opsCov += rc.opsCovered || 0; opsTot += rc.opsTotal || 0;
     const lineRev = qty * price, lineCost = qty * unitCost;
     if (price <= 0) missing++;
     rev += lineRev; cost += lineCost;
@@ -20,7 +23,7 @@ function erpFinOrderCalc(o) {
   });
   const margin = rev - cost;
   const pct = rev > 0 ? margin / rev * 100 : 0;
-  return { rev, cost, margin, pct, missing, lines };
+  return { rev, cost, margin, pct, missing, lines, opsCov, opsTot };
 }
 
 function erpFinPctCls(pct, rev) {
@@ -33,20 +36,42 @@ function erpFinPctCls(pct, rev) {
 
 async function erpRenderFinance() {
   const v = erpView();
-  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
-  try { await erpEnsureLoaded(); await erpLoadCustomerOrders(); }
+  const nav = `<div class="pr-row" style="margin-bottom:8px">
+    <button class="btn btn-small ${erpFinView === "margin" ? "btn-primary" : ""}" id="fin-nav-m">📊 Маржин по поръчка</button>
+    <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button></div>`;
+  v.innerHTML = nav + `<div id="fin-body"><p class="erp-loading">Зареждане…</p></div>`;
+  v.querySelector("#fin-nav-m").addEventListener("click", () => { erpFinView = "margin"; erpRenderFinance(); });
+  v.querySelector("#fin-nav-r").addEventListener("click", () => { erpFinView = "rates"; erpRenderFinance(); });
+  const body = v.querySelector("#fin-body");
+  if (erpFinView === "rates") {
+    if (typeof erpRenderCostRates === "function") await erpRenderCostRates(body);
+    else body.innerHTML = `<p class="erp-error">Модул „Разходи" не е зареден.</p>`;
+    return;
+  }
+  await erpRenderMargin(body);
+}
+
+async function erpRenderMargin(v) {
+  try { await erpEnsureLoaded(); await erpLoadCustomerOrders(); if (typeof erpLoadCostCfg === "function") await erpLoadCostCfg(); }
   catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя финансовите данни</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
   }
+  // Реална себестойност: материали + операции (време × ставка на цеха).
+  const rates = (typeof erpCostRates === "function") ? erpCostRates().rate : {};
+  const opSec = (typeof erpOpAvgSec === "function") ? erpOpAvgSec() : {};
+  const cache = {};
+  const costOf = pid => { if (!cache[pid]) cache[pid] = (typeof erpRealCost === "function") ? erpRealCost(pid, rates, opSec) : { cost: Number(ERP.costById[pid]) || 0, opsCovered: 0, opsTotal: 0 }; return cache[pid]; };
+
   let list = (erpCOList || []).slice();
   if (erpFinFrom) list = list.filter(o => (o.date || "") >= erpFinFrom);
   if (erpFinTo) list = list.filter(o => (o.date || "") <= erpFinTo);
 
-  const calc = {}; list.forEach(o => calc[o.id] = erpFinOrderCalc(o));
+  const calc = {}; list.forEach(o => calc[o.id] = erpFinOrderCalc(o, costOf));
   list.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-  const T = list.reduce((a, o) => { const c = calc[o.id]; a.rev += c.rev; a.cost += c.cost; a.margin += c.margin; return a; }, { rev: 0, cost: 0, margin: 0 });
+  const T = list.reduce((a, o) => { const c = calc[o.id]; a.rev += c.rev; a.cost += c.cost; a.margin += c.margin; a.cov += c.opsCov; a.tot += c.opsTot; return a; }, { rev: 0, cost: 0, margin: 0, cov: 0, tot: 0 });
   const Tpct = T.rev > 0 ? T.margin / T.rev * 100 : 0;
+  const covPct = T.tot > 0 ? Math.round(T.cov / T.tot * 100) : 0;
 
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -80,7 +105,7 @@ async function erpRenderFinance() {
           `<tr><td colspan="8" class="report-empty">Няма заявки за периода.</td></tr>`}
       </tbody>
     </table>
-    <p class="hint">Себестойността е по рецепта (материали по средни цени + операции). Ако операциите нямат зададена цена, маржинът излиза завишен (липсва трудът). „⚠" = ред без продажна цена. Изчислено „в реално време" от заявките.</p>`;
+    <p class="hint">Себестойността е <b>реална</b>: материали (средни цени) + операции (време от „Времена" × ставка на цеха от „Разходи и ставки"). Покритие на операциите с измерено време: <b>${covPct}%</b> — където още няма време, операцията се брои 0 и маржинът е леко завишен. „⚠" = ред без продажна цена.</p>`;
 
   document.getElementById("fin-from").addEventListener("change", e => { erpFinFrom = e.target.value; erpRenderFinance(); });
   document.getElementById("fin-to").addEventListener("change", e => { erpFinTo = e.target.value; erpRenderFinance(); });
