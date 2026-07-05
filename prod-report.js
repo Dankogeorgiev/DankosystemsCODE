@@ -64,6 +64,31 @@ function prodAggregate(from, to, shop, worker) {
 
 function prodPct(part, whole) { return whole > 0 ? Math.round(part / whole * 100) : 0; }
 
+// Секунди за 1 брой от едно вписване (директно tPiece или tOrder/бройка).
+function prodPerPiece(l) {
+  if (l.tPiece && l.tPiece.sec) return l.tPiece.sec;
+  if (l.tOrder && l.tOrder.sec && (Number(l.qty) || 0) > 0) return l.tOrder.sec / Number(l.qty);
+  return null;
+}
+function prodDur(sec) { return sec == null ? "—" : (typeof fmtSecDur === "function" ? fmtSecDur({ sec: Math.round(sec) }) : Math.round(sec) + " сек"); }
+
+// Подробните вписвания на един служител за периода (какво точно е произвел).
+function prodWorkerEntries(from, to, shop, worker) {
+  const out = [];
+  (TASKS || []).forEach(t => {
+    if (shop !== "__all" && t.workshop !== shop) return;
+    (t.logs || []).forEach(l => {
+      const d = (l.date || "").slice(0, 10);
+      if (from && d < from) return;
+      if (to && d > to) return;
+      if ((l.worker || "(без име)") !== worker) return;
+      out.push({ date: d, client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "", workshop: t.workshop || "", qty: Number(l.qty) || 0, machine: l.machine || "", perPiece: prodPerPiece(l) });
+    });
+  });
+  out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return out;
+}
+
 /* ---------- Изглед ---------- */
 function renderProdReport() {
   showSub("report");
@@ -127,11 +152,11 @@ function prodComputeAndRender() {
       ${sRows.length ? `<tr class="pr-total"><td><b>Всичко</b></td><td class="num"><b>${agg.total}</b></td><td class="num">100%</td></tr>` : ""}</tbody></table>`;
   }
 
-  // По служител
+  // По служител (кликаемо → детайли какво е произвел)
   const wRows = Object.entries(agg.byWorker).sort((a, b) => b[1].qty - a[1].qty);
-  html += `<h4>По служител</h4>
+  html += `<h4>По служител <span class="pr-hint">(натисни име за детайли)</span></h4>
     <table class="report-table pr-table"><thead><tr><th>Служител</th><th>Цех</th><th class="num">Произведено</th><th class="num">Вписвания</th><th class="num">Дял</th></tr></thead>
-    <tbody>${wRows.map(([w, d]) => `<tr><td>${escapeHtml(w)}</td><td>${escapeHtml(d.shop)}</td><td class="num">${d.qty}</td><td class="num">${d.cnt}</td><td class="num">${prodPct(d.qty, agg.total)}%</td></tr>`).join("")
+    <tbody>${wRows.map(([w, d]) => `<tr class="pr-clickable ${w === prodRptWorker ? "pr-sel" : ""}" data-worker="${escapeAttr(w)}" title="Виж какво е произвел"><td><b>${escapeHtml(w)}</b></td><td>${escapeHtml(d.shop)}</td><td class="num">${d.qty}</td><td class="num">${d.cnt}</td><td class="num">${prodPct(d.qty, agg.total)}%</td></tr>`).join("")
       || `<tr><td colspan="5" class="report-empty">Няма данни за периода.</td></tr>`}</tbody></table>`;
 
   // По изделие
@@ -150,7 +175,26 @@ function prodComputeAndRender() {
         || `<tr><td colspan="2" class="report-empty">Няма данни за периода.</td></tr>`}</tbody></table>`;
   }
 
+  // Подробно за избрания служител — какво точно е произвел.
+  if (prodRptWorker) {
+    const entries = prodWorkerEntries(from, to, prodRptShop, prodRptWorker);
+    const eTotal = entries.reduce((s, e) => s + e.qty, 0);
+    html += `<div class="pr-row" style="margin:12px 0 0"><button class="btn btn-small" id="pr-all-workers">← Всички служители</button></div>
+      <h4>🔍 Подробно — ${escapeHtml(prodRptWorker)} · ${eTotal} бр. (${entries.length} вписвания)</h4>
+      <table class="report-table pr-table"><thead><tr><th>Дата</th><th>Клиент</th><th>Продукт</th><th>Код</th><th>Операция</th><th>Цех</th><th class="num">Брой</th><th>Машина</th><th class="num">Време/бр.</th></tr></thead>
+      <tbody>${entries.map(e => `<tr>
+        <td>${escapeHtml(fmtLogDate(e.date))}</td>
+        <td>${e.client ? escapeHtml(e.client) : '<span class="serie">СЕРИЯ</span>'}</td>
+        <td>${escapeHtml(e.product) || "—"}</td><td>${escapeHtml(e.code)}</td>
+        <td>${escapeHtml(e.operation) || "—"}</td><td>${escapeHtml(e.workshop)}</td>
+        <td class="num">${e.qty}</td><td>${escapeHtml(e.machine) || "—"}</td><td class="num">${prodDur(e.perPiece)}</td>
+      </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма вписвания за периода.</td></tr>`}</tbody></table>`;
+  }
+
   out.innerHTML = html;
+  out.querySelectorAll("[data-worker]").forEach(el => el.addEventListener("click", () => { prodRptWorker = el.dataset.worker; renderProdReport(); }));
+  const allW = out.querySelector("#pr-all-workers");
+  if (allW) allW.addEventListener("click", () => { prodRptWorker = ""; renderProdReport(); });
 }
 
 /* ---------- Експорт ---------- */
