@@ -63,7 +63,7 @@ async function erpRenderCustomerOrders() {
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
     <table class="report-table erp-table">
-      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th>Статус</th><th></th></tr></thead>
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num">Стойност</th><th>Статус</th><th></th></tr></thead>
       <tbody>
         ${rows.map(o => `
           <tr class="erp-clickable" data-id="${o.id}">
@@ -73,10 +73,11 @@ async function erpRenderCustomerOrders() {
             <td data-label="Дата">${escapeHtml(o.date || "")}</td>
             <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
+            <td class="num" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
             <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`).join("") ||
-          `<tr><td colspan="8" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
+          `<tr><td colspan="9" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
       </tbody>
     </table>`;
 
@@ -98,6 +99,7 @@ function erpOpenCO(id) {
 async function erpRenderCOForm(o) {
   const v = erpView();
   const clients = await erpLoadClients();
+  if (!o.posted && (o.clientId || o.clientName)) erpCOFillPrices(o);   // авто-цени при отваряне
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="co-back">← Назад към заявките</button>
@@ -121,10 +123,10 @@ async function erpRenderCOForm(o) {
 
       <h4 class="erp-group-head">Продукти в заявката</h4>
       <table class="report-table erp-table" id="co-lines">
-        <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th></th></tr></thead>
+        <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num">Прод. цена (€)</th><th class="num">Сума</th><th></th></tr></thead>
         <tbody>${erpCOLinesHtml(o)}</tbody>
       </table>
-      <button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>
+      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button><span class="spacer"></span><span class="erp-count" id="co-total"></span></div>
 
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
@@ -141,6 +143,7 @@ async function erpRenderCOForm(o) {
     o.clientName = e.target.value;
     const m = clients.find(c => (c.company || "") === e.target.value);
     o.clientId = m ? m.id : null;
+    if (m && erpCOFillPrices(o)) erpCORefreshLines(o);   // авто-цени за клиента
   });
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
 
@@ -164,19 +167,70 @@ function erpCOLinesHtml(o) {
     <tr>
       <td data-label="Код">${escapeHtml(l.code || "")}</td>
       <td data-label="Продукт">${escapeHtml(l.name || "")}</td>
-      <td class="num" data-label="Бройка"><input type="number" class="co-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || 1))}" style="width:80px" /></td>
+      <td class="num" data-label="Бройка"><input type="number" class="co-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || 1))}" style="width:70px" /></td>
+      <td class="num" data-label="Прод. цена"><input type="number" class="co-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="0.00" /></td>
+      <td class="num" data-label="Сума">${erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>
       <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-rm="${i}">×</button></td>
-    </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма добавени продукти.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма добавени продукти.</td></tr>`;
 }
 function erpCOWireLines(o) {
   const body = document.querySelector("#co-lines tbody");
   if (!body) return;
-  body.querySelectorAll(".co-qty").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].qty = erpToNum(inp.value); }));
+  body.querySelectorAll(".co-qty").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].qty = erpToNum(inp.value); erpCOLineSums(o); }));
+  body.querySelectorAll(".co-price").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].unitPrice = erpToNum(inp.value); erpCOLineSums(o); }));
   body.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { o.lines.splice(Number(b.dataset.rm), 1); erpCORefreshLines(o); }));
+  erpCOTotal(o);
+}
+function erpCOLineSums(o) {  // обновява сумите по редове + общата, без загуба на фокус
+  const body = document.querySelector("#co-lines tbody"); if (!body) return;
+  body.querySelectorAll("tr").forEach((tr, i) => {
+    const l = (o.lines || [])[i]; if (!l) return;
+    const sum = tr.querySelector('td[data-label="Сума"]');
+    if (sum) sum.textContent = erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0));
+  });
+  erpCOTotal(o);
+}
+function erpCOTotal(o) {
+  const el = document.getElementById("co-total"); if (!el) return;
+  const t = (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+  el.textContent = "Стойност на заявката: " + erpEur(t);
 }
 function erpCORefreshLines(o) {
   const body = document.querySelector("#co-lines tbody");
   if (body) { body.innerHTML = erpCOLinesHtml(o); erpCOWireLines(o); }
+}
+
+// Самообучение на цените: последната продажна цена за този клиент+продукт
+// (от предишни заявки и продажби). Ползва се за авто-попълване „до второ нареждане".
+function erpCOClientPrice(o, productId) {
+  const byId = o && o.clientId;
+  const name = ((o && o.clientName) || "").trim().toLowerCase();
+  if (!byId && !name) return null;
+  const hits = [];
+  (erpCOList || []).forEach(x => {
+    if (o && x.id === o.id) return;
+    const same = byId ? (x.clientId === byId) : ((x.clientName || "").trim().toLowerCase() === name);
+    if (!same) return;
+    (x.lines || []).forEach(l => {
+      if (String(l.productId) === String(productId) && erpToNum(l.unitPrice) > 0)
+        hits.push({ price: erpToNum(l.unitPrice), date: x.date || "" });
+    });
+  });
+  if (typeof erpLastPriceFor === "function") {
+    try { const s = erpLastPriceFor({ clientId: o.clientId, clientName: o.clientName, currency: "EUR" }, "product", productId); if (s) hits.push({ price: s.price, date: s.date || "" }); } catch (e) {}
+  }
+  if (!hits.length) return null;
+  hits.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return hits[0].price;
+}
+function erpCOFillPrices(o) {
+  let filled = 0;
+  (o.lines || []).forEach(l => {
+    if (erpToNum(l.unitPrice) > 0) return;
+    const p = erpCOClientPrice(o, l.productId);
+    if (p) { l.unitPrice = p; filled++; }
+  });
+  return filled;
 }
 
 function erpCOAddProduct(o) {
@@ -197,7 +251,8 @@ function erpCOAddProduct(o) {
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
       const p = ERP.prodById[Number(b.dataset.id)];
       o.lines = o.lines || [];
-      o.lines.push({ productId: p.id, code: p.code, name: p.name, qty: 1 });
+      const last = erpCOClientPrice(o, p.id);   // авто-цена по клиент
+      o.lines.push({ productId: p.id, code: p.code, name: p.name, qty: 1, unitPrice: last || "" });
       close(); erpCORefreshLines(o);
     }));
   };

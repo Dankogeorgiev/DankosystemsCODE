@@ -127,6 +127,23 @@
 .plan-load > span { display: block; height: 100%; background: #0f766e; }
 .plan-load > span.nodata { background: #cbd5e1; }
 .plan-done { opacity: 0.55; }
+/* Финанси */
+.erp-co-linebar { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; }
+.fin-cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 14px; }
+.fin-card { flex: 1; min-width: 130px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+.fin-card-l { font-size: 12px; color: #64748b; }
+.fin-card-v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.fin-good { color: #15803d; }
+.fin-mid { color: #0f766e; }
+.fin-low { color: #b45309; }
+.fin-neg { color: #b91c1c; }
+.fin-na { color: #94a3b8; }
+.fin-warn { color: #b45309; font-weight: 700; }
+.fin-detail > td { background: #f8fafc; padding: 6px 10px; }
+.fin-sub { width: 100%; border-collapse: collapse; }
+.fin-sub th, .fin-sub td { border: 1px solid #e2e8f0; padding: 3px 7px; font-size: 12px; text-align: left; }
+.fin-sub th { background: #eef2f7; }
+.fin-sub td.num, .fin-sub th.num { text-align: right; }
 .erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
 .erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }
