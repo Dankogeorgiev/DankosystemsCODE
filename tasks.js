@@ -674,16 +674,26 @@ async function removeTaskFile(t, i) {
 async function logProduction(t, qtyVal, extra) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
   if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
-  // Поточно производство: не може да се отчете повече, отколкото е произведено
-  // в предната операция (колкото минат нататък, толкова се отчитат тук).
+  // Поточно производство: операция, която ЧАКА предната, не може да отчете
+  // повече от произведеното преди нея. Първата операция (разкрой) може да
+  // произведе и повече от нужното за поръчката — излишъкът влиза в Склад детайли.
   if (t.source && t.source.flow && typeof erpFlowAvailable === "function") {
-    const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
-    const avail = erpFlowAvailable(t, map);
-    if (add > avail) {
-      alert(avail > 0
-        ? `Поточно производство: сега можеш да отчетеш най-много ${avail} бр. (толкова са произведени в предната операция).`
-        : `Поточно производство: предната операция още не е произвела детайли за тази стъпка. Изчакай предния цех.`);
-      return;
+    const gated = t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length);
+    if (gated) {
+      const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
+      const avail = erpFlowAvailable(t, map);
+      if (add > avail) {
+        alert(avail > 0
+          ? `Поточно производство: сега можеш да отчетеш най-много ${avail} бр. (толкова са произведени в предната операция).`
+          : `Поточно производство: предната операция още не е произвела детайли за тази стъпка. Изчакай предния цех.`);
+        return;
+      }
+    } else if (!t.source.toStock) {
+      const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
+      if (q > 0 && pr + add > q) {
+        const extra = (pr + add) - q;
+        if (!confirm(`Отчиташ ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
+      }
     }
   }
   let worker;
@@ -702,6 +712,8 @@ async function logProduction(t, qtyVal, extra) {
   await tSaveTask(t);
   // Последователно производство: ако задачата стана готова — пусни следващата операция.
   if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
+  // Заприходяване в Склад детайли (последна операция: за склад / свръхпроизводство).
+  if (typeof erpFlowStockIn === "function") { try { await erpFlowStockIn(t); } catch (e) { console.error("stock-in", e); } }
   renderTasks();
 }
 

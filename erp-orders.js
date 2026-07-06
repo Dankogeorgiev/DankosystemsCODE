@@ -338,18 +338,25 @@ function erpFlowSteps(s, opts) {
   // тръгват по цеховете, а сглобяването чака да се уредят липсващите.
   const blockFinal = missing.length > 0;
 
+  // Суфикс на ключовете (за да не се смесва „производство за склад" с поръчковите
+  // серии) и маркиране на финалния възел за заприходяване в склада.
+  const sfx = (opts && opts.keySuffix) || "";
+  const toStockTop = !!(opts && opts.toStockTop);
+
   // Ключове на последните операции на възлите — финалът ги чака (всички готови).
-  const partLastKeys = nodes.filter(n => !n.isTop).map(n => n.key + "¦" + n.ops[n.ops.length - 1].operation);
+  const partLastKeys = nodes.filter(n => !n.isTop).map(n => n.key + "¦" + n.ops[n.ops.length - 1].operation + sfx);
 
   nodes.forEach(n => {
     if (n.isTop && blockFinal) return;   // не създаваме сглобяването при липсващи детайли
+    const lastIdx = n.ops.length - 1;
     n.ops.forEach((op, i) => {
       steps.push({
         product: n.product, code: n.code, operation: op.operation, workshop: op.workshop, qty: op.qty,
-        seriesKey: n.key + "¦" + op.operation,
-        prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation) : null,
+        seriesKey: n.key + "¦" + op.operation + sfx,
+        prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation + sfx) : null,
         gate: (n.isTop && i === 0 && partLastKeys.length) ? partLastKeys.slice() : null,
         step: i, role: n.isTop ? "final" : "part",
+        pid: n.pid, last: i === lastIdx, toStock: n.isTop && toStockTop,
       });
     });
   });
@@ -363,13 +370,16 @@ function erpFlowSteps(s, opts) {
 async function erpFlowApply(meta, productLines) {
   const sid = String(meta.sampleId);
   const ref = "order:" + sid;
+  const toStock = !!meta.toStock;                 // производство ЗА СКЛАД (без заявка)
+  const sfx = toStock ? ("¦склад:" + sid) : "";
 
   // 0) Нетна потребност спрямо СКЛАДА за детайли. Наличността, която е на склад,
   //    не се пуска към цех (детайлът е готов). Изключваме собствените стари
   //    изписвания на тази поръчка, за да е идемпотентно повторното пускане.
+  //    При „производство за склад" НЕ приспадаме — целта е да напълним склада.
   const avail = {};                // product_id -> наличен брой (за нетване)
   let stockOn = false;
-  {
+  if (!toStock) {
     const { data: moves, error: mErr } = await erpSelectAll("product_movements", "id,product_id,quantity,ref");
     if (!mErr) {
       stockOn = true;
@@ -387,7 +397,8 @@ async function erpFlowApply(meta, productLines) {
   (productLines || []).forEach(line => {
     const q = erpToNum(line.qty) || 0;
     if (!q) return;
-    const { steps, external, missing } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stockOn ? { stock: avail, consumed } : undefined);
+    const stepsOpts = toStock ? { keySuffix: sfx, toStockTop: true } : (stockOn ? { stock: avail, consumed } : undefined);
+    const { steps, external, missing } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
     external.forEach(e => externalAll.push(e));
     (missing || []).forEach(m => {
       const k = m.code || m.name;
@@ -450,6 +461,7 @@ async function erpFlowApply(meta, productLines) {
           kind: "series", flow: true, seriesKey: k, prevKey: st.prevKey || null, gate: st.gate || null,
           step: st.step, role: st.role || "part", code: st.code, product: st.product,
           orders: [], orderIds: [], sampleType: meta.sampleType || "order",
+          pid: st.pid, last: !!st.last, toStock: !!st.toStock, stock: toStock, stocked: 0,
         },
       } };
       bySeries[k] = r;
@@ -535,6 +547,53 @@ function erpFlowAvailable(t, map) {
     return Math.max(0, (up ? up.produced : 0) - prod);
   }
   return Math.max(0, qty - prod);
+}
+
+// Заприходява готови детайли в Склад детайли (движение „заприходяване").
+async function erpStockCredit(pid, qty, note, ref) {
+  if (!pid || !(qty > 0)) return;
+  try {
+    await sb.from("product_movements").insert({ product_id: Number(pid), kind: "заприходяване", quantity: qty, ref: ref || "", note: note || "" });
+  } catch (e) { console.error("stock credit", e); }
+}
+
+// След отчитане на последната операция на детайл — вкарва готовите бройки в
+// Склад детайли. При „производство за склад" влиза всичкото произведено; при
+// поръчка — само свръхпроизводството (над нужното). Идемпотентно чрез
+// source.stocked (заприходяваме само новата разлика).
+async function erpFlowStockIn(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !src.last || !src.pid) return;
+  const produced = Number(t.produced) || 0, qty = Number(t.qty) || 0;
+  const desired = src.toStock ? produced : Math.max(0, produced - qty);
+  const stocked = Number(src.stocked) || 0;
+  const delta = desired - stocked;
+  if (delta <= 0) return;
+  await erpStockCredit(src.pid, delta, (src.toStock ? "Производство за склад" : "Свръхпроизводство") + " · " + (t.code || t.product || ""), "prod:" + t.id);
+  src.stocked = desired;
+  if (typeof tSaveTask === "function") await tSaveTask(t);
+}
+
+// Пуска детайл за производство ЗА СКЛАД (без заявка). Минава по цеховете и щом
+// последната операция се отчете, готовите бройки влизат в Склад детайли.
+async function erpProduceToStock(productId, qty) {
+  try { await erpEnsureLoaded(); } catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return { error: true }; }
+  const p = ERP.prodById[productId] || {};
+  const q = erpToNum(qty) || 0;
+  if (!(q > 0)) { alert("Въведи брой по-голям от 0."); return { error: true }; }
+  const pre = erpFlowSteps({ erpProductId: productId, erpQty: q }, { toStockTop: true });
+  if (!pre.steps.length) {
+    alert((pre.missing && pre.missing.length)
+      ? `Не мога да го пусна — липсват детайли без рецепта:\n` + pre.missing.map(m => `• ${m.code ? m.code + " " : ""}${m.name}`).join("\n")
+      : "Този детайл няма рецепта с операции — не може да се пусне.");
+    return { error: true };
+  }
+  const sid = "stock-" + productId + "-" + Date.now();
+  const res = await erpFlowApply({
+    clientName: "ЗА СКЛАД", deadline: "", sampleId: sid, sampleType: "stock",
+    orderNo: (p.code || "") + " за склад", toStock: true,
+  }, [{ productId, qty: q }]);
+  return res;
 }
 
 async function erpProduce(s) {

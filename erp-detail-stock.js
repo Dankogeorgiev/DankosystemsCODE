@@ -64,6 +64,7 @@ async function erpRenderDetailStock() {
           <td data-label="Детайл">${escapeHtml(p.name || "")}${p.is_semifinished ? ` <span class="erp-muted">възел</span>` : ""}</td>
           <td class="num" data-label="Наличност"><b class="${(Number(p.stock) || 0) > 0 ? "" : "erp-muted"}">${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</td>
           <td data-label="Движение">
+            <button type="button" class="btn btn-small btn-primary ds-prod" data-id="${p.id}" title="Пусни по цеховете; готовото влиза тук">🏭 произведи</button>
             <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
             <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
             <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
@@ -84,6 +85,24 @@ async function erpRenderDetailStock() {
   if (imp) imp.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) dsImportFill(f); });
   erpView().querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
   erpView().querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
+  erpView().querySelectorAll(".ds-prod").forEach(b => b.addEventListener("click", () => dsProduce(Number(b.dataset.id))));
+}
+
+// Пуска детайл за производство ЗА СКЛАД (без заявка) — минава по цеховете и
+// готовото се заприходява тук автоматично след последната операция.
+async function dsProduce(pid) {
+  const p = ERP.prodById[pid] || {};
+  if (typeof erpProduceToStock !== "function") { alert("Модулът за производство не е зареден."); return; }
+  const v = prompt(`Колко броя „${p.code ? p.code + " " : ""}${p.name}" да пусна за производство (влизат в Склад детайли, щом минат цеховете)?`, "");
+  if (v === null) return;
+  const q = erpToNum(v);
+  if (!(q > 0)) { if (v.trim() !== "") alert("Въведи брой по-голям от 0."); return; }
+  const res = await erpProduceToStock(pid, q);
+  if (!res || res.error) return;
+  const miss = (res.missing || []);
+  alert(`Пуснах ${erpNum(q)} бр. „${p.name}" по цеховете.\n`
+    + `Щом минат последната операция, ще влязат автоматично в Склад детайли.`
+    + (miss.length ? `\n\n⚠ Липсват детайли: ` + miss.map(m => m.code || m.name).join(", ") : ""));
 }
 
 // Сваля Excel-шаблон с всички детайли/възли за попълване на наличности.
