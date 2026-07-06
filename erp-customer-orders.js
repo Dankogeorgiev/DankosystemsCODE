@@ -337,16 +337,30 @@ async function erpCOProduce(o) {
 
   const lines = (o.lines || []).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
   let totalSteps = 0, external = [];
+  const missMap = {};
   lines.forEach(l => {
-    const r = (typeof erpFlowSteps === "function") ? erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty }) : { steps: [], external: [] };
+    const r = (typeof erpFlowSteps === "function") ? erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty }) : { steps: [], external: [], missing: [] };
     totalSteps += r.steps.length; external = external.concat(r.external);
+    (r.missing || []).forEach(m => { const k = m.code || m.name; const c = missMap[k] || (missMap[k] = { code: m.code, name: m.name, qty: 0 }); c.qty += Number(m.qty) || 0; });
   });
-  if (!totalSteps) { alert("Няма операции за пускане (продуктите нямат рецепта с операции)."); return; }
+  const missList = Object.values(missMap);
+  const missTxt = missList.length
+    ? `\n\n⚠ ЛИПСВАЩИ ДЕТАЙЛИ (нямат рецепта с операции и не са на склад):\n`
+      + missList.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужни ${erpNum(m.qty)} бр.`).join("\n")
+      + `\n\nСглобяването на тези изделия НЯМА да се пусне, докато детайлите нямат рецепта или наличност.`
+    : "";
+  if (!totalSteps) {
+    alert(missList.length
+      ? `Не мога да пусна — детайлите нямат рецепта с операции и не са на склад.${missTxt}`
+      : "Няма операции за пускане (продуктите нямат рецепта с операции).");
+    return;
+  }
 
   const already = o.production && o.production.count;
   let msg = `Ще пусна ПОТОЧНО производство за заявка №${o.ourNo} (${lines.length} продукта).\n\n`
     + `Еднакви детайли от различни поръчки се обединяват в СЕРИЯ; всяка операция приема детайлите постепенно, колкото са отчетени в предната.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
+  msg += missTxt;
   if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще обновя дела на заявката.`;
   if (!confirm(msg)) return;
 
@@ -361,9 +375,11 @@ async function erpCOProduce(o) {
   o.status = "в производство";
   try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
+  const miss = res.missing || [];
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (miss.length ? `\n\n⚠ Сглобяване НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
   erpCOTracking(o);
 }

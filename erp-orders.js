@@ -286,11 +286,14 @@ async function erpMaybeStartFinal(t, src) {
 //   даден детайл го има на склад, не се произвежда (и децата му също не се правят).
 function erpFlowSteps(s, opts) {
   const qty = erpToNum(s.erpQty) || 1;
-  const steps = [], external = [];
+  const steps = [], external = [], missing = [];
   const stock = (opts && opts.stock) || null;
   const consumed = (opts && opts.consumed) || null;
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
   const nodes = [];  // { key, product, code, ops:[{operation,workshop,qty}], isTop }
+  // walk връща { hasOps, make }: hasOps = дали този детайл (или някой негов
+  // подрод) реално има операции за производство; make = колко трябва да се
+  // произведат след приспадане от склада.
   (function walk(pid, mult, anc, depth) {
     // Нетна потребност: колко от този детайл има на склад -> толкова не се прави.
     let make = mult;
@@ -303,9 +306,10 @@ function erpFlowSteps(s, opts) {
         make = mult - use;
       }
     }
-    if (make <= 0) return;   // целият детайл е от склада — нито той, нито децата му се произвеждат
+    if (make <= 0) return { hasOps: false, make: 0 };   // целият детайл е от склада
     const p = ERP.prodById[pid] || {};
     const ops = [];
+    let childHasOps = false;
     (ERP.linesByProduct[pid] || []).forEach(l => {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
@@ -314,16 +318,31 @@ function erpFlowSteps(s, opts) {
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         ops.push({ operation: op.name || "", workshop: ws, qty: cnt });
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
-        walk(l.child_product_id, make * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]), depth + 1);
+        const need = make * (Number(l.quantity) || 1);
+        const res = walk(l.child_product_id, need, new Set([...anc, l.child_product_id]), depth + 1);
+        if (res.hasOps) childHasOps = true;
+        else if (res.make > 0) {
+          // Дете-детайл без нито една операция в целия си подрод и не е на склад:
+          // не може да се произведе (липсва рецепта) — записваме го като липсващ.
+          const cp = ERP.prodById[l.child_product_id] || {};
+          missing.push({ code: cp.code || "", name: cp.name || "", qty: res.make });
+        }
       }
     });
     if (ops.length) nodes.push({ pid, key: (p.code || p.name || String(pid)), product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
+    return { hasOps: ops.length > 0 || childHasOps, make };
   })(s.erpProductId, qty, new Set([s.erpProductId]), 0);
+
+  // Ако има липсващи детайли (без рецепта и не на склад) — НЕ пускаме финалното
+  // сглобяване (не може да се сглоби без частите). Детайлите с рецепта пак
+  // тръгват по цеховете, а сглобяването чака да се уредят липсващите.
+  const blockFinal = missing.length > 0;
 
   // Ключове на последните операции на възлите — финалът ги чака (всички готови).
   const partLastKeys = nodes.filter(n => !n.isTop).map(n => n.key + "¦" + n.ops[n.ops.length - 1].operation);
 
   nodes.forEach(n => {
+    if (n.isTop && blockFinal) return;   // не създаваме сглобяването при липсващи детайли
     n.ops.forEach((op, i) => {
       steps.push({
         product: n.product, code: n.code, operation: op.operation, workshop: op.workshop, qty: op.qty,
@@ -334,7 +353,7 @@ function erpFlowSteps(s, opts) {
       });
     });
   });
-  return { steps, external };
+  return { steps, external, missing };
 }
 
 // Прилага поточно производство за поръчка (една или няколко продуктови линии):
@@ -364,17 +383,24 @@ async function erpFlowApply(meta, productLines) {
   const mine = {};                 // seriesKey -> { qty, st }
   const externalAll = [];
   const consumed = {};             // product_id -> взети от склад (за цялата поръчка)
+  const missingMap = {};           // code -> { code, name, qty } (липсващи детайли без рецепта)
   (productLines || []).forEach(line => {
     const q = erpToNum(line.qty) || 0;
     if (!q) return;
-    const { steps, external } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stockOn ? { stock: avail, consumed } : undefined);
+    const { steps, external, missing } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stockOn ? { stock: avail, consumed } : undefined);
     external.forEach(e => externalAll.push(e));
+    (missing || []).forEach(m => {
+      const k = m.code || m.name;
+      const cur = missingMap[k] || (missingMap[k] = { code: m.code, name: m.name, qty: 0 });
+      cur.qty += Number(m.qty) || 0;
+    });
     steps.forEach(st => {
       const cur = mine[st.seriesKey] || (mine[st.seriesKey] = { qty: 0, st });
       cur.qty += st.qty;
     });
   });
   const myKeys = Object.keys(mine);
+  const missingList = Object.values(missingMap);
 
   // 1б) Записваме изписването от склада за взетите детайли (идемпотентно по ref).
   const fromStock = [];
@@ -452,7 +478,7 @@ async function erpFlowApply(meta, productLines) {
     const { error } = await sb.from("tasks").insert(toInsert.map(d => ({ data: d })));
     if (error) return { error };
   }
-  return { external: externalAll, seriesCount: myKeys.length, fromStock, error: null };
+  return { external: externalAll, seriesCount: myKeys.length, fromStock, missing: missingList, error: null };
 }
 
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии
@@ -517,15 +543,23 @@ async function erpProduce(s) {
   if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
 
   const qty = erpToNum(s.erpQty) || 1;
-  const { steps, external } = erpFlowSteps({ erpProductId: s.erpProductId, erpQty: qty });
+  const { steps, external, missing } = erpFlowSteps({ erpProductId: s.erpProductId, erpQty: qty });
+  const missTxt = (missing && missing.length)
+    ? `\n\n⚠ ЛИПСВАЩИ ДЕТАЙЛИ (нямат рецепта с операции и не са на склад):\n`
+      + missing.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужни ${erpNum(m.qty)} бр.`).join("\n")
+      + `\n\nСглобяването НЯМА да се пусне, докато тези детайли нямат рецепта или наличност в склада.`
+    : "";
   if (!steps.length) {
-    alert("Няма операции за пускане. Проверете дали продуктът има рецепта с операции и дали операциите са насочени към цех (таб Операции → Цех).");
+    alert((missing && missing.length)
+      ? `Не мога да пусна това изделие — детайлите му нямат рецепта с операции и не са на склад.${missTxt}`
+      : "Няма операции за пускане. Проверете дали продуктът има рецепта с операции и дали операциите са насочени към цех (таб Операции → Цех).");
     return;
   }
   const already = s.production && s.production.count;
   let msg = `Ще пусна ПОТОЧНО производство за „${s.erpProductName}" × ${erpNum(qty)} бр.\n\n`
     + `Всяка операция получава детайлите постепенно — колкото са отчетени в предния цех, толкова минават нататък. Еднакви детайли от няколко поръчки се обединяват в СЕРИЯ.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
+  msg += missTxt;
   if (already) msg += `\n\n⚠ Вече има пуснато производство за тази поръчка. Ще обновя дела ѝ.`;
   if (!confirm(msg)) return;
 
@@ -539,9 +573,11 @@ async function erpProduce(s) {
   s.production = { at: new Date().toISOString(), count: res.seriesCount, flow: true, external: external.length, fromStock: fs.length };
   touch(s);
   erpRenderOrderPanel(s);
+  const miss = res.missing || [];
   alert(`Готово! Пуснах поточно производство (${res.seriesCount} операции).\n`
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (miss.length ? `\n\n⚠ Сглобяването НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
 }
 
