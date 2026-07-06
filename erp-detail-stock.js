@@ -34,11 +34,6 @@ async function erpRenderDetailStock() {
     return;
   }
 
-  let list = ERP.products.filter(dsIsDetail);
-  if (DS_TERM) { const q = DS_TERM.toLowerCase(); list = list.filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q)); }
-  if (DS_ONLY_STOCK) list = list.filter(p => (Number(p.stock) || 0) > 0);
-  list.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));
-
   const totalWith = ERP.products.filter(dsIsDetail).filter(p => (Number(p.stock) || 0) > 0).length;
   erpView().innerHTML = `
     <div class="erp-head-row">
@@ -49,8 +44,9 @@ async function erpRenderDetailStock() {
       автоматично приспада наличното и праща в цех само недостига.
       За наливане наведнъж: <b>свали шаблона</b>, попълни колоната „Налична бройка (попълни)" и го <b>импортирай</b>.</p>
     <div class="erp-toolbar">
-      <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" />
+      <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
+      <span id="ds-count" class="erp-muted"></span>
       <span class="spacer"></span>
       <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
       <label class="btn btn-small btn-primary" for="ds-import-file">⤴ Импортирай наличности</label>
@@ -58,34 +54,52 @@ async function erpRenderDetailStock() {
     </div>
     <table class="report-table erp-table">
       <thead><tr><th>Код</th><th>Детайл/възел</th><th class="num">Наличност</th><th>Движение</th></tr></thead>
-      <tbody>${list.slice(0, 300).map(p => `
-        <tr>
-          <td data-label="Код"><b>${escapeHtml(p.code || "")}</b></td>
-          <td data-label="Детайл">${escapeHtml(p.name || "")}${p.is_semifinished ? ` <span class="erp-muted">възел</span>` : ""}</td>
-          <td class="num" data-label="Наличност"><b class="${(Number(p.stock) || 0) > 0 ? "" : "erp-muted"}">${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</td>
-          <td data-label="Движение">
-            <button type="button" class="btn btn-small btn-primary ds-prod" data-id="${p.id}" title="Пусни по цеховете; готовото влиза тук">🏭 произведи</button>
-            <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
-            <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
-            <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
-            <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
-          </td>
-        </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма детайли по този филтър.</td></tr>`}
-      </tbody>
-    </table>
-    ${list.length > 300 ? `<p class="hint">Показани първите 300. Уточни търсенето.</p>` : ""}`;
+      <tbody id="ds-tbody"></tbody>
+    </table>`;
 
   const q = document.getElementById("ds-q");
-  if (q) q.addEventListener("input", e => { DS_TERM = e.target.value; erpRenderDetailStock(); });
+  // Търсене „на живо" без пре-рисуване на целия изглед (за да не губи фокус полето).
+  if (q) q.addEventListener("input", e => { DS_TERM = e.target.value; dsFillRows(); });
   const only = document.getElementById("ds-only");
-  if (only) only.addEventListener("change", e => { DS_ONLY_STOCK = e.target.checked; erpRenderDetailStock(); });
+  if (only) only.addEventListener("change", e => { DS_ONLY_STOCK = e.target.checked; dsFillRows(); });
   const exp = document.getElementById("ds-export");
   if (exp) exp.addEventListener("click", dsExportTemplate);
   const imp = document.getElementById("ds-import-file");
   if (imp) imp.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) dsImportFill(f); });
-  erpView().querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
-  erpView().querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
-  erpView().querySelectorAll(".ds-prod").forEach(b => b.addEventListener("click", () => dsProduce(Number(b.dataset.id))));
+  dsFillRows();
+  if (q) q.focus();
+}
+
+// Пълни само редовете на таблицата според текущото търсене/филтър (без да
+// пипа търсачката) — така фокусът остава и се пише плавно.
+function dsFillRows() {
+  const tbody = document.getElementById("ds-tbody");
+  if (!tbody) return;
+  let list = ERP.products.filter(dsIsDetail);
+  if (DS_TERM) { const q = DS_TERM.toLowerCase().trim(); list = list.filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q)); }
+  if (DS_ONLY_STOCK) list = list.filter(p => (Number(p.stock) || 0) > 0);
+  list.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));
+
+  const shown = list.slice(0, 300);
+  tbody.innerHTML = shown.map(p => `
+    <tr>
+      <td data-label="Код"><b>${escapeHtml(p.code || "")}</b></td>
+      <td data-label="Детайл">${escapeHtml(p.name || "")}${p.is_semifinished ? ` <span class="erp-muted">възел</span>` : ""}</td>
+      <td class="num" data-label="Наличност"><b class="${(Number(p.stock) || 0) > 0 ? "" : "erp-muted"}">${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</td>
+      <td data-label="Движение">
+        <button type="button" class="btn btn-small btn-primary ds-prod" data-id="${p.id}" title="Пусни по цеховете; готовото влиза тук">🏭 произведи</button>
+        <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
+        <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
+        <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
+        <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
+      </td>
+    </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма детайли по този филтър.</td></tr>`;
+
+  const cnt = document.getElementById("ds-count");
+  if (cnt) cnt.textContent = list.length > 300 ? `показани 300 от ${list.length}` : `${list.length} детайла`;
+  tbody.querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
+  tbody.querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
+  tbody.querySelectorAll(".ds-prod").forEach(b => b.addEventListener("click", () => dsProduce(Number(b.dataset.id))));
 }
 
 // Пуска детайл за производство ЗА СКЛАД (без заявка) — минава по цеховете и
