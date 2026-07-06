@@ -948,6 +948,19 @@ async function editTask(t) {
   const q = prompt("Количество:", t.qty || "");
   if (q !== null) t.qty = q;
   t.due = prompt("Срок (текст):", t.due || "") ?? t.due;
+  // Смяна на цех (за да се пренасочи сгрешена при миграцията задача към правилния цех).
+  const wsIn = prompt("Цех (напиши точно):\n" + workshopList().join(", "), t.workshop || "");
+  if (wsIn !== null) {
+    const w = wsIn.trim();
+    if (w && w !== t.workshop) {
+      if (workshopList().indexOf(w) === -1 && !confirm(`„${w}" не е в списъка с цехове. Да го запиша ли все пак?`)) {
+        // остава старият цех
+      } else {
+        t.workshop = w;
+        t.assignee = "";   // нулираме отговорника — старият е от друг цех
+      }
+    }
+  }
   await tSaveTask(t);
   renderTasks();
 }
