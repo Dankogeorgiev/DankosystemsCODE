@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "title": "Ръчна прахова линия",
+    "company": "Данко Системс ООД"
+  },
+  "conveyor": {
+    "shape": "oval_stadium",
+    "length_m": 22,
+    "width_m": 6,
+    "rail_height_m": 2.8,
+    "color_ref": "лилаво"
+  },
+  "kolove": {
+    "count": 6,
+    "ids": ["КОЛ 1", "КОЛ 2", "КОЛ 3", "КОЛ 4", "КОЛ 5", "КОЛ 6"],
+    "note": "На всеки кол се закачат различни комбинации от подвески. Кол = хоризонтален носач, закачен за конвейра.",
+    "color_ref": "синьо"
+  },
+  "portals": {
+    "count": 4,
+    "type": "П-образни носещи стоманени колони",
+    "note": "коловете с подвеските минават през тях"
+  },
+  "zones": [
+    {
+      "code": "kamera_boyadisvane",
+      "name": "Камера боядисване",
+      "length_m": 3.6,
+      "width_m": 0.9,
+      "height_m": 3.0,
+      "transparent": true,
+      "contour_color": "синя",
+      "tint": "текущ RAL цвят (по подразбиране RAL 9005)",
+      "note": "цветът на камерата се сменя с текущия цвят на боядисване"
+    },
+    {
+      "code": "furna_pechene",
+      "name": "Фурна печене",
+      "length_m": 4.4,
+      "width_m": 0.9,
+      "height_m": 3.0,
+      "transparent": true,
+      "contour_color": "червена",
+      "body": "червеникаво",
+      "features": ["комини", "аспирация"]
+    }
+  ],
+  "gap_between_zones_m": 4.8,
+  "gap_note": "между камерата и фурната има място за 2 кола",
+  "ral_palette": [
+    { "code": "RAL 9005", "name": "черен",        "hex": "#121212" },
+    { "code": "RAL 9006", "name": "сребрист",      "hex": "#A5A8A6" },
+    { "code": "RAL 7016", "name": "антрацит",      "hex": "#373F43" },
+    { "code": "RAL 9010", "name": "бял",           "hex": "#F1EDE3" },
+    { "code": "RAL 7035", "name": "светло сив",    "hex": "#C6C8C4" },
+    { "code": "RAL 6005", "name": "зелен",         "hex": "#2C5545" },
+    { "code": "RAL 8017", "name": "кафяв",         "hex": "#45322E" },
+    { "code": "RAL 5010", "name": "син",           "hex": "#0E294B" },
+    { "code": "RAL 3020", "name": "червен",        "hex": "#C1121C" },
+    { "code": "RAL 1023", "name": "жълт",          "hex": "#F0CA00" }
+  ]
+}

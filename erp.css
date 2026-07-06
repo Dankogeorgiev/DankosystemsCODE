@@ -1,0 +1,268 @@
+/* Данко Системс — стилове за модул „Склад · Рецепти · Себестойност" (ЕРП).
+   Съгласувани с променливите и класовете в styles.css. */
+
+/* Бутон в хедъра */
+.btn-erp { background: #0f766e; color: #fff; border-color: #0f766e; }
+.btn-erp:hover { background: #115e59; }
+
+/* Съдържание на модала (както #tasks-view) */
+#erp-view { overflow: auto; padding: 14px 18px; flex: 1 1 auto; min-height: 0; }
+
+/* Табове */
+.erp-tabs { flex-wrap: wrap; }
+.erp-tab.active { background: #0f766e; color: #fff; border-color: #0f766e; }
+
+/* Ленти с инструменти вътре в екрана */
+.erp-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.erp-toolbar input[type="search"], .erp-toolbar input[type="number"], .erp-toolbar select {
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit;
+}
+.erp-toolbar .spacer { flex: 1; }
+.erp-head-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.erp-h { margin: 0; font-size: 18px; }
+.erp-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+.erp-inline select, .erp-inline input { margin-left: 4px; }
+.erp-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.erp-count { font-size: 13px; color: var(--muted); }
+.erp-muted { color: var(--muted); }
+.erp-warn { color: var(--danger); font-weight: 600; }
+.erp-loading { color: var(--muted); padding: 20px; text-align: center; }
+.erp-error { padding: 18px; border: 1px solid #f3c2c2; background: #fef2f2; border-radius: 12px; color: #7f1d1d; }
+.erp-error h3 { margin: 0 0 6px; }
+
+/* Таблици */
+.erp-table { margin-bottom: 18px; }
+.erp-table td.num, .erp-table th.num { text-align: right; white-space: nowrap; }
+.erp-row-actions { white-space: nowrap; text-align: right; }
+.erp-row-actions .btn { padding: 4px 8px; margin-left: 4px; }
+.erp-below { background: #fff7ed !important; }
+.erp-below td { border-bottom-color: #fed7aa; }
+.erp-needs td { color: #9a3412; }
+.erp-clickable { cursor: pointer; }
+.erp-scroll { overflow-x: auto; }
+.erp-group-head { margin: 14px 0 6px; font-size: 14px; color: var(--muted); font-weight: 700; }
+.erp-preview td, .erp-preview th { font-size: 12px; white-space: nowrap; }
+
+/* Етикети по вид */
+.erp-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.erp-tag-art  { background: #dbeafe; color: #1e40af; }
+.erp-tag-semi { background: #ede9fe; color: #5b21b6; }
+.erp-tag-mat  { background: #dcfce7; color: #166534; }
+.erp-tag-op   { background: #fef3c7; color: #92400e; }
+
+/* Рецепта-дърво */
+.erp-recipe { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff; }
+.erp-node { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; }
+.erp-node-main { flex: 1; }
+.erp-node-qty { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.erp-node-cost { font-weight: 600; white-space: nowrap; min-width: 90px; text-align: right; }
+.erp-node-product { background: #eef4ff; border: 1px solid #c7dbff; font-weight: 600; }
+.erp-node-tag { font-size: 11px; color: var(--muted); }
+.erp-node-semi { background: #f5f3ff; }
+.erp-node-material { background: #f0fdf4; }
+.erp-node-operation { background: #fffbeb; }
+.erp-tree { list-style: none; margin: 4px 0 0; padding-left: 20px; border-left: 2px dashed var(--line); }
+.erp-tree > li { margin: 4px 0; }
+.erp-tw { display: inline-flex; width: 20px; flex: 0 0 20px; }
+.erp-branch > .erp-node, .erp-leaf > .erp-node { }
+.erp-branch { display: block; }
+.erp-branch > .erp-tw, .erp-leaf > .erp-tw { display: inline-block; vertical-align: middle; }
+.erp-branch > .erp-node, .erp-leaf > .erp-node { display: inline-flex; width: calc(100% - 24px); vertical-align: middle; }
+.erp-toggle { border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--muted); padding: 0; width: 18px; }
+.erp-rl-x { border: none; background: #fee2e2; color: #b91c1c; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 12px; line-height: 1; margin-left: 8px; flex: 0 0 auto; }
+.erp-rl-x:hover { background: #fecaca; }
+.erp-leaf.erp-warn, .erp-leaf.erp-muted { padding: 4px 0 4px 24px; font-size: 13px; }
+.erp-legend { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Импорт */
+.erp-import .hint { margin-bottom: 10px; }
+.erp-file-list { list-style: none; padding: 0; margin: 6px 0; font-size: 13px; }
+.erp-file-list li { padding: 3px 0; }
+.erp-report-box { border: 1px solid #bbf7d0; background: #f0fdf4; border-radius: 12px; padding: 14px 16px; margin-top: 14px; }
+.erp-report-box h3 { margin: 0 0 8px; }
+.erp-report-list { margin: 6px 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
+
+/* Чертежи към продукта (в рецептата) */
+.erp-prod-drawings { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.erp-draw-list { margin-top: 8px; }
+
+/* Панел „Производство (ЕРП)" в поръчката */
+.erp-order-card { border-color: #99f6e4 !important; background: #f0fdfa; }
+.erp-order-card legend { color: #0f766e; }
+.erp-linked { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.erp-order-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.erp-prod-status { margin-top: 10px; font-size: 14px; }
+.erp-prod-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.erp-prodbar { display: inline-block; width: 160px; height: 8px; background: #d1fae5; border-radius: 99px; overflow: hidden; }
+.erp-prodbar > span { display: block; height: 100%; background: var(--ok); }
+.erp-prod-active { margin-top: 6px; font-size: 13px; color: #0f766e; line-height: 1.5; }
+.erp-sale-totals { margin-top: 10px; }
+.erp-sale-sum { margin-left: auto; border-collapse: collapse; min-width: 260px; }
+.erp-sale-sum td { padding: 4px 10px; font-size: 14px; }
+.erp-sale-sum td.num { text-align: right; }
+.erp-sale-sum tr.grand td { border-top: 2px solid #0f766e; font-size: 16px; padding-top: 6px; }
+/* Производствен отчет */
+.pr-controls { margin: 10px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+.pr-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pr-lbl { font-weight: 600; color: #475569; margin-right: 4px; }
+.pr-summary { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 8px 12px; margin: 8px 0 12px; font-size: 14px; }
+.pr-table tr.pr-total td { background: #f0fdfa; font-weight: bold; }
+.pr-table tr.pr-clickable { cursor: pointer; }
+.pr-table tr.pr-clickable:hover td { background: #ecfdf5; }
+.pr-table tr.pr-sel td { background: #d1fae5; }
+.pr-hint { font-weight: 400; font-size: 12px; color: #64748b; }
+/* Планиране */
+.plan-summary { margin: 6px 0 2px; font-size: 14px; color: #334155; }
+.plan-warn { color: #b45309; }
+.plan-table td { vertical-align: middle; }
+.plan-chip { display: inline-block; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 99px; padding: 1px 8px; font-size: 12px; margin: 1px 2px; white-space: nowrap; }
+.plan-risk { display: inline-block; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.plan-r-ok { background: #dcfce7; color: #166534; }
+.plan-r-warn { background: #fef9c3; color: #854d0e; }
+.plan-r-tight { background: #ffedd5; color: #9a3412; }
+.plan-r-urgent { background: #fee2e2; color: #b91c1c; }
+.plan-r-over { background: #b91c1c; color: #fff; }
+.btn-plan-prio { background: none; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 16px; padding: 1px 7px; }
+.plan-prog { display: inline-block; width: 120px; height: 8px; background: #e2e8f0; border-radius: 99px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+.plan-prog > span { display: block; height: 100%; background: var(--ok); }
+.plan-load { width: 100%; min-width: 120px; height: 12px; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
+.plan-load > span { display: block; height: 100%; background: #0f766e; }
+.plan-load > span.nodata { background: #cbd5e1; }
+.plan-done { opacity: 0.55; }
+/* Финанси */
+.erp-co-linebar { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; }
+.fin-cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 14px; }
+.fin-card { flex: 1; min-width: 130px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+.fin-card-l { font-size: 12px; color: #64748b; }
+.fin-card-v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.fin-good { color: #15803d; }
+.fin-mid { color: #0f766e; }
+.fin-low { color: #b45309; }
+.fin-neg { color: #b91c1c; }
+.fin-na { color: #94a3b8; }
+.fin-warn { color: #b45309; font-weight: 700; }
+.fin-detail > td { background: #f8fafc; padding: 6px 10px; }
+.fin-sub { width: 100%; border-collapse: collapse; }
+.fin-sub th, .fin-sub td { border: 1px solid #e2e8f0; padding: 3px 7px; font-size: 12px; text-align: left; }
+.fin-sub th { background: #eef2f7; }
+.fin-sub td.num, .fin-sub th.num { text-align: right; }
+/* Разходи и ставки */
+.cost-params { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.cost-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.cost-grid label { display: flex; flex-direction: column; font-size: 12px; color: #475569; gap: 3px; }
+.cost-grid input[type="number"] { width: 110px; }
+.cost-grid .cost-chk { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; align-self: end; }
+.cost-rate-table td.num, .cost-rate-table th.num { text-align: right; }
+.cost-details { margin: 10px 0; }
+.cost-details summary { cursor: pointer; font-weight: 600; color: #0f766e; padding: 4px 0; }
+.btn-finance { background: #ca8a04; color: #fff; border-color: #ca8a04; }
+.btn-finance:hover { background: #a16207; }
+/* Досие */
+.dos-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #eef2f7; font-size: 13px; }
+.dos-l { flex: 0 0 190px; color: #64748b; font-weight: 600; }
+.dos-v { flex: 1; white-space: pre-wrap; }
+.dos-edit { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; font-size: 13px; color: #475569; }
+.dos-edit input, .dos-edit textarea { font: inherit; font-size: 13px; }
+.dos-pay { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+/* AI Асистент */
+.asst-fab { position: fixed; right: 18px; bottom: 18px; z-index: 400; width: 54px; height: 54px; border-radius: 50%; border: none; background: #0f766e; color: #fff; font-size: 26px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.28); }
+.asst-fab:hover { background: #0d5f58; }
+.asst-panel { position: fixed; right: 18px; bottom: 82px; z-index: 400; width: 370px; max-width: calc(100vw - 24px); height: 540px; max-height: calc(100vh - 120px); background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 34px rgba(0,0,0,.28); display: flex; flex-direction: column; overflow: hidden; }
+.asst-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #f0fdfa; border-bottom: 1px solid var(--line); }
+.asst-msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.asst-msg { padding: 8px 11px; border-radius: 12px; font-size: 14px; line-height: 1.45; max-width: 92%; }
+.asst-user { align-self: flex-end; background: #0f766e; color: #fff; border-bottom-right-radius: 4px; }
+.asst-assistant { align-self: flex-start; background: #f1f5f9; color: #0f172a; border-bottom-left-radius: 4px; }
+.asst-typing { opacity: .6; font-style: italic; }
+.asst-hint { color: #64748b; font-size: 13px; line-height: 1.6; padding: 10px; }
+.asst-input-row { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); }
+.asst-input-row textarea { flex: 1; resize: none; font: inherit; font-size: 14px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; }
+/* Заплати (седмично) */
+.pay-scroll { overflow-x: auto; }
+.pay-table th, .pay-table td { white-space: nowrap; }
+.pay-table .pay-in { width: 78px; }
+.pay-table .pay-note { width: 160px; }
+.pay-table tr.pay-ws td { background: #ecfdf5; color: #065f46; font-weight: 700; }
+.pay-total { font-weight: 700; }
+.erp-recipe-add { margin: 12px 0 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pay-rm { padding: 0 6px; color: #b91c1c; }
+.pay-raise { display: inline-block; background: #fef9c3; color: #854d0e; border-radius: 6px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+.erp-lp-list { max-height: 50vh; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.erp-lp-item { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
+.erp-lp-item:hover { border-color: var(--brand); background: #eef4ff; }
+
+/* Операции → Цех */
+.erp-routing select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 13px; max-width: 200px; }
+.erp-routing .t-code { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.erp-alt-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-right: 6px; vertical-align: middle; }
+.erp-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 999px; font-size: 12px; color: #065f46; }
+.erp-chip-x { border: none; background: transparent; cursor: pointer; color: #059669; font-size: 14px; line-height: 1; padding: 0; }
+.erp-route-alt-add { max-width: 130px; }
+
+/* Малки диалози (движения, редакция) */
+.erp-dialog { display: flex; align-items: center; justify-content: center; z-index: 200; }
+.erp-dialog-box { background: #fff; border-radius: 14px; padding: 20px 22px; width: min(460px, 92vw); max-height: 90vh; overflow: auto; box-shadow: var(--shadow); }
+.erp-dialog-box h3 { margin: 0 0 10px; }
+.erp-dialog-box label { display: block; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.erp-dialog-box input, .erp-dialog-box select { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.erp-dialog-box .erp-check { display: flex; }
+.erp-dialog-box .erp-check input { width: auto; margin: 0 6px 0 0; }
+.erp-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ==================== Телефон (карти вместо широки таблици) ==================== */
+@media (max-width: 760px) {
+  #erp-view { padding: 10px; }
+  .erp-toolbar { gap: 6px; }
+  .erp-toolbar input[type="search"] { flex: 1 1 100%; }
+
+  /* Таблиците стават карти (както в „Цехове") */
+  .erp-table { min-width: 0; width: 100%; }
+  .erp-table thead { display: none; }
+  .erp-table, .erp-table tbody, .erp-table tr, .erp-table td { display: block; width: auto; }
+  .erp-table tr { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; padding: 8px 10px; background: #fff; }
+  .erp-table td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border: none; text-align: right; word-break: break-word; }
+  .erp-table td::before { content: attr(data-label); font-weight: 700; color: var(--muted); text-align: left; flex: 0 0 40%; }
+  .erp-table td[data-label=""]::before { content: ""; flex: 0; }
+  .erp-table td.num { text-align: right; }
+  .erp-table .erp-row-actions { justify-content: flex-start; flex-wrap: wrap; gap: 6px; border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 8px; }
+  .erp-table .erp-row-actions .btn { margin-left: 0; }
+
+  /* Операции → Цех: етикет отгоре, контрола на цяла ширина */
+  .erp-routing td { flex-direction: column; align-items: stretch; text-align: left; }
+  .erp-routing td::before { flex: none; margin-bottom: 3px; }
+  .erp-routing select, .erp-route-alt-add { max-width: 100%; width: 100%; }
+  .erp-alt-chips { margin: 0 0 6px; }
+
+  /* Рецепта-дърво: пренасяне вместо отрязване */
+  .erp-tree { padding-left: 12px; }
+  .erp-node { flex-wrap: wrap; }
+  .erp-node-main { flex: 1 1 100%; }
+  .erp-node-qty, .erp-node-cost { min-width: 0; }
+  .erp-branch > .erp-node, .erp-leaf > .erp-node { width: calc(100% - 22px); }
+
+  /* Диалози на цял екран-ширина */
+  .erp-dialog-box { width: 94vw; padding: 16px; }
+
+  /* Панел „Производство" в поръчката */
+  .erp-order-actions { gap: 6px; }
+  .erp-order-actions .btn { flex: 1 1 auto; }
+}
+
+/* Заявки от клиенти */
+.erp-co-form { max-width: 900px; }
+.erp-co-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 14px; margin-bottom: 10px; }
+.erp-co-grid label, .erp-co-note { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+.erp-co-grid input, .erp-co-grid select, .erp-co-note textarea { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 14px; }
+.erp-co-note { margin-bottom: 6px; }
+.erp-co-actions { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+.erp-co-status { font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 999px; }
+.erp-co-status.s-нова { background: #dbeafe; color: #1e40af; }
+.erp-co-status.s-в\.производство, .erp-co-status[class*="производство"] { background: #fef3c7; color: #92400e; }
+.erp-co-status[class*="завършена"] { background: #dcfce7; color: #166534; }
+@media (max-width: 760px) { .erp-co-grid { grid-template-columns: 1fr; } }
+
+/* Сегментен превключвател (Клиенти/Доставчици) */
+.erp-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.erp-seg-btn { border: none; background: #fff; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 13px; color: var(--ink); border-right: 1px solid var(--line); }
+.erp-seg-btn:last-child { border-right: none; }
+.erp-seg-btn.active { background: #0f766e; color: #fff; }

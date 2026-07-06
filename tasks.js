@@ -2,15 +2,46 @@
    Използва глобалния Supabase клиент (sb) и помощните функции от app.js.
    Данните се пазят в таблица `tasks`, служителите — в `app_config`. */
 
-const TASK_DEFAULT_WORKSHOPS = ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
+const TASK_DEFAULT_WORKSHOPS = ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция"];
 
 // Дебелини (мм) за падащото меню в колона „Дебелина“ (десетите се пишат със запетая)
 const THICKNESS_OPTIONS = ["0,5", "0,7", "0,8", "1", "1,2", "1,5", "2", "2,5", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "15", "16", "18", "20", "22", "25"];
 
+// KROHNE LTD — детайлите минават през 4 операции; поръчката се приключва само когато всички са готови
+const KROHNE_OPS = [
+  { key: "op1", label: "Операция 1", short: "Оп1" },
+  { key: "op2", label: "Операция 2", short: "Оп2" },
+  { key: "op3", label: "Операция 3", short: "Оп3" },
+  { key: "dm", label: "Операция DATA Matrix", short: "DM" },
+];
+function isKrohne(t) { return ((t && t.client) || "").toUpperCase().includes("KROHNE"); }
+function krohnePct(t) {
+  const q = Number(t.qty) || 0; if (!q) return 0;
+  const ops = t.ops || {};
+  const sum = KROHNE_OPS.reduce((a, o) => a + Math.min(q, Number(ops[o.key]) || 0), 0);
+  return Math.round(sum / (q * KROHNE_OPS.length) * 100);
+}
+function krohneDone(t) {
+  const q = Number(t.qty) || 0; if (!q) return false;
+  const ops = t.ops || {};
+  return KROHNE_OPS.every(o => (Number(ops[o.key]) || 0) >= q);
+}
+function krohneProgressHtml(t) {
+  const q = Number(t.qty) || 0; const ops = t.ops || {}; const pct = krohnePct(t);
+  const chips = KROHNE_OPS.map(o => {
+    const v = Math.min(q || Infinity, Number(ops[o.key]) || 0);
+    const ok = q && v >= q;
+    return `<span class="kp-op ${ok ? "ok" : ""}">${o.short} ${v}${q ? "/" + q : ""}</span>`;
+  }).join(" ");
+  return `<div class="krohne-prog"><div class="kp-bar"><span style="width:${pct}%"></span></div><div class="kp-meta"><b>${pct}%</b> ${chips}</div></div>`;
+}
+
 // Машини по цехове (за задължителното записване на време при изработка)
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
-  "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC 600", "VMC966", "Traub Turning", "Лазерно Гравиране"],
+  "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC850", "VMC966", "Traub TNS60", "Лазерно Гравиране"],
+  "Преси": ["ЕП 80т", "ЕП 63т", "ЕП 40т", "ЕП 25т", "ЕП 10т", "Хидравлична", "Бормашина"],
+  "Абкант": ["Абкант AD-ES 1240 Електр.", "Абкант AD-R 25100 Светльо", "Абкант AD-R 25100 Наско", "Абкант AD-R 3000", "Абкант HARIS", "Бормашина"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
 const MACHINE_TIME_LABELS = {
@@ -28,7 +59,18 @@ const TIME_FIELDS_BY_WORKSHOP = {
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
     { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
   ],
+  "Преси": [
+    { key: "tSetup", label: "Време за настройка", unit: "min" },
+    { key: "tOrder", label: "Време за цялото количество", unit: "min" },
+  ],
+  "Абкант": [
+    { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
+    { key: "tSetup", label: "Време за настройка", unit: "min" },
+  ],
 };
+// Цехове, при които НЕ добавяме автоматичното поле „Специфична работа" (по желание
+// на цеха — да няма нищо излишно в прозореца).
+const NO_SPECIFIC_WORKSHOP = ["Преси", "Абкант"];
 // Допълнителни (текстови) полета по цех — напр. изразходени консумативи
 const EXTRA_FIELDS_BY_WORKSHOP = {
   "CNC цех": [
@@ -50,14 +92,8 @@ const WORKSHOPS_WITH_TIME = ["Лазери", "CNC цех"];
 const FIELDS_BY_WORKER = {
   "Иво Бончев": {
     byWorkshop: {
-      "Преси": {
-        machines: ["Автоматична Преса 1", "Автоматична Преса 2"],
-        timeFields: [
-          { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
-          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
-          { key: "tSetup", label: "Време за настройка (спомагателно)", unit: "min" },
-        ],
-      },
+      // Преси — ползва стандартната настройка на цеха (машини + Време за
+      // настройка / Време за цялото количество), еднакво за всички пресари.
       "Сглобяване": {
         machines: false,        // няма машина
         timeFields: [],         // без времена — само бройка + кратко описание (в „Специфична работа“)
@@ -285,6 +321,11 @@ function workshopList() {
   return [...TASK_DEFAULT_WORKSHOPS, ...extra];
 }
 function taskStatus(t) {
+  if (isKrohne(t)) {
+    if (krohneDone(t)) return "done";
+    const ops = t.ops || {};
+    return KROHNE_OPS.some(o => (Number(ops[o.key]) || 0) > 0) ? "progress" : "todo";
+  }
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (qty > 0 && prod >= qty) return "done";
   if (prod > 0) return "progress";
@@ -320,7 +361,7 @@ async function openWorkshopDirect(ws) {
 }
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-times", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
@@ -369,6 +410,7 @@ function showSub(which) {
   document.getElementById("report-view").hidden = which !== "report";
   const mv = document.getElementById("messages-view"); if (mv) mv.hidden = which !== "messages";
   const tv = document.getElementById("times-view"); if (tv) tv.hidden = which !== "times";
+  const pv = document.getElementById("planning-view"); if (pv) pv.hidden = which !== "planning";
 }
 
 /* ---------- Падащи менюта ---------- */
@@ -487,9 +529,14 @@ function renderTasks() {
     daily.hidden = true;
   }
 
+  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
+    // „налично" показваме само за операции, които ЧАКАТ предната (поточно) — за
+    // първата операция то е равно на цялото количество и само дублира остатъка.
+    const flowGated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
+    const flowAvail = (flowGated && typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : null;
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
@@ -501,7 +548,9 @@ function renderTasks() {
     const pi = priInfo(t);
     // Цеховете/служителите с Отчетен прозорец нямат нужда от инлайн поле „днес“ (бройката се въвежда в прозореца)
     const rowWho = MY_WORKER || t.assignee || "";
-    const usesDialog = WORKSHOPS_WITH_TIME.includes(t.workshop) || (FIELDS_BY_WORKER && FIELDS_BY_WORKER[rowWho]);
+    // Всички цехове отчитат през Отчетния прозорец (машина/време) — за да
+    // събираме времена за всяка операция (нужно за ценообразуването).
+    const usesDialog = true;
     const prioCell = amWorker()
       ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
       : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
@@ -511,7 +560,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div></td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -519,7 +568,7 @@ function renderTasks() {
       <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
-      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}</td>
+      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}</td>
       <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
@@ -564,6 +613,54 @@ function renderTasks() {
   });
 
   renderBulkBar(rows, ws);
+}
+
+// Сваля показания списък със задачи като Excel (за печат). Спазва текущия
+// филтър: избран цех, служител, търсене — и същата подредба като на екрана.
+function exportWorkshopTasksExcel() {
+  if (typeof XLSX === "undefined") { alert("Excel библиотеката не е заредена. Опитай пак след презареждане."); return; }
+  const ws = currentWorkshop();
+  const isW = amWorker();
+  const worker = isW ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+  const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
+  let rows = TASKS.filter(t => {
+    if (ws !== "__all" && t.workshop !== ws) return false;
+    if (isW) { if (t.assignee && t.assignee !== MY_WORKER) return false; }
+    else if (worker && t.assignee !== worker) return false;
+    if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    return true;
+  });
+  const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
+  const f = SORT_KEYS[selKey];
+  rows.sort((a, b) => {
+    if (selKey !== "priority") { const pa = priLevel(a), pb = priLevel(b); if (pa !== pb) return pb - pa; }
+    const va = f(a), vb = f(b);
+    if (va < vb) return -1 * sortState.dir;
+    if (va > vb) return 1 * sortState.dir;
+    return 0;
+  });
+  if (!rows.length) { alert("Няма задачи за експорт по текущия филтър."); return; }
+
+  const showWs = ws === "__all";
+  const head = ["Клиент", "Продукт", "Код", "Операция", "Кол-во", "Произв.", "Остатък", "Срок", "Отговорник"];
+  if (showWs) head.unshift("Цех");
+  const title = "Задачи — " + (showWs ? "Всички цехове" : ws) + (worker ? " · " + worker : "") + " · " + todayStr();
+  const aoa = [[title], [], head];
+  rows.forEach(t => {
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    const r = [
+      t.client || "СЕРИЯ", t.product || "", t.code || "", t.operation || "",
+      qty || "", prod, Math.max(qty - prod, 0), t.due || "", t.assignee || "",
+    ];
+    if (showWs) r.unshift(t.workshop || "");
+    aoa.push(r);
+  });
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  sheet["!cols"] = (showWs ? [{ wch: 12 }] : []).concat([{ wch: 22 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 18 }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, "Задачи");
+  const wsName = (showWs ? "всички" : ws).replace(/[\\\/\?\*\[\]:]/g, "-");
+  XLSX.writeFile(wb, `Задачи-${wsName}-${todayStr()}.xlsx`);
 }
 
 function renderBulkBar(rows, ws) {
@@ -632,6 +729,28 @@ async function removeTaskFile(t, i) {
 async function logProduction(t, qtyVal, extra) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
   if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
+  // Поточно производство: операция, която ЧАКА предната, не може да отчете
+  // повече от произведеното преди нея. Първата операция (разкрой) може да
+  // произведе и повече от нужното за поръчката — излишъкът влиза в Склад детайли.
+  if (t.source && t.source.flow && typeof erpFlowAvailable === "function") {
+    const gated = t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length);
+    if (gated) {
+      const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
+      const avail = erpFlowAvailable(t, map);
+      if (add > avail) {
+        alert(avail > 0
+          ? `Поточно производство: сега можеш да отчетеш най-много ${avail} бр. (толкова са произведени в предната операция).`
+          : `Поточно производство: предната операция още не е произвела детайли за тази стъпка. Изчакай предния цех.`);
+        return;
+      }
+    } else if (!t.source.toStock) {
+      const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
+      if (q > 0 && pr + add > q) {
+        const extra = (pr + add) - q;
+        if (!confirm(`Отчиташ ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
+      }
+    }
+  }
   let worker;
   if (amWorker()) {
     worker = MY_WORKER;
@@ -646,11 +765,101 @@ async function logProduction(t, qtyVal, extra) {
   if (extra) Object.assign(entry, extra);   // machine, tPiece, tSheet, tOrder, consumables...
   t.logs.push(entry);
   await tSaveTask(t);
+  // Последователно производство: ако задачата стана готова — пусни следващата операция.
+  if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
+  // Заприходяване в Склад детайли (последна операция: за склад / свръхпроизводство).
+  if (typeof erpFlowStockIn === "function") { try { await erpFlowStockIn(t); } catch (e) { console.error("stock-in", e); } }
   renderTasks();
+}
+
+// KROHNE LTD — записване по операция; „произведено“ = напълно готови детайли (мин. по операции)
+async function logProductionKrohne(t, opKey, qtyVal, extra) {
+  const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
+  if (!add || add <= 0) { alert("Въведи брой детайли."); return; }
+  let worker;
+  if (amWorker()) {
+    worker = MY_WORKER;
+    if (!t.assignee) t.assignee = MY_WORKER;
+  } else {
+    worker = t.assignee || document.getElementById("task-worker-filter").value;
+    if (!worker) worker = prompt("Кой служител?", "") || "";
+  }
+  const q = Number(t.qty) || 0;
+  t.ops = t.ops || {};
+  const cur = Number(t.ops[opKey]) || 0;
+  t.ops[opKey] = q ? Math.min(q, cur + add) : cur + add;
+  // напълно готови детайли = минимумът по всички операции
+  let done = Infinity;
+  KROHNE_OPS.forEach(o => { done = Math.min(done, Number(t.ops[o.key]) || 0); });
+  t.produced = isFinite(done) ? done : 0;
+  t.logs = t.logs || [];
+  const entry = { date: todayStr(), worker, qty: add, op: opKey };
+  if (extra) Object.assign(entry, extra);
+  t.logs.push(entry);
+  await tSaveTask(t);
+  if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
+  renderTasks();
+}
+
+// Специален отчетен прозорец за детайли на KROHNE LTD (4 операции)
+function openKrohneDialog(t, qtyPrefill) {
+  const machines = MACHINES_BY_WORKSHOP[t.workshop] || MACHINES_BY_WORKSHOP["CNC цех"] || [];
+  const q = Number(t.qty) || 0; const ops = t.ops || {};
+  const timeFields = [
+    { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
+    { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+  ];
+  const opsStatus = KROHNE_OPS.map(o => {
+    const v = Number(ops[o.key]) || 0; const ok = q && v >= q;
+    return `<div class="kd-op ${ok ? "ok" : ""}">${escapeHtml(o.label)}: <b>${v}${q ? "/" + q : ""}</b>${ok ? " ✓" : ""}</div>`;
+  }).join("");
+  const timeRow = (f) => `<label>${escapeHtml(f.label)}<span class="pd-time"><input id="pd-${f.key}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" /><select id="pd-${f.key}-u"><option value="sec" ${f.unit === "sec" ? "selected" : ""}>сек</option><option value="min" ${f.unit === "min" ? "selected" : ""}>мин</option><option value="hour" ${f.unit === "hour" ? "selected" : ""}>час</option></select></span></label>`;
+  const wrap = document.createElement("div"); wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `<div class="overlay-box ask-box pd-box">
+    <h3>⏱ KROHNE LTD — записване</h3>
+    <div class="pd-task"><div><b>Клиент:</b> ${escapeHtml(t.client || "")}</div><div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div></div>
+    <div class="kd-status"><div class="kd-status-title">Готовност: ${krohnePct(t)}%</div>${opsStatus}</div>
+    <label>Машина *<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select></label>
+    <label>Коя операция извърши? *<select id="pd-op"><option value="">— избери операция —</option>${KROHNE_OPS.map(o => `<option value="${o.key}">${escapeHtml(o.label)}</option>`).join("")}</select></label>
+    <label>Брой детайли (за тази операция) *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
+    <p class="pd-hint">⏱ Попълни поне едно от времената:</p>
+    ${timeFields.map(timeRow).join("")}
+    <label>Изразходени консумативи<textarea id="pd-x-consumables" rows="2" placeholder="по желание"></textarea></label>
+    <label>Специфична работа<textarea id="pd-x-specific" rows="2" placeholder="по желание"></textarea></label>
+    <div class="ask-actions"><button id="pd-save" class="btn btn-primary">Запиши изработката</button><button id="pd-cancel" class="btn">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#pd-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#pd-save").addEventListener("click", async () => {
+    const machine = (wrap.querySelector("#pd-machine").value || "").trim();
+    const op = wrap.querySelector("#pd-op").value;
+    const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
+    if (!machine) { alert("Избери машина."); return; }
+    if (!op) { alert("Избери коя операция извърши."); return; }
+    if (!qty || qty <= 0) { alert("Въведи брой детайли."); return; }
+    const extra = { machine };
+    let timeCount = 0;
+    for (const f of timeFields) {
+      const v = Number(String(wrap.querySelector("#pd-" + f.key + "-v").value).replace(",", "."));
+      const unit = wrap.querySelector("#pd-" + f.key + "-u").value;
+      const mult = unit === "hour" ? 3600 : (unit === "min" ? 60 : 1);
+      const sec = v > 0 ? Math.round(v * mult) : 0;
+      if (sec) { extra[f.key] = { v, unit, sec }; timeCount++; }
+    }
+    if (timeCount === 0) { alert("Попълни поне едно от полетата за време."); return; }
+    const cons = (wrap.querySelector("#pd-x-consumables").value || "").trim(); if (cons) extra.consumables = cons;
+    const spec = (wrap.querySelector("#pd-x-specific").value || "").trim(); if (spec) extra.specific = spec;
+    close();
+    await logProductionKrohne(t, op, qty, extra);
+  });
+  setTimeout(() => { const m = wrap.querySelector("#pd-machine"); if (m) m.focus(); }, 50);
 }
 
 // Задължителен прозорец за машина + времена (полетата може да зависят от машината)
 function openProductionDialog(t, qtyPrefill) {
+  if (isKrohne(t)) return openKrohneDialog(t, qtyPrefill);
   // Персонален Отчетен прозорец (по служител) има предимство пред настройката на цеха.
   const wname = MY_WORKER || t.assignee || "";
   let wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
@@ -679,7 +888,7 @@ function openProductionDialog(t, qtyPrefill) {
     const qtyLabel = c.qtyLabel || "Брой произведени сега";
     const countFields = c.countFields || [];
     const extraFields = (c.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
-    if (!extraFields.some(f => f.key === "specific")) {
+    if (!extraFields.some(f => f.key === "specific") && NO_SPECIFIC_WORKSHOP.indexOf(t.workshop) === -1) {
       extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
     }
     return { timeFields, qtyLabel, countFields, extraFields };
@@ -748,8 +957,11 @@ function openProductionDialog(t, qtyPrefill) {
   if (machineSel) machineSel.addEventListener("change", rebuild);
 
   wrap.querySelector("#pd-save").addEventListener("click", async () => {
+    // Машината е задължителна само когато има списък (падащо меню); при
+    // цехове без машини полето е свободен текст и е по желание.
+    const machineRequired = machineSel && machineSel.tagName === "SELECT";
     const machine = (machineSel && machineSel.value || "").trim();
-    if (machineSel && !machine) { alert("Избери машина."); return; }
+    if (machineRequired && !machine) { alert("Избери машина."); return; }
     const c = cfgFor(machine);
     const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
     if (!qty || qty <= 0) { alert("Въведи " + c.qtyLabel.toLowerCase() + "."); return; }
@@ -789,6 +1001,19 @@ async function editTask(t) {
   const q = prompt("Количество:", t.qty || "");
   if (q !== null) t.qty = q;
   t.due = prompt("Срок (текст):", t.due || "") ?? t.due;
+  // Смяна на цех (за да се пренасочи сгрешена при миграцията задача към правилния цех).
+  const wsIn = prompt("Цех (напиши точно):\n" + workshopList().join(", "), t.workshop || "");
+  if (wsIn !== null) {
+    const w = wsIn.trim();
+    if (w && w !== t.workshop) {
+      if (workshopList().indexOf(w) === -1 && !confirm(`„${w}" не е в списъка с цехове. Да го запиша ли все пак?`)) {
+        // остава старият цех
+      } else {
+        t.workshop = w;
+        t.assignee = "";   // нулираме отговорника — старият е от друг цех
+      }
+    }
+  }
   await tSaveTask(t);
   renderTasks();
 }
@@ -992,7 +1217,7 @@ function renderWorkers() {
 function toggleReport() {
   const v = document.getElementById("report-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  renderReportUI();
+  if (typeof renderProdReport === "function") renderProdReport(); else renderReportUI();
 }
 function renderReportUI() {
   showSub("report");
@@ -1006,10 +1231,12 @@ function renderReportUI() {
       до <input type="date" id="r-to" value="${today}" />
       <button id="r-go" class="btn btn-small btn-primary">Покажи</button>
     </div>
-    <div id="report-out"></div>`;
+    <div id="report-out"></div>
+    <div id="painting-reports"></div>`;
   v.querySelector("#r-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#r-go").addEventListener("click", computeReport);
   computeReport();
+  loadPaintingReports();
 }
 function computeReport() {
   const from = document.getElementById("r-from").value;
@@ -1057,8 +1284,11 @@ function msgMyName() {
   return (MY_ACCESS && MY_ACCESS.email) || "Администратор";
 }
 function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || ""; }
+// Кой може да трие заявки (собственик + упълномощени).
+const ORDER_ADMIN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "danko.orders@gmail.com"];
 function isOwnerAdmin() {
-  return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) === "dankog@gmail.com";
+  const e = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) || "";
+  return ORDER_ADMIN_EMAILS.includes(e);
 }
 // Всички админи виждат всички съобщения (пълна прозрачност); служителят — само своите.
 // При въпрос „→ Име“ се вижда за кого е основно, но всеки админ може да го отвори/отговори.
@@ -1649,6 +1879,7 @@ function fmtLogDate(d) {
 }
 function logNotes(l) {
   const parts = [];
+  if (l.op) { const o = KROHNE_OPS.find(x => x.key === l.op); parts.push("Операция: " + (o ? o.label : l.op)); }
   if (l.sheets) parts.push("Насечени листи: " + l.sheets);
   if (l.consumables) parts.push("Консумативи: " + l.consumables);
   if (l.assemblyNote) parts.push("Сглобено: " + l.assemblyNote);
@@ -1673,7 +1904,7 @@ function collectTimeRows() {
 function toggleTimes() {
   const v = document.getElementById("times-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  renderTimes();
+  if (typeof renderTimesReport === "function") renderTimesReport(); else renderTimes();
 }
 function renderTimes() {
   showSub("times");
@@ -1716,14 +1947,12 @@ function renderTimes() {
         <td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
         <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
       </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записани времена за този филтър.</td></tr>`}</tbody>
-    </table>
-    <div id="painting-reports"></div>`;
+    </table>`;
   v.querySelector("#times-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   v.querySelector("#tf-ws").addEventListener("change", e => { timesFilter.workshop = e.target.value; renderTimes(); });
   v.querySelector("#tf-m").addEventListener("change", e => { timesFilter.machine = e.target.value; renderTimes(); });
   v.querySelector("#tf-w").addEventListener("change", e => { timesFilter.worker = e.target.value; renderTimes(); });
   v.querySelector("#times-csv").addEventListener("click", () => exportTimesCsv(rows));
-  loadPaintingReports();
 }
 /* ---------- Дневни отчети от боядисването (в „Времена", само админи) ---------- */
 async function loadPaintingReports() {
@@ -1735,42 +1964,85 @@ async function loadPaintingReports() {
     list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
   } catch (e) {}
   list = list.slice().sort((a, b) => String(b.endedAt).localeCompare(String(a.endedAt)));
+  const passesOf = r => (r.passes != null ? r.passes : (r.batches || []).reduce((s, b) => s + (b.kols || 0), 0));
+  const lineOf = r => r.line ? r.line : "автоматична";
   box.innerHTML =
     `<div class="workers-head" style="margin-top:22px"><h3>🎨 Боядисване — дневни отчети</h3></div>` +
     (list.length
-      ? `<table class="report-table"><thead><tr><th>Дата</th><th>Цветове (RAL)</th><th class="num">Общо (бр.)</th><th>Оператор</th><th></th></tr></thead><tbody>` +
-        list.map((r, i) => `<tr>
+      ? `<table class="report-table"><thead><tr><th>Дата</th><th>Линия</th><th>Цветове (RAL)</th><th class="num">Пускания</th><th class="num">Общо (бр.)</th><th>Оператор</th><th></th></tr></thead><tbody>` +
+        list.map((r, i) => {
+          const passes = passesOf(r);
+          return `<tr>
           <td>${escapeHtml(fmtLogDate(r.date))}</td>
+          <td>${escapeHtml(lineOf(r))}</td>
           <td>${escapeHtml((r.paints || []).join(", ")) || "—"}</td>
+          <td class="num">${passes ? Number(passes).toLocaleString("bg") : "—"}</td>
           <td class="num">${Number(r.total || 0).toLocaleString("bg")}</td>
           <td>${escapeHtml(r.by || "—")}</td>
-          <td><button class="btn btn-small pr-csv" data-i="${i}">⤓ Excel</button></td>
-        </tr>`).join("") + `</tbody></table>`
+          <td style="white-space:nowrap"><button class="btn btn-small pr-toggle" data-i="${i}">▸ Детайли</button> <button class="btn btn-small pr-csv" data-i="${i}">⤓ Excel</button></td>
+        </tr>
+        <tr class="pr-detail" data-i="${i}" hidden><td colspan="7">${paintingReportDetailHtml(r)}</td></tr>`;
+        }).join("") + `</tbody></table>`
       : `<p class="report-empty">Още няма дневни отчети от боядисването.</p>`);
   box.querySelectorAll(".pr-csv").forEach(btn => btn.addEventListener("click", () => exportPaintingReportCsv(list[+btn.dataset.i])));
+  box.querySelectorAll(".pr-toggle").forEach(btn => btn.addEventListener("click", () => {
+    const dr = box.querySelector('.pr-detail[data-i="' + btn.dataset.i + '"]');
+    if (dr) { dr.hidden = !dr.hidden; btn.textContent = (dr.hidden ? "▸" : "▾") + " Детайли"; }
+  }));
+}
+// Разгъната структура на един дневен отчет: по подвеска + по партиди (цвят).
+function paintingReportDetailHtml(r) {
+  const THS = "text-align:left;font-size:11px;color:#6B7686;font-weight:600;padding:2px 10px 4px 0;border-bottom:1px solid #D2DAE4";
+  const TDS = "padding:2px 10px 2px 0;font-size:12px";
+  const num = "text-align:right";
+  const th = (t, extra) => `<th style="${THS};${extra || ""}">${t}</th>`;
+  const td = (t, extra) => `<td style="${TDS};${extra || ""}">${t}</td>`;
+  const kv = obj => Object.entries(obj || {}).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<tr>${td(escapeHtml(k))}${td(Number(v).toLocaleString("bg"), num)}</tr>`).join("");
+  const hangerRows = kv(r.totalsByHanger) || `<tr>${td("—")}</tr>`;
+  const detailRows = kv(r.totalsByDetail);
+  const batchRows = (r.batches || []).map(b => {
+    let hhmm = ""; try { hhmm = new Date(b.at).toLocaleTimeString("bg", { hour: "2-digit", minute: "2-digit" }); } catch (e) {}
+    const det = Object.entries(b.byHanger || b.byDetail || {}).map(([k, v]) => escapeHtml(k) + ":" + v).join(" ");
+    return `<tr>${td(escapeHtml(hhmm))}${td(escapeHtml(b.ral || ""))}${td(b.kols || "—", num)}${td(Number(b.total || 0).toLocaleString("bg"), num)}${td(det)}</tr>`;
+  }).join("") || `<tr>${td("—")}</tr>`;
+  const tblStyle = "border-collapse:collapse;width:100%";
+  const detailBlock = detailRows
+    ? `<div style="min-width:190px"><h5 style="margin:0 0 6px">По вид детайл</h5><table style="${tblStyle}"><thead><tr>${th("Детайл")}${th("Бр.", num)}</tr></thead><tbody>${detailRows}</tbody></table></div>`
+    : "";
+  return `<div style="display:flex;gap:26px;flex-wrap:wrap;padding:8px 0 12px">
+    <div style="min-width:190px"><h5 style="margin:0 0 6px">По подвеска</h5><table style="${tblStyle}"><thead><tr>${th("Подвеска")}${th("Детайли", num)}</tr></thead><tbody>${hangerRows}</tbody></table></div>
+    ${detailBlock}
+    <div style="min-width:340px;flex:1"><h5 style="margin:0 0 6px">По партиди (цвят)</h5><table style="${tblStyle}"><thead><tr>${th("Час")}${th("RAL")}${th("Пускания", num)}${th("Детайли", num)}${th("Подвески")}</tr></thead><tbody>${batchRows}</tbody></table></div>
+  </div>`;
 }
 function exportPaintingReportCsv(r) {
   if (!r) return;
   const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
   const L = [];
+  const passes = r.passes != null ? r.passes : (r.batches || []).reduce((s, b) => s + (b.kols || 0), 0);
   L.push([esc("Отчет боядисване")].join(","));
   L.push([esc("Дата"), esc(fmtLogDate(r.date))].join(","));
+  L.push([esc("Линия"), esc(r.line || "автоматична")].join(","));
   L.push([esc("Оператор"), esc(r.by || "")].join(","));
   L.push([esc("Цветове (RAL)"), esc((r.paints || []).join(" "))].join(","));
+  L.push([esc("Пускания (кол)"), esc(passes || 0)].join(","));
+  L.push([esc("Общо детайли"), esc(r.total || 0)].join(","));
   L.push("");
-  L.push([esc("Детайл"), esc("Боядисани (бр.)")].join(","));
-  Object.entries(r.totalsByDetail || {}).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
-  L.push([esc("ОБЩО"), esc(r.total || 0)].join(","));
-  L.push("");
-  L.push([esc("Подвеска"), esc("Минали (бр.)")].join(","));
+  L.push([esc("Подвеска"), esc("Детайли (бр.)")].join(","));
   Object.entries(r.totalsByHanger || {}).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
+  if (Object.keys(r.totalsByDetail || {}).length) {
+    L.push("");
+    L.push([esc("Детайл"), esc("Боядисани (бр.)")].join(","));
+    Object.entries(r.totalsByDetail).forEach(([k, v]) => L.push([esc(k), esc(v)].join(",")));
+  }
   L.push("");
   L.push([esc("Партиди (по цвят)")].join(","));
-  L.push([esc("Час"), esc("RAL"), esc("Общо (бр.)"), esc("Детайли")].join(","));
+  L.push([esc("Час"), esc("RAL"), esc("Пускания"), esc("Общо (бр.)"), esc("Подвески/детайли")].join(","));
   (r.batches || []).forEach(bt => {
     let hhmm = ""; try { hhmm = new Date(bt.at).toLocaleTimeString("bg", { hour: "2-digit", minute: "2-digit" }); } catch (e) {}
-    const det = Object.entries(bt.byDetail || {}).map(([k, v]) => k + ":" + v).join(" ");
-    L.push([esc(hhmm), esc(bt.ral || ""), esc(bt.total || 0), esc(det)].join(","));
+    const det = Object.entries(bt.byHanger || bt.byDetail || {}).map(([k, v]) => k + ":" + v).join(" ");
+    L.push([esc(hhmm), esc(bt.ral || ""), esc(bt.kols || 0), esc(bt.total || 0), esc(det)].join(","));
   });
   const blob = new Blob(["﻿" + L.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
@@ -1829,7 +2101,9 @@ function tInit() {
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
   document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
+  const bx = document.getElementById("btn-export-tasks"); if (bx) bx.addEventListener("click", exportWorkshopTasksExcel);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
+  const bp = document.getElementById("btn-planning"); if (bp && typeof togglePlanning === "function") bp.addEventListener("click", togglePlanning);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
   const bidea = document.getElementById("btn-ideas"); if (bidea) bidea.addEventListener("click", openIdeas);

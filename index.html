@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=138" />
+  <link rel="stylesheet" href="styles.css?v=180" />
+  <link rel="stylesheet" href="erp.css?v=181" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,40 +29,44 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 138</p>
+      <p class="login-version">версия 193</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
-    <div class="brand">
-      <img src="logo.png?v=138" alt="Данко Системс" class="brand-logo"
-           onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
-      <div id="brand-fallback" class="brand-fallback">
-        <span class="logo">DS</span>
-        <div>
-          <h1>Данко Системс</h1>
-          <p class="subtitle">Следене на изпълнението на мострите</p>
-        </div>
+    <div class="header-zone header-left">
+      <div class="hz-row">
+        <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
+        <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
+        <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
+      </div>
+      <div class="hz-row">
+        <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
+        <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
+        <button id="btn-claim-report" class="btn btn-claim-reg">📋 Регистър рекламации</button>
+      </div>
+      <div class="hz-row">
+        <button id="btn-offer" class="btn btn-offer" onclick="window.open('https://dankogeorgiev.github.io/PriceOfferCalculations/','_blank')">💶 Офериране</button>
+        <button id="btn-erp" class="btn btn-erp">📦 Склад / ЕРП</button>
+        <button id="btn-finance" class="btn btn-finance" style="display:none">💰 Финанси</button>
       </div>
     </div>
-    <div class="header-actions">
-      <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
-      <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
-      <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
-      <button id="btn-report" class="btn">Обща справка</button>
-      <button id="btn-claim-report" class="btn">Регистър рекламации</button>
-      <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
-      <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
-      <button id="btn-painting-manual" class="btn btn-paint" onclick="location.href='boya-rachna/'">✋ Боядисване (ръчно)</button>
-      <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
-      <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
-      <button id="btn-main-messages" class="btn btn-msg">📨 Съобщения <span id="msg-badge-main" class="msg-badge" hidden>0</span></button>
-      <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
-      <button id="btn-export" class="btn">Експорт</button>
-      <label class="btn" for="import-file">Импорт</label>
-      <input type="file" id="import-file" accept="application/json" hidden />
+
+    <div class="header-zone header-center">
       <span class="user-box"><span id="user-email"></span>
         <button id="btn-logout" class="btn btn-small">Изход</button></span>
+    </div>
+
+    <div class="header-zone header-right">
+      <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
+      <div class="hz-row">
+        <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
+        <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
+      </div>
+      <div class="hz-row">
+        <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
+        <button id="btn-painting-manual" class="btn btn-paint" onclick="location.href='boya-rachna/'">✋ Боядисване (ръчно)</button>
+      </div>
     </div>
   </header>
 
@@ -86,10 +91,10 @@
     <!-- Детайли / форма -->
     <section class="content">
       <div id="welcome" class="welcome">
-        <img src="welcome.jpg?v=138" alt="Добре дошли" class="welcome-img"
+        <img src="welcome.svg?v=144" alt="DankoSystems — Metalworking Solutions" class="welcome-img"
              onerror="this.style.display='none'" />
-        <h2>Добре дошъл 👋</h2>
-        <p>Избери мостра отляво или създай нова, за да започнеш да следиш изпълнението ѝ.</p>
+        <h2>Добре дошли в СИСТЕМАТА 👋</h2>
+        <p>тук е като в матрицата...</p>
       </div>
 
       <!-- Обща справка за всички мостри -->
@@ -161,6 +166,9 @@
           <p class="hint">Поддържат се всякакви файлове (снимки, PDF, Excel, CAD и др.). Пазят се в облака.</p>
           <ul id="drawings-list" class="files-list"></ul>
         </fieldset>
+
+        <!-- ЕРП: продукт, материали и производство (само за мостра/поръчка) -->
+        <div id="erp-order-panel" hidden></div>
 
         <!-- 5. Необходими материали -->
         <fieldset class="card">
@@ -379,6 +387,7 @@
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
+        <button id="btn-planning" class="btn btn-small">📅 Планиране</button>
         <button id="btn-times" class="btn btn-small">⏱ Времена</button>
         <label class="btn btn-small" for="erp-file">⤓ Импорт ERP</label>
         <input type="file" id="erp-file" accept=".xlsx,.xls" hidden />
@@ -387,7 +396,8 @@
         <button id="btn-ideas" class="btn btn-small">💡 Идеи и Препоръки <span id="ideas-badge" class="msg-badge" hidden>0</span></button>
         <button id="btn-workers" class="btn btn-small">👤 Служители</button>
         <button id="btn-clear-workshop" class="btn btn-small btn-danger">🗑 Изчисти цеха</button>
-        <button id="btn-task-report" class="btn btn-small">📊 Отчет</button>
+        <button id="btn-task-report" class="btn btn-small">📊 Производствен отчет</button>
+        <button id="btn-export-tasks" class="btn btn-small" title="Свали показания списък като Excel за печат">⤓ Excel (за печат)</button>
       </div>
 
       <div id="worker-bar" class="worker-bar"></div>
@@ -429,6 +439,7 @@
       <div id="report-view" hidden></div>
       <div id="messages-view" hidden></div>
       <div id="times-view" hidden></div>
+      <div id="planning-view" hidden></div>
     </div>
   </div>
 
@@ -463,12 +474,64 @@
     </div>
   </div>
 
+  <!-- Модал: Склад · Рецепти · Себестойност (ЕРП) -->
+  <div id="erp-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>📦 Склад · Рецепти · Себестойност</h2>
+        <div class="tasks-head-actions">
+          <button id="erp-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div class="tasks-controls erp-tabs">
+        <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
+        <button class="btn btn-small erp-tab" data-tab="materials">🧱 Материали (склад)</button>
+        <button class="btn btn-small erp-tab" data-tab="detailstock">📦 Склад детайли</button>
+        <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
+        <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
+        <button class="btn btn-small erp-tab" data-tab="products">📦 Продукти</button>
+        <button class="btn btn-small erp-tab" data-tab="needs">📝 Чака рецепта</button>
+        <button class="btn btn-small erp-tab" data-tab="requirements">🧮 Разбивка на нуждите</button>
+        <button class="btn btn-small erp-tab" data-tab="operations">🏭 Операции → Цех</button>
+        <button class="btn btn-small erp-tab" data-tab="partners">👥 Клиенти/Доставчици</button>
+        <button class="btn btn-small erp-tab" data-tab="import">⤓ Импорт (xlsx)</button>
+      </div>
+      <div id="erp-view"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="config.js?v=138"></script>
-  <script src="app.js?v=141"></script>
-  <script src="tasks.js?v=141"></script>
-  <script src="contacts-data.js?v=138"></script>
-  <script src="contacts.js?v=138"></script>
+  <script src="config.js?v=139"></script>
+  <script src="app.js?v=170"></script>
+  <script src="tasks.js?v=193"></script>
+  <script src="prod-report.js?v=163"></script>
+  <script src="times-report.js?v=163"></script>
+  <script src="planning.js?v=165"></script>
+  <script src="contacts-data.js?v=139"></script>
+  <script src="contacts.js?v=139"></script>
+  <script src="erp.js?v=181"></script>
+  <script src="erp-import.js?v=161"></script>
+  <script src="erp-materials.js?v=155"></script>
+  <script src="erp-products.js?v=154"></script>
+  <script src="erp-recipes.js?v=173"></script>
+  <script src="erp-requirements.js?v=153"></script>
+  <script src="erp-operations.js?v=153"></script>
+  <script src="erp-orders.js?v=187"></script>
+  <script src="erp-detail-stock.js?v=188"></script>
+  <script src="erp-workcard.js?v=162"></script>
+  <script src="erp-recipe-edit.js?v=155"></script>
+  <script src="erp-customer-orders.js?v=185"></script>
+  <script src="erp-partners.js?v=161"></script>
+  <script src="erp-purchases.js?v=161"></script>
+  <script src="erp-sales.js?v=163"></script>
+  <script src="cost-seed.js?v=167"></script>
+  <script src="dossier-seed.js?v=171"></script>
+  <script src="erp-costing.js?v=177"></script>
+  <script src="erp-payroll.js?v=174"></script>
+  <script src="erp-erptable.js?v=176"></script>
+  <script src="erp-finance.js?v=175"></script>
+  <script src="nav-back.js?v=163"></script>
+  <script src="assistant.js?v=179"></script>
 </body>
 </html>
