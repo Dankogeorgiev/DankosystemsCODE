@@ -135,6 +135,14 @@ async function erpLoadAll() {
     ERP.costById = {}; ERP.prodById = {};
     ERP.products.forEach(p => { ERP.costById[p.id] = Number(p.cost_eur) || 0; ERP.prodById[p.id] = p; });
 
+    // Наличност на детайли/полуфабрикати (ако е пуснат erp-detail-stock.sql).
+    ERP.prodStock = {};
+    try {
+      const ps = await erpSelectAll("v_product_stock", "id,stock");
+      if (!ps.error) (ps.data || []).forEach(r => { ERP.prodStock[r.id] = Number(r.stock) || 0; });
+    } catch (e) { /* складът за детайли още не е създаден — работим без нето */ }
+    ERP.products.forEach(p => { p.stock = Number(ERP.prodStock[p.id]) || 0; });
+
     ERP.operations = ops.data || [];
     ERP.opById = {};
     ERP.operations.forEach(o => { ERP.opById[o.id] = o; });
@@ -164,6 +172,7 @@ function erpSetTab(tab) {
     b.classList.toggle("active", b.dataset.tab === tab));
   switch (tab) {
     case "materials":    erpRenderMaterials(); break;
+    case "detailstock":  erpRenderDetailStock(); break;
     case "products":     erpRenderProducts(); break;
     case "needs":        erpRenderNeeds(); break;
     case "requirements": erpRenderRequirements(); break;

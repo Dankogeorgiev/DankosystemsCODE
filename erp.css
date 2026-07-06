@@ -18,6 +18,8 @@
   padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit;
 }
 .erp-toolbar .spacer { flex: 1; }
+.erp-head-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.erp-h { margin: 0; font-size: 18px; }
 .erp-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
 .erp-inline select, .erp-inline input { margin-left: 4px; }
 .erp-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }

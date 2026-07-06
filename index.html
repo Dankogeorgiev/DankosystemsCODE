@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=180" />
-  <link rel="stylesheet" href="erp.css?v=180" />
+  <link rel="stylesheet" href="erp.css?v=181" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 180</p>
+      <p class="login-version">версия 181</p>
     </form>
   </div>
 
@@ -485,6 +485,7 @@
       <div class="tasks-controls erp-tabs">
         <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
         <button class="btn btn-small erp-tab" data-tab="materials">🧱 Материали (склад)</button>
+        <button class="btn btn-small erp-tab" data-tab="detailstock">📦 Склад детайли</button>
         <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
         <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
         <button class="btn btn-small erp-tab" data-tab="products">📦 Продукти</button>
@@ -508,17 +509,18 @@
   <script src="planning.js?v=165"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
-  <script src="erp.js?v=172"></script>
+  <script src="erp.js?v=181"></script>
   <script src="erp-import.js?v=161"></script>
   <script src="erp-materials.js?v=155"></script>
   <script src="erp-products.js?v=154"></script>
   <script src="erp-recipes.js?v=173"></script>
   <script src="erp-requirements.js?v=153"></script>
   <script src="erp-operations.js?v=153"></script>
-  <script src="erp-orders.js?v=180"></script>
+  <script src="erp-orders.js?v=181"></script>
+  <script src="erp-detail-stock.js?v=181"></script>
   <script src="erp-workcard.js?v=162"></script>
   <script src="erp-recipe-edit.js?v=155"></script>
-  <script src="erp-customer-orders.js?v=180"></script>
+  <script src="erp-customer-orders.js?v=181"></script>
   <script src="erp-partners.js?v=161"></script>
   <script src="erp-purchases.js?v=161"></script>
   <script src="erp-sales.js?v=163"></script>

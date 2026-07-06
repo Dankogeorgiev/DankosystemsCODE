@@ -281,26 +281,43 @@ async function erpMaybeStartFinal(t, src) {
    ограничение при отчитането (виж erpFlowAvailable в tasks.js).
    Еднакви детайли (по код) от няколко поръчки се обединяват в ЕДНА СЕРИЯ с общо
    количество; финалното сглобяване (isTop) чака всички възли да са готови. */
-function erpFlowSteps(s) {
+// opts (по избор): { stock: {product_id: наличен_брой} (мутира се при приспадане),
+//   consumed: {product_id: взети_от_склад} (изход) } — за нетна потребност: ако
+//   даден детайл го има на склад, не се произвежда (и децата му също не се правят).
+function erpFlowSteps(s, opts) {
   const qty = erpToNum(s.erpQty) || 1;
   const steps = [], external = [];
+  const stock = (opts && opts.stock) || null;
+  const consumed = (opts && opts.consumed) || null;
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
   const nodes = [];  // { key, product, code, ops:[{operation,workshop,qty}], isTop }
   (function walk(pid, mult, anc, depth) {
+    // Нетна потребност: колко от този детайл има на склад -> толкова не се прави.
+    let make = mult;
+    if (stock) {
+      const have = Math.max(0, Number(stock[pid]) || 0);
+      const use = Math.min(have, mult);
+      if (use > 0) {
+        stock[pid] = have - use;
+        if (consumed) consumed[pid] = (consumed[pid] || 0) + use;
+        make = mult - use;
+      }
+    }
+    if (make <= 0) return;   // целият детайл е от склада — нито той, нито децата му се произвеждат
     const p = ERP.prodById[pid] || {};
     const ops = [];
     (ERP.linesByProduct[pid] || []).forEach(l => {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
         const ws = (route(op).primary) || "";
-        const cnt = mult * (Number(l.quantity) || 1);
+        const cnt = make * (Number(l.quantity) || 1);
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         ops.push({ operation: op.name || "", workshop: ws, qty: cnt });
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
-        walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]), depth + 1);
+        walk(l.child_product_id, make * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]), depth + 1);
       }
     });
-    if (ops.length) nodes.push({ key: (p.code || p.name || String(pid)), product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
+    if (ops.length) nodes.push({ pid, key: (p.code || p.name || String(pid)), product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
   })(s.erpProductId, qty, new Set([s.erpProductId]), 0);
 
   // Ключове на последните операции на възлите — финалът ги чака (всички готови).
@@ -326,14 +343,31 @@ function erpFlowSteps(s) {
 // productLines: [{ productId, qty }]; meta: { clientName, deadline, sampleId, sampleType, orderNo }
 async function erpFlowApply(meta, productLines) {
   const sid = String(meta.sampleId);
+  const ref = "order:" + sid;
+
+  // 0) Нетна потребност спрямо СКЛАДА за детайли. Наличността, която е на склад,
+  //    не се пуска към цех (детайлът е готов). Изключваме собствените стари
+  //    изписвания на тази поръчка, за да е идемпотентно повторното пускане.
+  const avail = {};                // product_id -> наличен брой (за нетване)
+  let stockOn = false;
+  {
+    const { data: moves, error: mErr } = await erpSelectAll("product_movements", "id,product_id,quantity,ref");
+    if (!mErr) {
+      stockOn = true;
+      (moves || []).forEach(m => { if (m.ref === ref) return; avail[m.product_id] = (Number(avail[m.product_id]) || 0) + (Number(m.quantity) || 0); });
+      Object.keys(avail).forEach(k => { if (avail[k] < 0) avail[k] = 0; });
+    }
+  }
 
   // 1) Нови приноси на тази поръчка, групирани по серия (код+операция).
+  //    При обхождането приспадаме от avail (мутира се) и записваме взетото от склад.
   const mine = {};                 // seriesKey -> { qty, st }
   const externalAll = [];
+  const consumed = {};             // product_id -> взети от склад (за цялата поръчка)
   (productLines || []).forEach(line => {
     const q = erpToNum(line.qty) || 0;
     if (!q) return;
-    const { steps, external } = erpFlowSteps({ erpProductId: line.productId, erpQty: q });
+    const { steps, external } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stockOn ? { stock: avail, consumed } : undefined);
     external.forEach(e => externalAll.push(e));
     steps.forEach(st => {
       const cur = mine[st.seriesKey] || (mine[st.seriesKey] = { qty: 0, st });
@@ -341,6 +375,21 @@ async function erpFlowApply(meta, productLines) {
     });
   });
   const myKeys = Object.keys(mine);
+
+  // 1б) Записваме изписването от склада за взетите детайли (идемпотентно по ref).
+  const fromStock = [];
+  if (stockOn) {
+    await sb.from("product_movements").delete().eq("ref", ref);
+    const rows = [];
+    Object.keys(consumed).forEach(pid => {
+      const qtyUsed = Number(consumed[pid]) || 0;
+      if (qtyUsed <= 0) return;
+      const p = ERP.prodById[pid] || {};
+      fromStock.push({ code: p.code || "", name: p.name || "", qty: qtyUsed });
+      rows.push({ product_id: Number(pid), kind: "изписване", quantity: -qtyUsed, ref, note: "Взето от склад за заявка №" + (meta.orderNo || sid) });
+    });
+    if (rows.length) { const { error } = await sb.from("product_movements").insert(rows); if (error) return { error }; }
+  }
 
   // 2) Изчистваме стари НЕпоточни задачи на тази поръчка (стар последователен режим).
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid).is("data->source->>flow", null);
@@ -403,7 +452,7 @@ async function erpFlowApply(meta, productLines) {
     const { error } = await sb.from("tasks").insert(toInsert.map(d => ({ data: d })));
     if (error) return { error };
   }
-  return { external: externalAll, seriesCount: myKeys.length, error: null };
+  return { external: externalAll, seriesCount: myKeys.length, fromStock, error: null };
 }
 
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии
@@ -411,6 +460,7 @@ async function erpFlowApply(meta, productLines) {
 async function erpFlowRemoveOrder(sampleId) {
   const sid = String(sampleId);
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid);   // стари непоточни
+  try { await sb.from("product_movements").delete().eq("ref", "order:" + sid); } catch (e) {}  // връщаме взетото от склад
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};
@@ -485,12 +535,14 @@ async function erpProduce(s) {
   }, [{ productId: s.erpProductId, qty }]);
   if (res.error) { alert("Грешка при пускане: " + (res.error.message || res.error)); return; }
 
-  s.production = { at: new Date().toISOString(), count: steps.length, flow: true, external: external.length };
+  const fs = res.fromStock || [];
+  s.production = { at: new Date().toISOString(), count: res.seriesCount, flow: true, external: external.length, fromStock: fs.length };
   touch(s);
   erpRenderOrderPanel(s);
   alert(`Готово! Пуснах поточно производство (${res.seriesCount} операции).\n`
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
-    + (external.length ? `\n(${external.length} външни операции са за подизпълнител.)` : ""));
+    + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
 }
 
 /* ---------- Проследяване на напредъка ---------- */

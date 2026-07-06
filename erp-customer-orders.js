@@ -356,13 +356,15 @@ async function erpCOProduce(o) {
   }, lines);
   if (res.error) { alert("Грешка при създаване на задачи: " + (res.error.message || res.error)); return; }
 
-  o.production = { at: new Date().toISOString(), count: totalSteps, flow: true, external: external.length };
+  const fs = res.fromStock || [];
+  o.production = { at: new Date().toISOString(), count: res.seriesCount || totalSteps, flow: true, external: external.length, fromStock: fs.length };
   o.status = "в производство";
   try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
-    + (external.length ? `\n(${external.length} външни операции са за подизпълнител.)` : ""));
+    + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
   erpCOTracking(o);
 }
 
