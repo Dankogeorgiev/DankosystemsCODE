@@ -41,6 +41,7 @@ const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
   "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC850", "VMC966", "Traub TNS60", "Лазерно Гравиране"],
   "Преси": ["ЕП 80т", "ЕП 63т", "ЕП 40т", "ЕП 25т", "ЕП 10т", "Хидравлична", "Бормашина"],
+  "Абкант": ["Абкант AD-ES 1240 Електр.", "Абкант AD-R 25100 №1", "Абкант AD-R 25100 №2", "Абкант AD-R 3000", "Абкант HARIS", "Бормашина"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
 const MACHINE_TIME_LABELS = {
@@ -62,10 +63,14 @@ const TIME_FIELDS_BY_WORKSHOP = {
     { key: "tSetup", label: "Време за настройка", unit: "min" },
     { key: "tOrder", label: "Време за цялото количество", unit: "min" },
   ],
+  "Абкант": [
+    { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
+    { key: "tSetup", label: "Време за настройка", unit: "min" },
+  ],
 };
 // Цехове, при които НЕ добавяме автоматичното поле „Специфична работа" (по желание
 // на цеха — да няма нищо излишно в прозореца).
-const NO_SPECIFIC_WORKSHOP = ["Преси"];
+const NO_SPECIFIC_WORKSHOP = ["Преси", "Абкант"];
 // Допълнителни (текстови) полета по цех — напр. изразходени консумативи
 const EXTRA_FIELDS_BY_WORKSHOP = {
   "CNC цех": [
