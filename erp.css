@@ -159,6 +159,9 @@
 .dos-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #eef2f7; font-size: 13px; }
 .dos-l { flex: 0 0 190px; color: #64748b; font-weight: 600; }
 .dos-v { flex: 1; white-space: pre-wrap; }
+.dos-edit { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; font-size: 13px; color: #475569; }
+.dos-edit input, .dos-edit textarea { font: inherit; font-size: 13px; }
+.dos-pay { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 6px; padding: 6px 10px; font-size: 13px; }
 /* Заплати (седмично) */
 .pay-scroll { overflow-x: auto; }
 .pay-table th, .pay-table td { white-space: nowrap; }
