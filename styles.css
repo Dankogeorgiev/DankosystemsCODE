@@ -683,6 +683,35 @@ input[type="date"] {
   .report-head .toolbar-actions { flex-wrap: wrap; }
 }
 
+/* --- Таблети (10") в цеховете: широката таблица става КАРТИ, за да влиза
+   всичко в екрана, с по-едри бутони за пръст. Хваща таблет и в двете
+   ориентации (по ширина до 1200px, както и всеки сензорен екран до 1400px),
+   без да пипа изгледа на офис лаптопите. --- */
+@media (min-width: 761px) and (max-width: 1200px),
+       (pointer: coarse) and (min-width: 761px) and (max-width: 1400px) {
+  .tasks-table { min-width: 0; }
+  .tasks-table thead { display: none; }
+  .tasks-table, .tasks-table tbody, .tasks-table tr, .tasks-table td { display: block; width: auto; }
+  .tasks-table tr { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; padding: 10px 14px; background: #fff; }
+  .tasks-table tr.task-done { background: #86efac; }
+  .tasks-table tr.task-progress { background: #fef9c3; }
+  .tasks-table tr.task-done td, .tasks-table tr.task-progress td { background: transparent; }
+  .tasks-table td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0; border: none; text-align: right; word-break: break-word; font-size: 15px; }
+  .tasks-table td::before { content: attr(data-label); font-weight: 700; color: var(--muted); text-align: left; flex: 0 0 38%; }
+  .tasks-table td[data-label=""]::before { content: ""; flex: 0; }
+  .tasks-table td.num { text-align: right; }
+  /* По-едри контроли за пръст */
+  .t-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 10px; }
+  .t-actions .btn { font-size: 16px; padding: 11px 18px; }
+  .t-today { width: 120px; font-size: 16px; padding: 9px; }
+  .t-assignee, .t-thick { max-width: 100%; width: 100%; font-size: 15px; padding: 8px; }
+  .tasks-controls { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .tasks-controls .spacer { display: none; }
+  .identity-btn { flex: 1 1 45%; justify-content: center; font-size: 18px; padding: 18px; }
+  /* Отчетният прозорец да ползва цялата ширина на таблета */
+  .pd-box { max-width: 96vw; }
+}
+
 /* Print */
 @media print {
   .app-header, .sidebar, .form-toolbar, #btn-add-material,
