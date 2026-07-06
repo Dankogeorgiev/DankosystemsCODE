@@ -124,8 +124,17 @@ async function dsImportFill(file) {
   const findKey = subs => keys.find(k => subs.some(s => k.toLowerCase().includes(s)));
   const codeKey = findKey(["код"]);
   const nameKey = findKey(["детайл", "възел", "име", "продукт", "name"]);
-  const qtyKey = findKey(["попълни", "налична бройка", "готова"]);
+  let qtyKey = findKey(["попълни", "налична бройка", "готова"]);
   if (!qtyKey) { alert("Не намирам колоната за попълване (Налична бройка).\nПолзвай сваления шаблон и не преименувай колоните."); return; }
+
+  // Чест случай: бройките са попълнени в грешната колона („Налично сега (система)"),
+  // а колоната за попълване е останала празна. Тогава ползваме нея.
+  const isEmpty = v => v === "" || v === null || v === undefined;
+  if (rows.every(r => isEmpty(r[qtyKey]))) {
+    const sysKey = keys.find(k => /налично сега|система/i.test(k))
+      || keys.find(k => k !== qtyKey && k.toLowerCase().includes("налично"));
+    if (sysKey && rows.some(r => !isEmpty(r[sysKey]) && erpToNum(r[sysKey]) !== 0)) qtyKey = sysKey;
+  }
 
   const byCode = {}, byName = {};
   ERP.products.filter(dsIsDetail).forEach(p => {
