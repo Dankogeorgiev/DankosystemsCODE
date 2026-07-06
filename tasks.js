@@ -40,6 +40,7 @@ function krohneProgressHtml(t) {
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
   "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC850", "VMC966", "Traub TNS60", "Лазерно Гравиране"],
+  "Преси": ["ЕП 80т", "ЕП 63т", "ЕП 40т", "ЕП 25т", "ЕП 10т", "Хидравлична", "Бормашина"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
 const MACHINE_TIME_LABELS = {
@@ -57,7 +58,14 @@ const TIME_FIELDS_BY_WORKSHOP = {
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
     { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
   ],
+  "Преси": [
+    { key: "tSetup", label: "Време за настройка", unit: "min" },
+    { key: "tOrder", label: "Време за цялото количество", unit: "min" },
+  ],
 };
+// Цехове, при които НЕ добавяме автоматичното поле „Специфична работа" (по желание
+// на цеха — да няма нищо излишно в прозореца).
+const NO_SPECIFIC_WORKSHOP = ["Преси"];
 // Допълнителни (текстови) полета по цех — напр. изразходени консумативи
 const EXTRA_FIELDS_BY_WORKSHOP = {
   "CNC цех": [
@@ -79,14 +87,8 @@ const WORKSHOPS_WITH_TIME = ["Лазери", "CNC цех"];
 const FIELDS_BY_WORKER = {
   "Иво Бончев": {
     byWorkshop: {
-      "Преси": {
-        machines: ["Автоматична Преса 1", "Автоматична Преса 2"],
-        timeFields: [
-          { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
-          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
-          { key: "tSetup", label: "Време за настройка (спомагателно)", unit: "min" },
-        ],
-      },
+      // Преси — ползва стандартната настройка на цеха (машини + Време за
+      // настройка / Време за цялото количество), еднакво за всички пресари.
       "Сглобяване": {
         machines: false,        // няма машина
         timeFields: [],         // без времена — само бройка + кратко описание (в „Специфична работа“)
@@ -833,7 +835,7 @@ function openProductionDialog(t, qtyPrefill) {
     const qtyLabel = c.qtyLabel || "Брой произведени сега";
     const countFields = c.countFields || [];
     const extraFields = (c.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
-    if (!extraFields.some(f => f.key === "specific")) {
+    if (!extraFields.some(f => f.key === "specific") && NO_SPECIFIC_WORKSHOP.indexOf(t.workshop) === -1) {
       extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
     }
     return { timeFields, qtyLabel, countFields, extraFields };
