@@ -100,10 +100,12 @@ async function erpRenderCOForm(o) {
   const v = erpView();
   const clients = await erpLoadClients();
   if (!o.posted && (o.clientId || o.clientName)) erpCOFillPrices(o);   // авто-цени при отваряне
+  const canDelete = (typeof isOwnerAdmin === "function") && isOwnerAdmin() && o.id;
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="co-back">← Назад към заявките</button>
       <span class="spacer"></span>
+      ${canDelete ? '<button class="btn btn-small btn-danger" id="co-del">🗑 Изтрий заявката</button>' : ""}
       <button class="btn btn-small btn-primary" id="co-save">💾 Запази</button>
     </div>
     <div class="erp-co-form">
@@ -149,6 +151,8 @@ async function erpRenderCOForm(o) {
 
   document.getElementById("co-back").addEventListener("click", erpRenderCustomerOrders);
   document.getElementById("co-save").addEventListener("click", () => erpCOSaveClick(o));
+  const delBtn = document.getElementById("co-del");
+  if (delBtn) delBtn.addEventListener("click", () => erpCODelete(o));
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
   document.getElementById("co-materials").addEventListener("click", () => erpCOMaterials(o));
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
@@ -259,6 +263,19 @@ function erpCOAddProduct(o) {
   render("");
   wrap.querySelector("#co-pp-q").addEventListener("input", e => render(e.target.value));
   wrap.querySelector("#co-pp-cancel").addEventListener("click", close);
+}
+
+// Изтрива заявката + всичките ѝ задачи по цеховете (само за собственика).
+async function erpCODelete(o) {
+  if (!o.id) return;
+  if (typeof isOwnerAdmin === "function" && !isOwnerAdmin()) { alert("Само собственикът може да трие заявки."); return; }
+  if (!confirm(`Да изтрия ли заявка №${o.ourNo || ""}${o.clientName ? " (" + o.clientName + ")" : ""} и всичките ѝ задачи по цеховете?\nТова е необратимо.`)) return;
+  const delT = await sb.from("tasks").delete().eq("data->source->>sampleId", String(o.id));
+  if (delT.error) { alert("Грешка при изтриване на задачите: " + delT.error.message); return; }
+  const delO = await sb.from("customer_orders").delete().eq("id", o.id);
+  if (delO.error) { alert("Грешка при изтриване на заявката: " + delO.error.message); return; }
+  alert("Заявката и задачите ѝ по цеховете са изтрити.");
+  erpRenderCustomerOrders();
 }
 
 async function erpCOSaveClick(o) {
