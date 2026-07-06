@@ -46,10 +46,15 @@ async function erpRenderDetailStock() {
       <span class="erp-muted">${totalWith} детайла с наличност</span>
     </div>
     <p class="hint">Тук въвеждаш реалната наличност на готовите детайли/възли. При пускане на заявка системата
-      автоматично приспада наличното и праща в цех само недостига.</p>
+      автоматично приспада наличното и праща в цех само недостига.
+      За наливане наведнъж: <b>свали шаблона</b>, попълни колоната „Налична бройка (попълни)" и го <b>импортирай</b>.</p>
     <div class="erp-toolbar">
       <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
+      <label class="btn btn-small btn-primary" for="ds-import-file">⤴ Импортирай наличности</label>
+      <input type="file" id="ds-import-file" accept=".xlsx,.xls,.csv" hidden />
     </div>
     <table class="report-table erp-table">
       <thead><tr><th>Код</th><th>Детайл/възел</th><th class="num">Наличност</th><th>Движение</th></tr></thead>
@@ -73,8 +78,91 @@ async function erpRenderDetailStock() {
   if (q) q.addEventListener("input", e => { DS_TERM = e.target.value; erpRenderDetailStock(); });
   const only = document.getElementById("ds-only");
   if (only) only.addEventListener("change", e => { DS_ONLY_STOCK = e.target.checked; erpRenderDetailStock(); });
+  const exp = document.getElementById("ds-export");
+  if (exp) exp.addEventListener("click", dsExportTemplate);
+  const imp = document.getElementById("ds-import-file");
+  if (imp) imp.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) dsImportFill(f); });
   erpView().querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
   erpView().querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
+}
+
+// Сваля Excel-шаблон с всички детайли/възли за попълване на наличности.
+function dsExportTemplate() {
+  if (typeof XLSX === "undefined") { alert("Excel библиотеката не е заредена. Опитай пак след презареждане."); return; }
+  const HEAD = ["Код", "Детайл/възел", "Мярка", "Налично сега (система)", "Налична бройка (попълни)"];
+  const list = ERP.products.filter(dsIsDetail).slice()
+    .sort((a, b) => (a.code || "").localeCompare(b.code || "", "bg") || (a.name || "").localeCompare(b.name || "", "bg"));
+  const rows = list.map(p => ({
+    "Код": p.code || "",
+    "Детайл/възел": p.name || "",
+    "Мярка": p.unit || "бр.",
+    "Налично сега (система)": Number(p.stock) || 0,
+    "Налична бройка (попълни)": "",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows, { header: HEAD });
+  ws["!cols"] = [{ wch: 14 }, { wch: 42 }, { wch: 8 }, { wch: 20 }, { wch: 24 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Склад детайли");
+  XLSX.writeFile(wb, "Склад-детайли-шаблон.xlsx");
+}
+
+// Импортира попълнения шаблон: задава наличността на всеки детайл на въведената
+// бройка (чрез движение „корекция" = разлика спрямо текущото). Празни редове се
+// прескачат. Съвпадение по Код, а при липса — по име.
+async function dsImportFill(file) {
+  if (typeof XLSX === "undefined") { alert("Excel библиотеката не е заредена."); return; }
+  let rows;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+  } catch (e) { alert("Не мога да прочета файла: " + (e.message || e)); return; }
+  if (!rows.length) { alert("Файлът е празен."); return; }
+
+  const keys = Object.keys(rows[0]);
+  const findKey = subs => keys.find(k => subs.some(s => k.toLowerCase().includes(s)));
+  const codeKey = findKey(["код"]);
+  const nameKey = findKey(["детайл", "възел", "име", "продукт", "name"]);
+  const qtyKey = findKey(["попълни", "налична бройка", "готова"]);
+  if (!qtyKey) { alert("Не намирам колоната за попълване (Налична бройка).\nПолзвай сваления шаблон и не преименувай колоните."); return; }
+
+  const byCode = {}, byName = {};
+  ERP.products.filter(dsIsDetail).forEach(p => {
+    if (p.code) byCode[String(p.code).trim().toLowerCase()] = p;
+    if (p.name) byName[String(p.name).trim().toLowerCase()] = p;
+  });
+
+  const moves = [];
+  let skipped = 0; const unknown = [];
+  rows.forEach(r => {
+    const raw = r[qtyKey];
+    if (raw === "" || raw === null || raw === undefined) { skipped++; return; }
+    const val = erpToNum(raw);
+    const code = codeKey ? String(r[codeKey] || "").trim().toLowerCase() : "";
+    const name = nameKey ? String(r[nameKey] || "").trim().toLowerCase() : "";
+    const p = (code && byCode[code]) || (name && byName[name]);
+    if (!p) { if (code || name) unknown.push(r[codeKey] || r[nameKey] || "?"); return; }
+    const cur = Number(p.stock) || 0;
+    const delta = val - cur;
+    if (!delta) { skipped++; return; }
+    moves.push({ product_id: p.id, kind: "корекция", quantity: delta, note: "Импорт наличности (готова продукция)" });
+  });
+
+  if (!moves.length) {
+    alert(`Няма промени за запис.\nПропуснати (празни или без промяна): ${skipped}` + (unknown.length ? `\nНенамерени по код/име: ${unknown.length}` : ""));
+    return;
+  }
+  if (!confirm(`Ще задам наличността на ${moves.length} детайла според файла.`
+    + (skipped ? `\nПропуснати (празни/без промяна): ${skipped}` : "")
+    + (unknown.length ? `\nНенамерени по код/име (ще се прескочат): ${unknown.length}` : "")
+    + `\n\nПродължавам?`)) return;
+
+  const { error } = await sb.from("product_movements").insert(moves);
+  if (error) { alert("Грешка при запис: " + error.message); return; }
+  await erpLoadAll();
+  erpRenderDetailStock();
+  alert(`Готово! Обновени ${moves.length} детайла.` + (unknown.length ? `\n${unknown.length} реда не бяха намерени по код/име.` : ""));
 }
 
 function dsMoveDialog(pid, kind) {
