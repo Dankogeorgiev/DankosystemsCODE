@@ -77,6 +77,22 @@
   .tk-done-badge{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ok);display:flex;align-items:center;gap:6px}
   .empty-list{background:#F8FAFC;border:1px dashed var(--line);border-radius:12px;padding:26px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
   .dot{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+
+  /* --- отчетен прозорец --- */
+  .wl-ov{position:fixed;inset:0;background:rgba(15,27,51,.55);display:grid;place-items:center;z-index:2000;padding:18px}
+  .wl-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:470px;width:100%;box-shadow:0 24px 64px rgba(15,27,51,.35)}
+  .wl-box h3{font-family:var(--disp);font-size:18px;margin:0 0 2px}
+  .wl-rec{font-size:13px;color:var(--ink-soft);background:#F6F8FB;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:12px 0 16px;line-height:1.5}
+  .wl-rec b{color:var(--ink)}.wl-rec .code{font-family:var(--mono);font-size:12px}
+  .wl-f{margin:0 0 14px}
+  .wl-f > label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:6px}
+  .wl-time{display:flex;gap:8px}
+  .wl-time input{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:16px;text-align:right;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:11px 10px;outline:none}
+  .wl-time select{font-family:var(--body);font-size:14px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:#fff;color:var(--ink);outline:none}
+  .wl-box textarea{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:10px;outline:none;resize:vertical;min-height:58px}
+  .wl-box input:focus,.wl-box select:focus,.wl-box textarea:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .wl-act{display:flex;gap:9px;margin-top:2px}
+  .wl-act .btn{flex:1 1 auto;text-align:center;padding:12px;font-size:13px}
 </style>
 </head>
 <body>
@@ -246,18 +262,52 @@ function openTable(n){selN=n;$("tablesView").hidden=true;$("tableDetail").hidden
 function render(){ if(selN==null) renderTables(); else renderDetail(); }
 
 /* ===== отчитане на заварено ===== */
-async function reportWeld(id){
+// Бройката се въвежда на картата, после изскача прозорец само с двете полета:
+// „Време за заварка на цялото количество" и „Използвани консумативи".
+function reportWeld(id){
   const t=TASKS.find(x=>String(x.id)===String(id)); if(!t) return;
   const inp=$("in-"+id); const add=num(inp&&inp.value);
   if(add<=0){ alert("Въведи колко броя завари."); if(inp)inp.focus(); return; }
   const rem=remaining(t);
   if(rem!=null && add>rem && !confirm(`Това надхвърля оставащото (${rem} бр.). Да го запиша ли все пак?`)) return;
+  openReportDialog(t, add);
+}
+function openReportDialog(t, add){
+  const ov=document.createElement("div"); ov.className="wl-ov";
+  ov.innerHTML=`<div class="wl-box">
+    <h3>⏱ Записване на заваряването</h3>
+    <div class="wl-rec"><b>${esc(t.client||"—")}</b> · ${esc(t.product||"—")}${t.code?` <span class="code">(${esc(t.code)})</span>`:""}<br>Заваряваш сега: <b>${add}</b> бр.</div>
+    <div class="wl-f"><label for="wl-tv">Време за заварка на цялото количество</label>
+      <div class="wl-time">
+        <input id="wl-tv" type="number" min="0" step="any" inputmode="decimal" placeholder="0">
+        <select id="wl-tu"><option value="min" selected>мин</option><option value="hour">час</option><option value="sec">сек</option></select>
+      </div></div>
+    <div class="wl-f"><label for="wl-cons">Използвани консумативи</label>
+      <textarea id="wl-cons" placeholder="напр. заваръчен тел Ø1.0 — 1 ролка, газ, дискове…"></textarea></div>
+    <div class="wl-act"><button class="btn pri" id="wl-ok">✓ Запиши</button><button class="btn" id="wl-cancel">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  ov.addEventListener("click", e=>{ if(e.target===ov) close(); });
+  ov.querySelector("#wl-cancel").onclick=close;
+  ov.querySelector("#wl-ok").onclick=async()=>{
+    const v=num(ov.querySelector("#wl-tv").value), unit=ov.querySelector("#wl-tu").value;
+    if(v<=0){ alert("Въведи време за заварка на цялото количество."); ov.querySelector("#wl-tv").focus(); return; }
+    const mult=unit==="hour"?3600:(unit==="min"?60:1);
+    const extra={ tOrder:{ v, unit, sec:Math.round(v*mult) } };
+    const cons=(ov.querySelector("#wl-cons").value||"").trim(); if(cons) extra.consumables=cons;
+    const btn=ov.querySelector("#wl-ok"); btn.disabled=true; btn.textContent="Запазва…";
+    close();
+    await commitWeld(t, add, extra);
+  };
+  setTimeout(()=>{ const el=ov.querySelector("#wl-tv"); if(el) el.focus(); }, 50);
+}
+async function commitWeld(t, add, extra){
   const name=(tableByN(selN)||{}).name || t.assignee || "";
   if(!t.assignee) t.assignee=name;                 // поеми задачата, ако е без отговорник
   t.produced=num(t.produced)+add;
   t.logs=t.logs||[];
-  t.logs.push({date:todayStr(), worker:name, qty:add, cex:CEX, at:new Date().toISOString()});
-  if(inp){inp.disabled=true;}
+  t.logs.push(Object.assign({date:todayStr(), worker:name, qty:add, cex:CEX, at:new Date().toISOString()}, extra));
   const ok=await window.WELD.saveTask(t);
   if(!ok){ alert("Грешка при запис. Провери връзката и опитай пак."); }
   TASKS=await window.WELD.loadTasks();
