@@ -85,7 +85,9 @@
   .fld .lb{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:5px;display:block}
   .fld input,.fld textarea{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
   .fld input[type=number]{font-family:var(--mono);text-align:right}
-  .fld input:focus,.fld textarea:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .fld select{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
+  .fld input:focus,.fld textarea:focus,.fld select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .tbtns{display:flex;gap:8px;flex-wrap:wrap}
   .pd-time{display:flex;gap:7px}.pd-time input{flex:1 1 auto}
   .pd-time select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;color:var(--ink);flex:0 0 76px}
   .ovl-actions{display:flex;gap:8px;margin-top:18px}
@@ -113,7 +115,11 @@
   <section id="dash">
     <div class="toolbar">
       <span class="lead">Изберете маса (заварчик)</span>
-      <a href="#razpredelenie" class="btn pri" id="distBtn">📋 Разпределение</a>
+      <span class="tbtns">
+        <button class="btn" data-act="draw">📐 Искам чертеж</button>
+        <button class="btn" data-act="supply">📦 Снабдяване</button>
+        <a href="#razpredelenie" class="btn pri" id="distBtn">📋 Разпределение</a>
+      </span>
     </div>
     <div class="cells" id="cells"></div>
     <p class="note" style="text-align:center;max-width:680px;margin:18px auto 0">
@@ -139,7 +145,13 @@
 
   <!-- ДЕТАЙЛ: страница на една маса -->
   <section id="detail" hidden>
-    <div class="toolbar"><a href="#" class="btn" id="backBtn">← Всички маси</a></div>
+    <div class="toolbar">
+      <a href="#" class="btn" id="backBtn">← Всички маси</a>
+      <span class="tbtns">
+        <button class="btn" data-act="draw">📐 Искам чертеж</button>
+        <button class="btn" data-act="supply">📦 Снабдяване</button>
+      </span>
+    </div>
     <div class="panel">
       <div class="rd-head">
         <div class="rd-art" id="rdArt"></div>
@@ -390,6 +402,82 @@ async function creditWeldingWorkshop(product,qty,extra,worker){
   }
 }
 
+/* ===== Съобщения към админите (искане на чертеж / снабдяване) ===== */
+function sbxClient(){
+  if(!window.supabase||!window.DANKO_CONFIG)return null;
+  return window.__sbxRachno||(window.__sbxRachno=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
+}
+async function sendMsg(m){
+  const c=sbxClient(); if(!c){alert('Няма връзка с облака.');return false;}
+  try{ const {error}=await c.from('messages').insert({data:m}); if(error)throw error; return true; }
+  catch(e){ console.warn('Ръчно заваръчно: съобщение',e); alert('Неуспешно изпращане (връзка?). Опитай пак.'); return false; }
+}
+function tableSelect(id,prefill){
+  return `<select id="${id}">${tables.map(t=>`<option value="${t.id}"${t.id===prefill?' selected':''}>${esc(t.name)}</option>`).join('')}</select>`;
+}
+function curTableId(){const m=(location.hash||'').match(/^#masa-(\d+)$/);return m?+m[1]:null;}
+
+// 📐 Искане на чертеж → съобщение „въпрос" до админите
+function openDrawingReq(prefillId){
+  const w=document.createElement('div');w.className='ovl';
+  w.innerHTML=`<div class="ovl-box">
+    <h3>📐 Искане на чертеж</h3>
+    <label class="fld"><span class="lb">От коя маса *</span>${tableSelect('dr-table',prefillId||tables[0].id)}</label>
+    <label class="fld"><span class="lb">Изделие / детайл</span><input id="dr-prod" type="text" placeholder="напр. Носеща рама RM-200"></label>
+    <label class="fld"><span class="lb">Какъв чертеж искаш *</span><textarea id="dr-text" rows="3" placeholder="Опиши какъв чертеж / детайл ти трябва…"></textarea></label>
+    <p class="ovl-hint">Отива до администраторите (в „Съобщения → Въпроси"). Ще ти закачат чертежа към задачата.</p>
+    <div class="ovl-actions"><button class="btn pri" id="dr-send">Изпрати</button><button class="btn" id="dr-cancel">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(w);
+  const close=()=>w.remove();
+  w.addEventListener('click',e=>{if(e.target===w)close();});
+  w.querySelector('#dr-cancel').addEventListener('click',close);
+  w.querySelector('#dr-send').addEventListener('click',async()=>{
+    const text=(w.querySelector('#dr-text').value||'').trim();
+    if(!text){alert('Опиши какъв чертеж искаш.');return;}
+    const tid=+w.querySelector('#dr-table').value, tname=(tableById(tid)||{}).name||'';
+    const prod=(w.querySelector('#dr-prod').value||'').trim();
+    const now=new Date().toISOString();
+    const m={from:'worker',fromName:tname,fromEmail:window.PAINT_USER||'',workshop:'Заваръчно',
+      taskId:null,taskRef:prod,toEmail:'',toName:'',
+      text:'📐 Искане на чертеж'+(prod?' — '+prod:'')+'\n'+text,
+      status:'open',replies:[],seenByAdmin:false,seenByWorker:true,createdAt:now,updatedAt:now};
+    const b=w.querySelector('#dr-send');b.disabled=true;b.textContent='Изпраща…';
+    const ok=await sendMsg(m); if(!ok){b.disabled=false;b.textContent='Изпрати';return;}
+    close(); alert('Искането за чертеж е изпратено до администраторите. ✅');
+  });
+  setTimeout(()=>{const el=w.querySelector('#dr-text');if(el)el.focus();},50);
+}
+
+// 📦 Поръчка за снабдяване → съобщение „supply" до админите
+function openSupplyReq(prefillId){
+  const w=document.createElement('div');w.className='ovl';
+  w.innerHTML=`<div class="ovl-box">
+    <h3>📦 Нова поръчка за снабдяване</h3>
+    <label class="fld"><span class="lb">От коя маса *</span>${tableSelect('sp-table',prefillId||tables[0].id)}</label>
+    <label class="fld"><span class="lb">Какво е необходимо *</span><textarea id="sp-text" rows="4" placeholder="напр. заваръчен тел Ø1.0 — 2 ролки; газ CO₂; дискове за ъглошлайф…"></textarea></label>
+    <p class="ovl-hint">Поръчката стои отворена, докато админ я приеме. Влиза в „Съобщения → Поръчки за снабдяване".</p>
+    <div class="ovl-actions"><button class="btn pri" id="sp-send">Изпрати поръчката</button><button class="btn" id="sp-cancel">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(w);
+  const close=()=>w.remove();
+  w.addEventListener('click',e=>{if(e.target===w)close();});
+  w.querySelector('#sp-cancel').addEventListener('click',close);
+  w.querySelector('#sp-send').addEventListener('click',async()=>{
+    const text=(w.querySelector('#sp-text').value||'').trim();
+    if(!text){alert('Опиши какво ти трябва.');return;}
+    const tid=+w.querySelector('#sp-table').value, tname=(tableById(tid)||{}).name||'';
+    const now=new Date().toISOString();
+    const m={type:'supply',from:'worker',fromName:tname,fromEmail:window.PAINT_USER||'',workshop:'Заваръчно',
+      taskId:null,taskRef:'',text,status:'open',acceptedBy:null,replies:[],
+      seenByAdmin:false,seenByWorker:true,createdAt:now,updatedAt:now};
+    const b=w.querySelector('#sp-send');b.disabled=true;b.textContent='Изпраща…';
+    const ok=await sendMsg(m); if(!ok){b.disabled=false;b.textContent='Изпрати поръчката';return;}
+    close(); alert('Поръчката за снабдяване е изпратена до администраторите. ✅');
+  });
+  setTimeout(()=>{const el=w.querySelector('#sp-text');if(el)el.focus();},50);
+}
+
 /* ===== Преименуване ===== */
 function renameTable(id){
   const r=tableById(id);if(!r)return;
@@ -401,6 +489,11 @@ function renameTable(id){
 
 /* ===== Събития ===== */
 document.addEventListener('click',e=>{
+  const act=e.target.closest('[data-act]');
+  if(act){e.preventDefault();const tid=+(act.dataset.table||0)||curTableId();
+    if(act.dataset.act==='draw')openDrawingReq(tid);
+    else if(act.dataset.act==='supply')openSupplyReq(tid);
+    return;}
   const ed=e.target.closest('[data-edit]');
   if(ed){e.preventDefault();e.stopPropagation();renameTable(+ed.dataset.edit);return;}
   const rep=e.target.closest('[data-report]');
