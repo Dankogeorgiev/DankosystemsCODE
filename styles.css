@@ -309,6 +309,7 @@ tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .t-today { width: 72px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; }
 .t-actions .t-add { margin-left: 4px; }
 .t-today-info { font-size: 11px; color: var(--ok); font-weight: 600; }
+.t-flow-avail { font-size: 11px; color: #7c3aed; font-weight: 600; margin-top: 2px; }
 .tasks-daily { background: #ecfeff; border: 1px solid #a5f3fc; color: #0f766e; padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
 .tasks-daily #who-change { margin-left: 10px; }
 .identity-picker { max-width: 720px; margin: 30px auto; text-align: center; }

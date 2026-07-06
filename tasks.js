@@ -522,9 +522,11 @@ function renderTasks() {
     daily.hidden = true;
   }
 
+  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
+    const flowAvail = (t.source && t.source.flow && typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : null;
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
@@ -556,7 +558,7 @@ function renderTasks() {
       <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
-      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}</td>
+      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}</td>
       <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
@@ -669,6 +671,18 @@ async function removeTaskFile(t, i) {
 async function logProduction(t, qtyVal, extra) {
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
   if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
+  // Поточно производство: не може да се отчете повече, отколкото е произведено
+  // в предната операция (колкото минат нататък, толкова се отчитат тук).
+  if (t.source && t.source.flow && typeof erpFlowAvailable === "function") {
+    const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
+    const avail = erpFlowAvailable(t, map);
+    if (add > avail) {
+      alert(avail > 0
+        ? `Поточно производство: сега можеш да отчетеш най-много ${avail} бр. (толкова са произведени в предната операция).`
+        : `Поточно производство: предната операция още не е произвела детайли за тази стъпка. Изчакай предния цех.`);
+      return;
+    }
+  }
   let worker;
   if (amWorker()) {
     worker = MY_WORKER;

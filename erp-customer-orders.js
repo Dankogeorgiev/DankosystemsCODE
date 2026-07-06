@@ -270,8 +270,10 @@ async function erpCODelete(o) {
   if (!o.id) return;
   if (typeof isOwnerAdmin === "function" && !isOwnerAdmin()) { alert("Само собственикът може да трие заявки."); return; }
   if (!confirm(`Да изтрия ли заявка №${o.ourNo || ""}${o.clientName ? " (" + o.clientName + ")" : ""} и всичките ѝ задачи по цеховете?\nТова е необратимо.`)) return;
-  const delT = await sb.from("tasks").delete().eq("data->source->>sampleId", String(o.id));
-  if (delT.error) { alert("Грешка при изтриване на задачите: " + delT.error.message); return; }
+  try {
+    if (typeof erpFlowRemoveOrder === "function") await erpFlowRemoveOrder(o.id);
+    else await sb.from("tasks").delete().eq("data->source->>sampleId", String(o.id));
+  } catch (e) { alert("Грешка при изтриване на задачите: " + (e.message || e)); return; }
   const delO = await sb.from("customer_orders").delete().eq("id", o.id);
   if (delO.error) { alert("Грешка при изтриване на заявката: " + delO.error.message); return; }
   alert("Заявката и задачите ѝ по цеховете са изтрити.");
@@ -327,47 +329,39 @@ function erpCOMaterials(o) {
     </table>`;
 }
 
-/* ---------- Пускане в производство (последователно, всеки продукт е отделна верига) ---------- */
+/* ---------- Пускане в производство (поточно, серии между поръчки) ---------- */
 async function erpCOProduce(o) {
   if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
   // Първо запазваме, за да има № и id за връзката към задачите.
   try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
 
-  // Всеки продукт от заявката се планира отделно: възлите му стартират наведнъж
-  // (всеки върви последователно), а финалното сглобяване чака готови възли.
-  let firstTasks = [], external = [], totalSteps = 0, chainCount = 0, hasFinal = false;
-  (o.lines || []).forEach((l, li) => {
-    const plan = erpPlanProduction(l.productId, erpToNum(l.qty) || 1, {
-      clientName: o.clientName || "", deadline: o.deadline || "", kind: "customer_order",
-      sampleId: o.id, sampleType: "customer_order", group: String(o.id) + ":" + li,
-    });
-    firstTasks = firstTasks.concat(plan.firstTasks);
-    external = external.concat(plan.external);
-    totalSteps += plan.totalSteps; chainCount += plan.chainCount;
-    if (plan.hasFinal) hasFinal = true;
+  const lines = (o.lines || []).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
+  let totalSteps = 0, external = [];
+  lines.forEach(l => {
+    const r = (typeof erpFlowSteps === "function") ? erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty }) : { steps: [], external: [] };
+    totalSteps += r.steps.length; external = external.concat(r.external);
   });
-  if (!firstTasks.length) { alert("Няма операции за пускане (продуктите нямат рецепта с операции)."); return; }
+  if (!totalSteps) { alert("Няма операции за пускане (продуктите нямат рецепта с операции)."); return; }
 
   const already = o.production && o.production.count;
-  let msg = `Ще пусна производство за заявка №${o.ourNo} (${(o.lines || []).length} продукта).\n\n`
-    + `Стартират наведнъж първите операции на ${chainCount} възела/детайла; всеки върви последователно.`;
-  if (hasFinal) msg += `\n\nФиналното сглобяване на продуктите тръгва след готови възли.`;
+  let msg = `Ще пусна ПОТОЧНО производство за заявка №${o.ourNo} (${lines.length} продукта).\n\n`
+    + `Еднакви детайли от различни поръчки се обединяват в СЕРИЯ; всяка операция приема детайлите постепенно, колкото са отчетени в предната.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
-  if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще го заменя с ново.`;
+  if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще обновя дела на заявката.`;
   if (!confirm(msg)) return;
 
-  const del = await sb.from("tasks").delete().eq("data->source->>sampleId", String(o.id));
-  if (del.error) { alert("Грешка при изчистване: " + del.error.message); return; }
-  const { error } = await sb.from("tasks").insert(firstTasks.map(t => ({ data: t })));
-  if (error) { alert("Грешка при създаване на задачи: " + error.message); return; }
+  const res = await erpFlowApply({
+    clientName: o.clientName || "", deadline: o.deadline || "", sampleId: o.id,
+    sampleType: "customer_order", orderNo: o.ourNo || "",
+  }, lines);
+  if (res.error) { alert("Грешка при създаване на задачи: " + (res.error.message || res.error)); return; }
 
-  o.production = { at: new Date().toISOString(), count: totalSteps, chains: chainCount, external: external.length, seq: true, hasFinal };
+  o.production = { at: new Date().toISOString(), count: totalSteps, flow: true, external: external.length };
   o.status = "в производство";
   try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
-  alert(`Готово! Стартирах първите операции на ${chainCount} възела/детайла.\n`
-    + `Всеки върви последователно; следващите операции тръгват автоматично след отчитане.`
-    + (hasFinal ? `\nФиналното сглобяване тръгва след готови възли.` : "")
+  alert(`Готово! Пуснах поточно производство.\n`
+    + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (external.length ? `\n(${external.length} външни операции са за подизпълнител.)` : ""));
   erpCOTracking(o);
 }
@@ -377,18 +371,19 @@ async function erpCOTracking(o) {
   const box = document.getElementById("co-extra");
   if (!box || !o.id) return;
   box.innerHTML = `<p class="erp-muted">Производство: зареждане на напредъка…</p>`;
-  const { data, error } = await sb.from("tasks").select("data,done").eq("data->source->>sampleId", String(o.id));
-  if (error) { box.innerHTML = `<p class="erp-warn">${escapeHtml(error.message)}</p>`; return; }
-  const rows = data || [];
-  const planned = (o.production && o.production.count) || rows.length;
+  const { rows, error } = (typeof erpFlowTasksFor === "function")
+    ? await erpFlowTasksFor(o.id)
+    : { rows: [], error: { message: "Липсва поточният модул." } };
+  if (error) { box.innerHTML = `<p class="erp-warn">${escapeHtml(error.message || String(error))}</p>`; return; }
+  const planned = rows.length;
   const done = rows.filter(r => r.done).length;
   const active = rows.filter(r => !r.done).map(r => r.data || {});
   const pct = planned ? Math.round(done / planned * 100) : 0;
   const activeHtml = active.length
-    ? `<div class="erp-prod-active">${active.map(a => `↳ <b>${escapeHtml(a.product || "")}</b> — сега в цех ${escapeHtml(a.workshop || "")}: ${escapeHtml(a.operation || "")}`).join("<br>")}</div>`
+    ? `<div class="erp-prod-active">${active.map(a => `↳ <b>${escapeHtml(a.product || "")}</b> — ${escapeHtml(a.operation || "")} (цех ${escapeHtml(a.workshop || "")}): ${Number(a.produced) || 0}/${Number(a.qty) || 0}${(a.source && a.source.orderIds && a.source.orderIds.length >= 2) ? " · СЕРИЯ" : ""}`).join("<br>")}</div>`
     : (done ? `<div class="erp-prod-active">✓ всички операции са готови</div>` : "");
-  box.innerHTML = rows.length
-    ? `<div class="erp-prod-line"><b>Производство (последователно):</b> ${done} / ${planned} операции готови (${pct}%)
+  box.innerHTML = planned
+    ? `<div class="erp-prod-line"><b>Поточно производство:</b> ${done} / ${planned} операции готови (${pct}%)
          <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
          <button class="btn btn-small" id="co-refresh">↻</button></div>${activeHtml}`
     : `<p class="erp-muted">Няма задачи за тази заявка.</p>`;
