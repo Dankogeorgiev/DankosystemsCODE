@@ -526,7 +526,10 @@ function renderTasks() {
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
-    const flowAvail = (t.source && t.source.flow && typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : null;
+    // „налично" показваме само за операции, които ЧАКАТ предната (поточно) — за
+    // първата операция то е равно на цялото количество и само дублира остатъка.
+    const flowGated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
+    const flowAvail = (flowGated && typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : null;
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
