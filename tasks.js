@@ -1204,8 +1204,11 @@ function msgMyName() {
   return (MY_ACCESS && MY_ACCESS.email) || "Администратор";
 }
 function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || ""; }
+// Кой може да трие заявки (собственик + упълномощени).
+const ORDER_ADMIN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "danko.orders@gmail.com"];
 function isOwnerAdmin() {
-  return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) === "dankog@gmail.com";
+  const e = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) || "";
+  return ORDER_ADMIN_EMAILS.includes(e);
 }
 // Всички админи виждат всички съобщения (пълна прозрачност); служителят — само своите.
 // При въпрос „→ Име“ се вижда за кого е основно, но всеки админ може да го отвори/отговори.
