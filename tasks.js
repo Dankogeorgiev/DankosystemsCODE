@@ -615,6 +615,54 @@ function renderTasks() {
   renderBulkBar(rows, ws);
 }
 
+// Сваля показания списък със задачи като Excel (за печат). Спазва текущия
+// филтър: избран цех, служител, търсене — и същата подредба като на екрана.
+function exportWorkshopTasksExcel() {
+  if (typeof XLSX === "undefined") { alert("Excel библиотеката не е заредена. Опитай пак след презареждане."); return; }
+  const ws = currentWorkshop();
+  const isW = amWorker();
+  const worker = isW ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+  const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
+  let rows = TASKS.filter(t => {
+    if (ws !== "__all" && t.workshop !== ws) return false;
+    if (isW) { if (t.assignee && t.assignee !== MY_WORKER) return false; }
+    else if (worker && t.assignee !== worker) return false;
+    if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    return true;
+  });
+  const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
+  const f = SORT_KEYS[selKey];
+  rows.sort((a, b) => {
+    if (selKey !== "priority") { const pa = priLevel(a), pb = priLevel(b); if (pa !== pb) return pb - pa; }
+    const va = f(a), vb = f(b);
+    if (va < vb) return -1 * sortState.dir;
+    if (va > vb) return 1 * sortState.dir;
+    return 0;
+  });
+  if (!rows.length) { alert("Няма задачи за експорт по текущия филтър."); return; }
+
+  const showWs = ws === "__all";
+  const head = ["Клиент", "Продукт", "Код", "Операция", "Кол-во", "Произв.", "Остатък", "Срок", "Отговорник"];
+  if (showWs) head.unshift("Цех");
+  const title = "Задачи — " + (showWs ? "Всички цехове" : ws) + (worker ? " · " + worker : "") + " · " + todayStr();
+  const aoa = [[title], [], head];
+  rows.forEach(t => {
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    const r = [
+      t.client || "СЕРИЯ", t.product || "", t.code || "", t.operation || "",
+      qty || "", prod, Math.max(qty - prod, 0), t.due || "", t.assignee || "",
+    ];
+    if (showWs) r.unshift(t.workshop || "");
+    aoa.push(r);
+  });
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  sheet["!cols"] = (showWs ? [{ wch: 12 }] : []).concat([{ wch: 22 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 18 }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, "Задачи");
+  const wsName = (showWs ? "всички" : ws).replace(/[\\\/\?\*\[\]:]/g, "-");
+  XLSX.writeFile(wb, `Задачи-${wsName}-${todayStr()}.xlsx`);
+}
+
 function renderBulkBar(rows, ws) {
   const bulk = document.getElementById("task-bulk");
   if (amWorker()) { bulk.hidden = true; return; }
@@ -2053,6 +2101,7 @@ function tInit() {
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
   document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
+  const bx = document.getElementById("btn-export-tasks"); if (bx) bx.addEventListener("click", exportWorkshopTasksExcel);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bp = document.getElementById("btn-planning"); if (bp && typeof togglePlanning === "function") bp.addEventListener("click", togglePlanning);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
