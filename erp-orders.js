@@ -289,7 +289,7 @@ async function erpMaybeStartFinal(t, src) {
 //   даден детайл го има на склад, не се произвежда (и децата му също не се правят).
 function erpFlowSteps(s, opts) {
   const qty = erpToNum(s.erpQty) || 1;
-  const steps = [], external = [], missing = [];
+  const steps = [], external = [], missing = [], materials = {};   // materials: material_id -> нужно к-во
   const stock = (opts && opts.stock) || null;
   const consumed = (opts && opts.consumed) || null;
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
@@ -320,6 +320,8 @@ function erpFlowSteps(s, opts) {
         const cnt = make * (Number(l.quantity) || 1);
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         ops.push({ operation: op.name || "", workshop: ws, qty: cnt });
+      } else if (l.material_id) {
+        materials[l.material_id] = (materials[l.material_id] || 0) + make * (Number(l.quantity) || 1);
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
         const need = make * (Number(l.quantity) || 1);
         const res = walk(l.child_product_id, need, new Set([...anc, l.child_product_id]), depth + 1);
@@ -363,7 +365,7 @@ function erpFlowSteps(s, opts) {
       });
     });
   });
-  return { steps, external, missing };
+  return { steps, external, missing, materials };
 }
 
 // Прилага поточно производство за поръчка (една или няколко продуктови линии):
@@ -397,11 +399,13 @@ async function erpFlowApply(meta, productLines) {
   const externalAll = [];
   const consumed = {};             // product_id -> взети от склад (за цялата поръчка)
   const missingMap = {};           // code -> { code, name, qty } (липсващи детайли без рецепта)
+  const matNeed = {};              // material_id -> нужно к-во за реалното (нето) производство
   (productLines || []).forEach(line => {
     const q = erpToNum(line.qty) || 0;
     if (!q) return;
     const stepsOpts = toStock ? { keySuffix: sfx, toStockTop: true } : (stockOn ? { stock: avail, consumed } : undefined);
-    const { steps, external, missing } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
+    const { steps, external, missing, materials } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
+    Object.keys(materials || {}).forEach(mid => { matNeed[mid] = (Number(matNeed[mid]) || 0) + Number(materials[mid] || 0); });
     external.forEach(e => externalAll.push(e));
     (missing || []).forEach(m => {
       const k = m.code || m.name;
@@ -440,6 +444,23 @@ async function erpFlowApply(meta, productLines) {
       rows.push({ product_id: Number(pid), kind: "изписване", quantity: -qtyUsed, ref, note: "Взето от склад за заявка №" + (meta.orderNo || sid) });
     });
     if (rows.length) { const { error } = await sb.from("product_movements").insert(rows); if (error) return { error }; }
+  }
+
+  // 1в) Изписване на МАТЕРИАЛИТЕ, вложени в реалното (нето) производство.
+  //     Идемпотентно по ref (при повторно пускане/изтегляне се преизчислява).
+  const materialsShort = [];
+  {
+    try { await sb.from("stock_movements").delete().eq("ref", ref); } catch (e) {}
+    const matRows = [];
+    Object.keys(matNeed).forEach(mid => {
+      const q = Number(matNeed[mid]) || 0;
+      if (q <= 0) return;
+      const m = (ERP.matById && ERP.matById[mid]) || {};
+      const have = Number(m.stock) || 0;
+      if (q > have) materialsShort.push({ code: m.code || "", name: m.name || "", unit: m.unit || "", need: q, have });
+      matRows.push({ material_id: Number(mid), kind: "изписване", quantity: -q, ref, note: "Вложен в производство №" + (meta.orderNo || sid) });
+    });
+    if (matRows.length) { try { await sb.from("stock_movements").insert(matRows); } catch (e) {} }
   }
 
   // 2) Изчистваме стари НЕпоточни задачи на тази поръчка (стар последователен режим).
@@ -510,7 +531,7 @@ async function erpFlowApply(meta, productLines) {
     const { error } = await sb.from("tasks").insert(toInsert.map(d => ({ data: d })));
     if (error) return { error };
   }
-  return { external: externalAll, seriesCount: myKeys.length, fromStock, missing: missingList, error: null };
+  return { external: externalAll, seriesCount: myKeys.length, fromStock, missing: missingList, materialsShort, error: null };
 }
 
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии
@@ -519,6 +540,7 @@ async function erpFlowRemoveOrder(sampleId) {
   const sid = String(sampleId);
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid);   // стари непоточни
   try { await sb.from("product_movements").delete().eq("ref", "order:" + sid); } catch (e) {}  // връщаме взетото от склад
+  try { await sb.from("stock_movements").delete().eq("ref", "order:" + sid); } catch (e) {}    // връщаме вложените материали
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};
@@ -654,6 +676,7 @@ async function erpProduce(s) {
     + `Всяка операция получава детайлите постепенно — колкото са отчетени в предния цех, толкова минават нататък. Еднакви детайли от няколко поръчки се обединяват в СЕРИЯ.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   msg += missTxt;
+  msg += `\n\n📦 Материалите за производството ще се изпишат от склада.`;
   if (already) msg += `\n\n⚠ Вече има пуснато производство за тази поръчка. Ще обновя дела ѝ.`;
   if (!confirm(msg)) return;
 
@@ -668,9 +691,11 @@ async function erpProduce(s) {
   touch(s);
   erpRenderOrderPanel(s);
   const miss = res.missing || [];
+  const matShort = res.materialsShort || [];
   alert(`Готово! Пуснах поточно производство (${res.seriesCount} операции).\n`
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (matShort.length ? `\n\n⚠ НЕДОСТИГ НА МАТЕРИАЛИ (изписани, складът е на минус):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяването НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
 }

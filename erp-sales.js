@@ -368,6 +368,7 @@ async function erpPostSale(o) {
     .map(mid => { const m = ERP.matById[mid] || {}; return `${m.code || ""} ${m.name || ""}: налично ${erpNum(stockById[mid] || 0)}, нужно ${erpNum(need[mid])}`; });
 
   let msg = `Да осчетоводя ли продажба №${o.saleNo}?\nЩе се изпишат ${mids.length} материала от склада (движения „изписване").`;
+  msg += `\n\n⚠ Ако тази заявка вече е минала през „Пусни в производство", материалите СА ИЗПИСАНИ там — не потвърждавай тук, за да не се броят двойно.`;
   if (negatives.length) msg += `\n\n⚠ ВНИМАНИЕ — следните ще станат на минус:\n` + negatives.slice(0, 12).join("\n") + (negatives.length > 12 ? `\n…и още ${negatives.length - 12}` : "");
   msg += `\n\nДействието се прави веднъж.`;
   if (!confirm(msg)) return;

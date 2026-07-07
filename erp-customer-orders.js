@@ -364,6 +364,7 @@ async function erpCOProduce(o) {
     + `Еднакви детайли от различни поръчки се обединяват в СЕРИЯ; всяка операция приема детайлите постепенно, колкото са отчетени в предната.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   msg += missTxt;
+  msg += `\n\n📦 Материалите за производството ще се изпишат от склада.`;
   if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще обновя дела на заявката.`;
   if (!confirm(msg)) return;
 
@@ -379,9 +380,11 @@ async function erpCOProduce(o) {
   try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
   const miss = res.missing || [];
+  const matShort = res.materialsShort || [];
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (matShort.length ? `\n\n⚠ НЕДОСТИГ НА МАТЕРИАЛИ (изписани, складът е на минус):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяване НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
   erpCOTracking(o);
