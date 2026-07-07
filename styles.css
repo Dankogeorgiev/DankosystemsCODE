@@ -876,23 +876,26 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .pay-scroll { overflow-x: auto; }
 .pay-table th, .pay-table td { white-space: nowrap; }
 .pay-table .pay-ws td { background: #f1f5f9; font-size: 13px; }
-.pay-table input.pay-in, .pf-table input.pf-net, .pf-table input.pf-fri,
-.pf-table input.pf-dnevno, .pf-table input.pf-sedm { width: 88px; text-align: right; }
+.pay-table input.pay-in { width: 88px; text-align: right; }
+/* По-тесни колони за ставките и чистата сума */
+.pf-table input.pf-net, .pf-table input.pf-dnevno, .pf-table input.pf-sedm { width: 62px; text-align: right; }
+.pf-table th.pf-hd, .pf-table th.pf-hs, .pf-table td.pf-dnc, .pf-table td.pf-sec, .pf-table td.pf-netc { font-size: 11px; }
 .pf-table input.pf-net { background: #fffbeb; border-color: #fde68a; font-weight: 600; }
 .pf-table th.pf-hd, .pf-table td.pf-dnc { background: #eff6ff; }
 .pf-table th.pf-hs, .pf-table td.pf-sec { background: #ecfeff; }
 .pf-table input.pf-dnevno { background: #dbeafe; border-color: #93c5fd; }
 .pf-table input.pf-sedm { background: #cffafe; border-color: #67e8f9; }
 .pf-table tfoot .pf-foot td { background: #f1f5f9; border-top: 2px solid #cbd5e1; font-weight: 600; vertical-align: top; }
-.pf-table tfoot .pf-ftot { font-size: 11px; line-height: 1.35; color: #166534; }
+.pf-table tfoot .pf-ftot { font-size: 11px; line-height: 1.35; color: #166534; text-align: center; }
 .pf-table tfoot .pf-ftot.pf-over { color: #b45309; }
 /* Клетка за петък: надница + извънредни + разбивка банка/005 */
+.pf-table th.pf-frih { text-align: center; }
 .pf-table td.pf-fricol { vertical-align: top; }
-.pf-fline { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
-.pf-fline span { font-size: 10px; color: #64748b; width: 30px; text-align: right; }
-.pf-fline input.pf-friw, .pf-fline input.pf-frio { width: 66px; text-align: right; }
+.pf-fline { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; justify-content: center; }
+.pf-fline span { font-size: 11px; color: #475569; width: 34px; text-align: right; flex: 0 0 auto; }
+.pf-fline input.pf-friw, .pf-fline input.pf-frio { width: 96px; text-align: right; }
 .pf-fline input.pf-frio { background: #fff7ed; border-color: #fed7aa; }
-.pf-fribd { font-size: 10px; line-height: 1.3; color: #166534; text-align: right; margin-top: 2px; padding: 2px 4px; background: #f0fdf4; border-radius: 4px; }
+.pf-fribd { font-size: 10px; line-height: 1.3; color: #166534; text-align: center; margin-top: 2px; padding: 2px 4px; background: #f0fdf4; border-radius: 4px; }
 .pf-fribd.pf-over { color: #b45309; background: #fff7ed; }
 .pf-table .pf-bank { color: #166534; }
 .pf-table .pf-code { color: #64748b; }

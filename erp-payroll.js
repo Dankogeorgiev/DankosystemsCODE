@@ -151,7 +151,7 @@ async function erpPayFridaysView(v) {
         <th class="num pf-hd">ДНЕВНО</th>
         <th class="num pf-hs">СЕДМИЧНО</th>
         <th class="num">ЧИСТО ПО БАНКА</th>
-        ${fridays.map(f => `<th class="num">Петък<br>${f.label}</th>`).join("")}
+        ${fridays.map(f => `<th class="pf-frih">Петък<br>${f.label}</th>`).join("")}
         <th class="num">От банка</th>
         <th class="num">CODE 005</th>
         <th class="num">ОБЩО</th>
