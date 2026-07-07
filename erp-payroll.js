@@ -98,6 +98,7 @@ async function erpPayFridaysView(v) {
   const entries = await erpPayLoadMonth(erpPayMonth);
   const { byWs, order } = erpPayRoster();
 
+  const rateCell = (name, cls, val) => `<input type="number" class="${cls}" data-name="${escapeAttr(name)}" step="any" value="${val != null && val !== "" ? escapeAttr(String(val)) : ""}" />`;
   const netCell = (name, val) => `<input type="number" class="pf-net" data-name="${escapeAttr(name)}" step="any" value="${val != null && val !== "" ? escapeAttr(String(val)) : ""}" />`;
   const friCell = (name, iso, val) => `<input type="number" class="pf-fri" data-name="${escapeAttr(name)}" data-iso="${iso}" step="any" value="${val != null && val !== "" ? escapeAttr(String(val)) : ""}" />`;
   const empRow = e => {
@@ -106,6 +107,8 @@ async function erpPayFridaysView(v) {
     const sp = payFriSplit(r.net, fri);
     return `<tr data-row="${escapeAttr(e.name)}">
       <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button></td>
+      <td class="num pf-dnc">${rateCell(e.name, "pf-dnevno", e.dnevno)}</td>
+      <td class="num pf-sec">${rateCell(e.name, "pf-sedm", e.sedmichno)}</td>
       <td class="num pf-netc">${netCell(e.name, r.net)}</td>
       ${fridays.map(f => `<td class="num">${friCell(e.name, f.iso, fri[f.iso])}</td>`).join("")}
       <td class="num pf-bank" data-bank="${escapeAttr(e.name)}">${payEur(sp.fromBank)}</td>
@@ -126,6 +129,8 @@ async function erpPayFridaysView(v) {
     <div class="pay-scroll"><table class="report-table erp-table pay-table pf-table">
       <thead><tr>
         <th>Служител</th>
+        <th class="num pf-hd">ДНЕВНО</th>
+        <th class="num pf-hs">СЕДМИЧНО</th>
         <th class="num">ЧИСТО ПО БАНКА</th>
         ${fridays.map(f => `<th class="num">Петък<br>${f.label}</th>`).join("")}
         <th class="num">От банка</th>
@@ -133,11 +138,11 @@ async function erpPayFridaysView(v) {
         <th class="num">ОБЩО</th>
       </tr></thead>
       <tbody>
-        ${order.map(ws => `<tr class="pay-ws"><td colspan="${fridays.length + 5}"><b>${escapeHtml(ws)}</b></td></tr>` + byWs[ws].map(empRow).join("")).join("") ||
-          `<tr><td colspan="${fridays.length + 5}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
+        ${order.map(ws => `<tr class="pay-ws"><td colspan="${fridays.length + 7}"><b>${escapeHtml(ws)}</b></td></tr>` + byWs[ws].map(empRow).join("")).join("") ||
+          `<tr><td colspan="${fridays.length + 7}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
       </tbody>
     </table></div>
-    <p class="hint"><b>ЧИСТО ПО БАНКА</b> = сумата, която служителят трябва да получи чисто по банка за месеца (от ведомостта). Раздаваш пари по петъци — докато стигнеш чистата сума, парите са „От банка"; над нея излизат в <b>CODE 005</b>. „ОБЩО" = всичко раздадено (банка + CODE 005). Сумите са в евро.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят автоматично за всеки следващ месец (за нов месец попълваш само ЧИСТО ПО БАНКА). <b>ЧИСТО ПО БАНКА</b> = сумата, която служителят трябва да получи чисто по банка за месеца (от ведомостта). Раздаваш пари по петъци — докато стигнеш чистата сума, парите са „От банка"; над нея излизат в <b>CODE 005</b>. „ОБЩО" = всичко раздадено (банка + CODE 005). Сумите са в евро.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
@@ -166,7 +171,14 @@ async function erpPayFridaysView(v) {
       const rec = ent[i.dataset.name] = ent[i.dataset.name] || {};
       (rec.fri = rec.fri || {})[i.dataset.iso] = Number(String(val).replace(",", ".")) || 0;
     });
+    // ДНЕВНО и СЕДМИЧНО са ставки на служителя — пазят се при него и се пренасят за всеки месец.
+    const rate = (sel, field) => v.querySelectorAll(sel).forEach(i => {
+      const emp = (COST_CFG.employees || []).find(e => e.name === i.dataset.name);
+      if (emp) emp[field] = i.value.trim() === "" ? 0 : (Number(String(i.value).replace(",", ".")) || 0);
+    });
+    rate(".pf-dnevno", "dnevno"); rate(".pf-sedm", "sedmichno");
     const ok = await erpPaySaveMonth(erpPayMonth, ent);
+    if (typeof erpSaveCostCfg === "function") await erpSaveCostCfg();
     st.textContent = ok ? "✓ Записано" : "";
     setTimeout(() => { if (st) st.textContent = ""; }, 1500);
   });

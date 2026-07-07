@@ -876,8 +876,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .pay-scroll { overflow-x: auto; }
 .pay-table th, .pay-table td { white-space: nowrap; }
 .pay-table .pay-ws td { background: #f1f5f9; font-size: 13px; }
-.pay-table input.pay-in, .pf-table input.pf-net, .pf-table input.pf-fri { width: 88px; text-align: right; }
+.pay-table input.pay-in, .pf-table input.pf-net, .pf-table input.pf-fri,
+.pf-table input.pf-dnevno, .pf-table input.pf-sedm { width: 88px; text-align: right; }
 .pf-table input.pf-net { background: #fffbeb; border-color: #fde68a; font-weight: 600; }
+.pf-table th.pf-hd, .pf-table td.pf-dnc { background: #eff6ff; }
+.pf-table th.pf-hs, .pf-table td.pf-sec { background: #ecfeff; }
+.pf-table input.pf-dnevno { background: #dbeafe; border-color: #93c5fd; }
+.pf-table input.pf-sedm { background: #cffafe; border-color: #67e8f9; }
 .pf-table .pf-bank { color: #166534; }
 .pf-table .pf-code { color: #64748b; }
 .pf-table .pf-code.pf-over { color: #b45309; font-weight: 700; background: #fff7ed; }
