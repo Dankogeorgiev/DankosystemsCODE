@@ -71,6 +71,8 @@ const TIME_FIELDS_BY_WORKSHOP = {
 // Цехове, при които НЕ добавяме автоматичното поле „Специфична работа" (по желание
 // на цеха — да няма нищо излишно в прозореца).
 const NO_SPECIFIC_WORKSHOP = ["Преси", "Абкант"];
+// Цехове, в чийто списък със задачи НЕ показваме колоната „Дебелина".
+const HIDE_THICKNESS_WORKSHOPS = ["Заваръчно", "Преси"];
 // Допълнителни (текстови) полета по цех — напр. изразходени консумативи
 const EXTRA_FIELDS_BY_WORKSHOP = {
   "CNC цех": [
@@ -530,10 +532,11 @@ function renderTasks() {
   });
   updateSortIndicators();
 
-  // Цех Заваряване: без колона „Дебелина" и с „Коментар" вместо „Въпрос".
+  // Цехове без колона „Дебелина" (не им трябва дебелина на материала).
   const isZavView = ws === "Заваръчно";
   const tbl = document.querySelector(".tasks-table");
-  if (tbl) tbl.classList.toggle("hide-thickness", isZavView);
+  if (tbl) tbl.classList.toggle("hide-thickness", HIDE_THICKNESS_WORKSHOPS.includes(ws));
+  // Цех Заваряване: „Коментар" вместо „Въпрос".
   const thQ = document.getElementById("th-question");
   if (thQ) thQ.textContent = isZavView ? "Коментар" : "Въпрос";
 
