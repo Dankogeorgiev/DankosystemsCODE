@@ -510,6 +510,13 @@ function renderTasks() {
   });
   updateSortIndicators();
 
+  // Цех Заваряване: без колона „Дебелина" и с „Коментар" вместо „Въпрос".
+  const isZavView = ws === "Заваръчно";
+  const tbl = document.querySelector(".tasks-table");
+  if (tbl) tbl.classList.toggle("hide-thickness", isZavView);
+  const thQ = document.getElementById("th-question");
+  if (thQ) thQ.textContent = isZavView ? "Коментар" : "Въпрос";
+
   document.getElementById("tasks-empty").hidden = rows.length > 0;
 
   // Дневно обобщение, когато е избран конкретен служител
@@ -577,7 +584,7 @@ function renderTasks() {
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
         : `<td data-label="Отговорник"><select class="t-assignee">${opts.join("")}</select></td>`}
-      <td class="t-q" data-label="Въпрос">${taskQuestionCell(t)}</td>
+      <td class="t-q" data-label="${t.workshop === "Заваръчно" ? "Коментар" : "Въпрос"}">${t.workshop === "Заваръчно" ? taskCommentCell(t) : taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
@@ -612,6 +619,7 @@ function renderTasks() {
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
     const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
+    const ce = tr.querySelector(".t-comment-edit"); if (ce) ce.addEventListener("click", () => editTaskComment(t));
     const prio = tr.querySelector(".t-prio"); if (prio) prio.addEventListener("click", () => cyclePriority(t));
     tbody.appendChild(tr);
   });
@@ -938,6 +946,7 @@ function openProductionDialog(t, qtyPrefill) {
         <div><b>Клиент:</b> ${escapeHtml(t.client || "СЕРИЯ")}</div>
         <div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
         ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
+        ${(t.comment || "").trim() ? `<div class="pd-comment">💬 Коментар: ${escapeHtml(t.comment)}</div>` : ""}
       </div>
       ${machineField ? `<label>Машина *${machineField}</label>` : ""}
       <div id="pd-fields">${fieldsHtml("", qtyPrefill)}</div>
@@ -1335,6 +1344,24 @@ async function mUpdate(m) {
 // Съобщенията между служители и админи НЕ могат да се трият — пазят се завинаги.
 async function mDelete() {
   alert("Съобщенията не могат да се изтриват — те се пазят като архив на комуникацията.");
+}
+
+// Клетка „Коментар" за цех Заваряване: админът пише коментар, служителят го вижда.
+function taskCommentCell(t) {
+  const c = (t.comment || "").trim();
+  if (amWorker()) {
+    return c ? `<span class="t-comment-txt" title="Коментар от офиса">💬 ${escapeHtml(c)}</span>` : "—";
+  }
+  return `<button type="button" class="btn btn-small t-comment-edit" title="Коментар за служителя">✍ ${c ? "Промени" : "Коментар"}</button>`
+    + (c ? `<div class="t-comment-txt">${escapeHtml(c)}</div>` : "");
+}
+async function editTaskComment(t) {
+  if (amWorker()) return;
+  const v = prompt("Коментар към задачата (служителят ще го вижда):", t.comment || "");
+  if (v === null) return;
+  t.comment = v.trim();
+  await tSaveTask(t);
+  renderTasks();
 }
 
 function taskQuestionCell(t) {

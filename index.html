@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=194" />
+  <link rel="stylesheet" href="styles.css?v=196" />
   <link rel="stylesheet" href="erp.css?v=181" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 194</p>
+      <p class="login-version">версия 196</p>
     </form>
   </div>
 
@@ -412,7 +412,7 @@
             <col style="width:9%" />
             <col style="width:10%" />
             <col style="width:6%" />
-            <col style="width:6%" />
+            <col class="col-thickness" style="width:6%" />
             <col style="width:6%" />
             <col style="width:6%" />
             <col style="width:6%" />
@@ -426,7 +426,7 @@
             <tr>
               <th data-sort="priority" title="Приоритет">★</th><th data-sort="client">Клиент</th><th data-sort="product">Продукт</th><th data-sort="files">Чертеж</th><th data-sort="thickness">Дебелина</th><th data-sort="operation">Операция</th>
               <th class="num" data-sort="qty">Кол-во</th><th class="num" data-sort="produced">Произв.</th><th class="num" data-sort="remaining">Остатък</th>
-              <th data-sort="due">Срок</th><th data-sort="assignee">Отговорник</th><th>Въпрос</th><th></th>
+              <th data-sort="due">Срок</th><th data-sort="assignee">Отговорник</th><th id="th-question">Въпрос</th><th></th>
             </tr>
           </thead>
           <tbody id="tasks-body"></tbody>
@@ -504,7 +504,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="app.js?v=170"></script>
-  <script src="tasks.js?v=193"></script>
+  <script src="tasks.js?v=196"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
   <script src="planning.js?v=165"></script>
