@@ -88,7 +88,8 @@
   .fld .lb{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:5px;display:block}
   .fld input,.fld textarea{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
   .fld input[type=number]{font-family:var(--mono);text-align:right}
-  .fld input:focus,.fld textarea:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .fld>select{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px;outline:none}
+  .fld input:focus,.fld textarea:focus,.fld>select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
   .pd-time{display:flex;gap:7px}.pd-time input{flex:1 1 auto}
   .pd-time select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;color:var(--ink);flex:0 0 76px}
   .ovl-actions{display:flex;gap:8px;margin-top:18px}
@@ -179,6 +180,8 @@ let assign={};   // { "име на изделие": robotId }
 let prod={};     // { "име на изделие": заварени от роботи (общо) }
 let plog=[];     // дневник: [{date, robot, product, qty, worker, at}]
 let WELDING=[];  // заваръчни задачи от Цехове (на живо)
+let operators=[]; // служители за отчитане (цех „Заваръчно")
+let lastOp='';    // последно избран оператор (за удобство)
 let tasksLoaded=false;
 
 const $=id=>document.getElementById(id);
@@ -338,7 +341,9 @@ function openReport(product,robotId){
     <label class="fld"><span class="lb">Време за заварка на цялото количество</span><span class="pd-time"><input id="rp-order-v" type="number" min="0" step="any" placeholder="0">${timeSel('rp-order-u','min')}</span></label>
     <label class="fld"><span class="lb">Време за настройка</span><span class="pd-time"><input id="rp-setup-v" type="number" min="0" step="any" placeholder="0">${timeSel('rp-setup-u','min')}</span></label>
     <label class="fld"><span class="lb">Изразходени консумативи</span><textarea id="rp-cons" rows="2" placeholder="по желание — напр. тел, дюзи, газ"></textarea></label>
-    <label class="fld"><span class="lb">Оператор</span><input id="rp-op" type="text" value="${escAttr(window.PAINT_USER||'')}" placeholder="име / имейл"></label>
+    <label class="fld"><span class="lb">Оператор *</span>${operators.length
+      ? `<select id="rp-op"><option value="">— избери оператор —</option>${operators.map(n=>`<option${n===lastOp?' selected':''}>${esc(n)}</option>`).join('')}</select>`
+      : `<input id="rp-op" type="text" value="${escAttr(lastOp||window.PAINT_USER||'')}" placeholder="име на оператора">`}</label>
     <p class="ovl-hint">При запис бройката се добавя на робота <b>и</b> се отчита в Цех Заваряване (машина = ${esc(r.name)}).</p>
     <div class="ovl-actions"><button class="btn pri" id="rp-save">Запиши</button><button class="btn" id="rp-cancel">Отказ</button></div>
   </div>`;
@@ -353,7 +358,9 @@ function openReport(product,robotId){
     const tOrder=readT('#rp-order-v','#rp-order-u');
     const tSetup=readT('#rp-setup-v','#rp-setup-u');
     const consumables=(w.querySelector('#rp-cons').value||'').trim();
-    const worker=(w.querySelector('#rp-op').value||'').trim()||window.PAINT_USER||'';
+    const worker=(w.querySelector('#rp-op').value||'').trim();
+    if(!worker){alert('Избери оператор.');return;}
+    lastOp=worker;
     // 1) бройка на робота (споделено състояние)
     prod[product]=(prod[product]||0)+qty;
     const entry={date:todayStr(),robot:robotId,product,qty,worker,at:new Date().toISOString()};
@@ -447,15 +454,29 @@ window.LINE_STATE={
   }
 };
 
+/* ===== Служители за отчитане (цех „Заваръчно") ===== */
+async function loadOperators(c){
+  try{
+    if(Array.isArray(window.__MOCK_OPERATORS)){operators=window.__MOCK_OPERATORS.slice();return;}
+    if(!c)return;
+    const {data}=await c.from('app_config').select('*').eq('id','workers').maybeSingle();
+    const ws=(data&&data.data&&data.data.workshops)||{};
+    let list=Array.isArray(ws['Заваръчно'])?ws['Заваръчно'].slice():[];
+    if(!list.length)Object.values(ws).forEach(a=>{if(Array.isArray(a))list.push(...a);});   // резерв: всички служители
+    operators=[...new Set(list.filter(Boolean).map(s=>String(s).trim()))].sort((a,b)=>a.localeCompare(b,'bg'));
+  }catch(e){console.warn('Заваръчно роботи: служители',e);}
+}
+
 /* ===== Четене на заваръчните задачи от Цехове ===== */
 async function loadWeldingTasks(){
   try{
-    if(Array.isArray(window.__MOCK_TASKS)){WELDING=window.__MOCK_TASKS.filter(t=>(t.workshop||'')==='Заваръчно');tasksLoaded=true;route();return;}
-    if(!window.supabase||!window.DANKO_CONFIG){tasksLoaded=true;route();return;}
+    if(Array.isArray(window.__MOCK_TASKS)){WELDING=window.__MOCK_TASKS.filter(t=>(t.workshop||'')==='Заваръчно');await loadOperators(null);tasksLoaded=true;route();return;}
+    if(!window.supabase||!window.DANKO_CONFIG){await loadOperators(null);tasksLoaded=true;route();return;}
     const c=window.__sbxRoboti||(window.__sbxRoboti=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
     const {data,error}=await c.from('tasks').select('*');
     if(error)throw error;
     WELDING=(data||[]).map(r=>({...r.data,id:r.id})).filter(t=>(t.workshop||'')==='Заваръчно');
+    await loadOperators(c);
     tasksLoaded=true;route();
   }catch(e){console.warn('Заваръчно роботи: задачи',e);tasksLoaded=true;route();}
 }
