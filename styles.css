@@ -164,6 +164,7 @@ body {
 .pulse-lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .pulse-card.ok .pulse-val { color: #15803d; }
 .pulse-card.info .pulse-val { color: #1d4ed8; }
+.pulse-card.money .pulse-val { font-size: 22px; color: #0369a1; }
 .pulse-card.danger { background: #fef2f2; border-color: #fecaca; }
 .pulse-card.danger .pulse-val { color: #dc2626; }
 .pulse-card.warn { background: #fffbeb; border-color: #fde68a; }

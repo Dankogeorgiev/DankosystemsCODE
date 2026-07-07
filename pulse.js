@@ -18,16 +18,18 @@ async function renderPulse() {
   if (!v) return;
   v.innerHTML = `<p class="erp-loading">Зареждане на пулса…</p>`;
   const today = pulseToday();
-  let orders = [], tasks = [], lowMat = [];
+  let orders = [], tasks = [], lowMat = [], sales = [];
   try {
-    const [co, tk, mat] = await Promise.all([
+    const [co, tk, mat, sl] = await Promise.all([
       erpSelectAll("customer_orders", "data"),
       erpSelectAll("tasks", "data,done"),
       erpSelectAll("v_material_stock", "code,name,stock,min_stock,below_min", "below_min", true),
+      erpSelectAll("sales", "data").catch(() => ({ data: [] })),
     ]);
     orders = (co.data || []).map(r => r.data || {});
     tasks = tk.data || [];
     lowMat = mat.data || [];
+    sales = (sl && sl.data || []).map(r => r.data || {});
   } catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
@@ -59,10 +61,28 @@ async function renderPulse() {
   const wipRows = Object.entries(wipByWs).sort((a, b) => b[1] - a[1]);
   const totalWip = wipRows.reduce((s, [, n]) => s + n, 0);
 
+  // Пари: стойност на всички заявки + продажби за месеца (без ДДС), по валута.
+  const num = v => (typeof erpToNum === "function") ? erpToNum(v) : (Number(v) || 0);
+  const lineNet = arr => (arr || []).reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
+  const money = (n, cur) => Math.round(n).toLocaleString("bg-BG") + " " + (cur === "BGN" ? "лв" : cur === "EUR" ? "€" : (cur || "€"));
+  const ordersValue = orders.reduce((s, o) => s + lineNet(o.lines), 0);
+  const month = today.slice(0, 7);
+  const salesByCur = {};
+  sales.forEach(s => {
+    if (String(s.date || "").slice(0, 7) !== month) return;
+    const cur = s.currency || "EUR";
+    salesByCur[cur] = (salesByCur[cur] || 0) + lineNet(s.lines);
+  });
+  const salesMonthStr = Object.keys(salesByCur).length
+    ? Object.entries(salesByCur).map(([c, n]) => money(n, c)).join(" · ")
+    : "0 €";
+
   const card = (label, value, cls) => `<div class="pulse-card ${cls || ""}"><div class="pulse-val">${value}</div><div class="pulse-lbl">${label}</div></div>`;
 
   v.innerHTML = `
     <div class="pulse-cards">
+      ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money")}
+      ${card("продажби месец (без ДДС)", salesMonthStr, "money")}
       ${card("произведено днес (бр.)", erpNum(todayQty), "ok")}
       ${card("работници днес", workersToday.size, "")}
       ${card("активни заявки", activeOrders.length, "")}
