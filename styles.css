@@ -153,6 +153,27 @@ body {
 .btn-claim-reg:hover { background: #be123c; }
 .btn-offer { background: #d97706; color: #fff; border-color: #d97706; }
 .btn-offer:hover { background: #b45309; }
+.btn-pulse { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+.btn-pulse:hover { background: #0284c7; }
+
+/* Пулс — табло на собственика */
+#pulse-view { padding: 8px 16px 16px; }
+.pulse-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.pulse-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; text-align: center; box-shadow: var(--shadow); }
+.pulse-val { font-size: 30px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.pulse-lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.pulse-card.ok .pulse-val { color: #15803d; }
+.pulse-card.info .pulse-val { color: #1d4ed8; }
+.pulse-card.danger { background: #fef2f2; border-color: #fecaca; }
+.pulse-card.danger .pulse-val { color: #dc2626; }
+.pulse-card.warn { background: #fffbeb; border-color: #fde68a; }
+.pulse-card.warn .pulse-val { color: #b45309; }
+.pulse-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.pulse-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.pulse-panel h4 { margin: 0 0 8px; }
+.pulse-danger { color: #dc2626; font-weight: 600; }
+.pulse-warn { color: #b45309; font-weight: 600; }
+.pulse-ts { text-align: right; margin-top: 12px; font-size: 12px; }
 
 /* Контакти */
 .contacts-table th, .contacts-table td { font-size: 13px; vertical-align: top; }

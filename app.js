@@ -63,6 +63,8 @@ function financeAllowed() {
 function applyAccess() {
   const fin = document.getElementById("btn-finance");
   if (fin) fin.style.display = financeAllowed() ? "" : "none";
+  const pulse = document.getElementById("btn-pulse");
+  if (pulse) pulse.style.display = financeAllowed() ? "" : "none";
   const adminOnly = document.querySelectorAll(
     '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-erp,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {

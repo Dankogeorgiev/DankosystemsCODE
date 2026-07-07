@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=200" />
+  <link rel="stylesheet" href="styles.css?v=206" />
   <link rel="stylesheet" href="erp.css?v=197" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 205</p>
+      <p class="login-version">версия 206</p>
     </form>
   </div>
 
@@ -48,6 +48,7 @@
       <div class="hz-row">
         <button id="btn-offer" class="btn btn-offer" onclick="window.open('https://dankogeorgiev.github.io/PriceOfferCalculations/','_blank')">💶 Офериране</button>
         <button id="btn-erp" class="btn btn-erp">📦 Склад / ЕРП</button>
+        <button id="btn-pulse" class="btn btn-pulse" style="display:none">⚡ Пулс</button>
         <button id="btn-finance" class="btn btn-finance" style="display:none">💰 Финанси</button>
       </div>
     </div>
@@ -475,6 +476,20 @@
   </div>
 
   <!-- Модал: Склад · Рецепти · Себестойност (ЕРП) -->
+  <!-- Модал: Пулс (табло на собственика) -->
+  <div id="pulse-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>⚡ Пулс — какво става в момента</h2>
+        <div class="tasks-head-actions">
+          <button id="pulse-refresh" class="btn btn-small">↻ Опресни</button>
+          <button id="pulse-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div id="pulse-view"></div>
+    </div>
+  </div>
+
   <div id="erp-modal" class="overlay tasks-overlay" hidden>
     <div class="tasks-box">
       <div class="tasks-head">
@@ -503,7 +518,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js?v=139"></script>
-  <script src="app.js?v=170"></script>
+  <script src="app.js?v=206"></script>
   <script src="tasks.js?v=204"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
@@ -533,5 +548,6 @@
   <script src="erp-finance.js?v=175"></script>
   <script src="nav-back.js?v=163"></script>
   <script src="assistant.js?v=179"></script>
+  <script src="pulse.js?v=206"></script>
 </body>
 </html>
