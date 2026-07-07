@@ -40,7 +40,7 @@ function krohneProgressHtml(t) {
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
   "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC850", "VMC966", "Traub TNS60", "Лазерно Гравиране"],
-  "Преси": ["ЕП 80т", "ЕП 63т", "ЕП 40т", "ЕП 25т", "ЕП 10т", "Хидравлична", "Бормашина"],
+  "Преси": ["ЕП 80т", "ЕП 63т", "ЕП 40т", "ЕП 25т", "ЕП 10т", "Автоматична преса", "Хидравлична", "Бормашина"],
   "Абкант": ["Абкант AD-ES 1240 Електр.", "Абкант AD-R 25100 Светльо", "Абкант AD-R 25100 Наско", "Абкант AD-R 3000", "Абкант HARIS", "Бормашина"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
@@ -467,6 +467,25 @@ function renderWorkerBar() {
 }
 
 /* ---------- Списък със задачи ---------- */
+// Прогрес на цялото изделие (детайл) по операциите му: всяка операция е отделна
+// поточна задача, затова ги събираме по код на детайла. Връща брой операции,
+// коя е текущата и % готово (по произведено спрямо количество на всички операции).
+function flowDetailProgress(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !src.code) return null;
+  const stock = !!src.stock;
+  let total = 0, doneOps = 0, prodSum = 0, qtySum = 0;
+  (TASKS || []).forEach(x => {
+    const s = x.source;
+    if (!s || !s.flow || s.code !== src.code || !!s.stock !== stock) return;
+    const q = Number(x.qty) || 0, p = Number(x.produced) || 0;
+    total++; if (q > 0 && p >= q) doneOps++;
+    prodSum += Math.min(p, q); qtySum += q;
+  });
+  if (!total) return null;
+  return { total, doneOps, pct: qtySum > 0 ? Math.round(prodSum / qtySum * 100) : 0, step: (Number(src.step) || 0) + 1 };
+}
+
 function renderTasks() {
   showSub("tasks");
 
@@ -571,7 +590,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -946,6 +965,7 @@ function openProductionDialog(t, qtyPrefill) {
         <div><b>Клиент:</b> ${escapeHtml(t.client || "СЕРИЯ")}</div>
         <div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
         ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
+        ${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="pd-ops">🔢 Брой операции по изделието: <b>${pr.total}</b> · сега операция <b>${pr.step}</b> · готово <b>${pr.pct}%</b></div>` : ""; })()}
         ${(t.comment || "").trim() ? `<div class="pd-comment">💬 Коментар: ${escapeHtml(t.comment)}</div>` : ""}
       </div>
       ${machineField ? `<label>Машина *${machineField}</label>` : ""}
