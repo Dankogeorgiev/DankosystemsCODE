@@ -746,14 +746,44 @@ async function handleTaskFiles(t, files) {
     t.files.push({ name: file.name, type: file.type, path, url: data.publicUrl });
   }
   await tSaveTask(t);
+  await propagateDetailFiles(t);   // чертежите пътуват с детайла по операциите
   renderTasks();
+}
+
+// Другите операции на СЪЩИЯ детайл (по код) в потока — за да пътуват чертежите
+// (напр. закачен на Лазерно рязане да отиде и към Абкант и т.н.).
+function detailFileSiblings(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !src.code) return [];
+  return TASKS.filter(x => x.id !== t.id && x.source && x.source.flow && x.source.code === src.code && !!x.source.stock === !!src.stock);
+}
+// Придвижва чертежите на задачата към всички операции на същия детайл.
+async function propagateDetailFiles(t) {
+  for (const x of detailFileSiblings(t)) {
+    x.files = x.files || [];
+    let changed = false;
+    (t.files || []).forEach(f => {
+      if (f && f.path && !x.files.some(g => g.path === f.path)) { x.files.push({ ...f }); changed = true; }
+    });
+    if (changed) await tSaveTask(x);
+  }
 }
 async function removeTaskFile(t, i) {
   if (amWorker()) return;
   const f = (t.files || [])[i];
-  if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
+  if (!f) return;
+  const path = f.path;
+  if (path) await sb.storage.from(BUCKET).remove([path]);
   t.files.splice(i, 1);
   await tSaveTask(t);
+  // Махаме чертежа и от другите операции на детайла (пътува навсякъде).
+  if (path) {
+    for (const x of detailFileSiblings(t)) {
+      const before = (x.files || []).length;
+      x.files = (x.files || []).filter(g => g.path !== path);
+      if (x.files.length !== before) await tSaveTask(x);
+    }
+  }
   renderTasks();
 }
 
