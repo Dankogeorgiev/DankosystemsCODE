@@ -375,6 +375,10 @@ function applyTasksAccess() {
   if (wr) wr.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
   const wm = document.getElementById("tasks-welding-rachno");
   if (wm) wm.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
+  // „Excel (за печат)“ — скрит за заваръчния служител (профил zavarka@danko.local)
+  const ex = document.getElementById("btn-export-tasks");
+  if (ex) { const em = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+    ex.style.display = (w && (em === "zavarka@danko.local" || MY_ACCESS.workshop === "Заваръчно")) ? "none" : ""; }
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
