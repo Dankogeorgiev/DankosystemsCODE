@@ -142,14 +142,14 @@ async function erpPayFridaysView(v) {
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
       <span class="spacer"></span>
-      <button class="btn btn-small btn-primary" id="pf-save-rates">💾 Запази ставки (Дневно/Седмично/Чисто по банка)</button>
+      <button class="btn btn-small btn-primary" id="pf-save-rates">💾 Запази ставки (Дневно/Седмично/По банка)</button>
     </div>
     <div class="pay-scroll"><table class="report-table erp-table pay-table pf-table">
       <thead><tr>
         <th>Служител</th>
         <th class="num pf-hd">ДНЕВНО</th>
         <th class="num pf-hs">СЕДМИЧНО</th>
-        <th class="num">ЧИСТО ПО БАНКА</th>
+        <th class="num pf-hn">ПО БАНКА</th>
         ${fridays.map(f => `<th class="pf-frih">Петък<br>${f.label}</th>`).join("")}
         <th class="num">От банка</th>
         <th class="num">CODE 005</th>
@@ -171,7 +171,7 @@ async function erpPayFridaysView(v) {
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ЧИСТО ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ЧИСТО ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ЧИСТО ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.<br><b>Запазване:</b> ставките (Дневно/Седмично/Чисто по банка) се пазят с горния бутон „Запази ставки"; всеки петък се пази отделно с бутона „Запази петъка" под неговата колона.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.<br><b>Запазване:</b> ставките (Дневно/Седмично/По банка) се пазят с горния бутон „Запази ставки"; всеки петък се пази отделно с бутона „Запази петъка" под неговата колона.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
@@ -226,7 +226,7 @@ async function erpPayFridaysView(v) {
   const eachRow = fn => v.querySelectorAll("tr[data-row]").forEach(tr => fn(tr.getAttribute("data-row"), CSS.escape(tr.getAttribute("data-row"))));
   const val = (cls, esc, iso) => { const el = v.querySelector(`.${cls}[data-name="${esc}"]${iso ? `[data-iso="${iso}"]` : ""}`); return el ? el.value.trim() : ""; };
 
-  // Запази ставки: ДНЕВНО/СЕДМИЧНО (при служителя) + ЧИСТО ПО БАНКА (при месеца).
+  // Запази ставки: ДНЕВНО/СЕДМИЧНО (при служителя) + ПО БАНКА (при месеца).
   v.querySelector("#pf-save-rates").addEventListener("click", async e => {
     const btn = e.currentTarget; btn.disabled = true; btn.dataset.lbl = btn.dataset.lbl || btn.textContent; btn.textContent = "Записва…";
     const entries = await erpPayLoadMonth(erpPayMonth);

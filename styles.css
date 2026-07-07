@@ -879,7 +879,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .pay-table input.pay-in { width: 88px; text-align: right; }
 /* По-тесни колони за ставките и чистата сума */
 .pf-table input.pf-net, .pf-table input.pf-dnevno, .pf-table input.pf-sedm { width: 62px; text-align: right; }
-.pf-table th.pf-hd, .pf-table th.pf-hs, .pf-table td.pf-dnc, .pf-table td.pf-sec, .pf-table td.pf-netc { font-size: 11px; }
+.pf-table th.pf-hd, .pf-table th.pf-hs, .pf-table th.pf-hn, .pf-table td.pf-dnc, .pf-table td.pf-sec, .pf-table td.pf-netc { font-size: 11px; }
 .pf-table input.pf-net { background: #fffbeb; border-color: #fde68a; font-weight: 600; }
 .pf-table th.pf-hd, .pf-table td.pf-dnc { background: #eff6ff; }
 .pf-table th.pf-hs, .pf-table td.pf-sec { background: #ecfeff; }
