@@ -770,7 +770,7 @@ async function logProduction(t, qtyVal, extra) {
       const avail = erpFlowAvailable(t, map);
       if (add > avail) {
         alert(avail > 0
-          ? `Поточно производство: сега можеш да отчетеш най-много ${avail} бр. (толкова са произведени в предната операция).`
+          ? `Поточно производство: сега можеш да запишеш най-много ${avail} бр. (толкова са произведени в предната операция).`
           : `Поточно производство: предната операция още не е произвела детайли за тази стъпка. Изчакай предния цех.`);
         return;
       }
@@ -778,7 +778,7 @@ async function logProduction(t, qtyVal, extra) {
       const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
       if (q > 0 && pr + add > q) {
         const extra = (pr + add) - q;
-        if (!confirm(`Отчиташ ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
+        if (!confirm(`Записваш ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
       }
     }
   }
@@ -945,7 +945,7 @@ function openProductionDialog(t, qtyPrefill) {
     const qLbl = (cfgFor(machine).qtyLabel);
     const qtyInput = `<label>${escapeHtml(qLbl)} *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyValue || ""))}" /></label>`;
     if (byMachine && !machine) {
-      return qtyInput + `<p class="pd-hint">Избери машина, за да се покажат полетата за отчитане.</p>`;
+      return qtyInput + `<p class="pd-hint">Избери машина, за да се покажат полетата за записване.</p>`;
     }
     const c = cfgFor(machine);
     const mLabels = MACHINE_TIME_LABELS[machine] || {};
