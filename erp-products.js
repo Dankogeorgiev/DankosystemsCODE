@@ -26,7 +26,7 @@ function erpRenderProducts() {
       </select>
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} продукта</span>
-      <button class="btn btn-small btn-primary" id="erp-prod-add">+ Нов продукт</button>
+      <button class="btn btn-primary" id="erp-prod-add">🛠 Създай технология</button>
     </div>
     <table class="report-table erp-table">
       <thead>

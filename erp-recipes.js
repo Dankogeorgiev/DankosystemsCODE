@@ -7,12 +7,33 @@ function erpRenderRecipe(productId) {
   const v = erpView();
   if (!p) { v.innerHTML = `<p class="report-empty">Продуктът не е намерен.</p>`; return; }
 
+  // Готова ли е технологията за производство? (има поне една операция с цех в дървото)
+  const prodReady = (function () {
+    const seen = new Set();
+    return (function walk(pid) {
+      if (seen.has(pid)) return false; seen.add(pid);
+      for (const l of (ERP.linesByProduct[pid] || [])) {
+        if (l.operation_id) {
+          const op = ERP.opById[l.operation_id];
+          const ws = op && typeof erpEffectiveRoute === "function" ? erpEffectiveRoute(op).primary : (op && op.workshop);
+          if (ws && ws !== "Външна услуга") return true;
+        }
+        if (l.child_product_id && walk(l.child_product_id)) return true;
+      }
+      return false;
+    })(productId);
+  })();
+  const readyBadge = prodReady
+    ? `<span class="erp-ready-ok" title="Има операции с цех — може да се пуска в производство">✅ готова за производство</span>`
+    : `<span class="erp-ready-no" title="Добави поне една операция с цех">⏳ добави операция с цех</span>`;
+
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="erp-recipe-back">← Назад към продуктите</button>
       <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
       <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
+      ${readyBadge}
       <span class="spacer"></span>
       <span class="erp-count">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
     </div>
@@ -24,8 +45,8 @@ function erpRenderRecipe(productId) {
       <ul class="erp-tree">${erpRecipeChildren(productId, 0, new Set([productId]))}</ul>
     </div>
     <div class="erp-recipe-add">
-      <button class="btn btn-small btn-primary" id="erp-rl-add2">➕ Добави ред към рецептата</button>
-      ${p.needs_recipe ? '<span class="erp-muted">Рецептата е празна — добави материали, операции или възли (полуфабрикати).</span>' : ""}
+      <button class="btn btn-small btn-primary" id="erp-rl-add2">➕ Добави ред към технологията</button>
+      ${!prodReady ? '<span class="erp-muted">Добави <b>операции с цех</b> (напр. Лазер→Лазери, Заваряване→Заваръчно), материали и възли. Щом има поне една операция с цех, технологията е готова за производство.</span>' : ""}
     </div>
     <div class="erp-legend">
       <span class="erp-tag erp-tag-semi">полуфабрикат / възел</span>

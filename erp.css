@@ -24,6 +24,9 @@
 .erp-inline select, .erp-inline input { margin-left: 4px; }
 .erp-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
 .erp-count { font-size: 13px; color: var(--muted); }
+.erp-ready-ok { font-size: 13px; font-weight: 700; color: #15803d; background: #dcfce7; border-radius: 8px; padding: 4px 10px; }
+.erp-ready-no { font-size: 13px; font-weight: 600; color: #b45309; background: #fef3c7; border-radius: 8px; padding: 4px 10px; }
+#rl-op-extra { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0; background: #f8fafc; }
 .erp-muted { color: var(--muted); }
 .erp-warn { color: var(--danger); font-weight: 600; }
 .erp-loading { color: var(--muted); padding: 20px; text-align: center; }

@@ -7,12 +7,14 @@ async function erpReloadRecipe(productId) {
   erpRenderRecipe(productId);
 }
 
-/* ---------- + Нов продукт ---------- */
+/* ---------- 🛠 Създай технология (нов продукт + рецепта) ---------- */
 function erpNewProduct() {
   const { wrap, close } = erpDialog(`
-    <h3>Нов продукт</h3>
+    <h3>🛠 Създай технология</h3>
+    <p class="hint">Създай нов продукт, после му състави технологията (операции с цех, материали и възли).
+      Щом сложиш операции с цех, технологията работи като всички останали — може да се пуска в производство.</p>
     <label>Код <span class="erp-muted">(предложен пореден)</span><input type="text" id="np-code" value="${escapeAttr(erpNextCode())}" placeholder="код" /></label>
-    <label>Име<input type="text" id="np-name" placeholder="Наименование" /></label>
+    <label>Име<input type="text" id="np-name" placeholder="Наименование на изделието/детайла" /></label>
     <label>Тип
       <select id="np-type">
         <option value="art">Артикул (готово изделие)</option>
@@ -23,7 +25,7 @@ function erpNewProduct() {
     <label>Мярка<input type="text" id="np-unit" value="бр." /></label>
     <div class="erp-dialog-actions">
       <button class="btn" id="np-cancel">Отказ</button>
-      <button class="btn btn-primary" id="np-save">Създай</button>
+      <button class="btn btn-primary" id="np-save">Създай и състави технологията →</button>
     </div>
     <p class="save-status" id="np-status"></p>`);
   wrap.querySelector("#np-cancel").addEventListener("click", close);
@@ -51,12 +53,24 @@ function erpNewProduct() {
   });
 }
 
+// Записва цеха на една операция в маршрутизацията (app_config), за да отива
+// задачата в правилния цех при „Пусни в производство" (както при импортираните).
+async function erpSaveOpRoute(code, primary) {
+  if (!code) return null;
+  const byCode = Object.assign({}, ERP.opRoutingSaved || {});
+  byCode[code] = { primary: primary || "", alt: (byCode[code] && byCode[code].alt) || [] };
+  const { error } = await sb.from("app_config").upsert({ id: "erp_op_routing", data: { byCode }, updated_at: new Date().toISOString() });
+  if (!error) ERP.opRoutingSaved = byCode;
+  return error;
+}
+
 /* ---------- + Ред към рецептата ---------- */
 function erpAddRecipeLine(productId) {
   const p = ERP.prodById[productId];
   const mats = ERP.materials.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   const ops = ERP.operations.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   const prods = ERP.products.filter(x => x.id !== productId).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+  const workshops = (typeof erpWorkshops === "function") ? erpWorkshops() : ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция", "Външна услуга"];
 
   const opt = (id, label) => `<option value="${id}">${escapeHtml(label)}</option>`;
   const matOpts = mats.map(m => opt(m.id, (m.code ? m.code + " · " : "") + m.name)).join("");
@@ -64,19 +78,29 @@ function erpAddRecipeLine(productId) {
   const prodOpts = prods.map(x => opt(x.id, (x.code ? x.code + " · " : "") + x.name)).join("");
 
   const { wrap, close } = erpDialog(`
-    <h3>Добави ред към рецептата</h3>
+    <h3>Добави ред към технологията</h3>
     <p class="hint">За: <b>${escapeHtml(p ? (p.code || "") + " " + p.name : "")}</b></p>
     <label>Тип съставка
       <select id="rl-type">
+        <option value="operation">Операция (в цех)</option>
         <option value="material">Материал / стока</option>
-        <option value="operation">Операция (услуга)</option>
         <option value="child">Полуфабрикат / възел</option>
       </select>
     </label>
-    <label>Избери
+    <label id="rl-pick-wrap">Избери
       <input type="search" id="rl-search" placeholder="търси…" />
       <select id="rl-item" size="1"></select>
     </label>
+    <div id="rl-op-extra" hidden>
+      <label class="erp-check"><input type="checkbox" id="rl-op-new" /> ➕ Създай нова операция</label>
+      <label id="rl-op-name-wrap" hidden>Име на операцията<input type="text" id="rl-op-name" placeholder="напр. Заваряване ръчно" /></label>
+      <label>Цех (къде се изпълнява — за производство)
+        <select id="rl-op-ws">
+          <option value="">— избери цех —</option>
+          ${workshops.map(w => `<option>${escapeHtml(w)}</option>`).join("")}
+        </select>
+      </label>
+    </div>
     <label>Количество<input type="number" id="rl-qty" min="0" step="any" value="1" /></label>
     <label>Мярка<input type="text" id="rl-unit" /></label>
     <div class="erp-dialog-actions">
@@ -89,6 +113,11 @@ function erpAddRecipeLine(productId) {
   const itemSel = wrap.querySelector("#rl-item");
   const searchEl = wrap.querySelector("#rl-search");
   const unitEl = wrap.querySelector("#rl-unit");
+  const pickWrap = wrap.querySelector("#rl-pick-wrap");
+  const opExtra = wrap.querySelector("#rl-op-extra");
+  const opNew = wrap.querySelector("#rl-op-new");
+  const opNameWrap = wrap.querySelector("#rl-op-name-wrap");
+  const opWs = wrap.querySelector("#rl-op-ws");
 
   const dataFor = () => typeSel.value === "material" ? mats : typeSel.value === "operation" ? ops : prods;
   const optsFor = () => typeSel.value === "material" ? matOpts : typeSel.value === "operation" ? opOpts : prodOpts;
@@ -105,29 +134,74 @@ function erpAddRecipeLine(productId) {
   function syncUnit() {
     const id = Number(itemSel.value);
     if (typeSel.value === "material") { const m = ERP.matById[id]; unitEl.value = (m && m.unit) || ""; }
-    else if (typeSel.value === "operation") { unitEl.value = "бр."; }
+    else if (typeSel.value === "operation") { unitEl.value = "бр."; syncOpWs(); }
     else { const x = ERP.prodById[id]; unitEl.value = (x && x.unit) || "бр."; }
   }
-  typeSel.addEventListener("change", () => { searchEl.value = ""; fillItems(""); });
+  // При избор на съществуваща операция — показваме нейния текущ цех.
+  function syncOpWs() {
+    if (opNew.checked) return;
+    const op = ERP.opById[Number(itemSel.value)];
+    if (op && typeof erpEffectiveRoute === "function") opWs.value = erpEffectiveRoute(op).primary || "";
+  }
+  function refreshType() {
+    const isOp = typeSel.value === "operation";
+    opExtra.hidden = !isOp;
+    // при „нова операция" скриваме избора от списъка
+    const newMode = isOp && opNew.checked;
+    pickWrap.hidden = newMode;
+    opNameWrap.hidden = !newMode;
+    if (isOp) syncOpWs();
+  }
+  typeSel.addEventListener("change", () => { searchEl.value = ""; fillItems(""); refreshType(); });
+  opNew.addEventListener("change", () => { if (opNew.checked) opWs.value = ""; refreshType(); });
   searchEl.addEventListener("input", () => fillItems(searchEl.value));
   itemSel.addEventListener("change", syncUnit);
   fillItems("");
+  refreshType();
 
   wrap.querySelector("#rl-cancel").addEventListener("click", close);
   wrap.querySelector("#rl-save").addEventListener("click", async () => {
-    const id = Number(itemSel.value);
-    if (!id) { wrap.querySelector("#rl-status").textContent = "Избери съставка."; return; }
+    const status = wrap.querySelector("#rl-status");
     const qty = erpToNum(wrap.querySelector("#rl-qty").value) || 1;
-    const row = { product_id: productId, quantity: qty, unit: wrap.querySelector("#rl-unit").value.trim() || null };
-    if (typeSel.value === "material") row.material_id = id;
-    else if (typeSel.value === "operation") row.operation_id = id;
-    else {
-      if (id === productId) { wrap.querySelector("#rl-status").textContent = "Продукт не може да съдържа себе си."; return; }
+    const unit = wrap.querySelector("#rl-unit").value.trim() || null;
+    const row = { product_id: productId, quantity: qty, unit };
+
+    if (typeSel.value === "operation") {
+      const ws = opWs.value;
+      let opId, opCode;
+      if (opNew.checked) {
+        const opName = wrap.querySelector("#rl-op-name").value.trim();
+        if (!opName) { status.textContent = "Въведи име на операцията."; return; }
+        if (!ws && !confirm("Без цех операцията няма да отива в производство. Да я създам ли без цех?")) return;
+        status.textContent = "Създава операцията…";
+        opCode = erpNextCode();
+        const { data, error } = await sb.from("operations").insert({ code: opCode || null, name: opName, workshop: ws || null }).select("id,code").single();
+        if (error) { status.textContent = /duplicate|unique/i.test(error.message) ? "⚠ Вече има операция с този код." : "⚠ " + error.message; return; }
+        opId = data.id; opCode = data.code || opCode;
+      } else {
+        opId = Number(itemSel.value);
+        if (!opId) { status.textContent = "Избери операция."; return; }
+        const op = ERP.opById[opId] || {};
+        opCode = op.code;
+        if (!ws && !confirm("Без цех операцията няма да отива в производство. Да продължа ли?")) return;
+      }
+      // Записваме цеха в маршрутизацията (за да работи в производство).
+      if (ws && opCode) { const e = await erpSaveOpRoute(opCode, ws); if (e) { status.textContent = "⚠ Цех: " + e.message; return; } }
+      row.operation_id = opId;
+    } else if (typeSel.value === "material") {
+      const id = Number(itemSel.value);
+      if (!id) { status.textContent = "Избери материал."; return; }
+      row.material_id = id;
+    } else {
+      const id = Number(itemSel.value);
+      if (!id) { status.textContent = "Избери възел."; return; }
+      if (id === productId) { status.textContent = "Продукт не може да съдържа себе си."; return; }
       row.child_product_id = id;
     }
-    wrap.querySelector("#rl-status").textContent = "Добавя…";
+
+    status.textContent = "Добавя…";
     const { error } = await sb.from("recipe_lines").insert(row);
-    if (error) { wrap.querySelector("#rl-status").textContent = "⚠ " + error.message; return; }
+    if (error) { status.textContent = "⚠ " + error.message; return; }
     close();
     await erpReloadRecipe(productId);
   });
