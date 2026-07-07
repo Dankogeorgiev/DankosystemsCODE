@@ -38,6 +38,7 @@ function erpRenderOrderPanel(s) {
           </label>
           <button type="button" class="btn btn-small" id="erp-op-fill">↧ Вземи материалите от рецептата</button>
           <button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>
+          ${s.production ? '<button type="button" class="btn btn-small btn-danger" id="erp-op-withdraw">⬅ Изтегли от производство</button>' : ""}
         </div>
         <div id="erp-op-status" class="erp-prod-status"></div>
       ` : `
@@ -54,6 +55,8 @@ function erpRenderOrderPanel(s) {
   if (fillBtn) fillBtn.addEventListener("click", () => erpFillMaterials(s));
   const prodBtn = host.querySelector("#erp-op-produce");
   if (prodBtn) prodBtn.addEventListener("click", () => erpProduce(s));
+  const wBtn = host.querySelector("#erp-op-withdraw");
+  if (wBtn) wBtn.addEventListener("click", () => erpWithdrawProduction(s));
 
   if (linked && s.production) erpShowProduction(s);
 }
@@ -594,6 +597,21 @@ async function erpProduceToStock(productId, qty) {
     orderNo: (p.code || "") + " за склад", toStock: true,
   }, [{ productId, qty: q }]);
   return res;
+}
+
+// Изтегля мострата/поръчката от производство: маха задачите ѝ по цеховете
+// (връща взетите от склад детайли); остава като чакаща (без production).
+async function erpWithdrawProduction(s) {
+  if (!s || !s.id) return;
+  if (!confirm(`Да изтегля ли „${s.erpProductName || s.clientName || ""}" от производство?\nЗадачите по цеховете ще се премахнат; взетите от склад детайли се връщат.`)) return;
+  try {
+    if (typeof erpFlowRemoveOrder === "function") await erpFlowRemoveOrder(s.id);
+    else await sb.from("tasks").delete().eq("data->source->>sampleId", String(s.id));
+  } catch (e) { alert("Грешка при изтегляне: " + (e.message || e)); return; }
+  s.production = null;
+  touch(s);
+  erpRenderOrderPanel(s);
+  alert("Изтеглено от производство.");
 }
 
 async function erpProduce(s) {

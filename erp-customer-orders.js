@@ -133,6 +133,7 @@ async function erpRenderCOForm(o) {
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
         <button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>
+        ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
         <button class="btn btn-small" id="co-sale">🧾 Създай продажба</button>
       </div>
       <div id="co-extra"></div>
@@ -156,6 +157,8 @@ async function erpRenderCOForm(o) {
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
   document.getElementById("co-materials").addEventListener("click", () => erpCOMaterials(o));
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
+  const wBtn = document.getElementById("co-withdraw");
+  if (wBtn) wBtn.addEventListener("click", () => erpCOWithdraw(o));
   const saleBtn = document.getElementById("co-sale");
   if (saleBtn) saleBtn.addEventListener("click", () => {
     if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
@@ -382,6 +385,22 @@ async function erpCOProduce(o) {
     + (miss.length ? `\n\n⚠ Сглобяване НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
   erpCOTracking(o);
+}
+
+// Изтегля заявката от производство: маха задачите ѝ по цеховете (и връща взетите
+// от склад детайли), а заявката става отново „чакаща" (нова). Полезно при тестване.
+async function erpCOWithdraw(o) {
+  if (!o.id) return;
+  if (!confirm(`Да изтегля ли заявка №${o.ourNo || ""} от производство?\n\nЗадачите ѝ по цеховете ще се премахнат и заявката ще стане отново „чакаща". Взетите от склад детайли се връщат.\n\n(Заявката НЕ се трие — остава като чакаща.)`)) return;
+  try {
+    if (typeof erpFlowRemoveOrder === "function") await erpFlowRemoveOrder(o.id);
+    else await sb.from("tasks").delete().eq("data->source->>sampleId", String(o.id));
+  } catch (e) { alert("Грешка при изтегляне: " + (e.message || e)); return; }
+  o.production = null;
+  o.status = "нова";
+  try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
+  alert("Заявката е изтеглена от производство и е отново чакаща.");
+  erpRenderCOForm(o);
 }
 
 /* ---------- Проследяване ---------- */

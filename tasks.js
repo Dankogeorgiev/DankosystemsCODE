@@ -361,7 +361,7 @@ async function openWorkshopDirect(ws) {
 }
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
@@ -2130,7 +2130,6 @@ function tInit() {
     e.target.value = ""; taskFileTarget = null;
   });
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
-  document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
   const bx = document.getElementById("btn-export-tasks"); if (bx) bx.addEventListener("click", exportWorkshopTasksExcel);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
