@@ -31,6 +31,11 @@ const ERP_ROUTING_SEED = [
 
 function erpSeedRoute(name) {
   const s = (name || "").toLowerCase();
+  // Огъване, което се прави на ПРЕСА (ексцентрик / хидравлична / щанца) е за цех
+  // Преси, а не Абкант. Проверява се ПРЕДИ общото правило „огъв → Абкант".
+  if (s.includes("огъв") && /прес|хидравли|ексцентр|щанц/.test(s)) {
+    return { primary: "Преси", alt: ["Абкант"] };
+  }
   for (const r of ERP_ROUTING_SEED) {
     if (r.kw.some(k => s.includes(k))) return { primary: r.primary, alt: (r.alt || []).slice() };
   }
