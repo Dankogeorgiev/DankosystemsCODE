@@ -502,6 +502,7 @@ function renderTasks() {
   tbody.innerHTML = "";
 
   const rows = TASKS.filter(t => {
+    if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
     if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) {
       // моите + незаетите задачи; чуждите се скриват
@@ -655,6 +656,7 @@ function exportWorkshopTasksExcel() {
   const worker = isW ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
   let rows = TASKS.filter(t => {
+    if (t.source && t.source.kind === "extra") return false;
     if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) { if (t.assignee && t.assignee !== MY_WORKER) return false; }
     else if (worker && t.assignee !== worker) return false;
@@ -916,6 +918,73 @@ function openKrohneDialog(t, qtyPrefill) {
     await logProductionKrohne(t, op, qty, extra);
   });
   setTimeout(() => { const m = wrap.querySelector("#pd-machine"); if (m) m.focus(); }, 50);
+}
+
+/* ---------- Допълнителна дейност (извън стандартната работа) ----------
+   Служителят ЗАПИСВА извънредна дейност (описание + време). Записът се пази
+   като лог в скрита задача „Допълнителна дейност" за цеха и се показва във
+   „Времена" (collectTimeRows го включва по полето activity/tOrder). */
+function openExtraActivityDialog() {
+  const worker = amWorker() ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+  if (amWorker() && !worker) { alert("Първо избери кой си (горе)."); return; }
+  const ws = currentWorkshop();
+  const wsName = ws === "__all" ? ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.workshop) || "") : ws;
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>➕ Допълнителна дейност</h3>
+      <p class="pd-hint">Запиши дейност, различна от стандартната ти работа.${wsName ? ` Цех: <b>${escapeHtml(wsName)}</b>.` : ""}</p>
+      <label>Описание на дейността *<textarea id="ea-desc" rows="3" placeholder="Какво направи?"></textarea></label>
+      <label>Време *
+        <span class="pd-time">
+          <input id="ea-time" type="number" min="0" step="any" inputmode="decimal" placeholder="0" />
+          <select id="ea-unit"><option value="min" selected>мин</option><option value="hour">час</option><option value="sec">сек</option></select>
+        </span>
+      </label>
+      ${!amWorker() ? `<label>Служител<input id="ea-worker" type="text" value="${escapeAttr(worker)}" placeholder="Име" /></label>` : ""}
+      <div class="ask-actions">
+        <button id="ea-save" class="btn btn-primary">Запиши</button>
+        <button id="ea-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#ea-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  setTimeout(() => { const d = wrap.querySelector("#ea-desc"); if (d) d.focus(); }, 50);
+  wrap.querySelector("#ea-save").addEventListener("click", async () => {
+    const desc = (wrap.querySelector("#ea-desc").value || "").trim();
+    const v = Number(String(wrap.querySelector("#ea-time").value || "").replace(",", "."));
+    const unit = wrap.querySelector("#ea-unit").value;
+    const w = amWorker() ? worker : ((wrap.querySelector("#ea-worker") && wrap.querySelector("#ea-worker").value.trim()) || worker);
+    if (!desc) { alert("Опиши дейността."); return; }
+    if (!(v > 0)) { alert("Въведи време."); return; }
+    if (!w) { alert("Кой служител?"); return; }
+    const sec = Math.round(v * (unit === "hour" ? 3600 : unit === "min" ? 60 : 1));
+    const btn = wrap.querySelector("#ea-save"); btn.disabled = true; btn.textContent = "Записва…";
+    await saveExtraActivity(desc, sec, w, wsName);
+    close();
+  });
+}
+async function saveExtraActivity(desc, sec, worker, wsName) {
+  const log = { date: todayStr(), worker, qty: 0, tOrder: { sec }, activity: desc };
+  let t = TASKS.find(x => x.source && x.source.kind === "extra" && (x.workshop || "") === (wsName || ""));
+  if (t) {
+    t.logs = t.logs || []; t.logs.push(log);
+    await tSaveTask(t);
+  } else {
+    const data = {
+      workshop: wsName || "", client: "", product: "", code: "", operation: "Допълнителна дейност",
+      qty: 0, produced: 0, due: "", assignee: "", logs: [log], files: [], createdAt: new Date().toISOString(),
+      source: { kind: "extra" },
+    };
+    const { data: ins, error } = await sb.from("tasks").insert({ data }).select().single();
+    if (error) { alert("Грешка при запис: " + error.message); return; }
+    TASKS.unshift({ ...ins.data, id: ins.id });
+  }
+  alert("Записано ✓ Благодаря!");
+  renderTasks();
 }
 
 // Задължителен прозорец за машина + времена (полетата може да зависят от машината)
@@ -1965,13 +2034,14 @@ function logNotes(l) {
   if (l.consumables) parts.push("Консумативи: " + l.consumables);
   if (l.assemblyNote) parts.push("Сглобено: " + l.assemblyNote);
   if (l.specific) parts.push("Специфично: " + l.specific);
+  if (l.activity) parts.push("Дейност: " + l.activity);
   return parts.join(" · ");
 }
 function collectTimeRows() {
   const rows = [];
   TASKS.forEach(t => (t.logs || []).forEach(l => {
     // включваме всяко вписване, направено през Отчетния прозорец (с машина, време или бележка)
-    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.tSetup && !l.sheets && !l.consumables && !l.specific && !l.assemblyNote) return;
+    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.tSetup && !l.sheets && !l.consumables && !l.specific && !l.assemblyNote && !l.activity) return;
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
       client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
@@ -2184,6 +2254,7 @@ function tInit() {
   const bx = document.getElementById("btn-export-tasks"); if (bx) bx.addEventListener("click", exportWorkshopTasksExcel);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bp = document.getElementById("btn-planning"); if (bp && typeof togglePlanning === "function") bp.addEventListener("click", togglePlanning);
+  const bea = document.getElementById("btn-extra-activity"); if (bea) bea.addEventListener("click", openExtraActivityDialog);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
   const bidea = document.getElementById("btn-ideas"); if (bidea) bidea.addEventListener("click", openIdeas);
