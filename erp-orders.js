@@ -416,6 +416,17 @@ async function erpFlowApply(meta, productLines) {
   const myKeys = Object.keys(mine);
   const missingList = Object.values(missingMap);
 
+  // Чертежи от рецептата (продукта) — закачат се на задачите, за да пътуват по
+  // потока (напр. чертежът на детайла върви от Лазер към Абкант и нататък).
+  const drawingsByPid = {};
+  const pids = [...new Set(myKeys.map(k => mine[k].st.pid).filter(Boolean))];
+  if (pids.length) {
+    try {
+      const { data } = await sb.from("products").select("id,drawings").in("id", pids);
+      (data || []).forEach(p => { drawingsByPid[p.id] = Array.isArray(p.drawings) ? p.drawings : []; });
+    } catch (e) { /* без чертежи, ако колоната липсва */ }
+  }
+
   // 1б) Записваме изписването от склада за взетите детайли (идемпотентно по ref).
   const fromStock = [];
   if (stockOn) {
@@ -474,6 +485,12 @@ async function erpFlowApply(meta, productLines) {
     src.orders.push({ id: meta.sampleId, no: meta.orderNo || "", client: meta.clientName || "", due: meta.deadline || "", qty: add.qty });
     src.orderIds = src.orders.map(o => String(o.id));
     r.data.qty = (Number(r.data.qty) || 0) + add.qty;
+    // Закачаме чертежите от рецептата на детайла (без дублиране).
+    const dr = drawingsByPid[st.pid] || [];
+    if (dr.length) {
+      r.data.files = r.data.files || [];
+      dr.forEach(f => { if (f && f.path && !r.data.files.some(g => g.path === f.path)) r.data.files.push({ name: f.name, type: f.type, path: f.path, url: f.url }); });
+    }
   });
 
   // 5) Клиент/срок според броя поръчки; трием изпразнените серии.
