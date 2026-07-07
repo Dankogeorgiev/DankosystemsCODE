@@ -142,8 +142,7 @@ async function erpPayFridaysView(v) {
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
       <span class="spacer"></span>
-      <button class="btn btn-small btn-primary" id="pf-save">💾 Запази месеца</button>
-      <span class="save-status" id="pf-status"></span>
+      <button class="btn btn-small btn-primary" id="pf-save-rates">💾 Запази ставки (Дневно/Седмично/Чисто по банка)</button>
     </div>
     <div class="pay-scroll"><table class="report-table erp-table pay-table pf-table">
       <thead><tr>
@@ -163,13 +162,16 @@ async function erpPayFridaysView(v) {
       <tfoot><tr class="pf-foot">
         <td colspan="3"><b>ОБЩО (всички служители)</b></td>
         <td class="num"></td>
-        ${fridays.map(f => `<td class="num pf-ftot" data-iso="${f.iso}"></td>`).join("")}
+        ${fridays.map(f => `<td class="num pf-fcol">
+          <div class="pf-ftot" data-iso="${f.iso}"></div>
+          <button class="btn btn-small pf-save-fri" data-iso="${f.iso}">💾 Запази петъка</button>
+        </td>`).join("")}
         <td class="num pf-bank" id="pf-gbank"></td>
         <td class="num pf-code" id="pf-gcode"></td>
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ЧИСТО ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ЧИСТО ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ЧИСТО ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ЧИСТО ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ЧИСТО ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ЧИСТО ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.<br><b>Запазване:</b> ставките (Дневно/Седмично/Чисто по банка) се пазят с горния бутон „Запази ставки"; всеки петък се пази отделно с бутона „Запази петъка" под неговата колона.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
@@ -215,31 +217,46 @@ async function erpPayFridaysView(v) {
   v.querySelectorAll(".pf-net, .pf-friw, .pf-frio").forEach(i => i.addEventListener("input", () => { recompute(i.dataset.name); recomputeFooter(); }));
   recomputeFooter();
 
-  v.querySelector("#pf-save").addEventListener("click", async () => {
-    const st = v.querySelector("#pf-status"); st.textContent = "Записва…";
-    const ent = {};
-    v.querySelectorAll(".pf-net").forEach(i => {
-      const val = i.value.trim(); if (val === "") return;
-      (ent[i.dataset.name] = ent[i.dataset.name] || {}).net = Number(String(val).replace(",", ".")) || 0;
+  const num = x => Number(String(x).replace(",", ".")) || 0;
+  const flash = (btn, ok) => {
+    const old = btn.dataset.lbl || btn.textContent; btn.dataset.lbl = old;
+    btn.textContent = ok ? "✓ Записано" : "Грешка"; btn.disabled = false;
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  };
+  const eachRow = fn => v.querySelectorAll("tr[data-row]").forEach(tr => fn(tr.getAttribute("data-row"), CSS.escape(tr.getAttribute("data-row"))));
+  const val = (cls, esc, iso) => { const el = v.querySelector(`.${cls}[data-name="${esc}"]${iso ? `[data-iso="${iso}"]` : ""}`); return el ? el.value.trim() : ""; };
+
+  // Запази ставки: ДНЕВНО/СЕДМИЧНО (при служителя) + ЧИСТО ПО БАНКА (при месеца).
+  v.querySelector("#pf-save-rates").addEventListener("click", async e => {
+    const btn = e.currentTarget; btn.disabled = true; btn.dataset.lbl = btn.dataset.lbl || btn.textContent; btn.textContent = "Записва…";
+    const entries = await erpPayLoadMonth(erpPayMonth);
+    eachRow((name, esc) => {
+      const emp = (COST_CFG.employees || []).find(x => x.name === name);
+      if (emp) { const d = val("pf-dnevno", esc), s = val("pf-sedm", esc); emp.dnevno = d === "" ? 0 : num(d); emp.sedmichno = s === "" ? 0 : num(s); }
+      const n = val("pf-net", esc);
+      const rec = entries[name] = entries[name] || {};
+      if (n === "") delete rec.net; else rec.net = num(n);
     });
-    const setFri = (sel, key) => v.querySelectorAll(sel).forEach(i => {
-      const val = i.value.trim(); if (val === "") return;
-      const rec = ent[i.dataset.name] = ent[i.dataset.name] || {};
-      const fr = rec.fri = rec.fri || {};
-      (fr[i.dataset.iso] = fr[i.dataset.iso] || {})[key] = Number(String(val).replace(",", ".")) || 0;
-    });
-    setFri(".pf-friw", "w"); setFri(".pf-frio", "o");
-    // ДНЕВНО, СЕДМИЧНО и ИЗВЪНРЕДНИ са ставки на служителя — пазят се при него и се пренасят за всеки месец.
-    const rate = (sel, field) => v.querySelectorAll(sel).forEach(i => {
-      const emp = (COST_CFG.employees || []).find(e => e.name === i.dataset.name);
-      if (emp) emp[field] = i.value.trim() === "" ? 0 : (Number(String(i.value).replace(",", ".")) || 0);
-    });
-    rate(".pf-dnevno", "dnevno"); rate(".pf-sedm", "sedmichno");
-    const ok = await erpPaySaveMonth(erpPayMonth, ent);
+    const ok = await erpPaySaveMonth(erpPayMonth, entries);
     if (typeof erpSaveCostCfg === "function") await erpSaveCostCfg();
-    st.textContent = ok ? "✓ Записано" : "";
-    setTimeout(() => { if (st) st.textContent = ""; }, 1500);
+    flash(btn, ok);
   });
+
+  // Запази петъка: само колоната на този петък (седмично + извънредни) за всички служители.
+  v.querySelectorAll(".pf-save-fri").forEach(b => b.addEventListener("click", async e => {
+    const btn = e.currentTarget; const iso = btn.dataset.iso;
+    btn.disabled = true; btn.dataset.lbl = btn.dataset.lbl || btn.textContent; btn.textContent = "Записва…";
+    const entries = await erpPayLoadMonth(erpPayMonth);
+    eachRow((name, esc) => {
+      const w = val("pf-friw", esc, iso), o = val("pf-frio", esc, iso);
+      const rec = entries[name] = entries[name] || {};
+      const fr = rec.fri = rec.fri || {};
+      const wn = w === "" ? 0 : num(w), on = o === "" ? 0 : num(o);
+      if (wn || on) fr[iso] = { w: wn, o: on }; else delete fr[iso];
+    });
+    const ok = await erpPaySaveMonth(erpPayMonth, entries);
+    flash(btn, ok);
+  }));
 }
 
 function erpPayRoster() {
