@@ -88,6 +88,7 @@
   .fld select{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
   .fld input:focus,.fld textarea:focus,.fld select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
   .tbtns{display:flex;gap:8px;flex-wrap:wrap}
+  .rowacts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
   .pd-time{display:flex;gap:7px}.pd-time input{flex:1 1 auto}
   .pd-time select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;color:var(--ink);flex:0 0 76px}
   .ovl-actions{display:flex;gap:8px;margin-top:18px}
@@ -162,9 +163,10 @@
       </div>
       <div class="stats" id="rdStats"></div>
       <div id="rdTable"></div>
-      <p class="note">Натисни <b>⏱ Отчети</b> на изделие → въведи брой заварени, време за цялото
-        количество и консумативи. Записва се на масата <b>и</b> в Цех Заваряване. За да добавиш
-        изделия към тази маса, иди на <a href="#razpredelenie">Разпределение</a>.</p>
+      <p class="note">Натисни <b>✓ Запиши</b> на изделие → въведи брой заварени, време за цялото
+        количество и консумативи. Записва се на масата <b>и</b> в Цех Заваряване. Нужен ти е чертеж —
+        <b>📐 Искам чертеж</b> до бутона. За да добавиш изделия към тази маса, иди на
+        <a href="#razpredelenie">Разпределение</a>.</p>
     </div>
   </section>
 </div>
@@ -300,14 +302,17 @@ function renderDetail(id){
   $('rdTable').innerHTML=!tasksLoaded
     ? '<div class="empty">Зарежда…</div>'
     : (items.length? `<table class="bd"><thead><tr>
-        <th>Изделие</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th>Отчети заварени</th>
+        <th>Изделие</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th></th>
       </tr></thead><tbody>${items.map(o=>{const rem=remainOf(o.product),done=o.ordered>0&&rem===0;
         return `<tr class="${done?'done':''}">
           <td class="prod-nm">${esc(o.product)}</td>
           <td class="num">${num(o.ordered)}</td>
           <td class="num"><b>${num(prod[o.product]||0)}</b></td>
           <td class="num">${done?'<span class="pill">✓ готово</span>':num(rem)}</td>
-          <td><button class="btn pri" data-report="${escAttr(o.product)}">⏱ Отчети</button></td></tr>`;}).join('')}</tbody></table>`
+          <td><div class="rowacts">
+            <button class="btn pri" data-report="${escAttr(o.product)}">✓ Запиши</button>
+            <button class="btn" data-drawrow="${escAttr(o.product)}">📐 Искам чертеж</button>
+          </div></td></tr>`;}).join('')}</tbody></table>`
       : '<div class="empty">Тази маса още няма изделия. Добави ѝ от <a href="#razpredelenie">Разпределение</a>.</div>');
 }
 
@@ -334,7 +339,7 @@ function openReport(product,tableId){
   const ordered=orderedOf(product),remain=remainOf(product);
   const w=document.createElement('div');w.className='ovl';
   w.innerHTML=`<div class="ovl-box">
-    <h3>⏱ Отчитане — ${esc(r.name)}</h3>
+    <h3>✓ Записване — ${esc(r.name)}</h3>
     <div class="pd-task"><b>Изделие:</b> ${esc(product)}<br><span class="muted">Поръчано ${num(ordered)} · остават ${num(remain)}</span></div>
     <label class="fld"><span class="lb">Брой заварени сега *</span><input id="rp-qty" type="number" min="1" step="any" inputmode="decimal" placeholder="0"></label>
     <label class="fld"><span class="lb">Време за заварка на цялото количество</span><span class="pd-time"><input id="rp-order-v" type="number" min="0" step="any" placeholder="0">${timeSel('rp-order-u','min')}</span></label>
@@ -418,12 +423,12 @@ function tableSelect(id,prefill){
 function curTableId(){const m=(location.hash||'').match(/^#masa-(\d+)$/);return m?+m[1]:null;}
 
 // 📐 Искане на чертеж → съобщение „въпрос" до админите
-function openDrawingReq(prefillId){
+function openDrawingReq(prefillId,prefillProduct){
   const w=document.createElement('div');w.className='ovl';
   w.innerHTML=`<div class="ovl-box">
     <h3>📐 Искане на чертеж</h3>
     <label class="fld"><span class="lb">От коя маса *</span>${tableSelect('dr-table',prefillId||tables[0].id)}</label>
-    <label class="fld"><span class="lb">Изделие / детайл</span><input id="dr-prod" type="text" placeholder="напр. Носеща рама RM-200"></label>
+    <label class="fld"><span class="lb">Изделие / детайл</span><input id="dr-prod" type="text" placeholder="напр. Носеща рама RM-200" value="${escAttr(prefillProduct||'')}"></label>
     <label class="fld"><span class="lb">Какъв чертеж искаш *</span><textarea id="dr-text" rows="3" placeholder="Опиши какъв чертеж / детайл ти трябва…"></textarea></label>
     <p class="ovl-hint">Отива до администраторите (в „Съобщения → Въпроси"). Ще ти закачат чертежа към задачата.</p>
     <div class="ovl-actions"><button class="btn pri" id="dr-send">Изпрати</button><button class="btn" id="dr-cancel">Отказ</button></div>
@@ -498,6 +503,8 @@ document.addEventListener('click',e=>{
   if(ed){e.preventDefault();e.stopPropagation();renameTable(+ed.dataset.edit);return;}
   const rep=e.target.closest('[data-report]');
   if(rep){const m=(location.hash||'').match(/^#masa-(\d+)$/);if(m)openReport(rep.dataset.report,+m[1]);return;}
+  const drow=e.target.closest('[data-drawrow]');
+  if(drow){e.preventDefault();openDrawingReq(curTableId(),drow.dataset.drawrow);return;}
   const go=e.target.closest('.rcell[data-go]');
   if(go){location.hash='#masa-'+go.dataset.go;return;}
 });
