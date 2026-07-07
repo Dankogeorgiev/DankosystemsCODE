@@ -119,7 +119,7 @@ async function erpPayFridaysView(v) {
     const friCells = bd.rows.map(row => {
       const wo = row.wo;
       return `<td class="num pf-fricol">
-        <div class="pf-fline"><span>Надн.</span>${inp("pf-friw", e.name, wo.w, `data-iso="${row.iso}"`)}</div>
+        <div class="pf-fline"><span>Седм.</span>${inp("pf-friw", e.name, wo.w, `data-iso="${row.iso}"`)}</div>
         <div class="pf-fline"><span>Изв.</span>${inp("pf-frio", e.name, wo.o, `data-iso="${row.iso}"`)}</div>
         <div class="pf-fribd ${row.code > 0 ? "pf-over" : ""}" data-name="${escapeAttr(e.name)}" data-iso="${row.iso}">${friBreak(row.bank, row.code)}</div>
       </td>`;
@@ -128,7 +128,6 @@ async function erpPayFridaysView(v) {
       <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button></td>
       <td class="num pf-dnc">${inp("pf-dnevno", e.name, e.dnevno)}</td>
       <td class="num pf-sec">${inp("pf-sedm", e.name, e.sedmichno)}</td>
-      <td class="num pf-izc">${inp("pf-izv", e.name, e.izvanredni)}</td>
       <td class="num pf-netc">${inp("pf-net", e.name, r.net)}</td>
       ${friCells}
       <td class="num pf-bank" data-bank="${escapeAttr(e.name)}">${payEur(bd.fromBank)}</td>
@@ -151,7 +150,6 @@ async function erpPayFridaysView(v) {
         <th>Служител</th>
         <th class="num pf-hd">ДНЕВНО</th>
         <th class="num pf-hs">СЕДМИЧНО</th>
-        <th class="num pf-hi">ИЗВЪНРЕДНИ</th>
         <th class="num">ЧИСТО ПО БАНКА</th>
         ${fridays.map(f => `<th class="num">Петък<br>${f.label}</th>`).join("")}
         <th class="num">От банка</th>
@@ -159,11 +157,19 @@ async function erpPayFridaysView(v) {
         <th class="num">ОБЩО</th>
       </tr></thead>
       <tbody>
-        ${order.map(ws => `<tr class="pay-ws"><td colspan="${fridays.length + 8}"><b>${escapeHtml(ws)}</b></td></tr>` + byWs[ws].map(empRow).join("")).join("") ||
-          `<tr><td colspan="${fridays.length + 8}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
+        ${order.map(ws => `<tr class="pay-ws"><td colspan="${fridays.length + 7}"><b>${escapeHtml(ws)}</b></td></tr>` + byWs[ws].map(empRow).join("")).join("") ||
+          `<tr><td colspan="${fridays.length + 7}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
       </tbody>
+      <tfoot><tr class="pf-foot">
+        <td colspan="3"><b>ОБЩО (всички служители)</b></td>
+        <td class="num"></td>
+        ${fridays.map(f => `<td class="num pf-ftot" data-iso="${f.iso}"></td>`).join("")}
+        <td class="num pf-bank" id="pf-gbank"></td>
+        <td class="num pf-code" id="pf-gcode"></td>
+        <td class="num pf-tot" id="pf-gtot"></td>
+      </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b>, <b>СЕДМИЧНО</b> и <b>ИЗВЪНРЕДНИ</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ЧИСТО ПО БАНКА). Всеки петък има две полета: <b>Надн.</b> (седмична надница) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. <b>ЧИСТО ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ЧИСТО ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ЧИСТО ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ЧИСТО ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ЧИСТО ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
@@ -184,7 +190,30 @@ async function erpPayFridaysView(v) {
     const cd = v.querySelector(`.pf-code[data-code="${esc}"]`); if (cd) { cd.textContent = payEur(bd.code005); cd.classList.toggle("pf-over", bd.code005 > 0); }
     const tt = v.querySelector(`.pf-tot[data-tot="${esc}"]`); if (tt) tt.innerHTML = `<b>${payEur(bd.sum)}</b>`;
   };
-  v.querySelectorAll(".pf-net, .pf-friw, .pf-frio").forEach(i => i.addEventListener("input", () => recompute(i.dataset.name)));
+  // Долен ред: за всеки петък — общо по банка и общо по CODE 005 за всички служители.
+  const recomputeFooter = () => {
+    const perFri = {}; fridays.forEach(f => perFri[f.iso] = { bank: 0, code: 0 });
+    let gBank = 0, gCode = 0;
+    v.querySelectorAll("tr[data-row]").forEach(tr => {
+      const esc = CSS.escape(tr.getAttribute("data-row"));
+      const net = Number((v.querySelector(`.pf-net[data-name="${esc}"]`) || {}).value) || 0;
+      const fri = {};
+      v.querySelectorAll(`.pf-friw[data-name="${esc}"]`).forEach(i => { (fri[i.dataset.iso] = fri[i.dataset.iso] || {}).w = Number(i.value) || 0; });
+      v.querySelectorAll(`.pf-frio[data-name="${esc}"]`).forEach(i => { (fri[i.dataset.iso] = fri[i.dataset.iso] || {}).o = Number(i.value) || 0; });
+      const bd = payFriBreakdown(net, fri, fridays);
+      bd.rows.forEach(row => { perFri[row.iso].bank += row.bank; perFri[row.iso].code += row.code; });
+      gBank += bd.fromBank; gCode += bd.code005;
+    });
+    fridays.forEach(f => {
+      const el = v.querySelector(`.pf-ftot[data-iso="${f.iso}"]`);
+      if (el) { const t = perFri[f.iso]; el.innerHTML = `🏦 ${payEur(t.bank)}<br>005 ${payEur(t.code)}`; el.classList.toggle("pf-over", t.code > 0); }
+    });
+    const gb = v.querySelector("#pf-gbank"); if (gb) gb.innerHTML = `<b>${payEur(gBank)}</b>`;
+    const gc = v.querySelector("#pf-gcode"); if (gc) gc.innerHTML = `<b>${payEur(gCode)}</b>`;
+    const gt = v.querySelector("#pf-gtot"); if (gt) gt.innerHTML = `<b>${payEur(gBank + gCode)}</b>`;
+  };
+  v.querySelectorAll(".pf-net, .pf-friw, .pf-frio").forEach(i => i.addEventListener("input", () => { recompute(i.dataset.name); recomputeFooter(); }));
+  recomputeFooter();
 
   v.querySelector("#pf-save").addEventListener("click", async () => {
     const st = v.querySelector("#pf-status"); st.textContent = "Записва…";
@@ -205,7 +234,7 @@ async function erpPayFridaysView(v) {
       const emp = (COST_CFG.employees || []).find(e => e.name === i.dataset.name);
       if (emp) emp[field] = i.value.trim() === "" ? 0 : (Number(String(i.value).replace(",", ".")) || 0);
     });
-    rate(".pf-dnevno", "dnevno"); rate(".pf-sedm", "sedmichno"); rate(".pf-izv", "izvanredni");
+    rate(".pf-dnevno", "dnevno"); rate(".pf-sedm", "sedmichno");
     const ok = await erpPaySaveMonth(erpPayMonth, ent);
     if (typeof erpSaveCostCfg === "function") await erpSaveCostCfg();
     st.textContent = ok ? "✓ Записано" : "";
