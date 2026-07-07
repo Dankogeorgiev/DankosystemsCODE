@@ -871,3 +871,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .kd-status-title { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
 .kd-op { font-size: 13px; color: #475569; padding: 2px 0; }
 .kd-op.ok { color: #166534; font-weight: 600; }
+
+/* Заплати — изглед „По петъци" (банка + CODE 005) */
+.pay-scroll { overflow-x: auto; }
+.pay-table th, .pay-table td { white-space: nowrap; }
+.pay-table .pay-ws td { background: #f1f5f9; font-size: 13px; }
+.pay-table input.pay-in, .pf-table input.pf-net, .pf-table input.pf-fri { width: 88px; text-align: right; }
+.pf-table input.pf-net { background: #fffbeb; border-color: #fde68a; font-weight: 600; }
+.pf-table .pf-bank { color: #166534; }
+.pf-table .pf-code { color: #64748b; }
+.pf-table .pf-code.pf-over { color: #b45309; font-weight: 700; background: #fff7ed; }
+.pf-table .pf-tot { background: #f8fafc; }
