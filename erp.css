@@ -86,6 +86,9 @@
 .dc-col { flex: 1 1 280px; min-width: 240px; }
 .dc-un { margin: 0; padding: 6px 6px 6px 22px; font-size: 12px; line-height: 1.5; }
 .dc-un li { word-break: break-all; }
+/* Бутон „Чертежи" в Склад детайли — червеникав, ако детайлът има чертеж */
+.ds-draw-has { background: #fee2e2; border-color: #f2a6a6; color: #b91c1c; font-weight: 600; }
+.ds-draw-has:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
 .erp-leaf.erp-warn, .erp-leaf.erp-muted { padding: 4px 0 4px 24px; font-size: 13px; }
 .erp-legend { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 

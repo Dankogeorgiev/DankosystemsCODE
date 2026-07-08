@@ -6,6 +6,21 @@
 
 let DS_TERM = "";
 let DS_ONLY_STOCK = false;
+let DS_HAS_DRAW = new Set();   // id-та на продукти с поне един чертеж (за оцветяване на бутона)
+
+// Зарежда наведнъж кои продукти имат чертежи (products.drawings непразно).
+async function dsLoadHasDrawings() {
+  DS_HAS_DRAW = new Set();
+  try {
+    const { data } = await sb.from("products").select("id,drawings");
+    (data || []).forEach(r => { if (Array.isArray(r.drawings) && r.drawings.length) DS_HAS_DRAW.add(r.id); });
+  } catch (e) { /* при грешка бутоните остават неоцветени */ }
+}
+// Има ли продуктът чертеж? Зареденото в паметта има превес (за да отразява промени).
+function dsHasDrawing(p) {
+  if (Array.isArray(p.drawings)) return p.drawings.length > 0;
+  return DS_HAS_DRAW.has(p.id);
+}
 
 // Кои продукти са „детайли/възли" (не крайни артикули без рецепта-предназначение):
 // показваме полуфабрикатите + всичко, което участва в рецепта на друг продукт.
@@ -78,6 +93,8 @@ async function erpRenderDetailStock() {
   if (dc) dc.addEventListener("click", dsCheckDrawings);
   dsFillRows();
   if (q) q.focus();
+  // Зареждаме кои имат чертежи и оцветяваме бутоните (без да чакаме за самата таблица).
+  dsLoadHasDrawings().then(() => dsFillRows());
 }
 
 // Пълни само редовете на таблицата според текущото търсене/филтър (без да
@@ -101,7 +118,7 @@ function dsFillRows() {
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
-        <button type="button" class="btn btn-small ds-draw" data-id="${p.id}">📎 чертежи</button>
+        <button type="button" class="btn btn-small ds-draw${dsHasDrawing(p) ? " ds-draw-has" : ""}" data-id="${p.id}" title="${dsHasDrawing(p) ? "Има прикачен чертеж" : "Няма чертеж"}">📎 чертежи</button>
         <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
       </td>
     </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма детайли по този филтър.</td></tr>`;
@@ -287,6 +304,7 @@ async function dsBulkUpload(groups, wrap, close) {
     }
   }
   if (close) close();
+  if (document.getElementById("ds-tbody")) dsFillRows();   // пре-оцветяваме бутоните
   alert(`Готово!\n✅ Качени нови: ${ok}`
     + (dup ? `\n↩ Вече качени (прескочени): ${dup}` : "")
     + (failed ? `\n⚠ Неуспешни качвания (файл): ${failed}\n` + failedNames.slice(0, 15).join("\n") : "")
