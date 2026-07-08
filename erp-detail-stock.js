@@ -91,6 +91,7 @@ function dsFillRows() {
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
+        <button type="button" class="btn btn-small ds-draw" data-id="${p.id}">📎 чертежи</button>
         <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
       </td>
     </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма детайли по този филтър.</td></tr>`;
@@ -100,6 +101,10 @@ function dsFillRows() {
   tbody.querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
   tbody.querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
   tbody.querySelectorAll(".ds-prod").forEach(b => b.addEventListener("click", () => dsProduce(Number(b.dataset.id))));
+  tbody.querySelectorAll(".ds-draw").forEach(b => b.addEventListener("click", () => {
+    if (typeof erpNodeDrawings === "function") erpNodeDrawings(Number(b.dataset.id));
+    else alert("Модулът за чертежи не е зареден. Презареди страницата.");
+  }));
 }
 
 // Пуска детайл за производство ЗА СКЛАД (без заявка) — минава по цеховете и
