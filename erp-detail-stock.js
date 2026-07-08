@@ -134,20 +134,36 @@ async function dsProduce(pid) {
     + (miss.length ? `\n\n⚠ Липсват детайли: ` + miss.map(m => m.code || m.name).join(", ") : ""));
 }
 
-// Намира продукт по името на файла — по кода в началото (напр. „100526_...").
-function dsMatchProductByFilename(base, products) {
+// Индекс по код (веднъж), сортиран по дължина — за бързо и точно разпознаване.
+function dsBuildCodeIndex(products) {
+  const byCode = {}; const list = [];
+  (products || []).forEach(p => { const c = String(p.code || "").trim().toLowerCase(); if (c) { byCode[c] = p; list.push({ p, c }); } });
+  list.sort((a, b) => b.c.length - a.c.length);
+  return { byCode, list };
+}
+// Намира продукт по името на файла — кодът може да е НАВСЯКЪДЕ в името
+// (като отделна „дума" или ограден от небуквено-цифрови знаци), не само отпред.
+function dsMatchProductByFilename(base, idx) {
   const b = String(base || "").trim().toLowerCase();
   if (!b) return null;
-  const sep = /[\s._\-–—]+/;
-  const token = b.split(sep)[0];
-  let p = products.find(x => String(x.code || "").trim().toLowerCase() === token);
-  if (p) return p;
-  // Резервно: най-дългият код, с който името започва на граница (за кодове със знаци).
-  const cands = products.filter(x => x.code)
-    .map(x => ({ x, c: String(x.code).trim().toLowerCase() }))
-    .filter(o => o.c && b.startsWith(o.c) && (b.length === o.c.length || /[\s._\-–—]/.test(b[o.c.length])))
-    .sort((a, c) => c.c.length - a.c.length);
-  return cands.length ? cands[0].x : null;
+  const { byCode, list } = idx;
+  // 1) Кодът като отделна „дума" някъде в името (дължина >= 3, за да не хване „3мм").
+  const tokens = b.split(/[\s._\-–—()\[\]]+/).filter(t => t.length >= 3);
+  for (const t of tokens) { if (byCode[t]) return byCode[t]; }
+  // 2) Най-дългият код, с който името започва на граница (кодове със знаци/тирета).
+  for (const o of list) {
+    if (b.startsWith(o.c) && (b.length === o.c.length || /[^a-z0-9]/i.test(b[o.c.length]))) return o.p;
+  }
+  // 3) Кодът се съдържа някъде в името, ограден от небуквено-цифрови граници.
+  for (const o of list) {
+    if (o.c.length < 3) continue;
+    const i = b.indexOf(o.c);
+    if (i < 0) continue;
+    const before = i === 0 ? "" : b[i - 1];
+    const after = b[i + o.c.length] || "";
+    if ((before === "" || /[^a-z0-9]/i.test(before)) && (after === "" || /[^a-z0-9]/i.test(after))) return o.p;
+  }
+  return null;
 }
 
 // Предполага MIME по разширението (за файлове извадени от архив).
@@ -182,58 +198,100 @@ async function dsExpandFiles(files) {
   return out;
 }
 
-// Качва много чертежи наведнъж — разпределя ги по детайлите според кода в името.
+// Стъпка 1: разпознаване + ПРЕГЛЕД (какво е разпознато и какво не) преди качване.
 async function dsBulkDrawings(rawFiles) {
   const files = await dsExpandFiles(rawFiles || []);
   if (!files.length) { alert("Няма чертежи за качване (архивът е празен или няма разпознати файлове)."); return; }
-  const products = ERP.products || [];
+  const idx = dsBuildCodeIndex(ERP.products || []);
   const groups = new Map();        // pid -> { p, files: [] }
   const unmatched = [];
   files.forEach(f => {
     const base = f.name.replace(/\.[^.]+$/, "");
-    const p = dsMatchProductByFilename(base, products);
+    const p = dsMatchProductByFilename(base, idx);
     if (!p) { unmatched.push(f.name); return; }
     if (!groups.has(p.id)) groups.set(p.id, { p, files: [] });
     groups.get(p.id).files.push(f);
   });
-  if (!groups.size) {
-    alert("Нито един файл не съвпадна по код с детайл.\n\nИмената трябва да ЗАПОЧВАТ с кода на детайла, напр. 100526_....pdf"
-      + (unmatched.length ? "\n\nНенамерени:\n" + unmatched.slice(0, 20).join("\n") : ""));
-    return;
-  }
-  const summary = [...groups.values()].map(g => `${g.p.code || "?"} ${g.p.name || ""} — ${g.files.length} чертеж(а)`).join("\n");
-  if (!confirm(`Ще кача чертежи за ${groups.size} детайла:\n\n${summary}`
-    + (unmatched.length ? `\n\n⚠ Ненамерени по код (ще се прескочат): ${unmatched.length}` : "")
-    + `\n\nПродължавам?`)) return;
+  dsBulkPreview(groups, unmatched, files.length);
+}
 
-  let ok = 0, failed = 0, saveErr = 0, idx = 0;
+// Прегледен диалог: показва разпознати/неразпознати и чак тогава качва.
+function dsBulkPreview(groups, unmatched, total) {
+  const matchedCount = [...groups.values()].reduce((s, g) => s + g.files.length, 0);
+  const gList = [...groups.values()].sort((a, b) => b.files.length - a.files.length);
+  const { wrap, close } = erpDialog(`
+    <h3>Преглед на чертежите за качване</h3>
+    <p>Избрани файла: <b>${total}</b> · разпознати: <b>${matchedCount}</b> за <b>${groups.size}</b> детайла · <b class="${unmatched.length ? "erp-warn" : ""}">ненамерени: ${unmatched.length}</b></p>
+    ${unmatched.length ? `<p class="hint">Ненамерените нямат разпознаваем код в името. Свали списъка, преименувай ги (кодът да е в името) и качи пак само тях.</p>` : ""}
+    <div class="dc-cols">
+      <div class="dc-col"><h4 class="erp-group-head">✅ Разпознати (${groups.size} детайла)</h4>
+        <div class="dc-list">${gList.length ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Детайл</th><th class="num">Файла</th></tr></thead><tbody>${
+          gList.map(g => `<tr><td>${escapeHtml(g.p.code || "")}</td><td>${escapeHtml(g.p.name || "")}</td><td class="num">${g.files.length}</td></tr>`).join("")
+        }</tbody></table>` : `<p class="erp-muted">Нищо разпознато.</p>`}</div>
+      </div>
+      <div class="dc-col"><h4 class="erp-group-head">❌ Ненамерени (${unmatched.length})</h4>
+        <div class="dc-list">${unmatched.length ? `<ul class="dc-un">${unmatched.slice(0, 400).map(n => `<li>${escapeHtml(n)}</li>`).join("")}${unmatched.length > 400 ? `<li class="erp-muted">…и още ${unmatched.length - 400}</li>` : ""}</ul>` : `<p class="erp-ready-ok">Всичко е разпознато 👍</p>`}</div>
+      </div>
+    </div>
+    <div class="erp-dialog-actions">
+      ${unmatched.length ? `<button class="btn btn-small" id="dbp-export">⤓ Свали ненамерените</button>` : ""}
+      <span class="spacer"></span>
+      <button class="btn" id="dbp-cancel">Отказ</button>
+      <button class="btn btn-primary" id="dbp-go" ${groups.size ? "" : "disabled"}>Качи разпознатите (${matchedCount})</button>
+    </div>
+    <div id="dbp-prog"></div>`);
+  wrap.querySelector("#dbp-cancel").addEventListener("click", close);
+  const exp = wrap.querySelector("#dbp-export");
+  if (exp) exp.addEventListener("click", () => {
+    const blob = new Blob(["﻿" + "Ненамерени файлове (нямат разпознат код в името)\n" + unmatched.join("\n")], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "nenameren-chertezhi.txt"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  wrap.querySelector("#dbp-go").addEventListener("click", () => dsBulkUpload(groups, wrap, close));
+}
+
+// Стъпка 2: реалното качване (с прогрес и без дублиране на вече качени файлове).
+async function dsBulkUpload(groups, wrap, close) {
+  const prog = wrap.querySelector("#dbp-prog");
+  const go = wrap.querySelector("#dbp-go"); if (go) go.disabled = true;
+  const total = [...groups.values()].reduce((s, g) => s + g.files.length, 0);
+  let ok = 0, dup = 0, failed = 0, saveErr = 0, idx = 0, doneFiles = 0;
   const failedNames = [];
+  prog.innerHTML = `<div class="dc-prog"><div class="dc-bar"><span id="dbp-fill"></span></div><span id="dbp-pct">0%</span></div>`;
+  const tick = () => { doneFiles++; const pct = Math.round(doneFiles / total * 100); const f = wrap.querySelector("#dbp-fill"); if (f) f.style.width = pct + "%"; const t = wrap.querySelector("#dbp-pct"); if (t) t.textContent = pct + "%"; };
+
   for (const g of groups.values()) {
     const p = g.p;
-    // Взимаме НАЙ-АКТУАЛНИТЕ чертежи от базата (не от кеша), за да не презапишем
-    // нещо качено преди — така нищо не изчезва.
+    // Актуалните чертежи от базата (не от кеша) — за да не презапишем/дублираме.
     let list = [];
     try {
       const { data: cur } = await sb.from("products").select("drawings").eq("id", p.id).maybeSingle();
       list = (cur && Array.isArray(cur.drawings)) ? cur.drawings.slice() : [];
     } catch (e) { list = Array.isArray(p.drawings) ? p.drawings.slice() : []; }
+    const have = new Set(list.map(d => String((d && d.name) || "").toLowerCase()));
+    let changed = false;
     for (const file of g.files) {
+      if (have.has(file.name.toLowerCase())) { dup++; tick(); continue; }   // вече качен — прескачаме
       const path = `products/${p.id}/${Date.now()}-${idx++}-${safeName(file.name)}`;
       const up = await sb.storage.from(BUCKET).upload(path, file);
-      if (up.error) { failed++; failedNames.push(file.name); continue; }
+      if (up.error) { failed++; failedNames.push(file.name); tick(); continue; }
       const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
       list.push({ name: file.name, type: file.type, path, url: data.publicUrl });
-      ok++;
+      have.add(file.name.toLowerCase());
+      ok++; changed = true; tick();
     }
-    const { error } = await sb.from("products").update({ drawings: list }).eq("id", p.id);
-    if (error) { saveErr++; alert("Грешка при запис за „" + (p.code || p.name) + "“: " + error.message); }
-    else if (ERP.prodById[p.id]) ERP.prodById[p.id].drawings = list;   // синхронизираме кеша
+    if (changed) {
+      const { error } = await sb.from("products").update({ drawings: list }).eq("id", p.id);
+      if (error) { saveErr++; }
+      else if (ERP.prodById[p.id]) ERP.prodById[p.id].drawings = list;
+    }
   }
-  alert(`Готово! Качени ${ok} чертежа за ${groups.size} детайла.`
+  if (close) close();
+  alert(`Готово!\n✅ Качени нови: ${ok}`
+    + (dup ? `\n↩ Вече качени (прескочени): ${dup}` : "")
     + (failed ? `\n⚠ Неуспешни качвания (файл): ${failed}\n` + failedNames.slice(0, 15).join("\n") : "")
     + (saveErr ? `\n⚠ Детайли с грешка при запис в базата: ${saveErr}` : "")
-    + (unmatched.length ? `\n\nНенамерени по код (${unmatched.length}):\n` + unmatched.slice(0, 30).join("\n") : "")
-    + `\n\n💡 Натисни „🔎 Провери чертежите", за да сверим кое реално е записано.`);
+    + `\n\n💡 Натисни „🔎 Провери чертежите", за да сверим общо колко са записани.`);
 }
 
 /* ---------- Проверка на чертежите (запис в базата ↔ файл в облака) ---------- */
