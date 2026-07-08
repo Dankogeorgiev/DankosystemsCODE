@@ -51,7 +51,11 @@ async function erpRenderDetailStock() {
       <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
       <label class="btn btn-small btn-primary" for="ds-import-file">⤴ Импортирай наличности</label>
       <input type="file" id="ds-import-file" accept=".xlsx,.xls,.csv" hidden />
+      <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи наведнъж — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
+      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf" multiple hidden />
     </div>
+    <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
+      <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.</p>
     <table class="report-table erp-table">
       <thead><tr><th>Код</th><th>Детайл/възел</th><th class="num">Наличност</th><th>Движение</th></tr></thead>
       <tbody id="ds-tbody"></tbody>
@@ -66,6 +70,8 @@ async function erpRenderDetailStock() {
   if (exp) exp.addEventListener("click", dsExportTemplate);
   const imp = document.getElementById("ds-import-file");
   if (imp) imp.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) dsImportFill(f); });
+  const db = document.getElementById("ds-draw-bulk");
+  if (db) db.addEventListener("change", e => { const fs = [...(e.target.files || [])]; e.target.value = ""; if (fs.length) dsBulkDrawings(fs); });
   dsFillRows();
   if (q) q.focus();
 }
@@ -122,6 +128,66 @@ async function dsProduce(pid) {
   alert(`Пуснах ${erpNum(q)} бр. „${p.name}" по цеховете.\n`
     + `Щом минат последната операция, ще влязат автоматично в Склад детайли.`
     + (miss.length ? `\n\n⚠ Липсват детайли: ` + miss.map(m => m.code || m.name).join(", ") : ""));
+}
+
+// Намира продукт по името на файла — по кода в началото (напр. „100526_...").
+function dsMatchProductByFilename(base, products) {
+  const b = String(base || "").trim().toLowerCase();
+  if (!b) return null;
+  const sep = /[\s._\-–—]+/;
+  const token = b.split(sep)[0];
+  let p = products.find(x => String(x.code || "").trim().toLowerCase() === token);
+  if (p) return p;
+  // Резервно: най-дългият код, с който името започва на граница (за кодове със знаци).
+  const cands = products.filter(x => x.code)
+    .map(x => ({ x, c: String(x.code).trim().toLowerCase() }))
+    .filter(o => o.c && b.startsWith(o.c) && (b.length === o.c.length || /[\s._\-–—]/.test(b[o.c.length])))
+    .sort((a, c) => c.c.length - a.c.length);
+  return cands.length ? cands[0].x : null;
+}
+
+// Качва много чертежи наведнъж — разпределя ги по детайлите според кода в името.
+async function dsBulkDrawings(files) {
+  if (!files || !files.length) return;
+  const products = ERP.products || [];
+  const groups = new Map();        // pid -> { p, files: [] }
+  const unmatched = [];
+  files.forEach(f => {
+    const base = f.name.replace(/\.[^.]+$/, "");
+    const p = dsMatchProductByFilename(base, products);
+    if (!p) { unmatched.push(f.name); return; }
+    if (!groups.has(p.id)) groups.set(p.id, { p, files: [] });
+    groups.get(p.id).files.push(f);
+  });
+  if (!groups.size) {
+    alert("Нито един файл не съвпадна по код с детайл.\n\nИмената трябва да ЗАПОЧВАТ с кода на детайла, напр. 100526_....pdf"
+      + (unmatched.length ? "\n\nНенамерени:\n" + unmatched.slice(0, 20).join("\n") : ""));
+    return;
+  }
+  const summary = [...groups.values()].map(g => `${g.p.code || "?"} ${g.p.name || ""} — ${g.files.length} чертеж(а)`).join("\n");
+  if (!confirm(`Ще кача чертежи за ${groups.size} детайла:\n\n${summary}`
+    + (unmatched.length ? `\n\n⚠ Ненамерени по код (ще се прескочат): ${unmatched.length}` : "")
+    + `\n\nПродължавам?`)) return;
+
+  let ok = 0, failed = 0, idx = 0;
+  for (const g of groups.values()) {
+    const p = g.p;
+    if (typeof erpLoadDrawings === "function") await erpLoadDrawings(p.id);
+    p.drawings = p.drawings || [];
+    for (const file of g.files) {
+      const path = `products/${p.id}/${Date.now()}-${idx++}-${safeName(file.name)}`;
+      const { error } = await sb.storage.from(BUCKET).upload(path, file);
+      if (error) { failed++; continue; }
+      const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+      p.drawings.push({ name: file.name, type: file.type, path, url: data.publicUrl });
+      ok++;
+    }
+    const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", p.id);
+    if (error) alert("Грешка при запис за „" + (p.code || p.name) + "“: " + error.message);
+  }
+  alert(`Готово! Качени ${ok} чертежа за ${groups.size} детайла.`
+    + (failed ? `\nНеуспешни качвания: ${failed}` : "")
+    + (unmatched.length ? `\n\nНенамерени по код (${unmatched.length}):\n` + unmatched.slice(0, 30).join("\n") : ""));
 }
 
 // Сваля Excel-шаблон с всички детайли/възли за попълване на наличности.
