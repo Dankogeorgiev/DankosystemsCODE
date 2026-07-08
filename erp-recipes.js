@@ -63,6 +63,8 @@ function erpRenderRecipe(productId) {
   if (add2) add2.addEventListener("click", () => erpAddRecipeLine(productId));
   v.querySelectorAll(".erp-rl-x").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpRemoveRecipeLine(Number(b.dataset.line), productId); }));
+  v.querySelectorAll(".erp-node-draw-btn").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpNodeDrawings(Number(b.dataset.pid)); }));
   erpRenderProductDrawings(productId);
   // Разгъване/свиване на възлите.
   v.querySelectorAll(".erp-toggle").forEach(t =>
@@ -118,12 +120,13 @@ function erpRecipeChildren(productId, depth, ancestors) {
       const cycle = ancestors.has(l.child_product_id);
       const sub = cycle ? "" : erpRecipeChildren(l.child_product_id, depth + 1, new Set([...ancestors, l.child_product_id]));
       const hasKids = !cycle && (ERP.linesByProduct[l.child_product_id] || []).length > 0;
+      const drawBtn = `<button class="erp-node-draw-btn" data-pid="${l.child_product_id}" title="Чертежи на този възел">📎 чертеж</button>`;
       return `<li class="erp-branch">
         <span class="erp-tw">${hasKids ? '<button class="erp-toggle">▾</button>' : ""}</span>
         <span class="erp-node erp-node-semi">
           <span class="erp-node-main"><span class="erp-tag erp-tag-semi">възел</span> ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")}${cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}${c.needs_recipe ? ' <span class="erp-warn">(чака рецепта)</span>' : ""}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
-          <span class="erp-node-cost">${erpEur(cost)}</span>${rmBtn}
+          <span class="erp-node-cost">${erpEur(cost)}</span>${drawBtn}${rmBtn}
         </span>
         ${sub ? `<ul class="erp-tree">${sub}</ul>` : ""}
       </li>`;
@@ -132,24 +135,31 @@ function erpRecipeChildren(productId, depth, ancestors) {
   }).join("");
 }
 
-/* ---------- Чертежи към продукта ---------- */
-async function erpRenderProductDrawings(productId) {
-  const host = document.getElementById("erp-prod-drawings");
-  if (!host) return;
+/* ---------- Чертежи (на крайното изделие или на отделен възел) ---------- */
+// Мързеливо зарежда чертежите на продукт/възел (пазят се в products.drawings).
+async function erpLoadDrawings(productId) {
   const p = ERP.prodById[productId];
-  if (!p) return;
-  // Мързеливо зареждане на чертежите (пазят се в products.drawings).
-  if (p.drawings === undefined) {
-    host.innerHTML = `<h4 class="erp-group-head">Чертежи</h4><p class="erp-loading">Зареждане…</p>`;
+  if (p && p.drawings === undefined) {
     const { data } = await sb.from("products").select("drawings").eq("id", productId).maybeSingle();
     p.drawings = (data && data.drawings) || [];
   }
+  return (p && p.drawings) || [];
+}
+
+// Рисува управлението на чертежи в подаден контейнер (продукт или възел).
+async function erpRenderDrawingsInto(host, productId, opts) {
+  opts = opts || {};
+  if (!host) return;
+  const title = opts.title || "Чертежи на продукта";
+  host.innerHTML = `<h4 class="erp-group-head">${escapeHtml(title)}</h4><p class="erp-loading">Зареждане…</p>`;
+  const drawings = await erpLoadDrawings(productId);
+  const uid = "erp-draw-file-" + productId;
   host.innerHTML = `
-    <h4 class="erp-group-head">Чертежи на продукта</h4>
-    <label class="btn btn-small" for="erp-draw-file">+ Прикачи чертеж</label>
-    <input type="file" id="erp-draw-file" multiple hidden />
+    <h4 class="erp-group-head">${escapeHtml(title)}</h4>
+    <label class="btn btn-small" for="${uid}">+ Прикачи чертеж</label>
+    <input type="file" id="${uid}" multiple hidden />
     <ul class="files-list erp-draw-list">
-      ${(p.drawings || []).map((f, i) => {
+      ${(drawings || []).map((f, i) => {
         const isImg = (f.type || "").startsWith("image/");
         const prev = isImg ? `<img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}" />` : `<span class="pdf-icon">📄</span>`;
         return `<li>
@@ -160,16 +170,33 @@ async function erpRenderProductDrawings(productId) {
       }).join("") || `<li class="erp-muted">Няма прикачени чертежи.</li>`}
     </ul>`;
 
-  const input = document.getElementById("erp-draw-file");
-  if (input) input.addEventListener("change", e => { erpAttachProductDrawing(productId, [...e.target.files]); e.target.value = ""; });
+  const refresh = () => erpRenderDrawingsInto(host, productId, opts);
+  const input = host.querySelector("#" + uid);
+  if (input) input.addEventListener("change", e => { erpAttachProductDrawing(productId, [...e.target.files], refresh); e.target.value = ""; });
   host.querySelectorAll(".remove-file").forEach(b =>
-    b.addEventListener("click", () => erpRemoveProductDrawing(productId, Number(b.dataset.i))));
+    b.addEventListener("click", () => erpRemoveProductDrawing(productId, Number(b.dataset.i), refresh)));
 }
 
-async function erpAttachProductDrawing(productId, files) {
+// Чертежите на крайното изделие (секцията под дървото).
+function erpRenderProductDrawings(productId) {
+  return erpRenderDrawingsInto(document.getElementById("erp-prod-drawings"), productId, { title: "Чертежи на крайното изделие" });
+}
+
+// Диалог за чертежите на отделен възел от рецептата.
+async function erpNodeDrawings(productId) {
+  const c = ERP.prodById[productId] || {};
+  const { wrap, close } = erpDialog(`
+    <h3>Чертежи на възел</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(c.code || "")}</b> ${escapeHtml(c.name || "")}</p>
+    <div id="erp-node-draw"></div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="nd-close">Готово</button></div>`);
+  wrap.querySelector("#nd-close").addEventListener("click", close);
+  await erpRenderDrawingsInto(wrap.querySelector("#erp-node-draw"), productId, { title: "Чертежи на възела" });
+}
+
+async function erpAttachProductDrawing(productId, files, refresh) {
   const p = ERP.prodById[productId]; if (!p) return;
   p.drawings = p.drawings || [];
-  const host = document.getElementById("erp-prod-drawings");
   for (const file of files) {
     const path = `products/${productId}/${Date.now()}-${safeName(file.name)}`;
     const { error } = await sb.storage.from(BUCKET).upload(path, file);
@@ -180,15 +207,15 @@ async function erpAttachProductDrawing(productId, files) {
   const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", productId);
   if (error) alert("Грешка при запис на чертежите: " + error.message +
     "\n\nАко пише за липсваща колона drawings — пусни обновения erp-setup.sql в Supabase.");
-  erpRenderProductDrawings(productId);
+  (refresh || (() => erpRenderProductDrawings(productId)))();
 }
 
-async function erpRemoveProductDrawing(productId, i) {
+async function erpRemoveProductDrawing(productId, i, refresh) {
   const p = ERP.prodById[productId]; if (!p || !p.drawings) return;
   const f = p.drawings[i];
   if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
   p.drawings.splice(i, 1);
   const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", productId);
   if (error) alert("Грешка при запис: " + error.message);
-  erpRenderProductDrawings(productId);
+  (refresh || (() => erpRenderProductDrawings(productId)))();
 }
