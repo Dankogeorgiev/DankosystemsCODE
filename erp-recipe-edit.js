@@ -80,6 +80,7 @@ function erpAddRecipeLine(productId) {
   const { wrap, close } = erpDialog(`
     <h3>Добави ред към технологията</h3>
     <p class="hint">За: <b>${escapeHtml(p ? (p.code || "") + " " + p.name : "")}</b></p>
+    <p class="hint">📋 Не се тревожи за реда — системата слага <b>материалите/възлите най-отпред</b>, а <b>операциите — в реда, в който ги добавяш</b>. Затова добавяй операциите в производствената последователност (напр. Лазер → Абкант → Заваряване).</p>
     <label>Тип съставка
       <select id="rl-type">
         <option value="operation">Операция (в цех)</option>
@@ -200,11 +201,36 @@ function erpAddRecipeLine(productId) {
     }
 
     status.textContent = "Добавя…";
+    // Нова позиция — временно най-отзад; после подреждаме канонично.
+    const cur = ERP.linesByProduct[productId] || [];
+    row.position = cur.reduce((m, l) => Math.max(m, Number(l.position) || 0), 0) + 1;
     const { error } = await sb.from("recipe_lines").insert(row);
     if (error) { status.textContent = "⚠ " + error.message; return; }
+    await erpReorderRecipeLines(productId);   // материали/възли отпред, операциите по реда на добавяне
     close();
     await erpReloadRecipe(productId);
   });
+}
+
+/* ---------- Подреждане на рецептата в правилен ред ----------
+   Входове (материали/възли) най-отпред, после операциите — в реда, в който са
+   добавени (това е производствената последователност: напр. Лазер → Абкант). */
+async function erpReorderRecipeLines(productId) {
+  try {
+    const { data } = await sb.from("recipe_lines").select("id,position,operation_id").eq("product_id", productId);
+    const lines = data || [];
+    const grp = l => l.operation_id ? 1 : 0;   // 0 = материал/възел (вход), 1 = операция
+    lines.sort((a, b) => grp(a) - grp(b) || (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id);
+    for (let i = 0; i < lines.length; i++) {
+      if ((Number(lines[i].position) || 0) !== i) await sb.from("recipe_lines").update({ position: i }).eq("id", lines[i].id);
+    }
+  } catch (e) { console.error("reorder recipe", e); }
+}
+
+// Бутон „Подреди правилно" от екрана Рецепта — оправя вече създадени технологии.
+async function erpFixRecipeOrder(productId) {
+  await erpReorderRecipeLines(productId);
+  await erpReloadRecipe(productId);
 }
 
 /* ---------- Премахване на ред от рецептата ---------- */

@@ -33,6 +33,7 @@ function erpRenderRecipe(productId) {
       <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
       <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
+      <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
       ${readyBadge}
       <span class="spacer"></span>
       <span class="erp-count">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
@@ -59,6 +60,8 @@ function erpRenderRecipe(productId) {
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
   document.getElementById("erp-rl-add").addEventListener("click", () => erpAddRecipeLine(productId));
+  const fixBtn = document.getElementById("erp-rl-fix");
+  if (fixBtn) fixBtn.addEventListener("click", () => { if (typeof erpFixRecipeOrder === "function") erpFixRecipeOrder(productId); });
   const add2 = document.getElementById("erp-rl-add2");
   if (add2) add2.addEventListener("click", () => erpAddRecipeLine(productId));
   v.querySelectorAll(".erp-rl-x").forEach(b =>
