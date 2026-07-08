@@ -51,11 +51,12 @@ async function erpRenderDetailStock() {
       <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
       <label class="btn btn-small btn-primary" for="ds-import-file">⤴ Импортирай наличности</label>
       <input type="file" id="ds-import-file" accept=".xlsx,.xls,.csv" hidden />
-      <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи наведнъж — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
-      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf" multiple hidden />
+      <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
+      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip" multiple hidden />
     </div>
     <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
-      <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.</p>
+      <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
+      Може да качиш и <b>ZIP архив</b> — системата сама го разпакова и разпределя чертежите.</p>
     <table class="report-table erp-table">
       <thead><tr><th>Код</th><th>Детайл/възел</th><th class="num">Наличност</th><th>Движение</th></tr></thead>
       <tbody id="ds-tbody"></tbody>
@@ -146,9 +147,42 @@ function dsMatchProductByFilename(base, products) {
   return cands.length ? cands[0].x : null;
 }
 
+// Предполага MIME по разширението (за файлове извадени от архив).
+function dsGuessMime(name) {
+  const e = String(name).toLowerCase().split(".").pop();
+  return ({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", svg: "image/svg+xml" })[e] || "";
+}
+const DS_DRAW_EXT = /\.(pdf|png|jpe?g|gif|webp|bmp|tiff?|svg)$/i;
+
+// Разгъва избраните файлове: ZIP архивите се разпакова́т на отделни чертежи.
+async function dsExpandFiles(files) {
+  const out = [];
+  for (const f of files) {
+    if (/\.zip$/i.test(f.name)) {
+      if (typeof JSZip === "undefined") { alert("Библиотеката за архиви не е заредена. Презареди страницата и опитай пак."); continue; }
+      try {
+        const zip = await JSZip.loadAsync(await f.arrayBuffer());
+        for (const name of Object.keys(zip.files)) {
+          const entry = zip.files[name];
+          if (entry.dir) continue;
+          if (/(^|\/)__MACOSX\//.test(name) || /(^|\/)\./.test(name)) continue;   // системни/скрити
+          const bn = name.split("/").pop();
+          if (!bn || !DS_DRAW_EXT.test(bn)) continue;
+          const blob = await entry.async("blob");
+          out.push(new File([blob], bn, { type: blob.type || dsGuessMime(bn) }));
+        }
+      } catch (e) { alert("Не мога да разчета архива „" + f.name + "“: " + (e.message || e)); }
+    } else {
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 // Качва много чертежи наведнъж — разпределя ги по детайлите според кода в името.
-async function dsBulkDrawings(files) {
-  if (!files || !files.length) return;
+async function dsBulkDrawings(rawFiles) {
+  const files = await dsExpandFiles(rawFiles || []);
+  if (!files.length) { alert("Няма чертежи за качване (архивът е празен или няма разпознати файлове)."); return; }
   const products = ERP.products || [];
   const groups = new Map();        // pid -> { p, files: [] }
   const unmatched = [];
