@@ -377,7 +377,11 @@ async function erpCOProduce(o) {
   const fs = res.fromStock || [];
   o.production = { at: new Date().toISOString(), count: res.seriesCount || totalSteps, flow: true, external: external.length, fromStock: fs.length };
   o.status = "в производство";
-  try { await erpSaveCO(o); await erpLoadCustomerOrders(); } catch {}
+  // Записваме статуса надеждно (не го гълтаме тихо) — заявката трябва да остане
+  // „в производство" без ръчна намеса.
+  try { await erpSaveCO(o); }
+  catch (e) { alert("⚠ Производството е пуснато, но статусът не се записа: " + (e.message || e) + "\nОтвори заявката пак и натисни 💾 Запази."); }
+  try { await erpLoadCustomerOrders(); } catch {}
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
   const miss = res.missing || [];
   const matShort = res.materialsShort || [];
