@@ -94,13 +94,19 @@ function erpLastPriceFor(o, itemKind, refId) {
   return hits[0];
 }
 
-// Попълва празните цени по редовете с последната цена за избрания клиент.
+// Попълва празните цени по редовете: първо от ценовата листа на клиента, после
+// от последната цена в историята.
 function erpFillClientPrices(o) {
   let filled = 0;
   (o.lines || []).forEach(l => {
     if (erpToNum(l.unitPrice) > 0) return;
-    const last = erpLastPriceFor(o, l.itemKind, l.refId);
-    if (last) { l.unitPrice = last.price; filled++; }
+    let price = null;
+    if (l.itemKind === "product" && typeof erpPriceListEntry === "function") {
+      const e = erpPriceListEntry(o.clientId, o.clientName, l.refId);
+      if (e && erpToNum(e.price) > 0) price = erpToNum(e.price);
+    }
+    if (price == null) { const last = erpLastPriceFor(o, l.itemKind, l.refId); if (last) price = last.price; }
+    if (price != null) { l.unitPrice = price; filled++; }
   });
   return filled;
 }
@@ -160,10 +166,14 @@ function erpOpenSale(id) {
 // Създава чернова продажба от завършена заявка от клиенти (готовите продукти).
 function erpNewSaleFromOrder(order) {
   const today = new Date().toISOString().slice(0, 10);
-  const lines = (order.lines || []).map(l => ({
-    itemKind: "product", refId: l.productId, code: l.code || "", name: l.name || "",
-    unit: "бр.", qty: erpToNum(l.qty) || 1, unitPrice: "",
-  }));
+  const lines = (order.lines || []).map(l => {
+    const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(order.clientId, order.clientName, l.productId) : null;
+    const name = (ple && ple.cname) ? ple.cname : (l.name || "");   // име при клиента за фактурата
+    return {
+      itemKind: "product", refId: l.productId, code: l.code || "", name, ourName: l.ourName || l.name || "",
+      unit: "бр.", qty: erpToNum(l.qty) || 1, unitPrice: "",
+    };
+  });
   erpRenderSaleForm({
     saleNo: erpNextSaleNo(), clientName: order.clientName || "", clientId: order.clientId || null,
     clientVat: "", clientCity: "", clientStreet: "", clientCountry: "BG",
@@ -178,6 +188,7 @@ async function erpRenderSaleForm(o) {
   const v = erpView();
   const clients = await erpLoadSaleClients();
   if (!erpSales) { try { await erpLoadSales(); } catch (e) {} }   // за авто-цените (история)
+  if (typeof erpPLEnsureCache === "function") { try { await erpPLEnsureCache(); } catch (e) {} }   // клиентски ценови листи
   const locked = !!o.posted;
   // Авто-цени: попълни празните цени с последната за този клиент.
   if (!locked && (o.clientId || o.clientName)) erpFillClientPrices(o);
@@ -261,7 +272,7 @@ function erpSaLinesHtml(o, locked) {
     <tr>
       <td data-label="Вид">${l.itemKind === "material" ? "🧱 материал" : "📦 продукт"}</td>
       <td data-label="Код">${escapeHtml(l.code || "")}</td>
-      <td data-label="Наименование">${escapeHtml(l.name || "")}</td>
+      <td data-label="Наименование">${locked ? escapeHtml(l.name || "") : `<input type="text" class="sa-name" data-i="${i}" value="${escapeAttr(l.name || "")}" style="width:100%;min-width:150px" title="Име за фактурата (напр. името при клиента)" />`}</td>
       <td class="num" data-label="Кол.">${locked ? erpNum(l.qty) : `<input type="number" class="sa-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
       <td data-label="Мярка">${escapeHtml(l.unit || "")}</td>
       <td class="num" data-label="Ед. цена">${locked ? erpSaleMoney(l.unitPrice, cur) : `<input type="number" class="sa-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:100px" placeholder="0.00" />`}</td>
@@ -272,6 +283,7 @@ function erpSaLinesHtml(o, locked) {
 function erpSaWireLines(o, locked) {
   if (locked) return;
   const body = document.querySelector("#sa-lines tbody"); if (!body) return;
+  body.querySelectorAll(".sa-name").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].name = inp.value; }));
   body.querySelectorAll(".sa-qty").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].qty = erpToNum(inp.value); erpSaRefresh(o); }));
   body.querySelectorAll(".sa-price").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].unitPrice = erpToNum(inp.value); erpSaRefresh(o); }));
   body.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { o.lines.splice(Number(b.dataset.rm), 1); erpSaRefreshFull(o); }));
@@ -326,7 +338,11 @@ function erpSaAddLine(o, kind) {
       const x = isMat ? ERP.matById[id] : ERP.prodById[id];
       o.lines = o.lines || [];
       const last = erpLastPriceFor(o, kind, x.id);
-      o.lines.push({ itemKind: kind, refId: x.id, code: x.code || "", name: x.name || "", unit: isMat ? (x.unit || "") : "бр.", qty: 1, unitPrice: last ? last.price : "" });
+      const ple = (!isMat && typeof erpPriceListEntry === "function") ? erpPriceListEntry(o.clientId, o.clientName, x.id) : null;
+      const dispName = (ple && ple.cname) ? ple.cname : (x.name || "");   // име при клиента за фактурата
+      const plPrice = (ple && erpToNum(ple.price) > 0) ? erpToNum(ple.price) : null;
+      const unitPrice = plPrice != null ? plPrice : (last ? last.price : "");
+      o.lines.push({ itemKind: kind, refId: x.id, code: x.code || "", name: dispName, ourName: x.name || "", unit: isMat ? (x.unit || "") : "бр.", qty: 1, unitPrice });
       close(); erpSaRefreshFull(o);
     }));
   };
