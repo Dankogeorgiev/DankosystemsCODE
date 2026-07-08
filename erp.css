@@ -76,6 +76,12 @@
 .erp-rl-x:hover { background: #fecaca; }
 .erp-node-draw-btn { border: 1px solid #c7d6f2; background: #eef4ff; color: #1f3864; border-radius: 6px; padding: 1px 8px; cursor: pointer; font-size: 12px; line-height: 1.5; margin-left: 8px; flex: 0 0 auto; white-space: nowrap; }
 .erp-node-draw-btn:hover { background: #1f3864; color: #fff; border-color: #1f3864; }
+/* Проверка на чертежите */
+.dc-prog { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.dc-bar { flex: 1; height: 10px; background: #e2e8f0; border-radius: 6px; overflow: hidden; }
+.dc-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#2563eb,#3b82f6); transition: width .15s; }
+.dc-sum { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.dc-list { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
 .erp-leaf.erp-warn, .erp-leaf.erp-muted { padding: 4px 0 4px 24px; font-size: 13px; }
 .erp-legend { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 

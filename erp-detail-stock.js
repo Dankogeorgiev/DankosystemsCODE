@@ -53,6 +53,7 @@ async function erpRenderDetailStock() {
       <input type="file" id="ds-import-file" accept=".xlsx,.xls,.csv" hidden />
       <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
       <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip" multiple hidden />
+      <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
     </div>
     <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
       <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
@@ -73,6 +74,8 @@ async function erpRenderDetailStock() {
   if (imp) imp.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) dsImportFill(f); });
   const db = document.getElementById("ds-draw-bulk");
   if (db) db.addEventListener("change", e => { const fs = [...(e.target.files || [])]; e.target.value = ""; if (fs.length) dsBulkDrawings(fs); });
+  const dc = document.getElementById("ds-draw-check");
+  if (dc) dc.addEventListener("click", dsCheckDrawings);
   dsFillRows();
   if (q) q.focus();
 }
@@ -203,25 +206,120 @@ async function dsBulkDrawings(rawFiles) {
     + (unmatched.length ? `\n\n⚠ Ненамерени по код (ще се прескочат): ${unmatched.length}` : "")
     + `\n\nПродължавам?`)) return;
 
-  let ok = 0, failed = 0, idx = 0;
+  let ok = 0, failed = 0, saveErr = 0, idx = 0;
+  const failedNames = [];
   for (const g of groups.values()) {
     const p = g.p;
-    if (typeof erpLoadDrawings === "function") await erpLoadDrawings(p.id);
-    p.drawings = p.drawings || [];
+    // Взимаме НАЙ-АКТУАЛНИТЕ чертежи от базата (не от кеша), за да не презапишем
+    // нещо качено преди — така нищо не изчезва.
+    let list = [];
+    try {
+      const { data: cur } = await sb.from("products").select("drawings").eq("id", p.id).maybeSingle();
+      list = (cur && Array.isArray(cur.drawings)) ? cur.drawings.slice() : [];
+    } catch (e) { list = Array.isArray(p.drawings) ? p.drawings.slice() : []; }
     for (const file of g.files) {
       const path = `products/${p.id}/${Date.now()}-${idx++}-${safeName(file.name)}`;
-      const { error } = await sb.storage.from(BUCKET).upload(path, file);
-      if (error) { failed++; continue; }
+      const up = await sb.storage.from(BUCKET).upload(path, file);
+      if (up.error) { failed++; failedNames.push(file.name); continue; }
       const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
-      p.drawings.push({ name: file.name, type: file.type, path, url: data.publicUrl });
+      list.push({ name: file.name, type: file.type, path, url: data.publicUrl });
       ok++;
     }
-    const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", p.id);
-    if (error) alert("Грешка при запис за „" + (p.code || p.name) + "“: " + error.message);
+    const { error } = await sb.from("products").update({ drawings: list }).eq("id", p.id);
+    if (error) { saveErr++; alert("Грешка при запис за „" + (p.code || p.name) + "“: " + error.message); }
+    else if (ERP.prodById[p.id]) ERP.prodById[p.id].drawings = list;   // синхронизираме кеша
   }
   alert(`Готово! Качени ${ok} чертежа за ${groups.size} детайла.`
-    + (failed ? `\nНеуспешни качвания: ${failed}` : "")
-    + (unmatched.length ? `\n\nНенамерени по код (${unmatched.length}):\n` + unmatched.slice(0, 30).join("\n") : ""));
+    + (failed ? `\n⚠ Неуспешни качвания (файл): ${failed}\n` + failedNames.slice(0, 15).join("\n") : "")
+    + (saveErr ? `\n⚠ Детайли с грешка при запис в базата: ${saveErr}` : "")
+    + (unmatched.length ? `\n\nНенамерени по код (${unmatched.length}):\n` + unmatched.slice(0, 30).join("\n") : "")
+    + `\n\n💡 Натисни „🔎 Провери чертежите", за да сверим кое реално е записано.`);
+}
+
+/* ---------- Проверка на чертежите (запис в базата ↔ файл в облака) ---------- */
+async function dsCheckDrawings() {
+  const { wrap, close } = erpDialog(`
+    <h3>🔎 Проверка на чертежите</h3>
+    <div id="dc-body"><p class="erp-loading">Чета от базата…</p></div>
+    <div class="erp-dialog-actions"><button class="btn" id="dc-close">Затвори</button></div>`);
+  wrap.querySelector("#dc-close").addEventListener("click", close);
+  const body = wrap.querySelector("#dc-body");
+
+  let prods;
+  try {
+    const { data, error } = await sb.from("products").select("id,code,name,drawings");
+    if (error) throw error;
+    prods = data || [];
+  } catch (e) { body.innerHTML = `<p class="erp-error">Грешка при четене: ${escapeHtml(e.message || String(e))}</p>`; return; }
+
+  const withDraw = prods.filter(p => Array.isArray(p.drawings) && p.drawings.length);
+  const totalRecords = withDraw.reduce((s, p) => s + p.drawings.length, 0);
+  const noPath = [];
+  withDraw.forEach(p => p.drawings.forEach(d => { if (!d || !d.path) noPath.push({ p, d, base: "(без път)" }); }));
+
+  body.innerHTML = `
+    <p>📦 <b>${withDraw.length}</b> детайла с чертежи · общо <b>${totalRecords}</b> записа.</p>
+    <p>Проверявам дали файловете реално съществуват в облака…</p>
+    <div class="dc-prog"><div class="dc-bar"><span id="dc-fill"></span></div><span id="dc-pct">0%</span></div>`;
+
+  const broken = [];
+  let done = 0;
+  for (const p of withDraw) {
+    let names = new Set();
+    try {
+      const { data: files } = await sb.storage.from(BUCKET).list(`products/${p.id}`, { limit: 1000 });
+      names = new Set((files || []).map(f => f.name));
+    } catch (e) { /* ако листването гръмне, прескачаме проверката за този детайл */ names = null; }
+    if (names) p.drawings.forEach(d => {
+      if (!d || !d.path) return;
+      const base = String(d.path).split("/").pop();
+      if (base && !names.has(base)) broken.push({ p, d, base });
+    });
+    done++;
+    const pct = Math.round(done / withDraw.length * 100);
+    const fill = wrap.querySelector("#dc-fill"); if (fill) fill.style.width = pct + "%";
+    const pctEl = wrap.querySelector("#dc-pct"); if (pctEl) pctEl.textContent = pct + "%";
+  }
+
+  const bad = broken.concat(noPath);
+  const okCount = totalRecords - bad.length;
+  let html = `
+    <p>📦 <b>${withDraw.length}</b> детайла с чертежи · общо <b>${totalRecords}</b> записа.</p>
+    <ul class="dc-sum">
+      <li>✅ Изправни (файлът съществува): <b>${okCount}</b></li>
+      <li>❌ Счупени (записът сочи липсващ файл): <b>${broken.length}</b></li>
+      ${noPath.length ? `<li>⚠ Без път/url: <b>${noPath.length}</b></li>` : ""}
+    </ul>`;
+  if (bad.length) {
+    html += `<div class="dc-list"><table class="report-table erp-table"><thead><tr><th>Код</th><th>Детайл</th><th>Файл</th></tr></thead><tbody>${
+      bad.slice(0, 300).map(b => `<tr><td>${escapeHtml(b.p.code || "")}</td><td>${escapeHtml(b.p.name || "")}</td><td>${escapeHtml((b.d && b.d.name) || b.base || "?")}</td></tr>`).join("")
+    }</tbody></table>${bad.length > 300 ? `<p class="erp-muted">…и още ${bad.length - 300}</p>` : ""}</div>
+    <p class="hint">Тези записи показват „липсва чертеж", защото файлът не е в облака (напр. качването е прекъснало). Премахни ги и качи файловете наново.</p>
+    <button class="btn btn-small btn-danger" id="dc-clean">🧹 Премахни счупените записи (${bad.length})</button>`;
+  } else {
+    html += `<p class="erp-ready-ok">🎉 Всичко е наред — всеки записан чертеж има реален файл в облака.</p>`;
+  }
+  body.innerHTML = html;
+
+  const keyOf = d => (d && d.path) ? d.path : "noname:" + ((d && d.name) || "");
+  const cleanBtn = wrap.querySelector("#dc-clean");
+  if (cleanBtn) cleanBtn.addEventListener("click", async () => {
+    if (!confirm(`Ще премахна ${bad.length} счупени записа (без реален файл). Файловете и без това липсват — това само чисти списъка. Продължавам?`)) return;
+    const byProd = new Map();
+    bad.forEach(b => { const a = byProd.get(b.p.id) || []; a.push(b); byProd.set(b.p.id, a); });
+    let cleaned = 0, errs = 0;
+    for (const [pid, items] of byProd) {
+      const p = withDraw.find(x => x.id === pid);
+      const badKeys = new Set(items.map(i => keyOf(i.d)));
+      const kept = (p.drawings || []).filter(d => !badKeys.has(keyOf(d)));
+      const { error } = await sb.from("products").update({ drawings: kept }).eq("id", pid);
+      if (error) { errs++; continue; }
+      cleaned += (p.drawings.length - kept.length);
+      if (ERP.prodById[pid]) ERP.prodById[pid].drawings = kept;
+    }
+    alert(`Премахнати ${cleaned} счупени записа.` + (errs ? `\n${errs} детайла с грешка при запис.` : ""));
+    close();
+  });
 }
 
 // Сваля Excel-шаблон с всички детайли/възли за попълване на наличности.
