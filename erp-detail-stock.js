@@ -8,18 +8,29 @@ let DS_TERM = "";
 let DS_ONLY_STOCK = false;
 let DS_HAS_DRAW = new Set();   // id-та на продукти с поне един чертеж (за оцветяване на бутона)
 
+// Чете ВСИЧКИ продукти (със странициране — Supabase връща макс. 1000 наведнъж).
+async function dsFetchAllProducts(cols) {
+  const out = []; const CHUNK = 1000;
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await sb.from("products").select(cols).range(from, from + CHUNK - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < CHUNK) break;
+  }
+  return out;
+}
 // Зарежда наведнъж кои продукти имат чертежи (products.drawings непразно).
 async function dsLoadHasDrawings() {
   DS_HAS_DRAW = new Set();
   try {
-    const { data } = await sb.from("products").select("id,drawings");
-    (data || []).forEach(r => { if (Array.isArray(r.drawings) && r.drawings.length) DS_HAS_DRAW.add(r.id); });
+    const rows = await dsFetchAllProducts("id,drawings");
+    rows.forEach(r => { if (Array.isArray(r.drawings) && r.drawings.length) DS_HAS_DRAW.add(Number(r.id)); });
   } catch (e) { /* при грешка бутоните остават неоцветени */ }
 }
 // Има ли продуктът чертеж? Зареденото в паметта има превес (за да отразява промени).
 function dsHasDrawing(p) {
   if (Array.isArray(p.drawings)) return p.drawings.length > 0;
-  return DS_HAS_DRAW.has(p.id);
+  return DS_HAS_DRAW.has(Number(p.id));
 }
 
 // Кои продукти са „детайли/възли" (не крайни артикули без рецепта-предназначение):
@@ -323,9 +334,7 @@ async function dsCheckDrawings() {
 
   let prods;
   try {
-    const { data, error } = await sb.from("products").select("id,code,name,drawings");
-    if (error) throw error;
-    prods = data || [];
+    prods = await dsFetchAllProducts("id,code,name,drawings");   // със странициране (над 1000)
   } catch (e) { body.innerHTML = `<p class="erp-error">Грешка при четене: ${escapeHtml(e.message || String(e))}</p>`; return; }
 
   const withDraw = prods.filter(p => Array.isArray(p.drawings) && p.drawings.length);
