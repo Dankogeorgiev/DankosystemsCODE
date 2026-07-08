@@ -11,6 +11,7 @@ async function erpLoadCustomerOrders() {
   const { data, error } = await sb.from("customer_orders").select("*").order("updated_at", { ascending: false });
   if (error) throw error;
   erpCOList = (data || []).map(r => ({ id: r.id, ...(r.data || {}) }));
+  if (typeof erpPLEnsureCache === "function") { try { await erpPLEnsureCache(); } catch (e) {} }   // клиентски ценови листи
 }
 
 async function erpLoadClients() {
@@ -213,6 +214,11 @@ function erpCOClientPrice(o, productId) {
   const byId = o && o.clientId;
   const name = ((o && o.clientName) || "").trim().toLowerCase();
   if (!byId && !name) return null;
+  // 1) Изрична ценова листа за клиента (има превес над наученото).
+  if (typeof erpPriceListEntry === "function") {
+    const e = erpPriceListEntry(o.clientId, o.clientName, productId);
+    if (e && erpToNum(e.price) > 0) return erpToNum(e.price);
+  }
   const hits = [];
   (erpCOList || []).forEach(x => {
     if (o && x.id === o.id) return;
@@ -258,8 +264,10 @@ function erpCOAddProduct(o) {
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
       const p = ERP.prodById[Number(b.dataset.id)];
       o.lines = o.lines || [];
-      const last = erpCOClientPrice(o, p.id);   // авто-цена по клиент
-      o.lines.push({ productId: p.id, code: p.code, name: p.name, qty: 1, unitPrice: last || "" });
+      const last = erpCOClientPrice(o, p.id);   // авто-цена по клиент (листа → научено)
+      const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(o.clientId, o.clientName, p.id) : null;
+      const dispName = (ple && ple.cname) ? ple.cname : p.name;   // клиентско име, ако има в листата
+      o.lines.push({ productId: p.id, code: p.code, name: dispName, ourName: p.name, qty: 1, unitPrice: last || "" });
       close(); erpCORefreshLines(o);
     }));
   };
