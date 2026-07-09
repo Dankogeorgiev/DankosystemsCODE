@@ -233,6 +233,59 @@ async function erpFixRecipeOrder(productId) {
   await erpReloadRecipe(productId);
 }
 
+/* ---------- Преместване на ред (нагоре/надолу) ---------- */
+async function erpMoveRecipeLine(lineId, productId, dir) {
+  const lines = (ERP.linesByProduct[productId] || []).slice();   // подредени по position
+  const i = lines.findIndex(l => l.id === lineId);
+  if (i < 0) return;
+  const j = i + dir;
+  if (j < 0 || j >= lines.length) return;
+  const tmp = lines[i]; lines[i] = lines[j]; lines[j] = tmp;
+  // Презаписваме позициите по новия ред (0..N).
+  for (let k = 0; k < lines.length; k++) {
+    if ((Number(lines[k].position) || 0) !== k) {
+      const { error } = await sb.from("recipe_lines").update({ position: k }).eq("id", lines[k].id);
+      if (error) { alert("Грешка при преместване: " + error.message); return; }
+    }
+  }
+  await erpReloadRecipe(productId);
+}
+
+/* ---------- Редактиране на ред (количество, мярка, цех) ---------- */
+function erpEditRecipeLine(lineId, productId) {
+  const l = (ERP.linesByProduct[productId] || []).find(x => x.id === lineId);
+  if (!l) return;
+  let label = "", isOp = false, op = null, curWs = "";
+  if (l.material_id) { const m = ERP.matById[l.material_id] || {}; label = "Материал: " + (m.code ? m.code + " " : "") + (m.name || ""); }
+  else if (l.operation_id) { isOp = true; op = ERP.opById[l.operation_id] || {}; label = "Операция: " + (op.code ? op.code + " " : "") + (op.name || ""); curWs = (typeof erpEffectiveRoute === "function") ? (erpEffectiveRoute(op).primary || "") : (op.workshop || ""); }
+  else if (l.child_product_id) { const c = ERP.prodById[l.child_product_id] || {}; label = "Възел: " + (c.code ? c.code + " " : "") + (c.name || ""); }
+  const workshops = (typeof erpWorkshops === "function") ? erpWorkshops() : ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция", "Външна услуга"];
+  const { wrap, close } = erpDialog(`
+    <h3>Редактирай ред</h3>
+    <p class="hint">${escapeHtml(label)}</p>
+    <label>Количество<input type="number" id="re-qty" min="0" step="any" value="${escapeAttr(String(l.quantity || 1))}" /></label>
+    <label>Мярка<input type="text" id="re-unit" value="${escapeAttr(l.unit || "")}" /></label>
+    ${isOp ? `<label>Цех (за производство) — важи за всички детайли с тази операция
+      <select id="re-ws"><option value="">— избери цех —</option>${workshops.map(w => `<option ${w === curWs ? "selected" : ""}>${escapeHtml(w)}</option>`).join("")}</select></label>` : ""}
+    <div class="erp-dialog-actions"><button class="btn" id="re-cancel">Отказ</button><button class="btn btn-primary" id="re-save">Запази</button></div>
+    <p class="save-status" id="re-status"></p>`);
+  wrap.querySelector("#re-cancel").addEventListener("click", close);
+  wrap.querySelector("#re-save").addEventListener("click", async () => {
+    const status = wrap.querySelector("#re-status");
+    const qty = erpToNum(wrap.querySelector("#re-qty").value) || 0;
+    const unit = wrap.querySelector("#re-unit").value.trim() || null;
+    status.textContent = "Записва…";
+    const { error } = await sb.from("recipe_lines").update({ quantity: qty, unit }).eq("id", lineId);
+    if (error) { status.textContent = "⚠ " + error.message; return; }
+    if (isOp) {
+      const ws = wrap.querySelector("#re-ws").value;
+      if (ws && op.code) { const e = await erpSaveOpRoute(op.code, ws); if (e) { status.textContent = "⚠ Цех: " + e.message; return; } }
+    }
+    close();
+    await erpReloadRecipe(productId);
+  });
+}
+
 /* ---------- Премахване на ред от рецептата ---------- */
 async function erpRemoveRecipeLine(lineId, productId) {
   if (!confirm("Да премахна ли този ред от рецептата?")) return;

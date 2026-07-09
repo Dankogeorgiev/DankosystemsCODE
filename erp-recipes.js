@@ -66,6 +66,12 @@ function erpRenderRecipe(productId) {
   if (add2) add2.addEventListener("click", () => erpAddRecipeLine(productId));
   v.querySelectorAll(".erp-rl-x").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpRemoveRecipeLine(Number(b.dataset.line), productId); }));
+  v.querySelectorAll(".erp-rl-up").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpMoveRecipeLine(Number(b.dataset.line), productId, -1); }));
+  v.querySelectorAll(".erp-rl-down").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpMoveRecipeLine(Number(b.dataset.line), productId, 1); }));
+  v.querySelectorAll(".erp-rl-edit").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpEditRecipeLine(Number(b.dataset.line), productId); }));
   v.querySelectorAll(".erp-node-draw-btn").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpNodeDrawings(Number(b.dataset.pid)); }));
   erpRenderProductDrawings(productId);
@@ -93,7 +99,12 @@ function erpRecipeChildren(productId, depth, ancestors) {
   return lines.map(l => {
     const qty = Number(l.quantity) || 0;
     const unit = l.unit || "";
-    const rmBtn = depth === 0 ? `<button class="erp-rl-x" data-line="${l.id}" title="Премахни от рецептата">×</button>` : "";
+    const rmBtn = depth === 0 ? `<span class="erp-rl-ctrls">
+      <button class="erp-rl-up" data-line="${l.id}" title="Премести нагоре">↑</button>
+      <button class="erp-rl-down" data-line="${l.id}" title="Премести надолу">↓</button>
+      <button class="erp-rl-edit" data-line="${l.id}" title="Редактирай реда">✎</button>
+      <button class="erp-rl-x" data-line="${l.id}" title="Премахни от рецептата">×</button>
+    </span>` : "";
     if (l.material_id) {
       const m = ERP.matById[l.material_id] || {};
       const cost = qty * (Number(m.avg_cost) || 0);
