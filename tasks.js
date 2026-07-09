@@ -1525,9 +1525,22 @@ function isOwnerAdmin() {
 // Всички админи виждат всички съобщения (пълна прозрачност); служителят — само своите.
 // При въпрос „→ Име“ се вижда за кого е основно, но всеки админ може да го отвори/отговори.
 function msgVisibleToMe(m) {
-  if (amWorker()) return m.fromName === MY_WORKER;
+  if (amWorker()) {
+    if ((m.type || "") === "admin") {                     // съобщение от офиса до служители
+      if (m.toWorker) return m.toWorker === MY_WORKER;
+      if (m.toWorkshop) return m.toWorkshop === (MY_ACCESS && MY_ACCESS.workshop);
+      return true;                                        // до всички
+    }
+    return m.fromName === MY_WORKER;
+  }
   if ((m.type || "") === "idea") return isOwnerAdmin();   // Идеи и Препоръки — само за Данко
   return true;
+}
+// Име на админа за подпис на съобщенията (от директорията, иначе „Офис").
+function adminDisplayName() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const d = (typeof adminDirectory === "function" ? adminDirectory() : []).find(a => (a.email || "").toLowerCase() === e);
+  return (d && d.name) || "Офис";
 }
 function msgFmtTime(iso) {
   if (!iso) return "";
@@ -1602,7 +1615,8 @@ function msgCounts() {
     if (!msgVisibleToMe(m)) return;
     const k = m.type || "question";
     if (isW) {
-      if (m.fromName !== MY_WORKER) return;
+      const isAdminMsg = k === "admin";
+      if (!isAdminMsg && m.fromName !== MY_WORKER) return;   // чужди въпроси не броим
       if (m.seenByWorker === false) { if (k === "supply") s++; else if (k === "idea") i++; else q++; }
     } else if (k === "supply") {
       if (m.status !== "closed" && !m.acceptedBy) s++;   // поръчки, които чакат приемане
@@ -1683,7 +1697,10 @@ async function markMessagesSeen() {
   const toMark = MESSAGES.filter(m => {
     if (!msgVisibleToMe(m)) return false;
     if ((m.type || "question") !== msgType) return false;   // само текущия раздел
-    if (amWorker()) return m.fromName === MY_WORKER && m.seenByWorker === false;
+    if (amWorker()) {
+      if ((m.type || "") === "admin") return m.seenByWorker === false;   // от офиса → маркирай видяно
+      return m.fromName === MY_WORKER && m.seenByWorker === false;
+    }
     return m.seenByAdmin === false;
   });
   for (const m of toMark) {
@@ -1711,6 +1728,49 @@ function askTaskQuestion(t) {
 }
 function askGeneralQuestion() {
   openAskDialog({ taskId: null, taskRef: "", workshop: (MY_ACCESS && MY_ACCESS.workshop) || "" });
+}
+
+// Админ пише съобщение до служител(и): избран служител, цял цех или всички.
+function composeAdminMessage() {
+  if (amWorker()) return;
+  const wsList = Object.keys(WORKERS).filter(w => (WORKERS[w] || []).length).sort((a, b) => a.localeCompare(b, "bg"));
+  const workers = [...new Set(Object.values(WORKERS).flat())].filter(Boolean).sort((a, b) => a.localeCompare(b, "bg"));
+  const opts = `<option value="all">📢 Всички служители</option>`
+    + wsList.map(w => `<option value="ws:${escapeAttr(w)}">🏭 Цех ${escapeHtml(w)} — всички</option>`).join("")
+    + (workers.length ? `<optgroup label="Отделен служител">${workers.map(n => `<option value="w:${escapeAttr(n)}">👤 ${escapeHtml(n)}</option>`).join("")}</optgroup>` : "");
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>✍ Съобщение до служител</h3>
+      <label>До кого<select id="am-to">${opts}</select></label>
+      <label>Съобщение *<textarea id="am-text" rows="4" placeholder="Какво искаш да им кажеш?"></textarea></label>
+      <div class="ask-actions">
+        <button id="am-send" class="btn btn-primary">Изпрати</button>
+        <button id="am-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#am-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  setTimeout(() => { const t = wrap.querySelector("#am-text"); if (t) t.focus(); }, 50);
+  wrap.querySelector("#am-send").addEventListener("click", async () => {
+    const text = (wrap.querySelector("#am-text").value || "").trim();
+    const to = wrap.querySelector("#am-to").value;
+    if (!text) { alert("Напиши съобщение."); return; }
+    let toWorker = null, toWorkshop = null, toName = "Всички служители";
+    if (to.startsWith("ws:")) { toWorkshop = to.slice(3); toName = "Цех " + toWorkshop + " (всички)"; }
+    else if (to.startsWith("w:")) { toWorker = to.slice(2); toName = toWorker; }
+    const btn = wrap.querySelector("#am-send"); btn.disabled = true; btn.textContent = "Изпраща…";
+    const rec = await mInsert({
+      type: "admin", fromName: adminDisplayName(), toName, toWorker, toWorkshop,
+      text, taskId: null, taskRef: "", workshop: "", status: "open", replies: [],
+      seenByWorker: false, seenByAdmin: true, createdAt: new Date().toISOString(),
+    });
+    close();
+    if (rec) { msgType = "admin"; msgView = "active"; renderMessages(); }
+  });
 }
 function openAskDialog(ctx) {
   const admins = adminDirectory();
@@ -1961,6 +2021,7 @@ function renderMessages() {
   const cntQ = visible.filter(m => kindOf(m) === "question" && m.status !== "closed").length;
   const cntS = visible.filter(m => kindOf(m) === "supply" && m.status !== "closed").length;
   const cntI = visible.filter(m => kindOf(m) === "idea" && m.status !== "closed").length;
+  const cntA = visible.filter(m => kindOf(m) === "admin" && m.status !== "closed").length;
 
   let base = visible.filter(m => kindOf(m) === msgType);
   if (msgType === "question" && msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
@@ -1973,18 +2034,23 @@ function renderMessages() {
 
   const tab = (key, label, n) => `<button class="msg-tab ${msgView === key ? "active" : ""}" data-view="${key}">${label} (${n})</button>`;
   const ttab = (ty, label, n) => `<button class="msg-ttab ${msgType === ty ? "active" : ""}" data-type="${ty}">${label}${n ? ` <span class="ttab-n">${n}</span>` : ""}</button>`;
-  const titles = { question: "📨 Регистър на съобщенията", supply: "📦 Поръчки за снабдяване", idea: "💡 Идеи и Препоръки" };
+  const titles = { question: "📨 Регистър на съобщенията", admin: (isW ? "📣 Съобщения от офиса" : "📣 Съобщения до служителите"), supply: "📦 Поръчки за снабдяване", idea: "💡 Идеи и Препоръки" };
   const emptyText = ideaMode
     ? (msgView === "done" ? "Няма приключени идеи." : "Няма идеи и препоръки.")
     : supplyMode
       ? (msgView === "done" ? "Няма изпълнени поръчки." : "Няма поръчки за снабдяване.")
-      : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
+      : adminMode
+        ? (isW ? "Няма съобщения от офиса." : "Няма изпратени съобщения. Натисни бутона горе, за да напишеш на служител.")
+        : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
+  const adminMode = msgType === "admin";
   const newBtn = ideaMode
     ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова идея</button>'
     : supplyMode
       ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова поръчка</button>'
-      : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
-  const newHandler = ideaMode ? openIdeaForm : (supplyMode ? openSupplyForm : askGeneralQuestion);
+      : adminMode
+        ? (isW ? "" : '<button id="msg-new" class="btn btn-small btn-primary">✍ Ново съобщение до служител</button>')
+        : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
+  const newHandler = ideaMode ? openIdeaForm : (supplyMode ? openSupplyForm : (adminMode ? composeAdminMessage : askGeneralQuestion));
 
   v.innerHTML = `
     <div class="workers-head">
@@ -1995,6 +2061,7 @@ function renderMessages() {
     </div>
     <div class="msg-typetabs">
       ${ttab("question", "❓ Въпроси", cntQ)}
+      ${ttab("admin", isW ? "📣 От офиса" : "📣 До служители", cntA)}
       ${ttab("supply", "📦 Поръчки за снабдяване", cntS)}
       ${showIdeaTab ? ttab("idea", "💡 Идеи и Препоръки", cntI) : ""}
     </div>
