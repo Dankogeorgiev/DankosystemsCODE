@@ -62,6 +62,19 @@ async function loadAccess(email) {
 // Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
 // Добави имейлите за вход на Григор и Кристина, за да ги пуснеш.
 const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com"];
+// Персонални поздрави при вход (по имейл).
+const LOGIN_GREETINGS = { "rusenmochukov@gmail.com": "Мачкай, Руси! 💪" };
+function showLoginGreeting() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const msg = LOGIN_GREETINGS[e];
+  if (!msg) return;
+  const t = document.createElement("div");
+  t.className = "login-greeting";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 600); }, 4000);
+}
 function financeAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return FINANCE_EMAILS.map(x => x.toLowerCase()).includes(e);
@@ -82,6 +95,7 @@ function applyAccess() {
     document.querySelectorAll('.erp-tab[data-tab="sales"], .erp-tab[data-tab="pricelists"], .erp-tab[data-tab="purchases"]')
       .forEach(el => el.style.display = prod ? "none" : "");
     document.body.classList.toggle("hide-cost", prod);   // скрива себестойностите навсякъде
+    document.body.classList.toggle("hide-sell", prod);   // скрива продажните цени (Заявки)
     return;
   }
   // Цехов достъп: скриваме всичко освен „Цехове“ и отваряме модула заключен.
@@ -871,6 +885,7 @@ async function onSignedIn(s) {
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
   document.getElementById("user-email").textContent = s.user?.email || "";
   await loadAccess(s.user?.email || "");
+  showLoginGreeting();
 
   // Цехов акаунт: директно в цеха, без основния екран (мостри/контакти/рекламации).
   if (!MY_ACCESS.isAdmin) {

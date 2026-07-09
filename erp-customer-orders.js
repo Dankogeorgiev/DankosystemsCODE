@@ -64,7 +64,7 @@ async function erpRenderCustomerOrders() {
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
     <table class="report-table erp-table">
-      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num">Стойност</th><th>Статус</th><th></th></tr></thead>
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th></th></tr></thead>
       <tbody>
         ${rows.map(o => `
           <tr class="erp-clickable" data-id="${o.id}">
@@ -74,7 +74,7 @@ async function erpRenderCustomerOrders() {
             <td data-label="Дата">${escapeHtml(o.date || "")}</td>
             <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
-            <td class="num" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
+            <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
             <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`).join("") ||
@@ -126,10 +126,10 @@ async function erpRenderCOForm(o) {
 
       <h4 class="erp-group-head">Продукти в заявката</h4>
       <table class="report-table erp-table" id="co-lines">
-        <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num">Прод. цена (€)</th><th class="num">Сума</th><th></th></tr></thead>
+        <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num sell-cell">Прод. цена (€)</th><th class="num sell-cell">Сума</th><th></th></tr></thead>
         <tbody>${erpCOLinesHtml(o)}</tbody>
       </table>
-      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button><span class="spacer"></span><span class="erp-count" id="co-total"></span></div>
+      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button><span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
 
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
@@ -176,8 +176,8 @@ function erpCOLinesHtml(o) {
       <td data-label="Код">${escapeHtml(l.code || "")}</td>
       <td data-label="Продукт">${escapeHtml(l.name || "")}</td>
       <td class="num" data-label="Бройка"><input type="number" class="co-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || 1))}" style="width:70px" /></td>
-      <td class="num" data-label="Прод. цена"><input type="number" class="co-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="0.00" /></td>
-      <td class="num" data-label="Сума">${erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>
+      <td class="num sell-cell" data-label="Прод. цена"><input type="number" class="co-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="0.00" /></td>
+      <td class="num sell-cell" data-label="Сума">${erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>
       <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-rm="${i}">×</button></td>
     </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма добавени продукти.</td></tr>`;
 }

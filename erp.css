@@ -80,6 +80,8 @@
 .hide-cost .cost-cell,
 .hide-cost .erp-node-cost,
 .hide-cost .erp-total-cost { display: none !important; }
+/* Производствена роля: скрити продажни цени в Заявките */
+.hide-sell .sell-cell { display: none !important; }
 /* Проверка на чертежите */
 .dc-prog { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .dc-bar { flex: 1; height: 10px; background: #e2e8f0; border-radius: 6px; overflow: hidden; }

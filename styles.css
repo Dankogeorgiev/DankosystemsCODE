@@ -903,3 +903,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .pf-table .pf-code { color: #64748b; }
 .pf-table .pf-code.pf-over { color: #b45309; font-weight: 700; background: #fff7ed; }
 .pf-table .pf-tot { background: #f8fafc; }
+
+/* Персонален поздрав при вход (напр. „Мачкай, Руси!") */
+.login-greeting {
+  position: fixed; top: 24px; left: 50%; transform: translate(-50%, -18px);
+  z-index: 4000; background: linear-gradient(90deg,#1f3864,#2d5aa0); color: #fff;
+  font-size: 22px; font-weight: 800; letter-spacing: .3px; padding: 14px 28px;
+  border-radius: 14px; box-shadow: 0 12px 30px rgba(0,0,0,.28);
+  opacity: 0; transition: opacity .5s ease, transform .5s ease; pointer-events: none;
+  max-width: 90vw; text-align: center;
+}
+.login-greeting.show { opacity: 1; transform: translate(-50%, 0); }
