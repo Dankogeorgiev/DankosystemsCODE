@@ -310,10 +310,14 @@ function erpFlowSteps(s, opts) {
   const stock = (opts && opts.stock) || null;
   const consumed = (opts && opts.consumed) || null;
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
-  const nodes = [];  // { key, product, code, ops:[{operation,workshop,qty}], isTop }
-  // walk връща { hasOps, make }: hasOps = дали този детайл (или някой негов
-  // подрод) реално има операции за производство; make = колко трябва да се
-  // произведат след приспадане от склада.
+  // Суфикс на ключовете (за да не се смесва „производство за склад" с поръчковите серии).
+  const sfx = (opts && opts.keySuffix) || "";
+  const toStockTop = !!(opts && opts.toStockTop);
+  const nodes = [];      // { key, product, code, ops:[{operation,workshop,qty}], isTop }
+  const nodeGate = {};   // node.key -> [seriesKey на директните части] — първата операция ги чака
+  // walk връща { hasOps, make, outKeys }: outKeys = ключовете, чието завършване
+  // означава „този подрод е готов за родителя" (за ЙЕРАРХИЧНО гейтване — всеки
+  // възел чака своите директни части, не само финалът).
   (function walk(pid, mult, anc, depth) {
     // Нетна потребност: колко от този детайл има на склад -> толкова не се прави.
     let make = mult;
@@ -326,10 +330,12 @@ function erpFlowSteps(s, opts) {
         make = mult - use;
       }
     }
-    if (make <= 0) return { hasOps: false, make: 0 };   // целият детайл е от склада
+    if (make <= 0) return { hasOps: false, make: 0, outKeys: [] };   // целият детайл е от склада
     const p = ERP.prodById[pid] || {};
+    const key = (p.code || p.name || String(pid));
     const ops = [];
     let childHasOps = false;
+    const childOutKeys = [];   // изходите на директните деца (родителят ги чака)
     (ERP.linesByProduct[pid] || []).forEach(l => {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
@@ -352,10 +358,18 @@ function erpFlowSteps(s, opts) {
           const cp = ERP.prodById[l.child_product_id] || {};
           missing.push({ code: cp.code || "", name: cp.name || "", qty: res.make });
         }
+        (res.outKeys || []).forEach(k => childOutKeys.push(k));
       }
     });
-    if (ops.length) nodes.push({ pid, key: (p.code || p.name || String(pid)), product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
-    return { hasOps: ops.length > 0 || childHasOps, make };
+    if (ops.length) {
+      nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
+      // Първата операция на този възел чака директните му части да са готови.
+      if (childOutKeys.length) nodeGate[key] = [...new Set(childOutKeys)];
+      // Изходът на този възел за родителя = последната му операция.
+      return { hasOps: true, make, outKeys: [key + "¦" + ops[ops.length - 1].operation + sfx] };
+    }
+    // Възел без свои операции: изходите му са изходите на децата (pass-through).
+    return { hasOps: childHasOps, make, outKeys: childOutKeys };
   })(s.erpProductId, qty, new Set([s.erpProductId]), 0);
 
   // Ако има липсващи детайли (без рецепта и не на склад) — НЕ пускаме финалното
@@ -363,23 +377,16 @@ function erpFlowSteps(s, opts) {
   // тръгват по цеховете, а сглобяването чака да се уредят липсващите.
   const blockFinal = missing.length > 0;
 
-  // Суфикс на ключовете (за да не се смесва „производство за склад" с поръчковите
-  // серии) и маркиране на финалния възел за заприходяване в склада.
-  const sfx = (opts && opts.keySuffix) || "";
-  const toStockTop = !!(opts && opts.toStockTop);
-
-  // Ключове на последните операции на възлите — финалът ги чака (всички готови).
-  const partLastKeys = nodes.filter(n => !n.isTop).map(n => n.key + "¦" + n.ops[n.ops.length - 1].operation + sfx);
-
   nodes.forEach(n => {
     if (n.isTop && blockFinal) return;   // не създаваме сглобяването при липсващи детайли
     const lastIdx = n.ops.length - 1;
+    const gate = nodeGate[n.key];   // директните части на този възел (ако има)
     n.ops.forEach((op, i) => {
       steps.push({
         product: n.product, code: n.code, operation: op.operation, workshop: op.workshop, qty: op.qty,
         seriesKey: n.key + "¦" + op.operation + sfx,
         prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation + sfx) : null,
-        gate: (n.isTop && i === 0 && partLastKeys.length) ? partLastKeys.slice() : null,
+        gate: (i === 0 && gate && gate.length) ? gate.slice() : null,
         step: i, role: n.isTop ? "final" : "part",
         pid: n.pid, last: i === lastIdx, toStock: n.isTop && toStockTop,
       });
