@@ -36,7 +36,7 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
       ${readyBadge}
       <span class="spacer"></span>
-      <span class="erp-count">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
+      <span class="erp-count erp-total-cost">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
     </div>
     <div class="erp-recipe">
       <div class="erp-node erp-node-product">

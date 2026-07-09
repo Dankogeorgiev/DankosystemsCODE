@@ -30,7 +30,7 @@ function erpRenderMaterials() {
       <thead>
         <tr><th>Код</th><th>Име</th><th>Група</th><th>Вид</th>
             <th class="num">Наличност</th><th class="num">Минимум</th><th>Мярка</th>
-            <th class="num">Ср. цена</th><th></th></tr>
+            <th class="num cost-cell">Ср. цена</th><th></th></tr>
       </thead>
       <tbody>
         ${rows.map(m => `
@@ -42,7 +42,7 @@ function erpRenderMaterials() {
             <td class="num" data-label="Наличност">${erpNum(m.stock)}${m.below_min ? " ⚠" : ""}</td>
             <td class="num" data-label="Минимум">${erpNum(m.min_stock)}</td>
             <td data-label="Мярка">${escapeHtml(m.unit || "")}</td>
-            <td class="num" data-label="Ср. цена">${erpEur(m.avg_cost)}</td>
+            <td class="num cost-cell" data-label="Ср. цена">${erpEur(m.avg_cost)}</td>
             <td class="erp-row-actions" data-label="">
               <button class="btn btn-small" data-move="${m.id}">Движение</button>
               <button class="btn btn-small" data-hist="${m.id}">История</button>
@@ -180,7 +180,7 @@ function erpEditMaterial(matId) {
     <label>Име<input type="text" id="mt-name" value="${m ? escapeAttr(m.name || "") : ""}" /></label>
     <label>Група<input type="text" id="mt-group" value="${m ? escapeAttr(m.group_name || "") : ""}" /></label>
     <label>Мярка<input type="text" id="mt-unit" value="${m ? escapeAttr(m.unit || "кг") : "кг"}" /></label>
-    <label>Средна цена (€)<input type="number" id="mt-cost" step="any" min="0" value="${m ? (m.avg_cost || 0) : 0}" /></label>
+    <label class="cost-cell">Средна цена (€)<input type="number" id="mt-cost" step="any" min="0" value="${m ? (m.avg_cost || 0) : 0}" /></label>
     <label>Минимум (точка на презареждане)<input type="number" id="mt-min" step="any" min="0" value="${m ? (m.min_stock || 0) : 0}" /></label>
     <label class="erp-check"><input type="checkbox" id="mt-purch" ${m && m.is_purchased ? "checked" : ""} /> Покупни/стока (иначе метал)</label>
     <div class="erp-dialog-actions">

@@ -81,6 +81,7 @@ function applyAccess() {
     const prod = !!MY_ACCESS.production;
     document.querySelectorAll('.erp-tab[data-tab="sales"], .erp-tab[data-tab="pricelists"], .erp-tab[data-tab="purchases"]')
       .forEach(el => el.style.display = prod ? "none" : "");
+    document.body.classList.toggle("hide-cost", prod);   // скрива себестойностите навсякъде
     return;
   }
   // Цехов достъп: скриваме всичко освен „Цехове“ и отваряме модула заключен.

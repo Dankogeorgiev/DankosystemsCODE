@@ -30,7 +30,7 @@ function erpRenderProducts() {
     </div>
     <table class="report-table erp-table">
       <thead>
-        <tr><th>Код</th><th>Име</th><th>Тип</th><th>Група</th><th class="num">Себестойност</th><th></th></tr>
+        <tr><th>Код</th><th>Име</th><th>Тип</th><th>Група</th><th class="num cost-cell">Себестойност</th><th></th></tr>
       </thead>
       <tbody>
         ${rows.map(p => `
@@ -39,7 +39,7 @@ function erpRenderProducts() {
             <td data-label="Име">${escapeHtml(p.name || "")}</td>
             <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
             <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
-            <td class="num" data-label="Себестойност">${p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur)}</td>
+            <td class="num cost-cell" data-label="Себестойност">${p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur)}</td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
           `<tr><td colspan="6" class="report-empty">Няма продукти. Импортирай рецепти от таба „Импорт".</td></tr>`}

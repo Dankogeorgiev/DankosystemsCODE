@@ -76,6 +76,10 @@
 .erp-rl-x:hover { background: #fecaca; }
 .erp-node-draw-btn { border: 1px solid #c7d6f2; background: #eef4ff; color: #1f3864; border-radius: 6px; padding: 1px 8px; cursor: pointer; font-size: 12px; line-height: 1.5; margin-left: 8px; flex: 0 0 auto; white-space: nowrap; }
 .erp-node-draw-btn:hover { background: #1f3864; color: #fff; border-color: #1f3864; }
+/* Производствена роля: скрити себестойности (цени на материали/операции/продукти) */
+.hide-cost .cost-cell,
+.hide-cost .erp-node-cost,
+.hide-cost .erp-total-cost { display: none !important; }
 /* Проверка на чертежите */
 .dc-prog { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .dc-bar { flex: 1; height: 10px; background: #e2e8f0; border-radius: 6px; overflow: hidden; }
