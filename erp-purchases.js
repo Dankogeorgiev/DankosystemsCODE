@@ -82,6 +82,7 @@ async function erpRenderPurchaseForm(o) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад към покупките</button>
+      <button class="btn btn-small" id="pu-email" title="Отваря готова заявка до доставчика с материалите">✉ Заявка до доставчика</button>
       <span class="spacer"></span>
       ${locked ? '<span class="erp-count">✓ Заприходена — само за преглед</span>'
         : '<button class="btn btn-small" id="pu-save">💾 Запази</button><button class="btn btn-small btn-primary" id="pu-post">📥 Заприходи в склада</button>'}
@@ -117,6 +118,8 @@ async function erpRenderPurchaseForm(o) {
     document.getElementById("pu-add").addEventListener("click", () => erpPuAddLine(o));
   }
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
+  const puEmail = document.getElementById("pu-email");
+  if (puEmail) puEmail.addEventListener("click", () => { if (typeof erpEmailSupplierRequest === "function") erpEmailSupplierRequest(o); });
   erpPuWireLines(o, locked);
   erpPuTotal(o);
 }

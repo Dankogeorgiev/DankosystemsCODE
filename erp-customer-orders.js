@@ -135,6 +135,7 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
         <button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
+        <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
         <button class="btn btn-small" id="co-sale">🧾 Създай продажба</button>
       </div>
       <div id="co-extra"></div>
@@ -160,6 +161,8 @@ async function erpRenderCOForm(o) {
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
   const wBtn = document.getElementById("co-withdraw");
   if (wBtn) wBtn.addEventListener("click", () => erpCOWithdraw(o));
+  const emBtn = document.getElementById("co-email");
+  if (emBtn) emBtn.addEventListener("click", () => { if (typeof erpEmailOrderReady === "function") erpEmailOrderReady(o); });
   const saleBtn = document.getElementById("co-sale");
   if (saleBtn) saleBtn.addEventListener("click", () => {
     if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
