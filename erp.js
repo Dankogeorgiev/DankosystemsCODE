@@ -167,6 +167,9 @@ async function erpLoadAll() {
 
 /* ---------- Табове ---------- */
 function erpSetTab(tab) {
+  // Производствен достъп: без финансовите модули.
+  if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
+      && ["sales", "pricelists", "purchases", "finance"].includes(tab)) tab = "customer";
   ERP.tab = tab;
   document.querySelectorAll(".erp-tab").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === tab));

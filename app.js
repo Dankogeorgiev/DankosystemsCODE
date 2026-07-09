@@ -44,7 +44,14 @@ async function loadAccess(email) {
   const byEmail = cfg.byEmail || {};
   const e = (email || "").toLowerCase();
   if (byEmail[e]) {
-    MY_ACCESS = { isAdmin: false, workshop: byEmail[e].workshop, email: e };
+    const r = byEmail[e] || {};
+    if (r.role === "admin" || r.admin === true) {
+      MY_ACCESS = { isAdmin: true, email: e };                               // пълен админ
+    } else if (r.role === "production" || r.production === true) {
+      MY_ACCESS = { isAdmin: true, email: e, production: true };             // цялото производство, без финансите
+    } else {
+      MY_ACCESS = { isAdmin: false, workshop: r.workshop, email: e };        // цехов достъп
+    }
   } else if (e.endsWith("@danko.local")) {
     // Всеки вътрешен @danko.local акаунт е цехов (не админ).
     MY_ACCESS = { isAdmin: false, workshop: workshopFromEmail(e), email: e };
@@ -70,6 +77,10 @@ function applyAccess() {
   if (MY_ACCESS.isAdmin) {
     adminOnly.forEach(el => el.style.display = "");
     document.querySelector(".layout").style.display = "";
+    // Производствен достъп: крием финансовите ЕРП табове (Финанси/Пулс вече са скрити чрез financeAllowed).
+    const prod = !!MY_ACCESS.production;
+    document.querySelectorAll('.erp-tab[data-tab="sales"], .erp-tab[data-tab="pricelists"], .erp-tab[data-tab="purchases"]')
+      .forEach(el => el.style.display = prod ? "none" : "");
     return;
   }
   // Цехов достъп: скриваме всичко освен „Цехове“ и отваряме модула заключен.
