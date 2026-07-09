@@ -295,3 +295,8 @@
 .erp-seg-btn { border: none; background: #fff; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 13px; color: var(--ink); border-right: 1px solid var(--line); }
 .erp-seg-btn:last-child { border-right: none; }
 .erp-seg-btn.active { background: #0f766e; color: #fff; }
+
+/* Ред „Клиент" в заявката: поле + бутон Нов клиент */
+.co-client-row { display: flex; gap: 6px; align-items: center; }
+.co-client-row input { flex: 1; min-width: 0; }
+.co-client-row .btn { flex: 0 0 auto; white-space: nowrap; }

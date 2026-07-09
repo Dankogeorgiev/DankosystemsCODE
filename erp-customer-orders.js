@@ -25,6 +25,37 @@ async function erpLoadClients() {
   return erpClientsCache;
 }
 
+// Бърз „+ Нов клиент" направо от прозореца на заявката — записва в partners
+// (kind=customer) и веднага го избира в заявката.
+function erpCOAddClient(o) {
+  const { wrap, close } = erpDialog(`
+    <h3>Нов клиент</h3>
+    <label>Име / Фирма<input type="text" id="nc-name" placeholder="Фирма ООД" /></label>
+    <label>Лице за контакт<input type="text" id="nc-person" /></label>
+    <label>Телефон<input type="text" id="nc-phone" /></label>
+    <label>Имейл<input type="text" id="nc-email" /></label>
+    <label>Град<input type="text" id="nc-city" /></label>
+    <label>ДДС №<input type="text" id="nc-vat" /></label>
+    <div class="erp-dialog-actions"><button class="btn" id="nc-cancel">Отказ</button><button class="btn btn-primary" id="nc-save">Добави</button></div>
+    <p class="save-status" id="nc-status"></p>`);
+  wrap.querySelector("#nc-cancel").addEventListener("click", close);
+  wrap.querySelector("#nc-save").addEventListener("click", async () => {
+    const name = wrap.querySelector("#nc-name").value.trim();
+    const status = wrap.querySelector("#nc-status");
+    if (!name) { status.textContent = "Въведи име."; return; }
+    const val = id => { const el = wrap.querySelector("#nc-" + id); const v = el ? el.value.trim() : ""; return v || null; };
+    const payload = { kind: "customer", name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), vat: val("vat") };
+    status.textContent = "Записва…";
+    const { data, error } = await sb.from("partners").insert(payload).select("id").single();
+    if (error) { status.textContent = "⚠ " + error.message; return; }
+    o.clientName = name; o.clientId = data.id;
+    erpClientsCache = null;                                     // клиентите да се презаредят
+    if (typeof erpPartners !== "undefined") erpPartners = null; // и екранът Клиенти/Доставчици
+    close();
+    erpRenderCOForm(o);                                        // пре-рисуваме с новия клиент избран
+  });
+}
+
 function erpNextOrderNo() {
   let max = 0;
   (erpCOList || []).forEach(o => {
@@ -113,7 +144,11 @@ async function erpRenderCOForm(o) {
       <div class="erp-co-grid">
         <label>Наш № <input type="text" id="co-ourno" value="${escapeAttr(o.ourNo || "")}" /></label>
         <label>Клиентски № (референция) <input type="text" id="co-clientno" value="${escapeAttr(o.clientNo || "")}" placeholder="номер на заявката от клиента" /></label>
-        <label>Клиент <input type="text" id="co-client" list="co-clients" value="${escapeAttr(o.clientName || "")}" placeholder="избери или въведи" />
+        <label>Клиент
+          <span class="co-client-row">
+            <input type="text" id="co-client" list="co-clients" value="${escapeAttr(o.clientName || "")}" placeholder="избери или въведи" />
+            <button type="button" class="btn btn-small" id="co-add-client" title="Добави нов клиент в директорията">+ Нов клиент</button>
+          </span>
           <datalist id="co-clients">${clients.map(c => `<option value="${escapeAttr(c.company || "")}"></option>`).join("")}</datalist></label>
         <label>Дата <input type="date" id="co-date" value="${escapeAttr(o.date || "")}" /></label>
         <label>Срок <input type="date" id="co-deadline" value="${escapeAttr(o.deadline || "")}" /></label>
@@ -151,6 +186,8 @@ async function erpRenderCOForm(o) {
     if (m && erpCOFillPrices(o)) erpCORefreshLines(o);   // авто-цени за клиента
   });
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
+  const addClientBtn = document.getElementById("co-add-client");
+  if (addClientBtn) addClientBtn.addEventListener("click", () => erpCOAddClient(o));
 
   document.getElementById("co-back").addEventListener("click", erpRenderCustomerOrders);
   document.getElementById("co-save").addEventListener("click", () => erpCOSaveClick(o));
