@@ -52,10 +52,12 @@ function boardCard(t, flowMap) {
   const avail = (gated && typeof erpFlowAvailable === "function") ? (erpFlowAvailable(t, flowMap) || 0) : null;
   const due = t.due ? `<span class="bc-due">⏱ ${escapeHtml(t.due)}</span>` : "";
   const who = t.assignee ? `<span class="bc-asg">👷 ${escapeHtml(t.assignee)}</span>` : `<span class="bc-asg bc-free">незает</span>`;
+  const nos = (typeof taskOrderNos === "function") ? taskOrderNos(t) : [];
+  const noHtml = nos.length ? `<span class="bc-orderno">📋 № ${escapeHtml(nos.join(", "))}</span>` : (t.client ? `<span class="bc-client">${escapeHtml(t.client)}</span>` : "");
   return `<div class="board-card ${pi.cls || ""}">
     <div class="bc-top"><span class="bc-prio">${pi.icon || ""}</span><b>${escapeHtml(t.product || "—")}</b> <span class="bc-code">${escapeHtml(t.code || "")}</span></div>
     ${t.operation ? `<div class="bc-op">${escapeHtml(t.operation)}</div>` : ""}
-    <div class="bc-meta">${who}${due}</div>
+    <div class="bc-meta">${noHtml}${who}${due}</div>
     <div class="bc-qty">${prod}/${qty || "—"} бр.${avail != null && avail > 0 ? ` · <span class="bc-avail">↧ ${avail} готови</span>` : ""}</div>
     <div class="bc-bar"><span style="width:${pct}%"></span></div>
   </div>`;

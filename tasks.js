@@ -230,6 +230,14 @@ function amWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !M
 // Ръчно въведена задача (не е пусната от системата по поток). Системните задачи
 // имат source.flow; ръчните (стар импорт / ръчно) нямат.
 function isManualTask(t) { return !(t && t.source && t.source.flow); }
+// Номер(а) на поръчката(ите), по които е този детайл (една серия може да е от няколко).
+function taskOrderNos(t) {
+  const src = t && t.source;
+  if (src && Array.isArray(src.orders) && src.orders.length) {
+    return [...new Set(src.orders.map(o => (o && o.no != null ? String(o.no).trim() : "")).filter(Boolean))];
+  }
+  return [];
+}
 
 async function tLoadRoles() {
   const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
@@ -598,7 +606,7 @@ function renderTasks() {
     tr.className = "task-" + st + (pi.cls ? " " + pi.cls : "");
     tr.innerHTML = `
       ${prioCell}
-      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () { const n = taskOrderNos(t); return n.length ? `<div class="t-orderno" title="Номер на поръчката">📋 № ${escapeHtml(n.join(", "))}</div>` : ""; })()}</td>
       <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
@@ -685,21 +693,21 @@ function exportWorkshopTasksExcel() {
   if (!rows.length) { alert("Няма задачи за експорт по текущия филтър."); return; }
 
   const showWs = ws === "__all";
-  const head = ["Клиент", "Продукт", "Код", "Операция", "Кол-во", "Произв.", "Остатък", "Срок", "Отговорник"];
+  const head = ["Поръчка №", "Клиент", "Продукт", "Код", "Операция", "Кол-во", "Произв.", "Остатък", "Срок", "Отговорник"];
   if (showWs) head.unshift("Цех");
   const title = "Задачи — " + (showWs ? "Всички цехове" : ws) + (worker ? " · " + worker : "") + " · " + todayStr();
   const aoa = [[title], [], head];
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const r = [
-      t.client || "СЕРИЯ", t.product || "", t.code || "", t.operation || "",
+      taskOrderNos(t).join(", "), t.client || "СЕРИЯ", t.product || "", t.code || "", t.operation || "",
       qty || "", prod, Math.max(qty - prod, 0), t.due || "", t.assignee || "",
     ];
     if (showWs) r.unshift(t.workshop || "");
     aoa.push(r);
   });
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
-  sheet["!cols"] = (showWs ? [{ wch: 12 }] : []).concat([{ wch: 22 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 18 }]);
+  sheet["!cols"] = (showWs ? [{ wch: 12 }] : []).concat([{ wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 18 }]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet, "Задачи");
   const wsName = (showWs ? "всички" : ws).replace(/[\\\/\?\*\[\]:]/g, "-");
