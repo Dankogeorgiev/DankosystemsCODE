@@ -225,12 +225,42 @@ function searchText(s) {
   return (s.clientName + " " + s.sampleInfo).toLowerCase();
 }
 
+// Отваря „менюто" на даден тип (мостри/поръчки/рекламации): филтрира списъка
+// и показва началния екран — оттам с бутона се добавя нов запис.
+function openTypeMenu(type) {
+  const tf = document.getElementById("type-filter");
+  if (tf) tf.value = type;
+  currentId = null;
+  const rep = document.getElementById("report"); if (rep) rep.hidden = true;
+  renderList();
+  renderForm();   // показва welcome, когато няма избран запис
+}
+
+// Бутон(и) за добавяне в списъка според избрания тип.
+function renderListAddBtn(tf) {
+  const host = document.getElementById("list-add");
+  if (!host) return;
+  const one = (label, t) => `<button class="btn btn-primary btn-block list-add-btn" data-add="${t}">+ ${label}</button>`;
+  if (tf === "sample") host.innerHTML = one("Нова мостра", "sample");
+  else if (tf === "order") host.innerHTML = one("Нова нестандартна поръчка", "order");
+  else if (tf === "claim") host.innerHTML = one("Нова рекламация", "claim");
+  else host.innerHTML = `<div class="list-add-row">
+      <button class="btn btn-small" data-add="sample">+ Мостра</button>
+      <button class="btn btn-small" data-add="order">+ Поръчка</button>
+      <button class="btn btn-small" data-add="claim">+ Рекламация</button></div>`;
+  host.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => {
+    const t = b.dataset.add;
+    if (t === "claim") newClaim(); else newSample(t);
+  }));
+}
+
 function renderList() {
   const ul = document.getElementById("sample-list");
   const term = document.getElementById("search").value.trim().toLowerCase();
   ul.innerHTML = "";
 
   const tf = document.getElementById("type-filter").value;
+  renderListAddBtn(tf);
   const filtered = samples.filter(s => {
     if (tf !== "all" && (s.type || "sample") !== tf) return false;
     return !term || searchText(s).includes(term);
@@ -938,8 +968,8 @@ function wireHandlers() {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("btn-logout").addEventListener("click", () => sb.auth.signOut());
 
-  document.getElementById("btn-new").addEventListener("click", () => newSample("sample"));
-  document.getElementById("btn-new-order").addEventListener("click", () => newSample("order"));
+  document.getElementById("btn-new").addEventListener("click", () => openTypeMenu("sample"));
+  document.getElementById("btn-new-order").addEventListener("click", () => openTypeMenu("order"));
   document.getElementById("btn-report-close").addEventListener("click", () => {
     document.getElementById("report").hidden = true; renderForm();
   });
@@ -979,7 +1009,7 @@ function wireHandlers() {
   });
 
   /* --- Рекламации --- */
-  document.getElementById("btn-new-claim").addEventListener("click", newClaim);
+  document.getElementById("btn-new-claim").addEventListener("click", () => openTypeMenu("claim"));
   document.getElementById("btn-claim-report").addEventListener("click", renderClaimRegister);
   document.getElementById("btn-claim-report-close").addEventListener("click", () => {
     document.getElementById("claim-report").hidden = true; renderForm();

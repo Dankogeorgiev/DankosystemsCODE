@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=232" />
+  <link rel="stylesheet" href="styles.css?v=234" />
   <link rel="stylesheet" href="erp.css?v=231" />
 </head>
 <body>
@@ -29,16 +29,16 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 233</p>
+      <p class="login-version">версия 234</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="header-zone header-left">
       <div class="hz-row">
-        <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
-        <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
-        <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
+        <button id="btn-new" class="btn btn-primary">🧪 Мостри</button>
+        <button id="btn-new-order" class="btn btn-accent">📦 Нестандартни поръчки</button>
+        <button id="btn-new-claim" class="btn btn-claim">⚠ Рекламации</button>
       </div>
       <div class="hz-row">
         <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
@@ -85,8 +85,9 @@
           <option value="claim">Рекламации</option>
         </select>
       </div>
+      <div id="list-add" class="list-add"></div>
       <ul id="sample-list" class="sample-list"></ul>
-      <p id="empty-list" class="empty-hint">Все още няма мостри.<br>Натисни „+ Нова мостра“.</p>
+      <p id="empty-list" class="empty-hint">Все още няма записи.<br>Натисни бутона за добавяне горе.</p>
     </aside>
 
     <!-- Детайли / форма -->
@@ -520,7 +521,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
-  <script src="app.js?v=229"></script>
+  <script src="app.js?v=234"></script>
   <script src="tasks.js?v=232"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
