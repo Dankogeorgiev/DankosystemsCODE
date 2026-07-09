@@ -612,6 +612,7 @@ function renderTasks() {
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
         ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
+        <button type="button" class="btn btn-small t-move" title="Прехвърли операцията в друг цех">🔀 Цех</button>
         <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
       </td>`;
     const filesCell = tr.querySelector(".t-files");
@@ -639,6 +640,7 @@ function renderTasks() {
     tr.querySelector(".t-add").addEventListener("click", submit);
     if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
+    const move = tr.querySelector(".t-move"); if (move) move.addEventListener("click", () => moveTaskWorkshop(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
     const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
@@ -927,6 +929,60 @@ function openKrohneDialog(t, qtyPrefill) {
    Служителят ЗАПИСВА извънредна дейност (описание + време). Записът се пази
    като лог в скрита задача „Допълнителна дейност" за цеха и се показва във
    „Времена" (collectTimeRows го включва по полето activity/tOrder). */
+// Прехвърля операция от цех в цех (само админ). Еднократно (само тази задача)
+// или постоянно (тази операция на този детайл винаги отива в избрания цех).
+function moveTaskWorkshop(t) {
+  if (amWorker()) return;
+  const detail = (t.code ? t.code + " " : "") + (t.product || "");
+  const op = t.operation || "(операция)";
+  const cur = t.workshop || "";
+  const wss = (typeof TASK_DEFAULT_WORKSHOPS !== "undefined" && TASK_DEFAULT_WORKSHOPS.length)
+    ? TASK_DEFAULT_WORKSHOPS
+    : ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция"];
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>🔀 Прехвърли в цех</h3>
+      <p class="pd-hint">Детайл: <b>${escapeHtml(detail)}</b><br>Операция: <b>${escapeHtml(op)}</b><br>Сега в цех: <b>${escapeHtml(cur)}</b></p>
+      <label>Нов цех
+        <select id="mv-ws">${wss.map(w => `<option ${w === cur ? "selected" : ""}>${escapeHtml(w)}</option>`).join("")}</select>
+      </label>
+      <div class="mv-mode">
+        <label class="mv-radio"><input type="radio" name="mv-mode" value="perm" checked /> <span><b>Постоянно</b> — тази операция на този детайл винаги ще отива в избрания цех (и при следващи заявки)</span></label>
+        <label class="mv-radio"><input type="radio" name="mv-mode" value="once" /> <span>Само тази задача (еднократно)</span></label>
+      </div>
+      <div class="ask-actions">
+        <button id="mv-save" class="btn btn-primary">Прехвърли</button>
+        <button id="mv-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#mv-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#mv-save").addEventListener("click", async () => {
+    const target = wrap.querySelector("#mv-ws").value;
+    const mode = (wrap.querySelector('input[name="mv-mode"]:checked') || {}).value || "perm";
+    if (!target) { alert("Избери цех."); return; }
+    if (target === cur && mode === "once") { close(); return; }
+    const btn = wrap.querySelector("#mv-save"); btn.disabled = true; btn.textContent = "Прехвърля…";
+    // 1) Местим текущата задача в избрания цех.
+    t.workshop = target;
+    await tSaveTask(t);
+    // 2) Постоянно: запомняме правилото за детайл+операция.
+    if (mode === "perm" && typeof erpSaveDetailRoute === "function") {
+      const key = (typeof erpDetailRouteKey === "function")
+        ? erpDetailRouteKey(t.code, t.product, t.operation)
+        : ((t.code || t.product || "") + "¦" + (t.operation || ""));
+      const err = await erpSaveDetailRoute(key, target);
+      if (err) alert("Задачата е преместена, но постоянното правило не се записа: " + (err.message || err));
+    }
+    close();
+    renderTasks();
+  });
+}
+
 function openExtraActivityDialog() {
   const worker = amWorker() ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
   if (amWorker() && !worker) { alert("Първо избери кой си (горе)."); return; }

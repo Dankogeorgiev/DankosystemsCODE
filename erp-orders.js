@@ -287,6 +287,23 @@ async function erpMaybeStartFinal(t, src) {
 // opts (по избор): { stock: {product_id: наличен_брой} (мутира се при приспадане),
 //   consumed: {product_id: взети_от_склад} (изход) } — за нетна потребност: ако
 //   даден детайл го има на склад, не се произвежда (и децата му също не се правят).
+// Ключ за ръчно прехвърляне: „<код на детайл>¦<операция>" (код, иначе име).
+function erpDetailRouteKey(code, product, operation) {
+  return String(code || product || "") + "¦" + String(operation || "");
+}
+// Записва/маха постоянно прехвърляне на операция на детайл към цех (app_config).
+async function erpSaveDetailRoute(detailKey, workshop) {
+  let byKey = {};
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "erp_detail_routing").maybeSingle();
+    byKey = (data && data.data && data.data.byKey) || {};
+  } catch (e) {}
+  if (workshop) byKey[detailKey] = workshop; else delete byKey[detailKey];
+  const { error } = await sb.from("app_config").upsert({ id: "erp_detail_routing", data: { byKey }, updated_at: new Date().toISOString() });
+  if (!error && typeof ERP !== "undefined") ERP.detailRouting = byKey;
+  return error;
+}
+
 function erpFlowSteps(s, opts) {
   const qty = erpToNum(s.erpQty) || 1;
   const steps = [], external = [], missing = [], materials = {};   // materials: material_id -> нужно к-во
@@ -316,7 +333,10 @@ function erpFlowSteps(s, opts) {
     (ERP.linesByProduct[pid] || []).forEach(l => {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
-        const ws = (route(op).primary) || "";
+        let ws = (route(op).primary) || "";
+        // Ръчно прехвърляне по детайл+операция (постоянно) — има превес над всичко.
+        const dovr = (ERP.detailRouting || {})[erpDetailRouteKey(p.code, p.name, op.name)];
+        if (dovr) ws = dovr;
         const cnt = make * (Number(l.quantity) || 1);
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         ops.push({ operation: op.name || "", workshop: ws, qty: cnt });

@@ -914,3 +914,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
   max-width: 90vw; text-align: center;
 }
 .login-greeting.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Диалог „Прехвърли в цех" — избор постоянно/еднократно */
+.mv-mode { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.mv-radio { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--ink); margin: 0; cursor: pointer; }
+.mv-radio input { width: auto; margin-top: 3px; flex: 0 0 auto; }
