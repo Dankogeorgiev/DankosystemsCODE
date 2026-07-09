@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=234" />
+  <link rel="stylesheet" href="styles.css?v=235" />
   <link rel="stylesheet" href="erp.css?v=231" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 234</p>
+      <p class="login-version">версия 235</p>
     </form>
   </div>
 
@@ -389,6 +389,7 @@
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
+        <button id="btn-board" class="btn btn-small">📺 Табло</button>
         <button id="btn-planning" class="btn btn-small">📅 Планиране</button>
         <button id="btn-times" class="btn btn-small">⏱ Времена</button>
         <label class="btn btn-small" for="erp-file">⤓ Импорт ERP</label>
@@ -405,6 +406,7 @@
       <div id="worker-bar" class="worker-bar"></div>
 
       <div id="tasks-view">
+        <div id="flow-arrivals" class="flow-arrivals" hidden></div>
         <div id="identity-picker" class="identity-picker" hidden></div>
         <div id="task-bulk" class="task-bulk" hidden></div>
         <div id="tasks-daily" class="tasks-daily" hidden></div>
@@ -442,6 +444,7 @@
       <div id="messages-view" hidden></div>
       <div id="times-view" hidden></div>
       <div id="planning-view" hidden></div>
+      <div id="board-view" hidden></div>
     </div>
   </div>
 
@@ -522,10 +525,11 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="app.js?v=234"></script>
-  <script src="tasks.js?v=232"></script>
+  <script src="tasks.js?v=235"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
   <script src="planning.js?v=165"></script>
+  <script src="board.js?v=235"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
   <script src="erp.js?v=230"></script>

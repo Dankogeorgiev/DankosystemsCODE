@@ -926,3 +926,41 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .list-add-btn { width: 100%; }
 .list-add-row { display: flex; gap: 6px; }
 .list-add-row .btn { flex: 1; padding: 6px 4px; }
+
+/* ===== Известие за потока (пристигнали детайли) ===== */
+.flow-arrivals { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 10px; padding: 10px 14px; margin: 8px 0; font-size: 14px; line-height: 1.6; }
+.flow-arrivals .fa-bell { font-size: 16px; }
+.fa-chip { display: inline-block; background: #fff; border: 1px solid #a7f3d0; border-radius: 999px; padding: 1px 9px; margin: 2px 2px; font-size: 13px; white-space: nowrap; }
+.fa-chip b { color: #047857; }
+
+/* ===== Табло за цеха (Kanban за таблет/телевизор) ===== */
+.board-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; }
+.board-head h3 { margin: 0; font-size: 22px; }
+.board-arr { background: #fef3c7; border: 1px solid #fde68a; color: #b45309; border-radius: 999px; padding: 2px 12px; font-weight: 700; }
+.board-ts { font-size: 12px; }
+.board-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+.board-col { background: #f8fafc; border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-height: 120px; }
+.board-col-head { font-size: 16px; font-weight: 800; padding: 4px 6px 10px; display: flex; align-items: center; gap: 8px; }
+.board-col-n { background: #e2e8f0; color: #334155; border-radius: 999px; padding: 0 10px; font-size: 14px; }
+.board-col.col-todo { background: #f1f5f9; }
+.board-col.col-prog { background: #eff6ff; border-color: #bfdbfe; }
+.board-col.col-done { background: #f0fdf4; border-color: #bbf7d0; }
+.board-col-body { display: flex; flex-direction: column; gap: 10px; }
+.board-empty { color: var(--muted); text-align: center; margin: 8px 0; }
+.board-card { background: #fff; border: 1px solid var(--line); border-left: 5px solid #94a3b8; border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); }
+.board-card.prio-high { border-left-color: #f59e0b; }
+.board-card.prio-urgent { border-left-color: #dc2626; }
+.bc-top { font-size: 18px; line-height: 1.2; }
+.bc-top b { font-weight: 800; }
+.bc-code { color: var(--muted); font-size: 13px; }
+.bc-prio { margin-right: 4px; }
+.bc-op { font-size: 14px; color: #1e3a8a; margin-top: 2px; }
+.bc-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 4px; font-size: 14px; }
+.bc-asg { font-weight: 600; }
+.bc-free { color: #b45309; }
+.bc-due { color: #475569; }
+.bc-qty { font-size: 15px; font-weight: 700; }
+.bc-avail { color: #047857; }
+.bc-bar { height: 8px; background: #e2e8f0; border-radius: 6px; overflow: hidden; margin-top: 6px; }
+.bc-bar span { display: block; height: 100%; background: linear-gradient(90deg,#16a34a,#22c55e); }
+@media (max-width: 900px) { .board-cols { grid-template-columns: 1fr; } }

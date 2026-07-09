@@ -420,6 +420,7 @@ function showSub(which) {
   const mv = document.getElementById("messages-view"); if (mv) mv.hidden = which !== "messages";
   const tv = document.getElementById("times-view"); if (tv) tv.hidden = which !== "times";
   const pv = document.getElementById("planning-view"); if (pv) pv.hidden = which !== "planning";
+  const bv = document.getElementById("board-view"); if (bv) bv.hidden = which !== "board";
 }
 
 /* ---------- Падащи менюта ---------- */
@@ -544,6 +545,7 @@ function renderTasks() {
   if (thQ) thQ.textContent = isZavView ? "Коментар" : "Въпрос";
 
   document.getElementById("tasks-empty").hidden = rows.length > 0;
+  if (typeof renderFlowArrivals === "function") renderFlowArrivals(ws);   // известие за пристигнали детайли
 
   // Дневно обобщение, когато е избран конкретен служител
   const daily = document.getElementById("tasks-daily");
@@ -2344,6 +2346,7 @@ function tInit() {
   const bx = document.getElementById("btn-export-tasks"); if (bx) bx.addEventListener("click", exportWorkshopTasksExcel);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
   const bp = document.getElementById("btn-planning"); if (bp && typeof togglePlanning === "function") bp.addEventListener("click", togglePlanning);
+  const bb = document.getElementById("btn-board"); if (bb && typeof toggleBoard === "function") bb.addEventListener("click", toggleBoard);
   const bea = document.getElementById("btn-extra-activity"); if (bea) bea.addEventListener("click", openExtraActivityDialog);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
