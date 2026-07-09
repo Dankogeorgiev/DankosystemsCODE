@@ -90,16 +90,17 @@
   .tbtns{display:flex;gap:8px;flex-wrap:wrap}
   .rowacts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 
-  /* ===== Изделия на масата (карти — удобни на телефон) ===== */
+  /* ===== Изделия на масата (карти — компактни на десктоп, стекнати на телефон) ===== */
   .jobs{display:flex;flex-direction:column;gap:10px}
-  .job{background:#F8FAFC;border:1px solid var(--line);border-radius:12px;padding:14px}
+  .job{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#F8FAFC;border:1px solid var(--line);border-radius:12px;padding:13px 16px}
   .job.done{opacity:.62}
+  .job-main{flex:1 1 240px;min-width:0}
   .job-nm{font-family:var(--disp);font-weight:700;font-size:16px;line-height:1.3}
-  .job-stats{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--muted);margin:9px 0 12px}
-  .job-stats b{font-family:var(--disp);color:var(--ink);font-size:15px}
+  .job-stats{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px}
+  .job-stats b{font-family:var(--disp);color:var(--ink);font-size:14px}
   .job-stats b.ok{color:var(--ok)}
-  .job-acts{display:flex;gap:8px;flex-wrap:wrap}
-  .job-acts .btn{flex:1 1 140px;text-align:center;padding:12px;font-size:13px}
+  .job-acts{flex:0 0 auto;display:flex;gap:8px}
+  .job-acts .btn{padding:11px 16px;font-size:13px}
 
   @media(max-width:560px){
     .wrap{padding:13px}
@@ -111,6 +112,10 @@
     .toolbar{margin:16px 2px 12px}
     .ovl{padding:10px}
     .panel{padding:14px}
+    .job{flex-direction:column;align-items:stretch;gap:10px}
+    .job-main{flex:0 0 auto}
+    .job-acts{width:100%}
+    .job-acts .btn{flex:1 1 auto;text-align:center;padding:12px}
   }
   .pd-time{display:flex;gap:7px}.pd-time input{flex:1 1 auto}
   .pd-time select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;color:var(--ink);flex:0 0 76px}
@@ -326,11 +331,13 @@ function renderDetail(id){
     ? '<div class="empty">Зарежда…</div>'
     : (items.length? `<div class="jobs">${items.map(o=>{const rem=remainOf(o.product),done=o.ordered>0&&rem===0;
         return `<div class="job${done?' done':''}">
-          <div class="job-nm">${esc(o.product)}</div>
-          <div class="job-stats">
-            <span>Поръчано <b>${num(o.ordered)}</b></span>
-            <span>Заварени <b>${num(prod[o.product]||0)}</b></span>
-            <span>${done?'<b class="ok">✓ готово</b>':`Остават <b>${num(rem)}</b>`}</span>
+          <div class="job-main">
+            <div class="job-nm">${esc(o.product)}</div>
+            <div class="job-stats">
+              <span>Поръчано <b>${num(o.ordered)}</b></span>
+              <span>Заварени <b>${num(prod[o.product]||0)}</b></span>
+              <span>${done?'<b class="ok">✓ готово</b>':`Остават <b>${num(rem)}</b>`}</span>
+            </div>
           </div>
           <div class="job-acts">
             <button class="btn pri" data-report="${escAttr(o.product)}">✓ Запиши брой</button>
