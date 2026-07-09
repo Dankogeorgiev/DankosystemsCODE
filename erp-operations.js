@@ -73,7 +73,7 @@ function erpRenderOperations() {
     </div>
     <p class="hint">За всяка операция избери <b>основен цех</b> (там отива задачата при „Пусни в производство") и по избор „<b>може също</b>" — алтернативни цехове, между които се преразпределя при нужда.</p>
     <table class="report-table erp-table erp-routing">
-      <thead><tr><th>Операция</th><th class="num">Ползв.</th><th>Основен цех</th><th>Може също в…</th></tr></thead>
+      <thead><tr><th>Операция</th><th class="num">Ползв.</th><th class="num cost-cell">Себест.</th><th>Основен цех</th><th>Може също в…</th><th></th></tr></thead>
       <tbody>
         ${ops.map(op => {
           const r = ERP.opRouting[op.code];
@@ -81,6 +81,7 @@ function erpRenderOperations() {
           return `<tr class="${!r.primary ? "erp-below" : ""}" data-code="${escapeAttr(op.code || "")}">
             <td data-label="Операция">${escapeHtml(op.name || "")}<div class="t-code">${escapeHtml(op.code || "")}</div></td>
             <td class="num" data-label="Ползв.">${ERP.opUsage[op.id] || 0}</td>
+            <td class="num cost-cell" data-label="Себест.">${erpEur(op.unit_cost)}</td>
             <td data-label="Основен цех">
               <select class="erp-route-primary">
                 <option value="">— избери —</option>
@@ -95,6 +96,7 @@ function erpRenderOperations() {
                 ${altOpts.map(w => `<option>${escapeHtml(w)}</option>`).join("")}
               </select>
             </td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editop="${op.id}" title="Редактирай име/себестойност">✎</button><button class="btn btn-small" data-mergeop="${op.id}" title="Обедини с друга операция (за дублирани кодове)">⧉</button></td>
           </tr>`;
         }).join("")}
       </tbody>
@@ -129,9 +131,70 @@ function erpRenderOperations() {
       erpRoutingDirty = true;
       erpRenderOperations();
     }));
+  // Редакция / обединяване на операция
+  v.querySelectorAll("[data-editop]").forEach(b => b.addEventListener("click", () => erpEditOperation(Number(b.dataset.editop))));
+  v.querySelectorAll("[data-mergeop]").forEach(b => b.addEventListener("click", () => erpMergeOperation(Number(b.dataset.mergeop))));
   // Запазване
   const saveBtn = document.getElementById("erp-route-save");
   if (saveBtn) saveBtn.addEventListener("click", erpSaveRouting);
+}
+
+// Редакция на операция: име + себестойност (€/бр.). Оправя напр. завишена цена.
+function erpEditOperation(id) {
+  const op = ERP.opById[id];
+  if (!op) return;
+  const { wrap, close } = erpDialog(`
+    <h3>Редакция на операция <span class="erp-muted">${escapeHtml(op.code || "")}</span></h3>
+    <label>Име<input type="text" id="eo-name" value="${escapeAttr(op.name || "")}" /></label>
+    <label class="cost-cell">Себестойност €/бр.<input type="number" id="eo-cost" step="any" min="0" value="${op.unit_cost || 0}" /></label>
+    <div class="erp-dialog-actions"><button class="btn" id="eo-cancel">Отказ</button><button class="btn btn-primary" id="eo-save">Запази</button></div>
+    <p class="save-status" id="eo-status"></p>`);
+  wrap.querySelector("#eo-cancel").addEventListener("click", close);
+  wrap.querySelector("#eo-save").addEventListener("click", async () => {
+    const name = wrap.querySelector("#eo-name").value.trim();
+    const status = wrap.querySelector("#eo-status");
+    if (!name) { status.textContent = "Въведи име."; return; }
+    const cost = erpToNum(wrap.querySelector("#eo-cost").value) || 0;
+    status.textContent = "Записва…";
+    const { error } = await sb.from("operations").update({ name, unit_cost: cost }).eq("id", id);
+    if (error) { status.textContent = "⚠ " + error.message; return; }
+    close();
+    await erpReload();
+  });
+}
+
+// Обединяване на дублирани операции: рецептите се пренасочват към избраната
+// операция, а тази се изтрива (напр. две „Лазерно рязане" → една).
+function erpMergeOperation(fromId) {
+  const from = ERP.opById[fromId];
+  if (!from) return;
+  const fromLbl = (from.code ? from.code + " " : "") + (from.name || "");
+  const others = ERP.operations.filter(o => o.id !== fromId).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+  const uses = ERP.opUsage[fromId] || 0;
+  const { wrap, close } = erpDialog(`
+    <h3>Обедини операция</h3>
+    <p class="hint">Всички рецепти (${uses} реда), които ползват <b>${escapeHtml(fromLbl)}</b>, ще започнат да сочат към избраната операция, а тази ще се <b>изтрие</b>. Полезно за дублирани кодове (напр. две „Лазерно рязане").</p>
+    <label>Обедини в:
+      <select id="mo-target"><option value="">— избери операция —</option>${others.map(o => `<option value="${o.id}">${escapeHtml((o.code ? o.code + " " : "") + (o.name || ""))}</option>`).join("")}</select>
+    </label>
+    <div class="erp-dialog-actions"><button class="btn" id="mo-cancel">Отказ</button><button class="btn btn-primary" id="mo-save">Обедини</button></div>
+    <p class="save-status" id="mo-status"></p>`);
+  wrap.querySelector("#mo-cancel").addEventListener("click", close);
+  wrap.querySelector("#mo-save").addEventListener("click", async () => {
+    const targetId = Number(wrap.querySelector("#mo-target").value);
+    const status = wrap.querySelector("#mo-status");
+    if (!targetId) { status.textContent = "Избери операция."; return; }
+    const target = ERP.opById[targetId] || {};
+    const targetLbl = (target.code ? target.code + " " : "") + (target.name || "");
+    if (!confirm(`Рецептите ще сочат към „${targetLbl}", а „${fromLbl}" ще се изтрие. Продължавам?`)) return;
+    status.textContent = "Обединява…";
+    const e1 = await sb.from("recipe_lines").update({ operation_id: targetId }).eq("operation_id", fromId);
+    if (e1.error) { status.textContent = "⚠ " + e1.error.message; return; }
+    const e2 = await sb.from("operations").delete().eq("id", fromId);
+    if (e2.error) { status.textContent = "⚠ Пренасочено, но не изтрито: " + e2.error.message; return; }
+    close();
+    await erpReload();
+  });
 }
 
 async function erpSaveRouting() {
