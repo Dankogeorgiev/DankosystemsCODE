@@ -227,6 +227,9 @@ let tasksLoaded = false;
 let tasksSubscribed = false;
 
 function amWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
+// Ръчно въведена задача (не е пусната от системата по поток). Системните задачи
+// имат source.flow; ръчните (стар импорт / ръчно) нямат.
+function isManualTask(t) { return !(t && t.source && t.source.flow); }
 
 async function tLoadRoles() {
   const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
@@ -594,7 +597,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -706,14 +709,42 @@ function renderBulkBar(rows, ws) {
   if (amWorker()) { bulk.hidden = true; return; }
   bulk.hidden = false;
   const wsNames = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const manualRows = rows.filter(isManualTask);
   bulk.innerHTML = `Маркирани: <strong id="bulk-count">${selectedTasks.size}</strong> ·
     Възложи на: <select id="bulk-worker"><option value="">— избери —</option>${wsNames.map(n => `<option>${escapeHtml(n)}</option>`).join("")}</select>
     <button id="bulk-assign" class="btn btn-small btn-primary">Възложи избраните</button>
     <button id="bulk-selvis" class="btn btn-small">Маркирай показаните (${rows.length})</button>
-    <button id="bulk-clear" class="btn btn-small">Изчисти</button>`;
+    <button id="bulk-sel-manual" class="btn btn-small" title="Маркира показаните ръчно въведени задачи (не пуснати от системата)">✋ Маркирай ръчните (${manualRows.length})</button>
+    <button id="bulk-clear" class="btn btn-small">Изчисти</button>
+    <button id="bulk-del" class="btn btn-small btn-danger">🗑 Изтрий избраните</button>`;
   bulk.querySelector("#bulk-selvis").addEventListener("click", () => { rows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
+  bulk.querySelector("#bulk-sel-manual").addEventListener("click", () => { manualRows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
   bulk.querySelector("#bulk-clear").addEventListener("click", () => { selectedTasks.clear(); renderTasks(); });
   bulk.querySelector("#bulk-assign").addEventListener("click", () => assignBulk(bulk.querySelector("#bulk-worker").value));
+  bulk.querySelector("#bulk-del").addEventListener("click", deleteBulk);
+}
+
+async function deleteBulk() {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи — с тикчетата отляво или бутона „✋ Маркирай ръчните\"."); return; }
+  const ids = [...selectedTasks];
+  const manual = ids.filter(id => { const t = TASKS.find(x => x.id === id); return t && isManualTask(t); }).length;
+  const flow = ids.length - manual;
+  if (!confirm(`Да изтрия ли ${ids.length} маркирани задачи?`
+    + `\n\n✋ ръчни: ${manual}`
+    + (flow ? `\n⚙ системни (от поток): ${flow} — внимание!` : "")
+    + `\n\nТова е необратимо. Ръчните не са в Склад детайли, така че складът не се променя.`)) return;
+  let done = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { error } = await sb.from("tasks").delete().in("id", chunk);
+    if (error) { alert("Грешка при изтриване: " + error.message); break; }
+    TASKS = TASKS.filter(t => !chunk.includes(t.id));
+    done += chunk.length;
+  }
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Изтрити ${done} задачи.`);
 }
 
 async function assignBulk(worker) {
