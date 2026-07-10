@@ -115,6 +115,8 @@ async function erpPayFridaysView(v) {
   const empRow = e => {
     const r = entries[e.name] || {};
     const fri = r.fri || {};
+    const rz = r.rz || {};
+    const rzSum = Number(rz.sum) || 0;
     const bd = payFriBreakdown(r.net, fri, fridays);
     const friCells = bd.rows.map(row => {
       const wo = row.wo;
@@ -132,7 +134,11 @@ async function erpPayFridaysView(v) {
       ${friCells}
       <td class="num pf-bank" data-bank="${escapeAttr(e.name)}">${payEur(bd.fromBank)}</td>
       <td class="num pf-code ${bd.code005 > 0 ? "pf-over" : ""}" data-code="${escapeAttr(e.name)}">${payEur(bd.code005)}</td>
-      <td class="num pf-tot" data-tot="${escapeAttr(e.name)}"><b>${payEur(bd.sum)}</b></td>
+      <td class="num pf-rzcol">
+        <div class="pf-fline"><span>Сума</span><input type="number" class="pf-rzsum" data-name="${escapeAttr(e.name)}" step="any" value="${rz.sum != null && rz.sum !== "" ? escapeAttr(String(rz.sum)) : ""}" /></div>
+        <div class="pf-fline"><span>Бел.</span><input type="text" class="pf-rznote" data-name="${escapeAttr(e.name)}" value="${escapeAttr(rz.note || "")}" /></div>
+      </td>
+      <td class="num pf-tot" data-tot="${escapeAttr(e.name)}"><b>${payEur(bd.sum + rzSum)}</b></td>
     </tr>`;
   };
 
@@ -153,11 +159,12 @@ async function erpPayFridaysView(v) {
         ${fridays.map(f => `<th class="pf-frih">Петък<br>${f.label}</th>`).join("")}
         <th class="num">От банка</th>
         <th class="num">CODE 005</th>
+        <th class="num pf-hrz">РАЗЛИЧНИ</th>
         <th class="num">ОБЩО</th>
       </tr></thead>
       <tbody>
-        ${order.map(ws => `<tr class="pay-ws"><td colspan="${fridays.length + 7}"><b>${escapeHtml(ws)}</b></td></tr>` + byWs[ws].map(empRow).join("")).join("") ||
-          `<tr><td colspan="${fridays.length + 7}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
+        ${order.map(ws => `<tr class="pay-ws"><td colspan="${fridays.length + 8}"><b>${escapeHtml(ws)}</b></td></tr>` + byWs[ws].map(empRow).join("")).join("") ||
+          `<tr><td colspan="${fridays.length + 8}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
       </tbody>
       <tfoot><tr class="pf-foot">
         <td colspan="3"><b>ОБЩО (всички служители)</b></td>
@@ -168,10 +175,11 @@ async function erpPayFridaysView(v) {
         </td>`).join("")}
         <td class="num pf-bank" id="pf-gbank"></td>
         <td class="num pf-code" id="pf-gcode"></td>
+        <td class="num pf-rz" id="pf-grz"></td>
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.<br><b>Запазване:</b> ставките (Дневно/Седмично/По банка) се пазят с горния бутон „Запази ставки"; всеки петък се пази отделно с бутона „Запази петъка" под неговата колона.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.<br><b>РАЗЛИЧНИ</b> (преди ОБЩО) е за други плащания на служителя за месеца: <b>Сума</b> (влиза в ОБЩО) и <b>Бел.</b> (кратка забележка). Не влиза в разбивката по банка/005. <br><b>Запазване:</b> ставките (Дневно/Седмично/По банка) <b>и РАЗЛИЧНИ</b> се пазят с горния бутон „Запази ставки"; всеки петък се пази отделно с бутона „Запази петъка" под неговата колона.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
@@ -190,7 +198,8 @@ async function erpPayFridaysView(v) {
     });
     const bk = v.querySelector(`.pf-bank[data-bank="${esc}"]`); if (bk) bk.textContent = payEur(bd.fromBank);
     const cd = v.querySelector(`.pf-code[data-code="${esc}"]`); if (cd) { cd.textContent = payEur(bd.code005); cd.classList.toggle("pf-over", bd.code005 > 0); }
-    const tt = v.querySelector(`.pf-tot[data-tot="${esc}"]`); if (tt) tt.innerHTML = `<b>${payEur(bd.sum)}</b>`;
+    const rzSum = Number((v.querySelector(`.pf-rzsum[data-name="${esc}"]`) || {}).value) || 0;
+    const tt = v.querySelector(`.pf-tot[data-tot="${esc}"]`); if (tt) tt.innerHTML = `<b>${payEur(bd.sum + rzSum)}</b>`;
   };
   // Долен ред: за всеки петък — общо по банка и общо по CODE 005 за всички служители.
   const recomputeFooter = () => {
@@ -206,15 +215,18 @@ async function erpPayFridaysView(v) {
       bd.rows.forEach(row => { perFri[row.iso].bank += row.bank; perFri[row.iso].code += row.code; });
       gBank += bd.fromBank; gCode += bd.code005;
     });
+    let gRz = 0;
+    v.querySelectorAll(".pf-rzsum").forEach(i => { gRz += Number(i.value) || 0; });
     fridays.forEach(f => {
       const el = v.querySelector(`.pf-ftot[data-iso="${f.iso}"]`);
       if (el) { const t = perFri[f.iso]; el.innerHTML = `🏦 ${payEur(t.bank)}<br>005 ${payEur(t.code)}`; el.classList.toggle("pf-over", t.code > 0); }
     });
     const gb = v.querySelector("#pf-gbank"); if (gb) gb.innerHTML = `<b>${payEur(gBank)}</b>`;
     const gc = v.querySelector("#pf-gcode"); if (gc) gc.innerHTML = `<b>${payEur(gCode)}</b>`;
-    const gt = v.querySelector("#pf-gtot"); if (gt) gt.innerHTML = `<b>${payEur(gBank + gCode)}</b>`;
+    const grz = v.querySelector("#pf-grz"); if (grz) grz.innerHTML = `<b>${payEur(gRz)}</b>`;
+    const gt = v.querySelector("#pf-gtot"); if (gt) gt.innerHTML = `<b>${payEur(gBank + gCode + gRz)}</b>`;
   };
-  v.querySelectorAll(".pf-net, .pf-friw, .pf-frio").forEach(i => i.addEventListener("input", () => { recompute(i.dataset.name); recomputeFooter(); }));
+  v.querySelectorAll(".pf-net, .pf-friw, .pf-frio, .pf-rzsum").forEach(i => i.addEventListener("input", () => { recompute(i.dataset.name); recomputeFooter(); }));
   recomputeFooter();
 
   const num = x => Number(String(x).replace(",", ".")) || 0;
@@ -236,6 +248,10 @@ async function erpPayFridaysView(v) {
       const n = val("pf-net", esc);
       const rec = entries[name] = entries[name] || {};
       if (n === "") delete rec.net; else rec.net = num(n);
+      // РАЗЛИЧНИ (Сума + Бел.) — месечно, на служителя.
+      const rzs = val("pf-rzsum", esc), rzn = val("pf-rznote", esc);
+      const rzSum = rzs === "" ? 0 : num(rzs);
+      if (rzSum || rzn) rec.rz = { sum: rzSum, note: rzn }; else delete rec.rz;
     });
     const ok = await erpPaySaveMonth(erpPayMonth, entries);
     if (typeof erpSaveCostCfg === "function") await erpSaveCostCfg();

@@ -1054,3 +1054,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .lp-actions .lp-del:hover { background: #fef2f2; border-color: #fca5a5; color: #b3261e; }
 .lp-form-row { display: flex; gap: 12px; }
 .lp-form-row label { flex: 1; }
+
+/* Заплати седмично — колона РАЗЛИЧНИ (Сума + Бел.) */
+.pf-table td.pf-rzcol { vertical-align: top; }
+.pf-fline input.pf-rzsum { width: 96px; text-align: right; background: #faf5ff; border-color: #e9d5ff; }
+.pf-fline input.pf-rznote { width: 120px; text-align: left; }
+.pf-hrz, td.pf-rz { background: #faf5ff; }
