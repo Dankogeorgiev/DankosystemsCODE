@@ -543,6 +543,16 @@ async function erpFlowApply(meta, productLines) {
       bySeries[k] = r;
     }
     const src = r.data.source;
+    // Обновяваме метаданните на потока според ТЕКУЩАТА рецепта (при повторно
+    // пускане след промяна) — така новодобавени операции и ново изчакване се
+    // отразяват, а произведеното/логовете/цехът се запазват.
+    src.prevKey = st.prevKey || null;
+    src.gate = st.gate || null;
+    src.step = st.step;
+    src.role = st.role || src.role || "part";
+    src.last = !!st.last;
+    src.toStock = !!st.toStock;
+    src.pid = st.pid;
     src.orders = src.orders || [];
     src.orders.push({ id: meta.sampleId, no: meta.orderNo || "", client: meta.clientName || "", due: meta.deadline || "", qty: add.qty });
     src.orderIds = src.orders.map(o => String(o.id));
