@@ -37,6 +37,7 @@ function erpRenderOrderPanel(s) {
             <input type="number" id="erp-op-qty" min="1" step="any" value="${escapeAttr(String(s.erpQty || 1))}" style="width:90px" />
           </label>
           <button type="button" class="btn btn-small" id="erp-op-fill">↧ Вземи материалите от рецептата</button>
+          <button type="button" class="btn btn-small" id="erp-op-test" title="Симулирай пускането — провери дали рецептата ще върви правилно, преди да пуснеш">🧪 Тест рецепта</button>
           <button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>
           ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-sale">🧾 Създай продажба</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small btn-danger" id="erp-op-withdraw">⬅ Изтегли от производство</button>' : ""}
@@ -54,6 +55,11 @@ function erpRenderOrderPanel(s) {
   if (qtyEl) qtyEl.addEventListener("change", () => { s.erpQty = erpToNum(qtyEl.value) || 1; touch(s); });
   const fillBtn = host.querySelector("#erp-op-fill");
   if (fillBtn) fillBtn.addEventListener("click", () => erpFillMaterials(s));
+  const testBtn = host.querySelector("#erp-op-test");
+  if (testBtn) testBtn.addEventListener("click", () => {
+    if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
+    if (typeof erpTestRecipe === "function") erpTestRecipe(s.erpProductId, s.erpQty || 1, true);
+  });
   const prodBtn = host.querySelector("#erp-op-produce");
   if (prodBtn) prodBtn.addEventListener("click", () => erpProduce(s));
   const saleBtn = host.querySelector("#erp-op-sale");

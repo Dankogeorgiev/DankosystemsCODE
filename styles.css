@@ -1027,3 +1027,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .rt-badge-stock { background: #eff6ff; color: #1d4ed8; }
 .rt-badge-bad { background: #fef2f2; color: #b3261e; }
 .rt-route { margin-left: 6px; padding: 2px 6px; }
+
+/* Тест на заявка с няколко продукта */
+.rt-top-hdr { font-weight: 700; margin: 4px 0 2px; padding-top: 4px; }
+.rt-sep { border: none; border-top: 2px dashed #e5e7eb; margin: 10px 0; }

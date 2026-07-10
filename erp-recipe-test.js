@@ -102,17 +102,28 @@ function erpRTNodeHtml(node) {
   return `<div class="rt-node" ${pad}>${head}${opsHtml}${matHtml}</div>${childHtml}`;
 }
 
+// Тест на една рецепта (по продукт + бройка).
 function erpTestRecipe(productId, qty, ignoreStock) {
   const p = ERP.prodById[productId];
   if (!p) { alert("Продуктът не е намерен."); return; }
-  qty = erpToNum(qty) || 1;
+  erpTestRecipeMulti([{ productId, qty: erpToNum(qty) || 1 }], ignoreStock);
+}
+
+// Тест на цяла заявка (няколко продукта наведнъж) преди пускане в производство.
+// items: [{ productId, qty }]; title: незадължителен надпис (напр. „заявка №…").
+function erpTestRecipeMulti(items, ignoreStock, title) {
   ignoreStock = ignoreStock !== false;   // по подразбиране игнорираме склада (чист тест на маршрута)
+  items = (items || []).filter(it => it && it.productId && ERP.prodById[it.productId])
+    .map(it => ({ productId: it.productId, qty: erpToNum(it.qty) || 1 }));
+  if (!items.length) { alert("Няма продукти с рецепта за тестване. Добави поне един ред и го свържи с продукт от каталога."); return; }
+  const single = items.length === 1;
 
-  const tree = erpRTWalk(productId, qty, new Set([productId]), 0, ignoreStock);
-  const acc = erpRTCollect(tree, { noWs: [], ext: [], matShort: [], blocked: [], stocked: [] });
+  const trees = items.map(it => erpRTWalk(it.productId, it.qty, new Set([it.productId]), 0, ignoreStock));
+  const acc = { noWs: [], ext: [], matShort: [], blocked: [], stocked: [] };
+  trees.forEach(t => erpRTCollect(t, acc));
+  const okOps = trees.reduce((s, t) => s + countOk(t), 0);
+  const topDead = trees.some(t => t.blocked || (!t.hasRouteInSubtree && t.makeCount > 0));
 
-  // Присъда.
-  const topDead = tree.blocked || (!tree.hasRouteInSubtree && tree.makeCount > 0);
   let verdict, vcls;
   if (topDead || acc.blocked.length) {
     verdict = "❌ НЯМА да върви правилно — има детайли без цех/рецепта, които блокират сглобяването.";
@@ -121,14 +132,20 @@ function erpTestRecipe(productId, qty, ignoreStock) {
     verdict = `⚠ Ще тръгне, но ${acc.noWs.length} операц${acc.noWs.length === 1 ? "ия няма" : "ии нямат"} цех — няма да влязат в цех (третират се като външни). Насочи ги към цех по-долу.`;
     vcls = "rt-verdict-warn";
   } else {
-    verdict = "✅ Рецептата ще върви правилно — всички операции имат цех и всеки детайл има маршрут.";
+    verdict = single
+      ? "✅ Рецептата ще върви правилно — всички операции имат цех и всеки детайл има маршрут."
+      : "✅ Заявката ще върви правилно — всички продукти имат цялостен маршрут по цеховете.";
     vcls = "rt-verdict-ok";
   }
+
+  const heading = single
+    ? `🧪 Тест на рецептата — ${escapeHtml((trees[0].code || "") + " " + (trees[0].name || ""))}`
+    : `🧪 Тест на заявката${title ? " — " + escapeHtml(title) : ""} (${items.length} продукта)`;
 
   const summary = `
     <div class="rt-verdict ${vcls}">${verdict}</div>
     <div class="rt-stats">
-      <span>Операции с цех: <b>${countOk(tree)}</b></span>
+      <span>Операции с цех: <b>${okOps}</b></span>
       <span class="${acc.noWs.length ? "rt-bad-txt" : ""}">Без цех: <b>${acc.noWs.length}</b></span>
       <span>Външни услуги: <b>${acc.ext.length}</b></span>
       <span class="${acc.blocked.length ? "rt-bad-txt" : ""}">Блокиращи детайли: <b>${acc.blocked.length}</b></span>
@@ -136,33 +153,41 @@ function erpTestRecipe(productId, qty, ignoreStock) {
       <span class="${acc.matShort.length ? "rt-bad-txt" : ""}">Недостиг материали: <b>${acc.matShort.length}</b></span>
     </div>`;
 
+  const treeHtml = trees.map(t => {
+    const hdr = single ? "" : `<div class="rt-top-hdr">📋 <b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.name || "")} × ${erpNum(t.mult)}
+      <button type="button" class="btn btn-small rt-open" data-pid="${t.pid}">✎ рецепта</button></div>`;
+    return hdr + erpRTNodeHtml(t);
+  }).join(`<hr class="rt-sep">`);
+
   const html = `
     <div class="rt-dialog">
-      <h3>🧪 Тест на рецептата — ${escapeHtml(p.code || "")} ${escapeHtml(p.name || "")}</h3>
+      <h3>${heading}</h3>
       <div class="rt-controls">
-        <label class="erp-inline">Бройка <input type="number" id="rt-qty" min="1" step="any" value="${escapeAttr(String(qty))}" style="width:80px" /></label>
+        ${single ? `<label class="erp-inline">Бройка <input type="number" id="rt-qty" min="1" step="any" value="${escapeAttr(String(items[0].qty))}" style="width:80px" /></label>` : ""}
         <label class="erp-inline"><input type="checkbox" id="rt-ignore" ${ignoreStock ? "checked" : ""} /> игнорирай склада (чист тест на маршрута)</label>
         <button type="button" class="btn btn-small btn-primary" id="rt-run">↻ Тествай пак</button>
       </div>
       ${summary}
-      <div class="rt-tree">${erpRTNodeHtml(tree)}</div>
+      <div class="rt-tree">${treeHtml}</div>
       <p class="hint">💡 „Без цех" операции: избери им цех от падащото меню — записва се веднага и важи за всички рецепти с тази операция. „Блокиращ детайл" = няма нито една операция с цех и не е на склад; отвори му рецептата и му добави операции с цех.</p>
       <div class="erp-dialog-actions">
         <button class="btn" id="rt-close">Затвори</button>
-        <button class="btn btn-primary" id="rt-edit">✎ Отвори редактора на рецептата</button>
+        ${single ? '<button class="btn btn-primary" id="rt-edit">✎ Отвори редактора на рецептата</button>' : ""}
       </div>
     </div>`;
 
   const { wrap, close } = erpDialog(html);
   const rerun = () => {
-    const q = erpToNum(wrap.querySelector("#rt-qty").value) || 1;
     const ig = wrap.querySelector("#rt-ignore").checked;
+    const its = items.slice();
+    if (single) { const qEl = wrap.querySelector("#rt-qty"); if (qEl) its[0] = { productId: items[0].productId, qty: erpToNum(qEl.value) || 1 }; }
     close();
-    erpTestRecipe(productId, q, ig);
+    erpTestRecipeMulti(its, ig, title);
   };
   wrap.querySelector("#rt-run").addEventListener("click", rerun);
   wrap.querySelector("#rt-close").addEventListener("click", close);
-  wrap.querySelector("#rt-edit").addEventListener("click", () => { close(); if (typeof erpRenderRecipe === "function") erpRenderRecipe(productId); });
+  const editBtn = wrap.querySelector("#rt-edit");
+  if (editBtn) editBtn.addEventListener("click", () => { close(); if (typeof erpRenderRecipe === "function") erpRenderRecipe(items[0].productId); });
   wrap.querySelectorAll(".rt-open").forEach(b =>
     b.addEventListener("click", () => { close(); if (typeof erpRenderRecipe === "function") erpRenderRecipe(Number(b.dataset.pid)); }));
   // Бърза корекция: операция → цех (записва и тества пак).
@@ -173,10 +198,7 @@ function erpTestRecipe(productId, qty, ignoreStock) {
       sel.disabled = true;
       const err = (typeof erpSaveOpRoute === "function") ? await erpSaveOpRoute(code, ws) : "няма функция";
       if (err) { alert("Грешка при записа на маршрута: " + (err.message || err)); sel.disabled = false; return; }
-      const q = erpToNum(wrap.querySelector("#rt-qty").value) || 1;
-      const ig = wrap.querySelector("#rt-ignore").checked;
-      close();
-      erpTestRecipe(productId, q, ig);
+      rerun();
     }));
 }
 
