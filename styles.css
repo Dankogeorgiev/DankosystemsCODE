@@ -969,3 +969,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .t-orderno { font-size: 11px; font-weight: 700; color: #1d4ed8; margin-top: 2px; }
 .bc-orderno { font-weight: 700; color: #1d4ed8; }
 .bc-client { color: #475569; }
+
+/* Брак при настройка — бутон и индикатори */
+.btn.t-scrap, .btn.btn-scrap { background: #b3261e; border-color: #b3261e; color: #fff; }
+.btn.t-scrap:hover, .btn.btn-scrap:hover { background: #8c1d17; border-color: #8c1d17; }
+.t-brak-need { margin-top: 3px; font-size: .78rem; font-weight: 700; color: #b3261e; }
+.t-brak { margin-top: 3px; font-size: .78rem; color: #8a5a00; }
+.bc-brak { margin-top: 4px; font-size: .8rem; font-weight: 700; color: #b3261e; }

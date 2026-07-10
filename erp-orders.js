@@ -647,8 +647,12 @@ function erpFlowAvailable(t, map) {
     if (!done) return 0;
   }
   if (src.prevKey) {
+    // Брак при настройка на ТАЗИ операция „изяжда" толкова детайла от входа —
+    // затова ги вадим от наличното (те са бракувани, не могат да се обработят).
+    // Допълнителните бройки за тях се нарязват наново от първата операция.
+    const brak = Number(t.brak) || 0;
     const up = map[src.prevKey];
-    return Math.max(0, (up ? up.produced : 0) - prod);
+    return Math.max(0, (up ? up.produced : 0) - prod - brak);
   }
   return Math.max(0, qty - prod);
 }

@@ -59,6 +59,7 @@ function boardCard(t, flowMap) {
     ${t.operation ? `<div class="bc-op">${escapeHtml(t.operation)}</div>` : ""}
     <div class="bc-meta">${noHtml}${who}${due}</div>
     <div class="bc-qty">${prod}/${qty || "—"} бр.${avail != null && avail > 0 ? ` · <span class="bc-avail">↧ ${avail} готови</span>` : ""}</div>
+    ${(Number(t.brakNeed) || 0) > 0 ? `<div class="bc-brak">🔴 спешно +${Number(t.brakNeed)} (брак настройка)</div>` : ""}
     <div class="bc-bar"><span style="width:${pct}%"></span></div>
   </div>`;
 }

@@ -607,7 +607,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () { const n = taskOrderNos(t); return n.length ? `<div class="t-orderno" title="Номер на поръчката">📋 № ${escapeHtml(n.join(", "))}</div>` : ""; })()}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -624,6 +624,7 @@ function renderTasks() {
       <td class="t-actions" data-label="">
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
+        ${(t.source && t.source.flow) ? `<button type="button" class="btn btn-small t-scrap" title="Брак при настройка — връща спешно нарязване към първата операция">⚠ Брак</button>` : ""}
         ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="btn btn-small t-move" title="Прехвърли операцията в друг цех">🔀 Цех</button>
         <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
@@ -654,6 +655,7 @@ function renderTasks() {
     if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
     const move = tr.querySelector(".t-move"); if (move) move.addEventListener("click", () => moveTaskWorkshop(t));
+    const scrap = tr.querySelector(".t-scrap"); if (scrap) scrap.addEventListener("click", () => openScrapDialog(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
     const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
@@ -879,6 +881,97 @@ async function logProduction(t, qtyVal, extra) {
   // Заприходяване в Склад детайли (последна операция: за склад / свръхпроизводство).
   if (typeof erpFlowStockIn === "function") { try { await erpFlowStockIn(t); } catch (e) { console.error("stock-in", e); } }
   renderTasks();
+}
+
+/* ---------- Брак при настройка (връща спешно нарязване към първата операция) ----------
+   При настройка на машина (напр. Абкант) първите детайли често излизат брак,
+   докато се хване правилното огъване. Операторът сигнализира брака ОЩЕ В НАЧАЛОТО
+   (преди да запише годната изработка), за да се нарежат наново липсващите бройки,
+   докато серията още върви — не накрая. Механиката:
+   1) първата операция на детайла (обикновено Лазери) получава +N бр. и става СПЕШНА;
+   2) на текущата операция се записва брак N (изважда се от входа ѝ в потока), така
+      че когато допълнителните N дойдат от лазера, тя ги обработва за годни. */
+
+// Първата операция (корен) на веригата на този детайл — следва prevKey нагоре.
+function flowChainRoot(t) {
+  let cur = t;
+  const seen = new Set();
+  while (cur && cur.source && cur.source.prevKey && !seen.has(cur.source.seriesKey)) {
+    seen.add(cur.source.seriesKey);
+    const prev = (TASKS || []).find(x => x.source && x.source.flow && x.source.seriesKey === cur.source.prevKey);
+    if (!prev) break;
+    cur = prev;
+  }
+  return cur;
+}
+
+function openScrapDialog(t) {
+  if (!t.source || !t.source.flow) { alert("Бракът при настройка се отчита само за детайли, пуснати през производството (поток)."); return; }
+  const root = flowChainRoot(t);
+  const isRoot = root && root.id === t.id;
+  const targetTxt = isRoot
+    ? `Тази операция е първата — допълнителните бройки ще се добавят към нея (${escapeHtml(t.operation || "")}).`
+    : `Ще пусне спешно нарязване към <b>${escapeHtml(root ? (root.operation || "първата операция") : "първата операция")}</b>${root && root.workshop ? ` (цех ${escapeHtml(root.workshop)})` : ""}.`;
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>⚠ Брак при настройка</h3>
+      <div class="pd-task">
+        <div><b>Детайл:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
+        <div><b>Операция:</b> ${escapeHtml(t.operation || "—")}</div>
+        ${(Number(t.brak) || 0) > 0 ? `<div class="muted">Досега брак при настройка тук: <b>${Number(t.brak)}</b> бр.</div>` : ""}
+      </div>
+      <label>Колко детайла са брак при настройка? *<input id="sc-qty" type="number" min="1" step="1" inputmode="numeric" placeholder="напр. 10" /></label>
+      <label>Причина / бележка<textarea id="sc-note" rows="2" placeholder="по желание — напр. „настройка на огъването“"></textarea></label>
+      <p class="pd-hint">${targetTxt}<br>Бройките ще се нарежат наново, докато серията върви — не се чака края.</p>
+      <div class="ask-actions">
+        <button id="sc-save" class="btn btn-primary btn-scrap">⚠ Пусни спешно нарязване</button>
+        <button id="sc-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#sc-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#sc-save").addEventListener("click", async () => {
+    const n = Math.floor(Number(String(wrap.querySelector("#sc-qty").value).replace(",", ".")) || 0);
+    if (!n || n <= 0) { alert("Въведи брой брак (по-голям от 0)."); return; }
+    const note = (wrap.querySelector("#sc-note").value || "").trim();
+    close();
+    await reportSetupScrap(t, n, note);
+  });
+  setTimeout(() => { const q = wrap.querySelector("#sc-qty"); if (q) q.focus(); }, 50);
+}
+
+async function reportSetupScrap(t, n, note) {
+  n = Math.abs(Math.floor(Number(n) || 0));
+  if (!n) return;
+  const by = MY_WORKER || t.assignee || "";
+  const root = flowChainRoot(t);
+  const isRoot = root && root.id === t.id;
+
+  // 1) Записваме брака на текущата операция (за проследяване + за потока).
+  t.brakLog = t.brakLog || [];
+  t.brakLog.push({ date: todayStr(), by, qty: n, note: note || "", toOp: root ? (root.operation || "") : "" });
+  if (!isRoot) t.brak = (Number(t.brak) || 0) + n;   // коренът вместо brak си вдига qty
+
+  // 2) Първата операция реже допълнителните бройки — спешно.
+  if (root) {
+    root.qty = (Number(root.qty) || 0) + n;
+    root.priority = 2;                                // СПЕШНО
+    root.brakNeed = (Number(root.brakNeed) || 0) + n; // за индикатор в списъка
+    root.brakReqs = root.brakReqs || [];
+    root.brakReqs.push({ date: todayStr(), from: t.operation || "", code: t.code || "", qty: n, by, note: note || "" });
+    root.comment = `⚠ БРАК при настройка на „${t.operation || ""}“ — спешно допълнително нарязване: общо +${root.brakNeed} бр.`;
+    if (!isRoot) await tSaveTask(root);
+  }
+  await tSaveTask(t);   // ако root === t, това записва и двете промени
+  renderTasks();
+  alert(`Отбелязах ${n} бр. брак при настройка.\n`
+    + (root && !isRoot
+      ? `Пуснах спешно нарязване на още ${n} бр. към „${root.operation || "първата операция"}“${root.workshop ? " (цех " + root.workshop + ")" : ""}. Ще дойдат, докато серията върви.`
+      : `Добавих още ${n} бр. към тази операция (спешно).`));
 }
 
 // KROHNE LTD — записване по операция; „произведено“ = напълно готови детайли (мин. по операции)
