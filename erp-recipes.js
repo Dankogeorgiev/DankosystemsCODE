@@ -6,6 +6,7 @@ function erpRenderRecipe(productId) {
   const p = ERP.prodById[productId];
   const v = erpView();
   if (!p) { v.innerHTML = `<p class="report-empty">Продуктът не е намерен.</p>`; return; }
+  ERP._recipeTop = productId;   // отвореният отгоре продукт (за пре-рисуване след корекции по вложени редове)
 
   // Готова ли е технологията за производство? (има поне една операция с цех в дървото)
   const prodReady = (function () {
@@ -69,14 +70,21 @@ function erpRenderRecipe(productId) {
   if (fixBtn) fixBtn.addEventListener("click", () => { if (typeof erpFixRecipeOrder === "function") erpFixRecipeOrder(productId); });
   const add2 = document.getElementById("erp-rl-add2");
   if (add2) add2.addEventListener("click", () => erpAddRecipeLine(productId));
+  const lparent = b => Number(b.dataset.parent) || productId;
   v.querySelectorAll(".erp-rl-x").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpRemoveRecipeLine(Number(b.dataset.line), productId); }));
+    b.addEventListener("click", e => { e.stopPropagation(); erpRemoveRecipeLine(Number(b.dataset.line), lparent(b)); }));
   v.querySelectorAll(".erp-rl-up").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpMoveRecipeLine(Number(b.dataset.line), productId, -1); }));
+    b.addEventListener("click", e => { e.stopPropagation(); erpMoveRecipeLine(Number(b.dataset.line), lparent(b), -1); }));
   v.querySelectorAll(".erp-rl-down").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpMoveRecipeLine(Number(b.dataset.line), productId, 1); }));
+    b.addEventListener("click", e => { e.stopPropagation(); erpMoveRecipeLine(Number(b.dataset.line), lparent(b), 1); }));
   v.querySelectorAll(".erp-rl-edit").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpEditRecipeLine(Number(b.dataset.line), productId); }));
+    b.addEventListener("click", e => { e.stopPropagation(); erpEditRecipeLine(Number(b.dataset.line), lparent(b)); }));
+  v.querySelectorAll(".erp-rl-repl").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpReplaceRecipeLine(Number(b.dataset.line), lparent(b)); }));
+  v.querySelectorAll(".erp-rl-insb").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpInsertRecipeLine(lparent(b), Number(b.dataset.line), "before"); }));
+  v.querySelectorAll(".erp-rl-insa").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); erpInsertRecipeLine(lparent(b), Number(b.dataset.line), "after"); }));
   v.querySelectorAll(".erp-node-draw-btn").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpNodeDrawings(Number(b.dataset.pid)); }));
   erpRenderProductDrawings(productId);
@@ -104,12 +112,17 @@ function erpRecipeChildren(productId, depth, ancestors) {
   return lines.map(l => {
     const qty = Number(l.quantity) || 0;
     const unit = l.unit || "";
-    const rmBtn = depth === 0 ? `<span class="erp-rl-ctrls">
-      <button class="erp-rl-up" data-line="${l.id}" title="Премести нагоре">↑</button>
-      <button class="erp-rl-down" data-line="${l.id}" title="Премести надолу">↓</button>
-      <button class="erp-rl-edit" data-line="${l.id}" title="Редактирай реда">✎</button>
-      <button class="erp-rl-x" data-line="${l.id}" title="Премахни от рецептата">×</button>
-    </span>` : "";
+    // Контроли на ВСЕКИ ред (на всяко ниво). data-parent = продуктът, чиято рецепта
+    // съдържа този ред (за вложените е възелът-родител, не откритото отгоре изделие).
+    const rmBtn = `<span class="erp-rl-ctrls">
+      <button class="erp-rl-up" data-line="${l.id}" data-parent="${productId}" title="Премести нагоре">↑</button>
+      <button class="erp-rl-down" data-line="${l.id}" data-parent="${productId}" title="Премести надолу">↓</button>
+      <button class="erp-rl-edit" data-line="${l.id}" data-parent="${productId}" title="Редактирай (количество/цех)">✎</button>
+      <button class="erp-rl-repl" data-line="${l.id}" data-parent="${productId}" title="Замени с друг детайл/операция/материал">⇄</button>
+      <button class="erp-rl-insb" data-line="${l.id}" data-parent="${productId}" title="Вмъкни нов ред ПРЕДИ този">＋↑</button>
+      <button class="erp-rl-insa" data-line="${l.id}" data-parent="${productId}" title="Вмъкни нов ред СЛЕД този">＋↓</button>
+      <button class="erp-rl-x" data-line="${l.id}" data-parent="${productId}" title="Премахни от рецептата">×</button>
+    </span>`;
     if (l.material_id) {
       const m = ERP.matById[l.material_id] || {};
       const cost = qty * (Number(m.avg_cost) || 0);

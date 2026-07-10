@@ -1031,3 +1031,11 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 /* Тест на заявка с няколко продукта */
 .rt-top-hdr { font-weight: 700; margin: 4px 0 2px; padding-top: 4px; }
 .rt-sep { border: none; border-top: 2px dashed #e5e7eb; margin: 10px 0; }
+
+/* Контроли на ред в рецептата (на всяко ниво) */
+.erp-rl-ctrls { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
+.erp-rl-ctrls button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 1px 6px; font-size: .82rem; line-height: 1.4; cursor: pointer; color: #374151; }
+.erp-rl-ctrls button:hover { background: #f3f4f6; }
+.erp-rl-ctrls .erp-rl-repl:hover { background: #eff6ff; border-color: #93c5fd; }
+.erp-rl-ctrls .erp-rl-insb:hover, .erp-rl-ctrls .erp-rl-insa:hover { background: #ecfdf5; border-color: #6ee7b7; }
+.erp-rl-ctrls .erp-rl-x:hover { background: #fef2f2; border-color: #fca5a5; color: #b3261e; }

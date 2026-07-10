@@ -4,7 +4,9 @@
 // Презарежда данните и отваря рецептата на продукта (след промяна).
 async function erpReloadRecipe(productId) {
   await erpLoadAll();
-  erpRenderRecipe(productId);
+  // Винаги пре-рисуваме ОТВОРЕНИЯ отгоре продукт (за да важат корекции и по
+  // вложени редове, чийто родител е различен от текущия изглед).
+  erpRenderRecipe((typeof ERP !== "undefined" && ERP._recipeTop) || productId);
 }
 
 /* ---------- 🛠 Създай технология (нов продукт + рецепта) ---------- */
@@ -64,28 +66,54 @@ async function erpSaveOpRoute(code, primary) {
   return error;
 }
 
-/* ---------- + Ред към рецептата ---------- */
-function erpAddRecipeLine(productId) {
+/* ---------- + Ред към рецептата (добавяне / вмъкване / замяна) ----------
+   mode: "add" (в края), "insert" (ref={refLineId, where:'before'|'after'}),
+   "replace" (ref={lineId} — сменя съставката на съществуващ ред, пази позицията). */
+function erpAddRecipeLine(productId) { return erpRecipeLineDialog(productId, "add", null); }
+function erpInsertRecipeLine(productId, refLineId, where) { return erpRecipeLineDialog(productId, "insert", { refLineId, where }); }
+function erpReplaceRecipeLine(lineId, productId) { return erpRecipeLineDialog(productId, "replace", { lineId }); }
+
+function erpRecipeLineDialog(productId, mode, ref) {
+  mode = mode || "add";
   const p = ERP.prodById[productId];
+  const existing = mode === "replace" ? (ERP.linesByProduct[productId] || []).find(x => x.id === ref.lineId) : null;
+  if (mode === "replace" && !existing) { alert("Редът не е намерен."); return; }
+  const refLine = (mode === "insert") ? (ERP.linesByProduct[productId] || []).find(x => x.id === ref.refLineId) : null;
+  const lineLabel = l => {
+    if (!l) return "";
+    if (l.material_id) { const m = ERP.matById[l.material_id] || {}; return "материал " + (m.code || "") + " " + (m.name || ""); }
+    if (l.operation_id) { const o = ERP.opById[l.operation_id] || {}; return "операция " + (o.code || "") + " " + (o.name || ""); }
+    if (l.child_product_id) { const c = ERP.prodById[l.child_product_id] || {}; return "възел " + (c.code || "") + " " + (c.name || ""); }
+    return "";
+  };
+  const initType = existing ? (existing.material_id ? "material" : existing.operation_id ? "operation" : "child") : "operation";
   const mats = ERP.materials.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   const ops = ERP.operations.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   const prods = ERP.products.filter(x => x.id !== productId).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   const workshops = (typeof erpWorkshops === "function") ? erpWorkshops() : ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция", "Външна услуга"];
 
-  const opt = (id, label) => `<option value="${id}">${escapeHtml(label)}</option>`;
-  const matOpts = mats.map(m => opt(m.id, (m.code ? m.code + " · " : "") + m.name)).join("");
-  const opOpts = ops.map(o => opt(o.id, (o.code ? o.code + " · " : "") + o.name)).join("");
-  const prodOpts = prods.map(x => opt(x.id, (x.code ? x.code + " · " : "") + x.name)).join("");
+  const opt = (id, label, sel) => `<option value="${id}" ${sel ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  const selId = existing ? (existing.material_id || existing.operation_id || existing.child_product_id) : null;
+  const matOpts = mats.map(m => opt(m.id, (m.code ? m.code + " · " : "") + m.name, selId === m.id)).join("");
+  const opOpts = ops.map(o => opt(o.id, (o.code ? o.code + " · " : "") + o.name, selId === o.id)).join("");
+  const prodOpts = prods.map(x => opt(x.id, (x.code ? x.code + " · " : "") + x.name, selId === x.id)).join("");
+
+  const heads = {
+    add: { title: "Добави ред към технологията", btn: "Добави" },
+    insert: { title: "Вмъкни ред " + (ref.where === "after" ? "СЛЕД" : "ПРЕДИ") + ": " + escapeHtml(lineLabel(refLine)), btn: "Вмъкни" },
+    replace: { title: "Замени реда: " + escapeHtml(lineLabel(existing)), btn: "Запази замяната" },
+  }[mode];
+  const optSel = (val) => initType === val ? "selected" : "";
 
   const { wrap, close } = erpDialog(`
-    <h3>Добави ред към технологията</h3>
+    <h3>${heads.title}</h3>
     <p class="hint">За: <b>${escapeHtml(p ? (p.code || "") + " " + p.name : "")}</b></p>
-    <p class="hint">📋 Не се тревожи за реда — системата слага <b>материалите/възлите най-отпред</b>, а <b>операциите — в реда, в който ги добавяш</b>. Затова добавяй операциите в производствената последователност (напр. Лазер → Абкант → Заваряване).</p>
+    ${mode === "add" ? `<p class="hint">📋 Не се тревожи за реда — системата слага <b>материалите/възлите най-отпред</b>, а <b>операциите — в реда, в който ги добавяш</b>. За точно място ползвай „вмъкни преди/след" на конкретен ред.</p>` : ""}
     <label>Тип съставка
       <select id="rl-type">
-        <option value="operation">Операция (в цех)</option>
-        <option value="material">Материал / стока</option>
-        <option value="child">Полуфабрикат / възел</option>
+        <option value="operation" ${optSel("operation")}>Операция (в цех)</option>
+        <option value="material" ${optSel("material")}>Материал / стока</option>
+        <option value="child" ${optSel("child")}>Полуфабрикат / възел</option>
       </select>
     </label>
     <label id="rl-pick-wrap">Избери
@@ -102,11 +130,11 @@ function erpAddRecipeLine(productId) {
         </select>
       </label>
     </div>
-    <label>Количество<input type="number" id="rl-qty" min="0" step="any" value="1" /></label>
-    <label>Мярка<input type="text" id="rl-unit" /></label>
+    <label>Количество<input type="number" id="rl-qty" min="0" step="any" value="${escapeAttr(String(existing ? (existing.quantity || 1) : 1))}" /></label>
+    <label>Мярка<input type="text" id="rl-unit" value="${escapeAttr(existing ? (existing.unit || "") : "")}" /></label>
     <div class="erp-dialog-actions">
       <button class="btn" id="rl-cancel">Отказ</button>
-      <button class="btn btn-primary" id="rl-save">Добави</button>
+      <button class="btn btn-primary" id="rl-save">${heads.btn}</button>
     </div>
     <p class="save-status" id="rl-status"></p>`);
 
@@ -159,13 +187,20 @@ function erpAddRecipeLine(productId) {
   itemSel.addEventListener("change", syncUnit);
   fillItems("");
   refreshType();
+  // Замяна: предизбери текущата съставка и запази текущите к-во/мярка.
+  if (existing) {
+    if (selId != null) itemSel.value = String(selId);
+    syncUnit();
+    wrap.querySelector("#rl-qty").value = String(existing.quantity || 1);
+    unitEl.value = existing.unit || "";
+  }
 
   wrap.querySelector("#rl-cancel").addEventListener("click", close);
   wrap.querySelector("#rl-save").addEventListener("click", async () => {
     const status = wrap.querySelector("#rl-status");
     const qty = erpToNum(wrap.querySelector("#rl-qty").value) || 1;
     const unit = wrap.querySelector("#rl-unit").value.trim() || null;
-    const row = { product_id: productId, quantity: qty, unit };
+    const target = {};   // FK на съставката (една от трите)
 
     if (typeSel.value === "operation") {
       const ws = opWs.value;
@@ -186,27 +221,52 @@ function erpAddRecipeLine(productId) {
         opCode = op.code;
         if (!ws && !confirm("Без цех операцията няма да отива в производство. Да продължа ли?")) return;
       }
-      // Записваме цеха в маршрутизацията (за да работи в производство).
       if (ws && opCode) { const e = await erpSaveOpRoute(opCode, ws); if (e) { status.textContent = "⚠ Цех: " + e.message; return; } }
-      row.operation_id = opId;
+      target.operation_id = opId;
     } else if (typeSel.value === "material") {
       const id = Number(itemSel.value);
       if (!id) { status.textContent = "Избери материал."; return; }
-      row.material_id = id;
+      target.material_id = id;
     } else {
       const id = Number(itemSel.value);
       if (!id) { status.textContent = "Избери възел."; return; }
       if (id === productId) { status.textContent = "Продукт не може да съдържа себе си."; return; }
-      row.child_product_id = id;
+      target.child_product_id = id;
     }
 
+    // ---- Замяна: обновяваме съществуващия ред (пазим позицията) ----
+    if (mode === "replace") {
+      status.textContent = "Заменя…";
+      const upd = { material_id: null, operation_id: null, child_product_id: null, quantity: qty, unit };
+      Object.assign(upd, target);
+      const { error } = await sb.from("recipe_lines").update(upd).eq("id", ref.lineId);
+      if (error) { status.textContent = "⚠ " + error.message; return; }
+      close(); await erpReloadRecipe(productId); return;
+    }
+
+    // ---- Вмъкване на точно място: нов ред + пренареждане по избраната позиция ----
+    if (mode === "insert") {
+      status.textContent = "Вмъква…";
+      const row = Object.assign({ product_id: productId, quantity: qty, unit }, target);
+      const { data, error } = await sb.from("recipe_lines").insert(row).select("id").single();
+      if (error) { status.textContent = "⚠ " + error.message; return; }
+      const cur = (ERP.linesByProduct[productId] || []).slice();
+      const idx = cur.findIndex(x => x.id === ref.refLineId);
+      const order = cur.map(x => x.id);
+      const at = idx < 0 ? order.length : (ref.where === "after" ? idx + 1 : idx);
+      order.splice(at, 0, data.id);
+      for (let i = 0; i < order.length; i++) await sb.from("recipe_lines").update({ position: i }).eq("id", order[i]);
+      close(); await erpReloadRecipe(productId); return;
+    }
+
+    // ---- Добавяне в края (канонично подреждане) ----
     status.textContent = "Добавя…";
-    // Нова позиция — временно най-отзад; после подреждаме канонично.
+    const row = Object.assign({ product_id: productId, quantity: qty, unit }, target);
     const cur = ERP.linesByProduct[productId] || [];
     row.position = cur.reduce((m, l) => Math.max(m, Number(l.position) || 0), 0) + 1;
     const { error } = await sb.from("recipe_lines").insert(row);
     if (error) { status.textContent = "⚠ " + error.message; return; }
-    await erpReorderRecipeLines(productId);   // материали/възли отпред, операциите по реда на добавяне
+    await erpReorderRecipeLines(productId);
     close();
     await erpReloadRecipe(productId);
   });
