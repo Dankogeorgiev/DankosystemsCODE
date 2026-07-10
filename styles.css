@@ -1095,3 +1095,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .t-asg-chip .t-asg-rm:hover { color: #b3261e; }
 .t-asg-none { color: #9ca3af; font-size: 12px; }
 .t-asg-add { margin-top: 3px; font-size: 12px; max-width: 100%; }
+
+/* Филтър „Само готови за работа" в лентата на цеховете */
+.task-ready-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.task-ready-lbl input { margin: 0; cursor: pointer; }

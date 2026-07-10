@@ -255,6 +255,18 @@ function taskSetAssignees(t, arr) {
 }
 function taskHasWorker(t, w) { return !!w && taskAssignees(t).includes(w); }
 
+// „Готова за работа" в този цех: има остатък за правене И не чака детайли от друг
+// цех. Гейтваните поточни задачи са готови само ако предната операция вече е дала
+// детайли (erpFlowAvailable > 0). Първите операции и ръчните не чакат никого.
+function taskIsReady(t, flowMap) {
+  const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+  if (qty > 0 && prod >= qty) return false;   // вече е готова/завършена
+  const gated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
+  if (!gated) return true;                     // първа операция / ръчна — не чака друг цех
+  if (typeof erpFlowAvailable !== "function") return true;
+  return (erpFlowAvailable(t, flowMap || {}) || 0) > 0;
+}
+
 async function tLoadRoles() {
   const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
   ROLES = (data && data.data) || { admins: [], byEmail: {} };
@@ -529,8 +541,10 @@ function renderTasks() {
   const isW = amWorker();
   const worker = isW ? MY_WORKER : document.getElementById("task-worker-filter").value;
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
+  const readyOnly = !!(document.getElementById("task-ready-filter") || {}).checked;
   tbody.innerHTML = "";
 
+  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
   const rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
     if (ws !== "__all" && t.workshop !== ws) return false;
@@ -541,6 +555,7 @@ function renderTasks() {
       return false;
     }
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
     return true;
   });
 
@@ -600,7 +615,6 @@ function renderTasks() {
     daily.hidden = true;
   }
 
-  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
@@ -2529,6 +2543,8 @@ function tInit() {
   document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); });
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
   document.getElementById("task-search").addEventListener("input", renderTasks);
+  const rf = document.getElementById("task-ready-filter");
+  if (rf) rf.addEventListener("change", renderTasks);
   const thead = document.querySelector(".tasks-table thead");
   if (thead) thead.addEventListener("click", e => {
     const th = e.target.closest("th[data-sort]"); if (!th) return;

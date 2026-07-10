@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=250" />
+  <link rel="stylesheet" href="styles.css?v=251" />
   <link rel="stylesheet" href="erp.css?v=236" />
 </head>
 <body>
@@ -391,6 +391,7 @@
         <select id="task-workshop" title="Цех"></select>
         <select id="task-worker-filter" title="Служител"><option value="">Всички служители</option></select>
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
+        <label class="task-ready-lbl" title="Показвай само задачите, за които детайлите вече са пристигнали от предната операция (не се чакат други цехове)"><input type="checkbox" id="task-ready-filter" /> ⚡ Само готови за работа</label>
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
         <button id="btn-board" class="btn btn-small">📺 Табло</button>
@@ -552,7 +553,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="app.js?v=235"></script>
-  <script src="tasks.js?v=245"></script>
+  <script src="tasks.js?v=246"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
   <script src="planning.js?v=165"></script>
