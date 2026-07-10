@@ -60,8 +60,9 @@ async function loadAccess(email) {
   }
 }
 // Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
-// Добави имейлите за вход на Григор и Кристина, за да ги пуснеш.
-const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com"];
+const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com"];        // Данко + Кристина
+// Достъп до Пулс — отделно от Финансите.
+const PULSE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];   // Данко + Григор
 // Персонални поздрави при вход (по имейл).
 const LOGIN_GREETINGS = { "rusenmochukov@gmail.com": "Мачкай, Руси! 💪" };
 function showLoginGreeting() {
@@ -79,12 +80,16 @@ function financeAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return FINANCE_EMAILS.map(x => x.toLowerCase()).includes(e);
 }
+function pulseAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return PULSE_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
 
 function applyAccess() {
   const fin = document.getElementById("btn-finance");
   if (fin) fin.style.display = financeAllowed() ? "" : "none";
   const pulse = document.getElementById("btn-pulse");
-  if (pulse) pulse.style.display = financeAllowed() ? "" : "none";
+  if (pulse) pulse.style.display = pulseAllowed() ? "" : "none";
   const adminOnly = document.querySelectorAll(
     '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-erp,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {

@@ -1,11 +1,12 @@
 /* Данко Системс — „Пулс" (табло на собственика).
    Един екран с най-важното в момента: производство днес, заявки, закъснели,
-   незавършено производство по цех, материали под минимум. Само за офиса
-   (financeAllowed). Ползва erpSelectAll/escapeHtml/erpNum от другите файлове. */
+   незавършено производство по цех, материали под минимум. Достъп само за
+   PULSE_EMAILS (pulseAllowed). Ползва erpSelectAll/escapeHtml/erpNum от другите файлове. */
 
 function pulseToday() { return new Date().toISOString().slice(0, 10); }
 
 async function openPulse() {
+  if (typeof pulseAllowed === "function" && !pulseAllowed()) { alert("Нямаш достъп до Пулс."); return; }
   const m = document.getElementById("pulse-modal");
   if (!m) return;
   m.hidden = false;
