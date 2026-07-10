@@ -99,8 +99,20 @@
   .job-stats{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px}
   .job-stats b{font-family:var(--disp);color:var(--ink);font-size:14px}
   .job-stats b.ok{color:var(--ok)}
-  .job-acts{flex:0 0 auto;display:flex;gap:8px}
+  .job-acts{flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
   .job-acts .btn{padding:11px 16px;font-size:13px}
+  .job-work{font-size:12px;color:var(--ok);margin-top:7px;font-weight:600;line-height:1.4}
+  .btn.take{background:#FFF4E6;border-color:#F0C48A;color:#9A5B00}
+  .btn.take:hover{background:#E8821A;border-color:#E8821A;color:#fff}
+  .btn.taken{background:#eaf5ef;border-color:#bfe3cd;color:var(--ok)}
+  .btn.taken:hover{background:#d6ecdd;border-color:#bfe3cd;color:var(--ok)}
+  /* Разпределение — чипове за маси + „работи се" */
+  .tbl-scroll{overflow-x:auto}
+  .masel{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{font-family:var(--body);font-size:12px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:16px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+  .chip:hover{border-color:var(--ink)}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  td.work{font-size:12px;color:var(--ok);white-space:normal;min-width:130px}
 
   @media(max-width:560px){
     .wrap{padding:13px}
@@ -211,9 +223,10 @@ let tables=[
   {id:5,name:'Камен'},
   {id:6,name:'Жоро Хубавеца'},
 ];
-let assign={};   // { "име на изделие": tableId }
-let prod={};     // { "име на изделие": заварени ръчно (общо) }
-let plog=[];     // дневник: [{date, table, product, qty, worker, at}]
+let assign={};   // { "изделие": [tableId, ...] } — една поръчка може на няколко маси
+let taken={};    // { "изделие": [{t:tableId, w:worker, at:iso}] } — кой работи сега
+let prod={};     // { "изделие": заварени ръчно (общо) }
+let plog=[];     // дневник: [{kind, date, table, product, qty, worker, at}]
 let WELDING=[];  // заваръчни задачи от Цехове (на живо)
 let tasksLoaded=false;
 
@@ -223,6 +236,14 @@ const num=n=>Number(n||0).toLocaleString('bg');
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function escAttr(s){return esc(s).replace(/'/g,'&#39;');}
 function todayStr(){return new Date().toISOString().slice(0,10);}
+function fmtTime(iso){try{return new Date(iso).toLocaleTimeString('bg',{hour:'2-digit',minute:'2-digit'});}catch(e){return'';}}
+// assign може да е число (стар формат) или масив — нормализирай към масив.
+function assignedTables(p){const v=assign[p];return Array.isArray(v)?v.filter(Boolean):(v?[v]:[]);}
+function setAssigned(p,arr){if(arr&&arr.length)assign[p]=arr.slice();else delete assign[p];}
+function takersOf(p){return Array.isArray(taken[p])?taken[p]:[];}
+function takenByTable(p,tid){return takersOf(p).some(x=>x.t===tid);}
+// Текст „работи се от X (14:30), Y (15:10)"
+function takersText(p){return takersOf(p).map(x=>esc(x.w)+' ('+fmtTime(x.at)+')').join(', ');}
 
 /* Различни изделия от заваръчните задачи + поръчано количество (сбор). */
 function weldingProducts(){
@@ -236,8 +257,8 @@ function weldingProducts(){
 }
 const orderedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.qty)||0;});return s;};
 const remainOf=p=>Math.max(0,orderedOf(p)-(prod[p]||0));
-const productsOfTable=id=>weldingProducts().filter(o=>assign[o.product]===id);
-const unassignedCount=()=>weldingProducts().filter(o=>!assign[o.product]).length;
+const productsOfTable=id=>weldingProducts().filter(o=>assignedTables(o.product).includes(id));
+const unassignedCount=()=>weldingProducts().filter(o=>assignedTables(o.product).length===0).length;
 
 /* ===== Илюстрация: заваръчна маса (собствен SVG) ===== */
 function tableSVG(active){
@@ -293,22 +314,21 @@ function renderDash(){
 /* ===== Разпределение ===== */
 function renderDist(){
   const list=weldingProducts();
-  const opts=id=>tables.map(r=>`<option value="${r.id}"${id===r.id?' selected':''}>${esc(r.name)}</option>`).join('');
   $('distLead').textContent='Разпределение — '+list.length+' изделия от Цехове';
+  const chips=p=>{const on=assignedTables(p);
+    return `<div class="masel">${tables.map(r=>`<button type="button" class="chip${on.includes(r.id)?' on':''}" data-tog="${escAttr(p)}" data-tid="${r.id}">${esc(r.name)}</button>`).join('')}</div>`;};
   $('distTable').innerHTML=!tasksLoaded
     ? '<div class="empty">Зарежда изделията от Цехове…</div>'
-    : (list.length? `<table class="bd"><thead><tr>
-        <th>Изделие</th><th>Поръчки</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th>Маса</th>
-      </tr></thead><tbody>${list.map(o=>{const a=assign[o.product]||0;const rem=remainOf(o.product);
-        return `<tr class="${a?'':'unassigned'}">
+    : (list.length? `<div class="tbl-scroll"><table class="bd"><thead><tr>
+        <th>Изделие</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th>Работи се от</th><th>Маси (може няколко)</th>
+      </tr></thead><tbody>${list.map(o=>{const on=assignedTables(o.product);const rem=remainOf(o.product);const tk=takersOf(o.product);
+        return `<tr class="${on.length?'':'unassigned'}">
           <td class="prod-nm">${esc(o.product)}</td>
-          <td class="num">${o.orders||0}</td>
           <td class="num">${num(o.ordered)}</td>
           <td class="num">${num(prod[o.product]||0)}</td>
           <td class="num">${num(rem)}</td>
-          <td><select class="rsel" data-assign="${escAttr(o.product)}">
-            <option value="0"${a?'':' selected'}>— избери —</option>${opts(a)}
-          </select></td></tr>`;}).join('')}</tbody></table>`
+          <td class="work">${tk.length?('🔨 '+takersText(o.product)):'<span class="muted">—</span>'}</td>
+          <td>${chips(o.product)}</td></tr>`;}).join('')}</tbody></table></div>`
       : '<div class="empty">Още няма заваръчни изделия в Цехове. Щом Таня качи задачи за цех „Заваръчно", ще се появят тук.</div>');
 }
 
@@ -330,6 +350,11 @@ function renderDetail(id){
   $('rdTable').innerHTML=!tasksLoaded
     ? '<div class="empty">Зарежда…</div>'
     : (items.length? `<div class="jobs">${items.map(o=>{const rem=remainOf(o.product),done=o.ordered>0&&rem===0;
+        const tk=takersOf(o.product), mine=tk.find(x=>x.t===id);
+        const workLine=tk.length?`<div class="job-work">🔨 Работи се: ${takersText(o.product)}</div>`:'';
+        const takeBtn=done?'':(mine
+          ? `<button class="btn taken" data-take="${escAttr(o.product)}" title="Пусни поръчката">✓ Взета ${fmtTime(mine.at)} · пусни</button>`
+          : `<button class="btn take" data-take="${escAttr(o.product)}">✋ Вземам поръчката</button>`);
         return `<div class="job${done?' done':''}">
           <div class="job-main">
             <div class="job-nm">${esc(o.product)}</div>
@@ -338,8 +363,10 @@ function renderDetail(id){
               <span>Заварени <b>${num(prod[o.product]||0)}</b></span>
               <span>${done?'<b class="ok">✓ готово</b>':`Остават <b>${num(rem)}</b>`}</span>
             </div>
+            ${workLine}
           </div>
           <div class="job-acts">
+            ${takeBtn}
             <button class="btn pri" data-report="${escAttr(o.product)}">✓ Запиши брой</button>
             <button class="btn" data-drawrow="${escAttr(o.product)}">📐 Искам чертеж</button>
           </div>
@@ -391,9 +418,10 @@ function openReport(product,tableId){
     const worker=r.name;                       // масата = заварчикът
     // 1) бройка на масата (споделено състояние)
     prod[product]=(prod[product]||0)+qty;
-    const entry={date:todayStr(),table:tableId,product,qty,worker,at:new Date().toISOString()};
+    const entry={kind:'report',date:todayStr(),table:tableId,product,qty,worker,at:new Date().toISOString()};
     if(tOrder)entry.tOrder=tOrder; if(consumables)entry.consumables=consumables;
     plog.push(entry);
+    if(remainOf(product)<=0) delete taken[product];   // готово → вече никой не работи по нея
     if(window.lineSaveSoon)window.lineSaveSoon();
     const btn=w.querySelector('#rp-save'); btn.disabled=true; btn.textContent='Запазва…';
     close();renderDetail(tableId);
@@ -523,6 +551,24 @@ function renameTable(id){
   saveState();route();
 }
 
+/* ===== Вземане на поръчка / разпределение по маси ===== */
+// Заварчик „взема" поръчката → записва кой и в колко часа е започнал (за анализ),
+// видимо в списъка с поръчки. Повторно натискане я „пуска".
+function toggleTake(p,tid){
+  const list=takersOf(p).slice(), i=list.findIndex(x=>x.t===tid);
+  const tname=(tableById(tid)||{}).name||'';
+  if(i>=0){ list.splice(i,1); }
+  else { const at=new Date().toISOString(); list.push({t:tid,w:tname,at}); plog.push({kind:'start',date:todayStr(),table:tid,product:p,worker:tname,at}); }
+  if(list.length)taken[p]=list; else delete taken[p];
+  saveState();
+}
+// Добавя/маха маса от разпределението на изделие (може няколко маси).
+function toggleAssign(p,tid){
+  const arr=assignedTables(p), i=arr.indexOf(tid);
+  if(i>=0)arr.splice(i,1); else arr.push(tid);
+  setAssigned(p,arr); saveState();
+}
+
 /* ===== Събития ===== */
 document.addEventListener('click',e=>{
   const act=e.target.closest('[data-act]');
@@ -534,16 +580,14 @@ document.addEventListener('click',e=>{
   if(ed){e.preventDefault();e.stopPropagation();renameTable(+ed.dataset.edit);return;}
   const rep=e.target.closest('[data-report]');
   if(rep){const m=(location.hash||'').match(/^#masa-(\d+)$/);if(m)openReport(rep.dataset.report,+m[1]);return;}
+  const take=e.target.closest('[data-take]');
+  if(take){e.preventDefault();const tid=curTableId();if(tid)toggleTake(take.dataset.take,tid);return;}
+  const tog=e.target.closest('[data-tog]');
+  if(tog){e.preventDefault();toggleAssign(tog.dataset.tog,+tog.dataset.tid);return;}
   const drow=e.target.closest('[data-drawrow]');
   if(drow){e.preventDefault();openDrawingReq(curTableId(),drow.dataset.drawrow);return;}
   const go=e.target.closest('.rcell[data-go]');
   if(go){location.hash='#masa-'+go.dataset.go;return;}
-});
-document.addEventListener('change',e=>{
-  const as=e.target.closest('[data-assign]');
-  if(as){const p=as.dataset.assign,v=+as.value;
-    if(v)assign[p]=v;else delete assign[p];
-    saveState();renderDist();return;}
 });
 document.addEventListener('keydown',e=>{
   if((e.key==='Enter'||e.key===' ')&&e.target.closest&&e.target.closest('.rcell[data-go]')){
@@ -555,11 +599,12 @@ $('distBack').addEventListener('click',e=>{e.preventDefault();location.hash='';}
 /* ===== Споделяне на живо (през sync.js) ===== */
 function saveState(){if(window.lineSaveSoon)window.lineSaveSoon();route();}
 window.LINE_STATE={
-  serialize(){return {tables:tables.map(t=>({id:t.id,name:t.name})),assign,prod,plog};},
+  serialize(){return {tables:tables.map(t=>({id:t.id,name:t.name})),assign,taken,prod,plog};},
   apply(doc){
     if(!doc)return;
     if(Array.isArray(doc.tables))doc.tables.forEach(rr=>{const r=tableById(+rr.id);if(r&&typeof rr.name==='string'&&rr.name.trim())r.name=rr.name;});
     if(doc.assign&&typeof doc.assign==='object')assign=doc.assign;
+    if(doc.taken&&typeof doc.taken==='object')taken=doc.taken;
     if(doc.prod&&typeof doc.prod==='object')prod=doc.prod;
     if(Array.isArray(doc.plog))plog=doc.plog;
     route();
