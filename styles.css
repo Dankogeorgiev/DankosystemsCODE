@@ -1071,3 +1071,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .mp-received { opacity: .55; }
 .mp-received td { text-decoration: line-through; }
 .mp-received .lp-actions { text-decoration: none; }
+
+/* Бутони „План за товарене" и „План материали" — еднакъв синьо-лилав, центрирани под Изход */
+.hz-plans { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 4px; }
+.btn-plan { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+.btn-plan:hover { background: #4338ca; border-color: #4338ca; }

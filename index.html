@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=247" />
+  <link rel="stylesheet" href="styles.css?v=248" />
   <link rel="stylesheet" href="erp.css?v=236" />
 </head>
 <body>
@@ -56,12 +56,14 @@
     <div class="header-zone header-center">
       <span class="user-box"><span id="user-email"></span>
         <button id="btn-logout" class="btn btn-small">Изход</button></span>
+      <div class="hz-plans">
+        <button id="btn-loading" class="btn btn-plan">🚚 План за товарене</button>
+        <button id="btn-materials" class="btn btn-plan">📦 План материали</button>
+      </div>
     </div>
 
     <div class="header-zone header-right">
       <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
-      <button id="btn-loading" class="btn btn-loading">🚚 План за товарене</button>
-      <button id="btn-materials" class="btn btn-materials">📦 План материали</button>
       <div class="hz-row">
         <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
         <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
