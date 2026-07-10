@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=246" />
+  <link rel="stylesheet" href="styles.css?v=247" />
   <link rel="stylesheet" href="erp.css?v=236" />
 </head>
 <body>
@@ -61,6 +61,7 @@
     <div class="header-zone header-right">
       <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
       <button id="btn-loading" class="btn btn-loading">🚚 План за товарене</button>
+      <button id="btn-materials" class="btn btn-materials">📦 План материали</button>
       <div class="hz-row">
         <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
         <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
@@ -451,15 +452,24 @@
   </div>
 
   <!-- Модал: План за товарене -->
-  <div id="loading-modal" class="overlay tasks-overlay" hidden>
-    <div class="tasks-box">
-      <div class="tasks-head">
-        <h2>🚚 План за товарене</h2>
-        <div class="tasks-head-actions">
-          <button id="loading-close" class="btn">Затвори</button>
-        </div>
+  <div id="loading-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>🚚 План за товарене</h3>
+        <button id="loading-close" class="btn btn-small">Затвори</button>
       </div>
       <div id="loading-view"></div>
+    </div>
+  </div>
+
+  <!-- Модал: План материали (поръчани материали от доставчици) -->
+  <div id="materials-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>📦 План материали</h3>
+        <button id="materials-close" class="btn btn-small">Затвори</button>
+      </div>
+      <div id="materials-view"></div>
     </div>
   </div>
 
@@ -545,7 +555,7 @@
   <script src="times-report.js?v=163"></script>
   <script src="planning.js?v=165"></script>
   <script src="board.js?v=241"></script>
-  <script src="loading-plan.js?v=1"></script>
+  <script src="loading-plan.js?v=2"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
   <script src="erp.js?v=230"></script>

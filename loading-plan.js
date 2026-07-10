@@ -5,8 +5,25 @@
 
 let LP_ITEMS = [];        // [{ id, week (понеделник YYYY-MM-DD), client, goods, kg, pallets, note, createdAt }]
 let LP_CLIENTS = [];      // имена на клиенти (от partners kind=customer)
+let LP_GOODS = [];        // детайли от Склад детайли (за избор на стока) — "код · име"
 let LP_MONDAY = null;     // текущо разглеждан понеделник (Date)
 let LP_LOADED = false;
+
+// Разпознава детайл/възел (Склад детайли), както в erp-detail-stock.
+function lpIsDetail(p) {
+  if (p && p.is_semifinished) return true;
+  const g = ((p && p.group_name) || "").toLowerCase();
+  return g.includes("детайл") || g.includes("възл") || g.includes("полуфабрикат") || g.includes("заготов");
+}
+async function lpLoadGoods() {
+  try {
+    const { data } = await sb.from("products").select("id,code,name,is_semifinished,group_name").limit(2000);
+    LP_GOODS = (data || []).filter(lpIsDetail)
+      .map(p => ((p.code ? p.code + " · " : "") + (p.name || "")).trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, "bg"));
+  } catch (e) { LP_GOODS = []; }
+}
 
 /* ---------- ISO седмици ---------- */
 function lpMondayOfISOWeek(year, week) {
@@ -69,7 +86,7 @@ async function openLoadingPlan() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   document.getElementById("loading-modal").hidden = false;
   if (!LP_LOADED) {
-    await Promise.all([lpLoad(), lpLoadClients()]);
+    await Promise.all([lpLoad(), lpLoadClients(), lpLoadGoods()]);
     LP_LOADED = true;
   }
   if (!LP_MONDAY) LP_MONDAY = lpMondayOfISOWeek(2026, 29);   // започваме от седмица 29
@@ -144,7 +161,10 @@ function lpOpenForm(id) {
         <input type="text" id="lp-client" list="lp-clients" value="${escapeAttr(editing ? (editing.client || "") : "")}" placeholder="избери или въведи" autocomplete="off" />
         <datalist id="lp-clients">${LP_CLIENTS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
       </label>
-      <label>Стока (какво се товари)<textarea id="lp-goods" rows="2" placeholder="напр. рафтове, стелажи, детайли…">${escapeHtml(editing ? (editing.goods || "") : "")}</textarea></label>
+      <label>Стока (избери от Склад детайли или въведи)
+        <input type="text" id="lp-goods" list="lp-goods-list" value="${escapeAttr(editing ? (editing.goods || "") : "")}" placeholder="търси детайл по код или име…" autocomplete="off" />
+        <datalist id="lp-goods-list">${LP_GOODS.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
+      </label>
       <div class="lp-form-row">
         <label>Килограми<input type="number" id="lp-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(editing && editing.kg != null ? String(editing.kg) : "")}" placeholder="кг" /></label>
         <label>Палети<input type="number" id="lp-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(editing && editing.pallets != null ? String(editing.pallets) : "")}" placeholder="бр." /></label>
@@ -191,12 +211,169 @@ async function lpDelete(id) {
   lpRender();
 }
 
+/* ================= План материали (поръчани материали от доставчици) ================= */
+let MP_ITEMS = [];        // [{ id, supplier, material, qty, unit, orderDate, arrivalDate, note, received, createdAt }]
+let MP_SUPPLIERS = [];    // имена на доставчици (partners kind=supplier)
+let MP_MATERIALS = [];    // материали ("код · име") от materials
+let MP_LOADED = false;
+
+async function mpLoad() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "materials_plan").maybeSingle();
+    MP_ITEMS = (data && data.data && Array.isArray(data.data.items)) ? data.data.items : [];
+  } catch (e) { console.error("materials load", e); MP_ITEMS = []; }
+}
+async function mpSave() {
+  const { error } = await sb.from("app_config").upsert({ id: "materials_plan", data: { items: MP_ITEMS }, updated_at: new Date().toISOString() });
+  if (error) alert("Грешка при запис на плана за материали: " + error.message);
+}
+async function mpLoadRefs() {
+  try {
+    const { data } = await sb.from("partners").select("name").eq("kind", "supplier");
+    MP_SUPPLIERS = [...new Set((data || []).map(p => (p.name || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  } catch (e) { MP_SUPPLIERS = []; }
+  try {
+    const { data } = await sb.from("materials").select("code,name").limit(2000);
+    MP_MATERIALS = [...new Set((data || []).map(m => ((m.code ? m.code + " · " : "") + (m.name || "")).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  } catch (e) { MP_MATERIALS = []; }
+}
+
+async function openMaterialsPlan() {
+  if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
+  document.getElementById("materials-modal").hidden = false;
+  if (!MP_LOADED) { await Promise.all([mpLoad(), mpLoadRefs()]); MP_LOADED = true; }
+  mpRender();
+}
+function closeMaterialsPlan() { document.getElementById("materials-modal").hidden = true; }
+
+function mpFmtDate(s) {
+  if (!s) return "—";
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : s;
+}
+function mpRender() {
+  const v = document.getElementById("materials-view");
+  if (!v) return;
+  const items = MP_ITEMS.slice().sort((a, b) => {
+    if (!!a.received !== !!b.received) return a.received ? 1 : -1;           // получените най-долу
+    const da = a.arrivalDate || "9999-12-31", db = b.arrivalDate || "9999-12-31";
+    return da.localeCompare(db);                                             // по очаквано пристигане
+  });
+  const rows = items.map(x => `
+    <tr class="${x.received ? "mp-received" : ""}">
+      <td data-label="Доставчик"><b>${escapeHtml(x.supplier || "—")}</b></td>
+      <td data-label="Материал">${escapeHtml(x.material || "")}</td>
+      <td class="num" data-label="Кол-во">${x.qty != null && x.qty !== "" ? lpFmtNum(x.qty) : "—"} ${escapeHtml(x.unit || "")}</td>
+      <td data-label="Поръчано">${mpFmtDate(x.orderDate)}</td>
+      <td data-label="Пристига">${mpFmtDate(x.arrivalDate)}</td>
+      <td data-label="Забележка">${escapeHtml(x.note || "")}</td>
+      <td class="lp-actions">
+        <button class="btn btn-small mp-recv" data-id="${x.id}" title="${x.received ? "Отбележи като чакащо" : "Отбележи като пристигнало"}">${x.received ? "↩" : "✓ прист."}</button>
+        <button class="btn btn-small mp-edit" data-id="${x.id}" title="Редактирай">✎</button>
+        <button class="btn btn-small mp-del" data-id="${x.id}" title="Изтрий">×</button>
+      </td>
+    </tr>`).join("");
+
+  const pending = items.filter(x => !x.received).length;
+  v.innerHTML = `
+    <div class="lp-toolbar">
+      <div class="lp-weeklabel"><b>${items.length}</b> поръчки <span class="lp-muted">· ${pending} чакащи</span></div>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn btn-small btn-primary" id="mp-add">+ Нова поръчка материали</button>
+    </div>
+    <table class="report-table lp-table">
+      <thead><tr><th>Доставчик</th><th>Материал</th><th class="num">Кол-во</th><th>Поръчано</th><th>Пристига</th><th>Забележка</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="report-empty">Няма поръчани материали. Натисни „+ Нова поръчка материали".</td></tr>`}</tbody>
+    </table>`;
+
+  v.querySelector("#mp-add").addEventListener("click", () => mpOpenForm(null));
+  v.querySelectorAll(".mp-edit").forEach(b => b.addEventListener("click", () => mpOpenForm(b.dataset.id)));
+  v.querySelectorAll(".mp-del").forEach(b => b.addEventListener("click", () => mpDelete(b.dataset.id)));
+  v.querySelectorAll(".mp-recv").forEach(b => b.addEventListener("click", () => mpToggleReceived(b.dataset.id)));
+}
+
+function mpOpenForm(id) {
+  const editing = id ? MP_ITEMS.find(x => x.id === id) : null;
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>${editing ? "✎ Редакция на поръчка материали" : "+ Нова поръчка материали"}</h3>
+      <label>Доставчик *
+        <input type="text" id="mp-supplier" list="mp-suppliers" value="${escapeAttr(editing ? (editing.supplier || "") : "")}" placeholder="избери или въведи" autocomplete="off" />
+        <datalist id="mp-suppliers">${MP_SUPPLIERS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
+      </label>
+      <label>Материал(и) *
+        <input type="text" id="mp-material" list="mp-materials" value="${escapeAttr(editing ? (editing.material || "") : "")}" placeholder="търси по код или име…" autocomplete="off" />
+        <datalist id="mp-materials">${MP_MATERIALS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
+      </label>
+      <div class="lp-form-row">
+        <label>Количество<input type="number" id="mp-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(editing && editing.qty != null ? String(editing.qty) : "")}" placeholder="кол-во" /></label>
+        <label>Мярка<input type="text" id="mp-unit" value="${escapeAttr(editing ? (editing.unit || "") : "")}" placeholder="кг/бр/м…" /></label>
+      </div>
+      <div class="lp-form-row">
+        <label>Дата на поръчка<input type="date" id="mp-order" value="${escapeAttr(editing ? (editing.orderDate || "") : "")}" /></label>
+        <label>Очаквано пристигане<input type="date" id="mp-arrival" value="${escapeAttr(editing ? (editing.arrivalDate || "") : "")}" /></label>
+      </div>
+      <label>Забележка<textarea id="mp-note" rows="2" placeholder="по желание">${escapeHtml(editing ? (editing.note || "") : "")}</textarea></label>
+      <div class="ask-actions">
+        <button id="mp-save" class="btn btn-primary">${editing ? "Запази" : "Добави"}</button>
+        <button id="mp-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#mp-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#mp-save").addEventListener("click", async () => {
+    const supplier = wrap.querySelector("#mp-supplier").value.trim();
+    if (!supplier) { alert("Въведи доставчик."); return; }
+    const material = wrap.querySelector("#mp-material").value.trim();
+    if (!material) { alert("Въведи материал."); return; }
+    const rec = {
+      supplier, material,
+      qty: wrap.querySelector("#mp-qty").value.trim(),
+      unit: wrap.querySelector("#mp-unit").value.trim(),
+      orderDate: wrap.querySelector("#mp-order").value,
+      arrivalDate: wrap.querySelector("#mp-arrival").value,
+      note: wrap.querySelector("#mp-note").value.trim(),
+    };
+    const btn = wrap.querySelector("#mp-save"); btn.disabled = true; btn.textContent = "Записва…";
+    if (editing) { Object.assign(editing, rec); }
+    else { MP_ITEMS.push(Object.assign({ id: "mp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6), received: false, createdAt: new Date().toISOString() }, rec)); }
+    await mpSave();
+    close();
+    mpRender();
+  });
+  setTimeout(() => { const s = wrap.querySelector("#mp-supplier"); if (s) s.focus(); }, 50);
+}
+
+async function mpToggleReceived(id) {
+  const x = MP_ITEMS.find(i => i.id === id);
+  if (!x) return;
+  x.received = !x.received;
+  await mpSave();
+  mpRender();
+}
+async function mpDelete(id) {
+  const x = MP_ITEMS.find(i => i.id === id);
+  if (!x) return;
+  if (!confirm(`Да изтрия ли поръчката за „${x.material || ""}" от „${x.supplier || ""}"?`)) return;
+  MP_ITEMS = MP_ITEMS.filter(i => i.id !== id);
+  await mpSave();
+  mpRender();
+}
+
 /* ---------- Инициализация ---------- */
 function lpInit() {
   const btn = document.getElementById("btn-loading");
   if (btn && !btn._lpWired) { btn._lpWired = true; btn.addEventListener("click", openLoadingPlan); }
   const cl = document.getElementById("loading-close");
   if (cl && !cl._lpWired) { cl._lpWired = true; cl.addEventListener("click", closeLoadingPlan); }
+  const mb = document.getElementById("btn-materials");
+  if (mb && !mb._lpWired) { mb._lpWired = true; mb.addEventListener("click", openMaterialsPlan); }
+  const mc = document.getElementById("materials-close");
+  if (mc && !mc._lpWired) { mc._lpWired = true; mc.addEventListener("click", closeMaterialsPlan); }
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", lpInit);
 else lpInit();
