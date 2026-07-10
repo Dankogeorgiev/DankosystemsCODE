@@ -1076,3 +1076,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .hz-plans { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 4px; }
 .btn-plan { background: #4f46e5; color: #fff; border-color: #4f46e5; }
 .btn-plan:hover { background: #4338ca; border-color: #4338ca; }
+
+/* План за товарене — много стоки на един клиент */
+.lp-form-box { max-width: 580px; }
+.lp-lines-head { margin-top: 12px; font-size: 13px; color: #334155; font-weight: 600; }
+#lp-lines { margin-top: 4px; }
+.lp-line-row { display: flex; gap: 6px; align-items: center; margin: 5px 0; }
+.lp-form-box .lp-line-row input.lp-l-goods { flex: 1; min-width: 0; width: auto; margin-top: 0; }
+.lp-form-box .lp-line-row input.lp-l-kg, .lp-form-box .lp-line-row input.lp-l-pallets { width: 76px; flex: 0 0 auto; margin-top: 0; }
+.lp-line-row .lp-l-rm { flex: 0 0 auto; }
+.lp-table td[rowspan] { vertical-align: top; border-left: 2px solid #ede9fe; }

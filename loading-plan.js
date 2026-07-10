@@ -94,6 +94,16 @@ async function openLoadingPlan() {
 }
 function closeLoadingPlan() { document.getElementById("loading-modal").hidden = true; }
 
+/* Стоките на едно товарене (нов формат: масив lines; съвместимо със стария единичен). */
+function lpItemLines(x) {
+  if (Array.isArray(x.lines) && x.lines.length) return x.lines;
+  if ((x.goods && x.goods !== "") || (x.kg != null && x.kg !== "") || (x.pallets != null && x.pallets !== ""))
+    return [{ goods: x.goods || "", kg: x.kg, pallets: x.pallets }];
+  return [{ goods: "", kg: "", pallets: "" }];
+}
+function lpItemKg(x) { return lpItemLines(x).reduce((s, l) => s + lpToNum(l.kg), 0); }
+function lpItemPal(x) { return lpItemLines(x).reduce((s, l) => s + lpToNum(l.pallets), 0); }
+
 /* ---------- Рендиране ---------- */
 function lpRender() {
   const v = document.getElementById("loading-view");
@@ -103,21 +113,31 @@ function lpRender() {
   const sunday = lpAddDays(LP_MONDAY, 6);
   const items = LP_ITEMS.filter(x => x.week === mondayStr)
     .sort((a, b) => (a.client || "").localeCompare(b.client || "", "bg") || String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
-  const totKg = items.reduce((s, x) => s + lpToNum(x.kg), 0);
-  const totPal = items.reduce((s, x) => s + lpToNum(x.pallets), 0);
+  const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
+  const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
 
-  const rows = items.map(x => `
-    <tr>
-      <td data-label="Клиент"><b>${escapeHtml(x.client || "—")}</b></td>
-      <td data-label="Стока">${escapeHtml(x.goods || "")}</td>
-      <td class="num" data-label="Кг">${x.kg != null && x.kg !== "" ? lpFmtNum(x.kg) : "—"}</td>
-      <td class="num" data-label="Палети">${x.pallets != null && x.pallets !== "" ? lpFmtNum(x.pallets) : "—"}</td>
-      <td data-label="Забележка">${escapeHtml(x.note || "")}</td>
-      <td class="lp-actions">
-        <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
-        <button class="btn btn-small lp-del" data-id="${x.id}" title="Изтрий">×</button>
-      </td>
-    </tr>`).join("");
+  const rowsArr = [];
+  items.forEach(x => {
+    const lines = lpItemLines(x);
+    const n = lines.length;
+    lines.forEach((ln, idx) => {
+      let tr = `<tr class="lp-erow">`;
+      if (idx === 0) tr += `<td data-label="Клиент" rowspan="${n}"><b>${escapeHtml(x.client || "—")}</b>${n > 1 ? ` <span class="lp-muted">(${n} стоки)</span>` : ""}</td>`;
+      tr += `<td data-label="Стока">${escapeHtml(ln.goods || "")}</td>
+        <td class="num" data-label="Кг">${ln.kg != null && ln.kg !== "" ? lpFmtNum(ln.kg) : "—"}</td>
+        <td class="num" data-label="Палети">${ln.pallets != null && ln.pallets !== "" ? lpFmtNum(ln.pallets) : "—"}</td>`;
+      if (idx === 0) {
+        tr += `<td data-label="Забележка" rowspan="${n}">${escapeHtml(x.note || "")}</td>
+          <td class="lp-actions" rowspan="${n}">
+            <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
+            <button class="btn btn-small lp-del" data-id="${x.id}" title="Изтрий">×</button>
+          </td>`;
+      }
+      tr += `</tr>`;
+      rowsArr.push(tr);
+    });
+  });
+  const rows = rowsArr.join("");
 
   v.innerHTML = `
     <div class="lp-toolbar">
@@ -147,28 +167,32 @@ function lpRender() {
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
 }
 
-/* ---------- Форма (ново/редакция) ---------- */
+/* ---------- Форма (ново/редакция) — един клиент, много стоки ---------- */
 function lpOpenForm(id) {
   const editing = id ? LP_ITEMS.find(x => x.id === id) : null;
   const mondayStr = lpMondayStr(LP_MONDAY);
   const wk = lpISOWeek(LP_MONDAY);
+  const initLines = editing ? lpItemLines(editing).map(l => ({ goods: l.goods || "", kg: l.kg, pallets: l.pallets })) : [{ goods: "", kg: "", pallets: "" }];
+  const lineRow = ln => `
+    <div class="lp-line-row">
+      <input type="text" class="lp-l-goods" list="lp-goods-list" value="${escapeAttr(ln.goods || "")}" placeholder="детайл (код/име)…" autocomplete="off" />
+      <input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" />
+      <input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="палети" />
+      <button type="button" class="btn btn-small lp-l-rm" title="Махни стоката">×</button>
+    </div>`;
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   wrap.innerHTML = `
-    <div class="overlay-box ask-box">
+    <div class="overlay-box ask-box lp-form-box">
       <h3>${editing ? "✎ Редакция на товарене" : "+ Ново товарене"} — седмица ${wk.week}</h3>
       <label>Клиент *
         <input type="text" id="lp-client" list="lp-clients" value="${escapeAttr(editing ? (editing.client || "") : "")}" placeholder="избери или въведи" autocomplete="off" />
         <datalist id="lp-clients">${LP_CLIENTS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
       </label>
-      <label>Стока (избери от Склад детайли или въведи)
-        <input type="text" id="lp-goods" list="lp-goods-list" value="${escapeAttr(editing ? (editing.goods || "") : "")}" placeholder="търси детайл по код или име…" autocomplete="off" />
-        <datalist id="lp-goods-list">${LP_GOODS.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
-      </label>
-      <div class="lp-form-row">
-        <label>Килограми<input type="number" id="lp-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(editing && editing.kg != null ? String(editing.kg) : "")}" placeholder="кг" /></label>
-        <label>Палети<input type="number" id="lp-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(editing && editing.pallets != null ? String(editing.pallets) : "")}" placeholder="бр." /></label>
-      </div>
+      <div class="lp-lines-head"><span>Стоки за товарене (детайл · кг · палети)</span></div>
+      <div id="lp-lines">${initLines.map(lineRow).join("")}</div>
+      <datalist id="lp-goods-list">${LP_GOODS.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
+      <button type="button" id="lp-addline" class="btn btn-small">+ още стока</button>
       <label>Забележка<textarea id="lp-note" rows="2" placeholder="по желание — напр. час, транспорт, специфики">${escapeHtml(editing ? (editing.note || "") : "")}</textarea></label>
       <div class="ask-actions">
         <button id="lp-save" class="btn btn-primary">${editing ? "Запази" : "Добави"}</button>
@@ -177,23 +201,40 @@ function lpOpenForm(id) {
     </div>`;
   document.body.appendChild(wrap);
   const close = () => wrap.remove();
+  const linesBox = wrap.querySelector("#lp-lines");
+  const wireRm = () => linesBox.querySelectorAll(".lp-l-rm").forEach(b => {
+    b.onclick = () => {
+      if (linesBox.querySelectorAll(".lp-line-row").length > 1) b.closest(".lp-line-row").remove();
+      else b.closest(".lp-line-row").querySelectorAll("input").forEach(i => { i.value = ""; });
+    };
+  });
+  wireRm();
+  wrap.querySelector("#lp-addline").addEventListener("click", () => {
+    const tmp = document.createElement("div"); tmp.innerHTML = lineRow({ goods: "", kg: "", pallets: "" });
+    linesBox.appendChild(tmp.firstElementChild);
+    wireRm();
+    const last = linesBox.querySelector(".lp-line-row:last-child .lp-l-goods"); if (last) last.focus();
+  });
   wrap.querySelector("#lp-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
   wrap.querySelector("#lp-save").addEventListener("click", async () => {
     const client = wrap.querySelector("#lp-client").value.trim();
     if (!client) { alert("Въведи клиент."); return; }
-    const goods = wrap.querySelector("#lp-goods").value.trim();
-    const kg = wrap.querySelector("#lp-kg").value.trim();
-    const pallets = wrap.querySelector("#lp-pallets").value.trim();
+    const lines = [];
+    linesBox.querySelectorAll(".lp-line-row").forEach(row => {
+      const goods = row.querySelector(".lp-l-goods").value.trim();
+      const kg = row.querySelector(".lp-l-kg").value.trim();
+      const pallets = row.querySelector(".lp-l-pallets").value.trim();
+      if (goods || kg || pallets) lines.push({ goods, kg, pallets });
+    });
+    if (!lines.length) { alert("Добави поне една стока."); return; }
     const note = wrap.querySelector("#lp-note").value.trim();
     const btn = wrap.querySelector("#lp-save"); btn.disabled = true; btn.textContent = "Записва…";
     if (editing) {
-      editing.client = client; editing.goods = goods; editing.kg = kg; editing.pallets = pallets; editing.note = note;
+      editing.client = client; editing.lines = lines; editing.note = note;
+      delete editing.goods; delete editing.kg; delete editing.pallets;   // мигриране към новия формат
     } else {
-      LP_ITEMS.push({
-        id: "lp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6),
-        week: mondayStr, client, goods, kg, pallets, note, createdAt: new Date().toISOString(),
-      });
+      LP_ITEMS.push({ id: "lp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6), week: mondayStr, client, lines, note, createdAt: new Date().toISOString() });
     }
     await lpSave();
     close();
