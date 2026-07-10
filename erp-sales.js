@@ -270,7 +270,7 @@ function erpSaLinesHtml(o, locked) {
   const cur = erpSaleCur(o);
   return (o.lines || []).map((l, i) => `
     <tr>
-      <td data-label="Вид">${l.itemKind === "material" ? "🧱 материал" : "📦 продукт"}</td>
+      <td data-label="Вид">${l.writeoffKind === "detail" ? "🏭 готов детайл" : l.itemKind === "material" ? "🧱 материал" : "📦 продукт"}</td>
       <td data-label="Код">${escapeHtml(l.code || "")}</td>
       <td data-label="Наименование">${locked ? escapeHtml(l.name || "") : `<input type="text" class="sa-name" data-i="${i}" value="${escapeAttr(l.name || "")}" style="width:100%;min-width:150px" title="Име за фактурата (напр. името при клиента)" />`}</td>
       <td class="num" data-label="Кол.">${locked ? erpNum(l.qty) : `<input type="number" class="sa-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
@@ -364,43 +364,67 @@ async function erpPostSale(o) {
   if (!(o.lines || []).length) { alert("Добави поне един ред."); return; }
   try { await erpSaveSale(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
 
-  // Събираме нужните материали: продуктите — през рецептата, материалите — директно.
+  // Събираме нужното за изписване:
+  //  • редове „готов детайл" (writeoffKind:"detail") — изписват СЕ директно от Склад
+  //    детайли (заявката вече е минала през производство, материалите са изписани там);
+  //  • продуктовите редове — през рецептата → суровини от склад материали;
+  //  • материалните редове — директно от склад материали.
   const need = {};   // material_id -> количество за изписване
+  const detailNeed = {};   // product_id -> готови детайли за изписване от Склад детайли
   const addNeed = (mid, qty) => { if (!mid || !(qty > 0)) return; need[mid] = (need[mid] || 0) + qty; };
+  const addDetail = (pid, qty) => { if (!pid || !(qty > 0)) return; detailNeed[pid] = (detailNeed[pid] || 0) + qty; };
   for (const l of (o.lines || [])) {
     const qty = erpToNum(l.qty) || 0; if (qty <= 0) continue;
+    if (l.writeoffKind === "detail") { addDetail(l.refId, qty); continue; }
     if (l.itemKind === "material") { addNeed(l.refId, qty); continue; }
     const { data, error } = await sb.rpc("bom_requirements", { p_id: l.refId, p_qty: qty });
     if (error) { alert("Грешка при разбивката на продукт " + (l.name || "") + ": " + error.message); return; }
     (data || []).forEach(r => addNeed(r.material_id, Number(r.required) || 0));
   }
   const mids = Object.keys(need);
-  if (!mids.length) { alert("Няма материали за изписване (продуктите нямат рецепта, а няма и материални редове)."); return; }
+  const dids = Object.keys(detailNeed);
+  if (!mids.length && !dids.length) { alert("Няма нищо за изписване (продуктите нямат рецепта, а няма и материални/детайлни редове)."); return; }
 
-  // Проверка за отрицателни наличности след изписването.
+  // Проверка за отрицателни наличности след изписването (материали + детайли).
   const stockById = {};
   ERP.materials.forEach(m => { stockById[m.id] = Number(m.stock) || 0; });
   const negatives = mids.filter(mid => (stockById[mid] || 0) - need[mid] < 0)
     .map(mid => { const m = ERP.matById[mid] || {}; return `${m.code || ""} ${m.name || ""}: налично ${erpNum(stockById[mid] || 0)}, нужно ${erpNum(need[mid])}`; });
+  const dNegatives = dids.filter(pid => ((Number((ERP.prodById[pid] || {}).stock) || 0)) - detailNeed[pid] < 0)
+    .map(pid => { const p = ERP.prodById[pid] || {}; return `${p.code || ""} ${p.name || ""}: наличност ${erpNum(Number(p.stock) || 0)}, нужно ${erpNum(detailNeed[pid])}`; });
 
-  let msg = `Да осчетоводя ли продажба №${o.saleNo}?\nЩе се изпишат ${mids.length} материала от склада (движения „изписване").`;
-  msg += `\n\n⚠ Ако тази заявка вече е минала през „Пусни в производство", материалите СА ИЗПИСАНИ там — не потвърждавай тук, за да не се броят двойно.`;
-  if (negatives.length) msg += `\n\n⚠ ВНИМАНИЕ — следните ще станат на минус:\n` + negatives.slice(0, 12).join("\n") + (negatives.length > 12 ? `\n…и още ${negatives.length - 12}` : "");
+  let msg = `Да осчетоводя ли продажба №${o.saleNo}?`;
+  if (dids.length) msg += `\n\nЩе се изпишат ${dids.length} готови детайла от Склад детайли (движения „изписване").`;
+  if (mids.length) {
+    msg += `\n\nЩе се изпишат ${mids.length} материала от склад материали (движения „изписване").`;
+    msg += `\n⚠ Ако тази заявка вече е минала през „Пусни в производство", материалите СА ИЗПИСАНИ там — не потвърждавай материалните редове тук, за да не се броят двойно.`;
+  }
+  if (negatives.length) msg += `\n\n⚠ Материали на минус:\n` + negatives.slice(0, 12).join("\n") + (negatives.length > 12 ? `\n…и още ${negatives.length - 12}` : "");
+  if (dNegatives.length) msg += `\n\n⚠ Детайли на минус:\n` + dNegatives.slice(0, 12).join("\n") + (dNegatives.length > 12 ? `\n…и още ${dNegatives.length - 12}` : "");
   msg += `\n\nДействието се прави веднъж.`;
   if (!confirm(msg)) return;
 
   const ref = `Продажба ${o.saleNo || "—"} · ${o.clientName || ""}`.trim();
   const by = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || null;
-  const moves = mids.map(mid => ({ material_id: Number(mid), kind: "изписване", quantity: -Math.abs(need[mid]), ref, created_by: by }));
 
-  const ins = await sb.from("stock_movements").insert(moves);
-  if (ins.error) { alert("Грешка при движенията: " + ins.error.message); return; }
+  if (mids.length) {
+    const moves = mids.map(mid => ({ material_id: Number(mid), kind: "изписване", quantity: -Math.abs(need[mid]), ref, created_by: by }));
+    const ins = await sb.from("stock_movements").insert(moves);
+    if (ins.error) { alert("Грешка при движенията на материали: " + ins.error.message); return; }
+  }
+  if (dids.length) {
+    const dMoves = dids.map(pid => ({ product_id: Number(pid), kind: "изписване", quantity: -Math.abs(detailNeed[pid]), ref, note: "Продажба" }));
+    const dIns = await sb.from("product_movements").insert(dMoves);
+    if (dIns.error) { alert("Грешка при движенията на детайли: " + dIns.error.message); return; }
+  }
 
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSaveSale(o); } catch {}
   await erpLoadAll();       // опреснява наличности в кеша
   await erpLoadSales();
-  alert(`Готово! Осчетоводена продажба №${o.saleNo}. Изписани ${moves.length} материала — наличностите са намалени.`);
+  alert(`Готово! Осчетоводена продажба №${o.saleNo}.`
+    + (dids.length ? `\nИзписани ${dids.length} готови детайла от Склад детайли.` : "")
+    + (mids.length ? `\nИзписани ${mids.length} материала от склад материали.` : ""));
   erpRenderSaleForm(o);
 }
 

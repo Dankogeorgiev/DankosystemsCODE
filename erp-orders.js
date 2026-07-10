@@ -38,6 +38,7 @@ function erpRenderOrderPanel(s) {
           </label>
           <button type="button" class="btn btn-small" id="erp-op-fill">↧ Вземи материалите от рецептата</button>
           <button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>
+          ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-sale">🧾 Създай продажба</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small btn-danger" id="erp-op-withdraw">⬅ Изтегли от производство</button>' : ""}
         </div>
         <div id="erp-op-status" class="erp-prod-status"></div>
@@ -55,6 +56,8 @@ function erpRenderOrderPanel(s) {
   if (fillBtn) fillBtn.addEventListener("click", () => erpFillMaterials(s));
   const prodBtn = host.querySelector("#erp-op-produce");
   if (prodBtn) prodBtn.addEventListener("click", () => erpProduce(s));
+  const saleBtn = host.querySelector("#erp-op-sale");
+  if (saleBtn) saleBtn.addEventListener("click", () => erpSaleFromProduction(s));
   const wBtn = host.querySelector("#erp-op-withdraw");
   if (wBtn) wBtn.addEventListener("click", () => erpWithdrawProduction(s));
 
@@ -326,8 +329,11 @@ function erpFlowSteps(s, opts) {
   // възел чака своите директни части, не само финалът).
   (function walk(pid, mult, anc, depth) {
     // Нетна потребност: колко от този детайл има на склад -> толкова не се прави.
+    // При „краен детайл за склад" (toStockTop) НЕ нетваме самия краен детайл (depth 0)
+    // спрямо склада — правим го наново за поръчката; иначе повторно пускане би се
+    // нетнало срещу собствената си предишна продукция. Подчастите (depth>0) се нетват.
     let make = mult;
-    if (stock) {
+    if (stock && !(depth === 0 && toStockTop)) {
       const have = Math.max(0, Number(stock[pid]) || 0);
       const use = Math.min(have, mult);
       if (use > 0) {
@@ -444,7 +450,12 @@ async function erpFlowApply(meta, productLines) {
   (productLines || []).forEach(line => {
     const q = erpToNum(line.qty) || 0;
     if (!q) return;
-    const stepsOpts = toStock ? { keySuffix: sfx, toStockTop: true } : (stockOn ? { stock: avail, consumed } : undefined);
+    // stockTop: при обикновена заявка готовият краен детайл влиза в Склад детайли
+    // (после се изписва с Продажба) — без да сменяме поръчковия режим на „за склад".
+    const stepsOpts = toStock
+      ? { keySuffix: sfx, toStockTop: true }
+      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop }
+                 : (meta.stockTop ? { toStockTop: true } : undefined));
     const { steps, external, missing, materials } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
     Object.keys(materials || {}).forEach(mid => { matNeed[mid] = (Number(matNeed[mid]) || 0) + Number(materials[mid] || 0); });
     external.forEach(e => externalAll.push(e));
@@ -727,13 +738,14 @@ async function erpProduce(s) {
     + `Всяка операция получава детайлите постепенно — колкото са отчетени в предния цех, толкова минават нататък. Еднакви детайли от няколко поръчки се обединяват в СЕРИЯ.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   msg += missTxt;
-  msg += `\n\n📦 Материалите за производството ще се изпишат от склада.`;
+  msg += `\n\n📦 Материалите за производството ще се изпишат от склад материали.`;
+  msg += `\n📥 Готовите детайли ще се заприходят в Склад детайли (после ги изписваш с „Създай продажба").`;
   if (already) msg += `\n\n⚠ Вече има пуснато производство за тази поръчка. Ще обновя дела ѝ.`;
   if (!confirm(msg)) return;
 
   const res = await erpFlowApply({
     clientName: s.clientName || "", deadline: s.deadline || "", sampleId: s.id,
-    sampleType: s.type || "order", orderNo: s.ourNo || s.no || "",
+    sampleType: s.type || "order", orderNo: s.ourNo || s.no || "", stockTop: true,
   }, [{ productId: s.erpProductId, qty }]);
   if (res.error) { alert("Грешка при пускане: " + (res.error.message || res.error)); return; }
 
@@ -745,10 +757,42 @@ async function erpProduce(s) {
   const matShort = res.materialsShort || [];
   alert(`Готово! Пуснах поточно производство (${res.seriesCount} операции).\n`
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
+    + `\n\n📥 Като се отчете последната операция, готовите детайли влизат в Склад детайли. После натисни „🧾 Създай продажба", за да ги изпишеш с продажба.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
     + (matShort.length ? `\n\n⚠ НЕДОСТИГ НА МАТЕРИАЛИ (изписани, складът е на минус):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяването НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
+}
+
+// Създава чернова Продажба от произведена нестандартна поръчка. Готовият детайл
+// (вече заприходен в Склад детайли) се ИЗПИСВА с продажбата (writeoffKind:"detail"),
+// без да се разбива рецептата — материалите вече са изписани при производството.
+async function erpSaleFromProduction(s) {
+  try { await erpEnsureLoaded(); }
+  catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return; }
+  if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
+  if (typeof erpRenderSaleForm !== "function") { alert("Модулът Продажби не е зареден."); return; }
+
+  const qty = erpToNum(s.erpQty) || 1;
+  const today = new Date().toISOString().slice(0, 10);
+  const p = ERP.prodById[s.erpProductId] || {};
+  const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(s.clientId, s.clientName, s.erpProductId) : null;
+  const name = (ple && ple.cname) ? ple.cname : (s.erpProductName || p.name || "");
+  const unitPrice = (ple && erpToNum(ple.price) > 0) ? erpToNum(ple.price) : "";
+  const orderNo = s.ourNo || s.no || "";
+  erpRenderSaleForm({
+    saleNo: (typeof erpNextSaleNo === "function") ? erpNextSaleNo() : "",
+    clientName: s.clientName || "", clientId: s.clientId || null,
+    clientVat: "", clientCity: "", clientStreet: "", clientCountry: "BG",
+    date: today, taxDate: today, paymentMethod: "По банков път", currency: "EUR", vatRate: 20,
+    note: orderNo ? ("По нестандартна поръчка №" + orderNo) : "",
+    posted: false, fromOrderId: s.id,
+    lines: [{
+      itemKind: "product", writeoffKind: "detail", refId: s.erpProductId,
+      code: s.erpProductCode || p.code || "", name, ourName: p.name || s.erpProductName || "",
+      unit: "бр.", qty, unitPrice,
+    }],
+  });
 }
 
 /* ---------- Проследяване на напредъка ---------- */
