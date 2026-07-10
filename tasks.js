@@ -122,7 +122,10 @@ const FIELDS_BY_WORKER = {
       "DURMA щанца": {
         qtyLabel: "Брой детайли",
         countFields: [{ key: "sheets", label: "Брой насечени листи" }],
-        timeFields: [{ key: "tSetup", label: "Време за пренастройка", unit: "min" }],
+        timeFields: [
+          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+          { key: "tSetup", label: "Време за пренастройка", unit: "min" },
+        ],
       },
     },
   },
