@@ -291,6 +291,12 @@ async function erpMaybeStartFinal(t, src) {
 function erpDetailRouteKey(code, product, operation) {
   return String(code || product || "") + "¦" + String(operation || "");
 }
+// Сглобяваща операция (там се консумират частите): заваряване, занитване,
+// сглобяване, монтаж, залепване… На нея се изчакват частите, НЕ на рязането.
+function erpIsAssemblyOp(name) {
+  const s = (name || "").toLowerCase();
+  return /заваряв|занитв|нитов|сглоб|монтаж|залеп|скрепя|болтов|асембл/.test(s);
+}
 // Записва/маха постоянно прехвърляне на операция на детайл към цех (app_config).
 async function erpSaveDetailRoute(detailKey, workshop) {
   let byKey = {};
@@ -381,12 +387,20 @@ function erpFlowSteps(s, opts) {
     if (n.isTop && blockFinal) return;   // не създаваме сглобяването при липсващи детайли
     const lastIdx = n.ops.length - 1;
     const gate = nodeGate[n.key];   // директните части на този възел (ако има)
+    // Частите се изчакват на СГЛОБЯВАЩАТА операция (заваряване/занитване…), а не
+    // на първата (рязане/огъване текат свободно и паралелно с частите). Ако няма
+    // явна сглобяваща операция — на последната.
+    let gateIdx = -1;
+    if (gate && gate.length) {
+      gateIdx = n.ops.findIndex(o => erpIsAssemblyOp(o.operation));
+      if (gateIdx < 0) gateIdx = lastIdx;
+    }
     n.ops.forEach((op, i) => {
       steps.push({
         product: n.product, code: n.code, operation: op.operation, workshop: op.workshop, qty: op.qty,
         seriesKey: n.key + "¦" + op.operation + sfx,
         prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation + sfx) : null,
-        gate: (i === 0 && gate && gate.length) ? gate.slice() : null,
+        gate: (i === gateIdx && gate && gate.length) ? gate.slice() : null,
         step: i, role: n.isTop ? "final" : "part",
         pid: n.pid, last: i === lastIdx, toStock: n.isTop && toStockTop,
       });
