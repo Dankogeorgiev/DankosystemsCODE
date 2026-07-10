@@ -242,6 +242,19 @@ function taskOrderNos(t) {
   return [];
 }
 
+// Отговорници на задачата — вече може да са НЯКОЛКО (напр. двама на Абкант работят
+// едно и също). Пази съвместимост със стария единичен t.assignee.
+function taskAssignees(t) {
+  if (t && Array.isArray(t.assignees) && t.assignees.length) return t.assignees.filter(Boolean);
+  return (t && t.assignee) ? [t.assignee] : [];
+}
+function taskSetAssignees(t, arr) {
+  const a = [...new Set((arr || []).filter(Boolean))];
+  t.assignees = a;
+  t.assignee = a[0] || "";   // първият е „основен" (за подредба и стар код)
+}
+function taskHasWorker(t, w) { return !!w && taskAssignees(t).includes(w); }
+
 async function tLoadRoles() {
   const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
   ROLES = (data && data.data) || { admins: [], byEmail: {} };
@@ -522,9 +535,9 @@ function renderTasks() {
     if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
     if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) {
-      // моите + незаетите задачи; чуждите се скриват
-      if (t.assignee && t.assignee !== MY_WORKER) return false;
-    } else if (worker && t.assignee !== worker) {
+      // моите + незаетите задачи; чуждите се скриват (виждам я, ако съм сред отговорниците)
+      const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false;
+    } else if (worker && !taskHasWorker(t, worker)) {
       return false;
     }
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
@@ -599,9 +612,9 @@ function renderTasks() {
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
     const wsWorkers = WORKERS[t.workshop] || [];
-    const opts = [`<option value="">— отговорник —</option>`]
-      .concat(wsWorkers.map(n => `<option ${n === t.assignee ? "selected" : ""}>${escapeHtml(n)}</option>`));
-    if (t.assignee && !wsWorkers.includes(t.assignee)) opts.push(`<option selected>${escapeHtml(t.assignee)}</option>`);
+    const assignees = taskAssignees(t);
+    const addOpts = [`<option value="">+ служител…</option>`]
+      .concat(wsWorkers.filter(n => !assignees.includes(n)).map(n => `<option>${escapeHtml(n)}</option>`));
 
     const pi = priInfo(t);
     // Цеховете/служителите с Отчетен прозорец нямат нужда от инлайн поле „днес“ (бройката се въвежда в прозореца)
@@ -629,8 +642,11 @@ function renderTasks() {
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}</td>
       <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
-        ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
-        : `<td data-label="Отговорник"><select class="t-assignee">${opts.join("")}</select></td>`}
+        ? `<td class="t-assignee-ro" data-label="Отговорник">${assignees.length ? assignees.map(escapeHtml).join(", ") : "—"}</td>`
+        : `<td data-label="Отговорник" class="t-asg-cell">
+            <span class="t-asg-list">${assignees.map(w => `<span class="t-asg-chip">${escapeHtml(w)}<button type="button" class="t-asg-rm" data-w="${escapeAttr(w)}" title="Махни">×</button></span>`).join("") || `<span class="t-asg-none">— никой —</span>`}</span>
+            <select class="t-asg-add" title="Добави отговорник (може двама на една задача)">${addOpts.join("")}</select>
+          </td>`}
       <td class="t-q" data-label="${t.workshop === "Заваръчно" ? "Коментар" : "Въпрос"}">${t.workshop === "Заваръчно" ? taskCommentCell(t) : taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
@@ -648,8 +664,16 @@ function renderTasks() {
     });
     filesCell.querySelectorAll(".tf-x").forEach(b =>
       b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
-    const asg = tr.querySelector("select.t-assignee");
-    if (asg) asg.addEventListener("change", () => { if (amWorker()) return; t.assignee = asg.value; tSaveTask(t); });
+    const asgAdd = tr.querySelector("select.t-asg-add");
+    if (asgAdd) asgAdd.addEventListener("change", () => {
+      if (amWorker()) return;
+      const w = asgAdd.value; if (!w) return;
+      taskSetAssignees(t, [...taskAssignees(t), w]); tSaveTask(t); renderTasks();
+    });
+    tr.querySelectorAll(".t-asg-rm").forEach(b => b.addEventListener("click", () => {
+      if (amWorker()) return;
+      taskSetAssignees(t, taskAssignees(t).filter(x => x !== b.dataset.w)); tSaveTask(t); renderTasks();
+    }));
     const thk = tr.querySelector("select.t-thick");
     if (thk) thk.addEventListener("change", () => { t.thickness = thk.value; tSaveTask(t); });
     const sel = tr.querySelector(".t-sel");
@@ -689,8 +713,8 @@ function exportWorkshopTasksExcel() {
   let rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;
     if (ws !== "__all" && t.workshop !== ws) return false;
-    if (isW) { if (t.assignee && t.assignee !== MY_WORKER) return false; }
-    else if (worker && t.assignee !== worker) return false;
+    if (isW) { const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false; }
+    else if (worker && !taskHasWorker(t, worker)) return false;
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
     return true;
   });
@@ -714,7 +738,7 @@ function exportWorkshopTasksExcel() {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const r = [
       taskOrderNos(t).join(", "), t.client || "СЕРИЯ", t.product || "", t.code || "", t.operation || "",
-      qty || "", prod, Math.max(qty - prod, 0), t.due || "", t.assignee || "",
+      qty || "", prod, Math.max(qty - prod, 0), t.due || "", taskAssignees(t).join(", "),
     ];
     if (showWs) r.unshift(t.workshop || "");
     aoa.push(r);
@@ -777,7 +801,7 @@ async function assignBulk(worker) {
   const ids = [...selectedTasks];
   for (const id of ids) {
     const t = TASKS.find(x => x.id === id);
-    if (t) { t.assignee = worker; await tSaveTask(t); }
+    if (t) { taskSetAssignees(t, [worker]); await tSaveTask(t); }
   }
   selectedTasks.clear();
   renderTasks();
@@ -876,7 +900,7 @@ async function logProduction(t, qtyVal, extra) {
   let worker;
   if (amWorker()) {
     worker = MY_WORKER;
-    if (!t.assignee) t.assignee = MY_WORKER;   // поемаме незаета задача
+    if (!taskHasWorker(t, MY_WORKER)) taskSetAssignees(t, [...taskAssignees(t), MY_WORKER]);   // поемаме незаета задача
   } else {
     worker = t.assignee || document.getElementById("task-worker-filter").value;
     if (!worker) worker = prompt("Кой служител?", "") || "";
@@ -993,7 +1017,7 @@ async function logProductionKrohne(t, opKey, qtyVal, extra) {
   let worker;
   if (amWorker()) {
     worker = MY_WORKER;
-    if (!t.assignee) t.assignee = MY_WORKER;
+    if (!taskHasWorker(t, MY_WORKER)) taskSetAssignees(t, [...taskAssignees(t), MY_WORKER]);
   } else {
     worker = t.assignee || document.getElementById("task-worker-filter").value;
     if (!worker) worker = prompt("Кой служител?", "") || "";
@@ -1347,7 +1371,7 @@ async function editTask(t) {
         // остава старият цех
       } else {
         t.workshop = w;
-        t.assignee = "";   // нулираме отговорника — старият е от друг цех
+        taskSetAssignees(t, []);   // нулираме отговорниците — старите са от друг цех
       }
     }
   }

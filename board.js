@@ -138,7 +138,8 @@ function boardCard(t, flowMap) {
   const gated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
   const avail = (gated && typeof erpFlowAvailable === "function") ? (erpFlowAvailable(t, flowMap) || 0) : null;
   const due = t.due ? `<span class="bc-due">⏱ ${escapeHtml(t.due)}</span>` : "";
-  const who = t.assignee ? `<span class="bc-asg">👷 ${escapeHtml(t.assignee)}</span>` : `<span class="bc-asg bc-free">незает</span>`;
+  const asg = (typeof taskAssignees === "function") ? taskAssignees(t) : (t.assignee ? [t.assignee] : []);
+  const who = asg.length ? `<span class="bc-asg">👷 ${escapeHtml(asg.join(", "))}</span>` : `<span class="bc-asg bc-free">незает</span>`;
   const nos = (typeof taskOrderNos === "function") ? taskOrderNos(t) : [];
   const noHtml = nos.length ? `<span class="bc-orderno">📋 № ${escapeHtml(nos.join(", "))}</span>` : (t.client ? `<span class="bc-client">${escapeHtml(t.client)}</span>` : "");
   return `<div class="board-card ${pi.cls || ""}">

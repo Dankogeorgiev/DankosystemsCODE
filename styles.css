@@ -1086,3 +1086,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .lp-form-box .lp-line-row input.lp-l-kg, .lp-form-box .lp-line-row input.lp-l-pallets { width: 76px; flex: 0 0 auto; margin-top: 0; }
 .lp-line-row .lp-l-rm { flex: 0 0 auto; }
 .lp-table td[rowspan] { vertical-align: top; border-left: 2px solid #ede9fe; }
+
+/* Няколко отговорника на една задача (напр. двама на Абкант) */
+.t-asg-cell { min-width: 130px; }
+.t-asg-list { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.t-asg-chip { display: inline-flex; align-items: center; gap: 3px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 999px; padding: 1px 4px 1px 8px; font-size: 12px; }
+.t-asg-chip .t-asg-rm { border: none; background: transparent; color: #6366f1; cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; }
+.t-asg-chip .t-asg-rm:hover { color: #b3261e; }
+.t-asg-none { color: #9ca3af; font-size: 12px; }
+.t-asg-add { margin-top: 3px; font-size: 12px; max-width: 100%; }
