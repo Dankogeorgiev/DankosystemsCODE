@@ -995,3 +995,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 @keyframes ua-pulse-big { 0%,100% { background: #b3261e; box-shadow: 0 0 0 5px rgba(179,38,30,.3), 0 0 24px rgba(179,38,30,.4); } 50% { background: #e33b30; box-shadow: 0 0 0 7px rgba(227,59,48,.45), 0 0 48px rgba(227,59,48,.7); } }
 @keyframes ua-blink { 0%,49% { opacity: 1; } 50%,100% { opacity: .15; } }
 @media (prefers-reduced-motion: reduce) { .urgent-alarm, .urgent-alarm.big, .urgent-alarm .ua-siren { animation: none; } }
+
+/* Бутон „Приех — спри звука" в алармата */
+.urgent-alarm .ua-actions { margin-top: 10px; text-align: center; }
+.urgent-alarm .ua-ack { background: #fff; color: #b3261e; border: none; font-weight: 800; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
+.urgent-alarm .ua-ack:hover { background: #ffe9e7; }
+.urgent-alarm.big .ua-ack { font-size: 1.4rem; padding: 12px 28px; }

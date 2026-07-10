@@ -559,7 +559,8 @@ function renderTasks() {
   if (ua) {
     const html = (typeof urgentAlarmHtml === "function") ? urgentAlarmHtml(ws, false) : "";
     ua.innerHTML = html; ua.hidden = !html;
-    if (html && typeof alarmSoundCheck === "function") alarmSoundCheck(ws, urgentTasksFor(ws).length);
+    if (typeof wireAlarmAck === "function") wireAlarmAck(ua, ws);
+    if (typeof updateAlarmSound === "function") updateAlarmSound(ws);
   }
 
   // Дневно обобщение, когато е избран конкретен служител
@@ -968,6 +969,7 @@ async function reportSetupScrap(t, n, note) {
     root.qty = (Number(root.qty) || 0) + n;
     root.priority = 2;                                // СПЕШНО
     root.brakNeed = (Number(root.brakNeed) || 0) + n; // за индикатор в списъка
+    root.urgentAck = false;                           // нов брак → алармата пищи наново
     root.brakReqs = root.brakReqs || [];
     root.brakReqs.push({ date: todayStr(), from: t.operation || "", code: t.code || "", qty: n, by, note: note || "" });
     root.comment = `⚠ БРАК при настройка на „${t.operation || ""}“ — спешно допълнително нарязване: общо +${root.brakNeed} бр.`;

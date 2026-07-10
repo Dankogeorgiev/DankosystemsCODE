@@ -23,8 +23,11 @@ function urgentTasksFor(ws) {
   });
 }
 
+// Спешни задачи, които още НЕ са приети (звукът бипка за тях).
+function urgentUnacked(ws) { return urgentTasksFor(ws).filter(t => !t.urgentAck); }
+
 function urgentAlarmHtml(ws, big) {
-  const urg = urgentTasksFor(ws);
+  const urg = urgentUnacked(ws);
   if (!urg.length) return "";
   const chips = urg.slice(0, big ? 12 : 8).map(t => {
     const bn = Number(t.brakNeed) || 0;
@@ -33,7 +36,8 @@ function urgentAlarmHtml(ws, big) {
   }).join(" ");
   const more = urg.length > (big ? 12 : 8) ? ` <span class="ua-more">+${urg.length - (big ? 12 : 8)} още</span>` : "";
   return `<div class="ua-flash"><span class="ua-siren">🚨</span><span class="ua-title">СПЕШНО — ${urg.length} ${urg.length === 1 ? "задача" : "задачи"}</span><span class="ua-siren">🚨</span></div>
-    <div class="ua-list">${chips}${more}</div>`;
+    <div class="ua-list">${chips}${more}</div>
+    <div class="ua-actions"><button type="button" class="btn ua-ack">✓ Приех — спри звука</button></div>`;
 }
 
 let _alarmCtx = null;
@@ -58,13 +62,36 @@ function playAlarmBeep() {
   } catch (e) { /* без звук, ако браузърът блокира */ }
 }
 
-// Пуска звук само когато броят спешни СЕ УВЕЛИЧИ (нова спешна задача), за да не
-// пищи постоянно. Пази последния видян брой за текущия цех.
-let _alarmSeen = {};
-function alarmSoundCheck(ws, count) {
-  const prev = Number(_alarmSeen[ws]) || 0;
-  if (count > prev) playAlarmBeep();
-  _alarmSeen[ws] = count;
+// Повтарящ се звук, ДОКАТО има неприета спешна задача. Спира щом някой натисне
+// „Приех" (или задачата се приключи). Нова спешна задача пуска звука отново.
+let alarmBeepTimer = null;
+function stopAlarmSound() { if (alarmBeepTimer) { clearInterval(alarmBeepTimer); alarmBeepTimer = null; } }
+function updateAlarmSound(ws) {
+  if (urgentUnacked(ws).length === 0) { stopAlarmSound(); return; }
+  if (alarmBeepTimer) return;   // вече бипка
+  playAlarmBeep();
+  alarmBeepTimer = setInterval(() => {
+    const wsNow = (typeof currentWorkshop === "function") ? currentWorkshop() : ws;
+    if (urgentUnacked(wsNow).length === 0) { stopAlarmSound(); return; }
+    playAlarmBeep();
+  }, 4000);
+}
+
+// „Приех" — потвърждава всички текущи спешни задачи в цеха (спира звука).
+async function ackUrgent(ws) {
+  const list = urgentUnacked(ws);
+  for (const t of list) { t.urgentAck = true; if (typeof tSaveTask === "function") { try { await tSaveTask(t); } catch (e) {} } }
+  stopAlarmSound();
+  const bv = document.getElementById("board-view");
+  if (bv && !bv.hidden) renderBoard();
+  else if (typeof renderTasks === "function") renderTasks();
+}
+
+// Закача бутона „Приех" в подадения контейнер (Табло или списък).
+function wireAlarmAck(container, ws) {
+  if (!container) return;
+  const b = container.querySelector(".ua-ack");
+  if (b) b.addEventListener("click", () => ackUrgent(ws));
 }
 
 function toggleBoard() {
@@ -177,7 +204,8 @@ function renderBoard() {
     </div>`;
   v.querySelector("#board-back").addEventListener("click", () => { stopBoardTimer(); showSub("tasks"); renderTasks(); });
   v.querySelector("#board-refresh").addEventListener("click", renderBoard);
-  alarmSoundCheck(ws, urgentTasksFor(ws).length);   // звук при нова спешна задача
+  wireAlarmAck(v, ws);
+  updateAlarmSound(ws);   // бипка, докато не приемат спешната задача
 
   // Авто-обновяване, докато таблото е отворено (за таблет/телевизор).
   stopBoardTimer();
