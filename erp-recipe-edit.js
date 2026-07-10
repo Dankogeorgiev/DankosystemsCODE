@@ -100,7 +100,7 @@ function erpRecipeLineDialog(productId, mode, ref) {
 
   const heads = {
     add: { title: "Добави ред към технологията", btn: "Добави" },
-    insert: { title: "Вмъкни ред " + (ref.where === "after" ? "СЛЕД" : "ПРЕДИ") + ": " + escapeHtml(lineLabel(refLine)), btn: "Вмъкни" },
+    insert: { title: "Вмъкни ред " + (ref && ref.where === "after" ? "СЛЕД" : "ПРЕДИ") + ": " + escapeHtml(lineLabel(refLine)), btn: "Вмъкни" },
     replace: { title: "Замени реда: " + escapeHtml(lineLabel(existing)), btn: "Запази замяната" },
   }[mode];
   const optSel = (val) => initType === val ? "selected" : "";
