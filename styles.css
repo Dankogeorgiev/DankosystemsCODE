@@ -1001,3 +1001,29 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .urgent-alarm .ua-ack { background: #fff; color: #b3261e; border: none; font-weight: 800; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
 .urgent-alarm .ua-ack:hover { background: #ffe9e7; }
 .urgent-alarm.big .ua-ack { font-size: 1.4rem; padding: 12px 28px; }
+
+/* 🧪 Тест рецепта */
+.rt-dialog { max-width: 720px; }
+.rt-dialog .rt-tree { max-height: 46vh; overflow: auto; margin: 10px 0; padding: 8px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafafa; }
+.rt-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0; }
+.rt-verdict { padding: 10px 14px; border-radius: 10px; font-weight: 700; margin: 8px 0; }
+.rt-verdict-ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.rt-verdict-warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.rt-verdict-bad { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.rt-stats { display: flex; flex-wrap: wrap; gap: 14px; font-size: .9rem; margin-bottom: 6px; color: #374151; }
+.rt-node { padding: 4px 0; }
+.rt-head { font-size: .98rem; }
+.rt-qty { color: #6b7280; font-size: .9rem; }
+.rt-op { margin-left: 20px; font-size: .92rem; padding: 1px 0; }
+.rt-op .rt-arrow { color: #6b7280; }
+.rt-op-ok .rt-arrow { color: #059669; }
+.rt-op-bad { color: #b3261e; font-weight: 600; }
+.rt-op-ext { color: #2563eb; }
+.rt-mat { margin-left: 20px; font-size: .88rem; color: #4b5563; }
+.rt-muted { color: #9ca3af; }
+.rt-bad-txt { color: #b3261e; }
+.rt-gate { color: #b45309; font-size: .82rem; }
+.rt-badge { font-size: .78rem; padding: 1px 8px; border-radius: 999px; margin-left: 6px; }
+.rt-badge-stock { background: #eff6ff; color: #1d4ed8; }
+.rt-badge-bad { background: #fef2f2; color: #b3261e; }
+.rt-route { margin-left: 6px; padding: 2px 6px; }

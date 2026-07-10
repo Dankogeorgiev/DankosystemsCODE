@@ -32,6 +32,7 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small" id="erp-recipe-back">← Назад към продуктите</button>
       <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
+      <button class="btn btn-small" id="erp-recipe-test" title="Симулира пускането в производство — проверява дали ще върви правилно">🧪 Тест рецепта</button>
       <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
       <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
       ${readyBadge}
@@ -59,6 +60,10 @@ function erpRenderRecipe(productId) {
   document.getElementById("erp-recipe-back").addEventListener("click", () => erpSetTab("products"));
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
+  const testBtn = document.getElementById("erp-recipe-test");
+  if (testBtn) testBtn.addEventListener("click", () => {
+    if (typeof erpTestRecipe === "function") erpTestRecipe(productId, document.getElementById("erp-wc-qty").value, true);
+  });
   document.getElementById("erp-rl-add").addEventListener("click", () => erpAddRecipeLine(productId));
   const fixBtn = document.getElementById("erp-rl-fix");
   if (fixBtn) fixBtn.addEventListener("click", () => { if (typeof erpFixRecipeOrder === "function") erpFixRecipeOrder(productId); });
