@@ -554,6 +554,13 @@ function renderTasks() {
 
   document.getElementById("tasks-empty").hidden = rows.length > 0;
   if (typeof renderFlowArrivals === "function") renderFlowArrivals(ws);   // известие за пристигнали детайли
+  // Аларма за спешни задачи (напр. брак за нарязване) — мигаща лента над списъка.
+  const ua = document.getElementById("urgent-alarm");
+  if (ua) {
+    const html = (typeof urgentAlarmHtml === "function") ? urgentAlarmHtml(ws, false) : "";
+    ua.innerHTML = html; ua.hidden = !html;
+    if (html && typeof alarmSoundCheck === "function") alarmSoundCheck(ws, urgentTasksFor(ws).length);
+  }
 
   // Дневно обобщение, когато е избран конкретен служител
   const daily = document.getElementById("tasks-daily");

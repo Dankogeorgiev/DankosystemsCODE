@@ -7,6 +7,66 @@ let boardTimer = null;
 
 function stopBoardTimer() { if (boardTimer) { clearInterval(boardTimer); boardTimer = null; } }
 
+/* ---------- Аларма за СПЕШНИ задачи (видима отдалеч + звук) ----------
+   Спешна = приоритет „Спешно" (напр. брак за нарязване) или задача, която чака
+   допълнително нарязване (brakNeed). Показва мигаща червена лента; на Таблото —
+   голяма, и с кратък звуков сигнал при появата на нова спешна задача. */
+function urgentTasksFor(ws) {
+  return (TASKS || []).filter(t => {
+    if (!t) return false;
+    if (t.source && t.source.kind === "extra") return false;
+    if (ws && ws !== "__all" && t.workshop !== ws) return false;
+    const st = (typeof taskStatus === "function") ? taskStatus(t) : null;
+    if (st === "done") return false;
+    const urgent = (typeof priLevel === "function" && priLevel(t) === 2) || (Number(t.brakNeed) || 0) > 0;
+    return urgent;
+  });
+}
+
+function urgentAlarmHtml(ws, big) {
+  const urg = urgentTasksFor(ws);
+  if (!urg.length) return "";
+  const chips = urg.slice(0, big ? 12 : 8).map(t => {
+    const bn = Number(t.brakNeed) || 0;
+    const label = (t.code ? t.code + " " : "") + (t.product || "");
+    return `<span class="ua-chip">${escapeHtml(label)}${bn > 0 ? ` <b>+${bn} нарязване (брак)</b>` : ""}${t.operation ? ` <span class="ua-op">${escapeHtml(t.operation)}</span>` : ""}</span>`;
+  }).join(" ");
+  const more = urg.length > (big ? 12 : 8) ? ` <span class="ua-more">+${urg.length - (big ? 12 : 8)} още</span>` : "";
+  return `<div class="ua-flash"><span class="ua-siren">🚨</span><span class="ua-title">СПЕШНО — ${urg.length} ${urg.length === 1 ? "задача" : "задачи"}</span><span class="ua-siren">🚨</span></div>
+    <div class="ua-list">${chips}${more}</div>`;
+}
+
+let _alarmCtx = null;
+function playAlarmBeep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    _alarmCtx = _alarmCtx || new AC();
+    const ctx = _alarmCtx;
+    if (ctx.state === "suspended") ctx.resume();
+    // Три къси „сирена" бипа.
+    [0, 0.32, 0.64].forEach(dt => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "square"; o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      const t0 = ctx.currentTime + dt;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
+      o.start(t0); o.stop(t0 + 0.28);
+    });
+  } catch (e) { /* без звук, ако браузърът блокира */ }
+}
+
+// Пуска звук само когато броят спешни СЕ УВЕЛИЧИ (нова спешна задача), за да не
+// пищи постоянно. Пази последния видян брой за текущия цех.
+let _alarmSeen = {};
+function alarmSoundCheck(ws, count) {
+  const prev = Number(_alarmSeen[ws]) || 0;
+  if (count > prev) playAlarmBeep();
+  _alarmSeen[ws] = count;
+}
+
 function toggleBoard() {
   const v = document.getElementById("board-view");
   if (v && !v.hidden) { stopBoardTimer(); showSub("tasks"); renderTasks(); return; }
@@ -99,6 +159,7 @@ function renderBoard() {
   </div>`;
 
   const arrN = boardArrivals(ws).length;
+  const alarmHtml = urgentAlarmHtml(ws, true);
   v.innerHTML = `
     <div class="board-head">
       <h3>📺 Табло — ${escapeHtml(ws)}</h3>
@@ -108,6 +169,7 @@ function renderBoard() {
       <button id="board-refresh" class="btn btn-small">↻ Обнови</button>
       <button id="board-back" class="btn btn-small">← Назад</button>
     </div>
+    ${alarmHtml ? `<div class="urgent-alarm big">${alarmHtml}</div>` : ""}
     <div class="board-cols">
       ${colHtml("🕓 Чака", cols.todo, "col-todo")}
       ${colHtml("⚙️ В процес", cols.progress, "col-prog")}
@@ -115,6 +177,7 @@ function renderBoard() {
     </div>`;
   v.querySelector("#board-back").addEventListener("click", () => { stopBoardTimer(); showSub("tasks"); renderTasks(); });
   v.querySelector("#board-refresh").addEventListener("click", renderBoard);
+  alarmSoundCheck(ws, urgentTasksFor(ws).length);   // звук при нова спешна задача
 
   // Авто-обновяване, докато таблото е отворено (за таблет/телевизор).
   stopBoardTimer();
