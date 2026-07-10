@@ -2137,6 +2137,7 @@ function renderMessages() {
   const tab = (key, label, n) => `<button class="msg-tab ${msgView === key ? "active" : ""}" data-view="${key}">${label} (${n})</button>`;
   const ttab = (ty, label, n) => `<button class="msg-ttab ${msgType === ty ? "active" : ""}" data-type="${ty}">${label}${n ? ` <span class="ttab-n">${n}</span>` : ""}</button>`;
   const titles = { question: "📨 Регистър на съобщенията", admin: (isW ? "📣 Съобщения от офиса" : "📣 Съобщения до служителите"), supply: "📦 Поръчки за снабдяване", idea: "💡 Идеи и Препоръки" };
+  const adminMode = msgType === "admin";
   const emptyText = ideaMode
     ? (msgView === "done" ? "Няма приключени идеи." : "Няма идеи и препоръки.")
     : supplyMode
@@ -2144,7 +2145,6 @@ function renderMessages() {
       : adminMode
         ? (isW ? "Няма съобщения от офиса." : "Няма изпратени съобщения. Натисни бутона горе, за да напишеш на служител.")
         : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
-  const adminMode = msgType === "admin";
   const newBtn = ideaMode
     ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова идея</button>'
     : supplyMode
