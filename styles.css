@@ -821,6 +821,8 @@ tr.times-click:hover td { background: #ecfdf5; }
 .times-periods .muted { font-size: 13px; }
 .times-trend-toggle { display: inline-flex; gap: 6px; }
 .times-trend-toggle .btn.on { background: #0f766e; color: #fff; border-color: #0f766e; }
+.times-table td.times-good { color: #047857; font-weight: 700; background: #ecfdf5; }
+.times-table td.times-bad { color: #b91c1c; font-weight: 700; background: #fef2f2; }
 @media (max-width: 760px) { .times-summary-grid { grid-template-columns: 1fr; } }
 
 /* Поръчки за снабдяване / тип-раздели в съобщенията */

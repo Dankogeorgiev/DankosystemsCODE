@@ -10,6 +10,7 @@
 let timesRpt = { workshop: "", operation: "", machine: "", worker: "", from: "", to: "" };
 let timesShowDetail = false;   // подробните записи са скрити, докато не се поиска изрично
 let timesTrendMode = "week";   // тенденция по седмица / по месец
+let timesAnalysisMode = "detail";   // анализ по детайл (продукт) / по операция
 
 // Секунди за 1 брой от едно вписване (директно tPiece, или tOrder/бройка).
 function timesPerPiece(r) {
@@ -60,6 +61,33 @@ function timesByOperation(rows) {
   rows.forEach(r => {
     const key = (r.operation || "(без операция)") + "¦" + (r.workshop || "");
     const g = map[key] || (map[key] = { operation: r.operation || "(без операция)", workshop: r.workshop || "", entries: 0, pieces: 0, sumWeighted: 0, wq: 0, min: Infinity, max: 0 });
+    g.entries++;
+    g.pieces += Number(r.qty) || 0;
+    const pp = timesPerPiece(r);
+    if (pp != null) {
+      const q = Number(r.qty) || 1;
+      g.sumWeighted += pp * q; g.wq += q;
+      if (pp < g.min) g.min = pp;
+      if (pp > g.max) g.max = pp;
+    }
+  });
+  return Object.values(map).map(g => ({
+    ...g,
+    avg: g.wq > 0 ? g.sumWeighted / g.wq : null,
+    min: g.min === Infinity ? null : g.min,
+    max: g.max || null,
+  })).sort((a, b) => (b.avg || 0) - (a.avg || 0));
+}
+
+// Обобщение по детайл (продукт) в рамките на операция — защото един
+// детайл е бавен, друг бърз (Лазерно рязане, Заваръчно и т.н.). Средното
+// по цял цех подвежда; тук всеки детайл има собствено време.
+function timesByDetail(rows) {
+  const map = {};
+  rows.forEach(r => {
+    const detail = (r.product || "(без продукт)") + (r.code ? " · " + r.code : "");
+    const key = detail + "¦" + (r.operation || "") + "¦" + (r.workshop || "");
+    const g = map[key] || (map[key] = { detail, operation: r.operation || "", workshop: r.workshop || "", entries: 0, pieces: 0, sumWeighted: 0, wq: 0, min: Infinity, max: 0 });
     g.entries++;
     g.pieces += Number(r.qty) || 0;
     const pp = timesPerPiece(r);
@@ -132,7 +160,7 @@ function renderTimesReport() {
   const sel = (id, cur, list, label) => `<label>${label} <select id="${id}"><option value="">Всички</option>${list.map(x => `<option ${x === cur ? "selected" : ""}>${escapeHtml(x)}</option>`).join("")}</select></label>`;
 
   const rows = timesRptRows();
-  const ops = timesByOperation(rows);
+  const analysis = timesAnalysisMode === "detail" ? timesByDetail(rows) : timesByOperation(rows);
   const byWorker = timesGroupBy(rows, "worker");
   const byShop = timesGroupBy(rows, "workshop");
   const trend = timesTrend(rows, timesTrendMode);
@@ -189,14 +217,21 @@ function renderTimesReport() {
       </div>
     </div>
 
-    <h4 style="margin-top:16px">Анализ по операция <span class="muted">— средно време за 1 брой (за ценообразуване)</span></h4>
+    <div class="times-detail-head" style="margin-top:16px">
+      <h4 style="margin:0 0 4px">Анализ <span class="muted">— средно време за 1 брой (за ценообразуване)</span></h4>
+      <span class="times-trend-toggle">
+        <button class="btn btn-small ${timesAnalysisMode === "detail" ? "on" : ""}" data-anal="detail">По детайл</button>
+        <button class="btn btn-small ${timesAnalysisMode === "op" ? "on" : ""}" data-anal="op">По операция</button>
+      </span>
+    </div>
+    ${timesAnalysisMode === "detail" ? `<p class="hint" style="margin:0 0 8px">Всеки детайл има собствено време — бавните и бързите не се смесват (важно за Лазерно рязане, Заваръчно и др.).</p>` : ""}
     <table class="report-table times-table">
-      <thead><tr><th>Операция</th><th>Цех</th><th class="num">Вписвания</th><th class="num">Общо бройки</th><th class="num">Средно/брой</th><th class="num">Най-бързо/брой</th><th class="num">Най-бавно/брой</th></tr></thead>
-      <tbody>${ops.map(g => `<tr>
-        <td><b>${escapeHtml(g.operation)}</b></td><td>${escapeHtml(g.workshop) || "—"}</td>
+      <thead><tr>${timesAnalysisMode === "detail" ? `<th>Детайл (продукт)</th>` : ""}<th>Операция</th><th>Цех</th><th class="num">Вписвания</th><th class="num">Общо бройки</th><th class="num">Средно/брой</th><th class="num">Най-бързо/брой</th><th class="num">Най-бавно/брой</th></tr></thead>
+      <tbody>${analysis.map(g => `<tr>
+        ${timesAnalysisMode === "detail" ? `<td><b>${escapeHtml(g.detail)}</b></td><td>${escapeHtml(g.operation) || "—"}</td>` : `<td><b>${escapeHtml(g.operation)}</b></td>`}<td>${escapeHtml(g.workshop) || "—"}</td>
         <td class="num">${g.entries}</td><td class="num">${g.pieces}</td>
         <td class="num">${timesDur(g.avg)}</td><td class="num">${timesDur(g.min)}</td><td class="num">${timesDur(g.max)}</td>
-      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма времена за този филтър.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="${timesAnalysisMode === "detail" ? 8 : 7}" class="report-empty">Няма времена за този филтър.</td></tr>`}</tbody>
     </table>
 
     <div class="times-detail-head" style="margin-top:16px">
@@ -208,10 +243,18 @@ function renderTimesReport() {
     </div>
     <table class="report-table times-table">
       <thead><tr><th>Период</th><th class="num">Вписвания</th><th class="num">Бройки</th><th class="num">Общо време</th><th class="num">Средно/брой</th></tr></thead>
-      <tbody>${trend.map(g => `<tr>
+      <tbody>${trend.map((g, i) => {
+        const prev = trend[i + 1];   // по-старият период (масивът е от нов към стар)
+        let cls = "", arrow = "";
+        if (prev && g.avg != null && prev.avg != null) {
+          const diff = (g.avg - prev.avg) / prev.avg;
+          if (diff <= -0.03) { cls = "times-good"; arrow = " ▼"; }        // по-бързо
+          else if (diff >= 0.03) { cls = "times-bad"; arrow = " ▲"; }     // по-бавно
+        }
+        return `<tr>
         <td><b>${escapeHtml(g.label)}</b></td><td class="num">${g.entries}</td><td class="num">${g.pieces}</td>
-        <td class="num">${timesDur(g.sec || null)}</td><td class="num">${timesDur(g.avg)}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма данни за този филтър.</td></tr>`}</tbody>
+        <td class="num">${timesDur(g.sec || null)}</td><td class="num ${cls}">${timesDur(g.avg)}${arrow}</td>
+      </tr>`; }).join("") || `<tr><td colspan="5" class="report-empty">Няма данни за този филтър.</td></tr>`}</tbody>
     </table>
 
     ${showDetail ? `
@@ -255,18 +298,20 @@ function renderTimesReport() {
   if (hd) hd.addEventListener("click", () => { timesShowDetail = false; renderTimesReport(); });
   v.querySelectorAll("[data-period]").forEach(b => b.addEventListener("click", () => { timesSetPeriod(b.dataset.period); renderTimesReport(); }));
   v.querySelectorAll("[data-trend]").forEach(b => b.addEventListener("click", () => { timesTrendMode = b.dataset.trend; renderTimesReport(); }));
-  v.querySelector("#tr-csv").addEventListener("click", () => timesExportCsv(ops, detailed));
-  v.querySelector("#tr-pdf").addEventListener("click", () => timesExportPdf(ops, detailed));
+  v.querySelectorAll("[data-anal]").forEach(b => b.addEventListener("click", () => { timesAnalysisMode = b.dataset.anal; renderTimesReport(); }));
+  v.querySelector("#tr-csv").addEventListener("click", () => timesExportCsv(analysis, detailed, timesAnalysisMode));
+  v.querySelector("#tr-pdf").addEventListener("click", () => timesExportPdf(analysis, detailed, timesAnalysisMode));
 }
 
 /* ---------- Експорт ---------- */
-function timesExportCsv(ops, detailed) {
+function timesExportCsv(ops, detailed, mode) {
   const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
   const secTxt = sec => sec == null ? "" : Math.round(sec);
+  const byDetail = mode === "detail";
   const lines = [];
-  lines.push([esc("Анализ по операция")].join(","));
-  lines.push(["Операция", "Цех", "Вписвания", "Общо бройки", "Средно/брой (сек)", "Най-бързо/брой (сек)", "Най-бавно/брой (сек)"].map(esc).join(","));
-  ops.forEach(g => lines.push([g.operation, g.workshop, g.entries, g.pieces, secTxt(g.avg), secTxt(g.min), secTxt(g.max)].map(esc).join(",")));
+  lines.push([esc(byDetail ? "Анализ по детайл" : "Анализ по операция")].join(","));
+  lines.push([...(byDetail ? ["Детайл", "Операция"] : ["Операция"]), "Цех", "Вписвания", "Общо бройки", "Средно/брой (сек)", "Най-бързо/брой (сек)", "Най-бавно/брой (сек)"].map(esc).join(","));
+  ops.forEach(g => lines.push([...(byDetail ? [g.detail, g.operation] : [g.operation]), g.workshop, g.entries, g.pieces, secTxt(g.avg), secTxt(g.min), secTxt(g.max)].map(esc).join(",")));
   lines.push("");
   lines.push([esc("Подробни записи")].join(","));
   lines.push(["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "За 1 брой (сек)", "1 лист (сек)", "Кол-во/поръчка (сек)", "Настройка (сек)", "Бележки"].map(esc).join(","));
@@ -282,10 +327,12 @@ function timesExportCsv(ops, detailed) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function timesExportPdf(ops, detailed) {
+function timesExportPdf(ops, detailed, mode) {
   const esc = s => escapeHtml(String(s == null ? "" : s));
   const dur = sec => sec == null ? "—" : fmtSecDur({ sec: Math.round(sec) });
-  const opRows = ops.map(g => `<tr><td>${esc(g.operation)}</td><td>${esc(g.workshop) || "—"}</td><td class="r">${g.entries}</td><td class="r">${g.pieces}</td><td class="r">${dur(g.avg)}</td><td class="r">${dur(g.min)}</td><td class="r">${dur(g.max)}</td></tr>`).join("") || `<tr><td colspan="7" class="c">няма данни</td></tr>`;
+  const byDetail = mode === "detail";
+  const opCols = byDetail ? 8 : 7;
+  const opRows = ops.map(g => `<tr>${byDetail ? `<td>${esc(g.detail)}</td><td>${esc(g.operation) || "—"}</td>` : `<td>${esc(g.operation)}</td>`}<td>${esc(g.workshop) || "—"}</td><td class="r">${g.entries}</td><td class="r">${g.pieces}</td><td class="r">${dur(g.avg)}</td><td class="r">${dur(g.min)}</td><td class="r">${dur(g.max)}</td></tr>`).join("") || `<tr><td colspan="${opCols}" class="c">няма данни</td></tr>`;
   const detRows = detailed.map(r => `<tr><td>${esc(fmtLogDate(r.date))}</td><td>${esc(r.workshop) || "—"}</td><td>${esc(r.machine) || "—"}</td><td>${esc(r.product) || "—"}${r.code ? " (" + esc(r.code) + ")" : ""}</td><td>${esc(r.operation) || "—"}</td><td>${esc(r.worker) || "—"}</td><td class="r">${r.qty}</td><td class="r">${dur(timesPerPiece(r))}</td></tr>`).join("") || `<tr><td colspan="8" class="c">няма данни</td></tr>`;
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Отчети — анализ</title>
   <style>
@@ -300,8 +347,8 @@ function timesExportPdf(ops, detailed) {
   </style></head><body>
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат / Запази като PDF</button></div>
     <div class="head"><h1>ОТЧЕТИ — анализ на операциите</h1></div>
-    <h3>Анализ по операция (за ценообразуване)</h3>
-    <table><thead><tr><th>Операция</th><th>Цех</th><th class="r">Вписвания</th><th class="r">Общо бройки</th><th class="r">Средно/брой</th><th class="r">Най-бързо</th><th class="r">Най-бавно</th></tr></thead><tbody>${opRows}</tbody></table>
+    <h3>${byDetail ? "Анализ по детайл" : "Анализ по операция"} (за ценообразуване)</h3>
+    <table><thead><tr>${byDetail ? `<th>Детайл (продукт)</th><th>Операция</th>` : `<th>Операция</th>`}<th>Цех</th><th class="r">Вписвания</th><th class="r">Общо бройки</th><th class="r">Средно/брой</th><th class="r">Най-бързо</th><th class="r">Най-бавно</th></tr></thead><tbody>${opRows}</tbody></table>
     <h3>Подробни записи</h3>
     <table><thead><tr><th>Дата</th><th>Цех</th><th>Машина</th><th>Продукт</th><th>Операция</th><th>Служител</th><th class="r">Брой</th><th class="r">За 1 брой</th></tr></thead><tbody>${detRows}</tbody></table>
   </body></html>`;
