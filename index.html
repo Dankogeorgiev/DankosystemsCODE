@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=253" />
+  <link rel="stylesheet" href="styles.css?v=254" />
   <link rel="stylesheet" href="erp.css?v=236" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 243</p>
+      <p class="login-version">версия 244</p>
     </form>
   </div>
 
@@ -382,6 +382,7 @@
           <button id="tasks-painting-manual" class="btn btn-paint" hidden onclick="location.href='boya-rachna/'">✋ Боядисване ръчно</button>
           <button id="tasks-welding-roboti" class="btn btn-paint" hidden onclick="location.href='zavarka-roboti/'">🤖 Заваръчно роботи</button>
           <button id="tasks-welding-rachno" class="btn btn-paint" hidden onclick="location.href='zavarka-rachno/'">✋ Заваръчно ръчно</button>
+          <button id="tasks-rogosh" class="btn btn-paint" hidden>🔧 ЦЕХ РОГОШ</button>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -451,6 +452,20 @@
       <div id="times-view" hidden></div>
       <div id="planning-view" hidden></div>
       <div id="board-view" hidden></div>
+    </div>
+  </div>
+
+  <!-- Модал: ЦЕХ РОГОШ (сериен монтаж — дневен отчет) -->
+  <div id="rogosh-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>🔧 ЦЕХ РОГОШ — сериен монтаж (дневен отчет)</h3>
+        <span>
+          <button id="rogosh-logout" class="btn btn-small btn-danger" hidden>Изход</button>
+          <button id="rogosh-close" class="btn btn-small">Затвори</button>
+        </span>
+      </div>
+      <div id="rogosh-view"></div>
     </div>
   </div>
 
@@ -553,13 +568,14 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
-  <script src="app.js?v=236"></script>
-  <script src="tasks.js?v=248"></script>
+  <script src="app.js?v=237"></script>
+  <script src="tasks.js?v=249"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=163"></script>
   <script src="planning.js?v=165"></script>
   <script src="board.js?v=242"></script>
   <script src="loading-plan.js?v=4"></script>
+  <script src="rogosh.js?v=1"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
   <script src="erp.js?v=230"></script>

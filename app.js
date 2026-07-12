@@ -107,6 +107,8 @@ function applyAccess() {
   // Цехов достъп: скриваме всичко освен „Цехове“ и отваряме модула заключен.
   adminOnly.forEach(el => el.style.display = "none");
   document.querySelector(".layout").style.display = "none";
+  // ЦЕХ РОГОШ е сериен монтаж — само дневен отчет (без списък със задачи).
+  if (MY_ACCESS.workshop === "ЦЕХ РОГОШ" && typeof openRogosh === "function") { openRogosh(); return; }
   if (typeof openTasks === "function") openTasks();
 }
 

@@ -428,6 +428,9 @@ function applyTasksAccess() {
   if (wr) wr.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
   const wm = document.getElementById("tasks-welding-rachno");
   if (wm) wm.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
+  // „ЦЕХ РОГОШ" (сериен монтаж — отчет) — за админи (служителите му влизат директно).
+  const rg = document.getElementById("tasks-rogosh");
+  if (rg) rg.hidden = !!w;
   // „Excel (за печат)“ — скрит за заваръчния служител (профил zavarka@danko.local)
   const ex = document.getElementById("btn-export-tasks");
   if (ex) { const em = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
