@@ -2,7 +2,7 @@
    Използва глобалния Supabase клиент (sb) и помощните функции от app.js.
    Данните се пазят в таблица `tasks`, служителите — в `app_config`. */
 
-const TASK_DEFAULT_WORKSHOPS = ["Лазери", "РАЗКРОЙ ТРЪБИ", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция"];
+const TASK_DEFAULT_WORKSHOPS = ["Лазери", "РАЗКРОЙ ТРЪБИ", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "ЦЕХ РОГОШ", "Сглобяване", "Опаковане/Експедиция"];
 
 // Дебелини (мм) за падащото меню в колона „Дебелина“ (десетите се пишат със запетая)
 const THICKNESS_OPTIONS = ["0,5", "0,7", "0,8", "1", "1,2", "1,5", "2", "2,5", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "15", "16", "18", "20", "22", "25"];
@@ -323,6 +323,18 @@ async function tLoadWorkers() {
     await tSaveWorkers();
   }
   TASK_DEFAULT_WORKSHOPS.forEach(w => { if (!WORKERS[w]) WORKERS[w] = []; });
+
+  // Гарантирано добавяне на служители за нови цехове (извън seeded_v1 guard-а, за
+  // да важи и за вече инициализирани инсталации). Идемпотентно.
+  const ENSURE_WORKERS = {
+    "ЦЕХ РОГОШ": ["Илияна Колева", "Лилия Атанасова", "Румяна Сулакова"],
+  };
+  let ensured = false;
+  for (const [ws, names] of Object.entries(ENSURE_WORKERS)) {
+    WORKERS[ws] = WORKERS[ws] || [];
+    names.forEach(n => { if (!WORKERS[ws].includes(n)) { WORKERS[ws].push(n); ensured = true; } });
+  }
+  if (ensured) await tSaveWorkers();
 
   // Почистване на грешно добавени „служители“, които са само числа
   let cleaned = false;

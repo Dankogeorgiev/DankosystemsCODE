@@ -31,6 +31,7 @@ const pending = new Map(); // id -> sample (изчакват запис)
 const EMAIL_TO_WORKSHOP = {
   laseri: "Лазери", cnc: "CNC цех", presi: "Преси", abkant: "Абкант",
   zavarka: "Заваръчно", zanitvane: "Занитване", boyadjiino: "Бояджийно",
+  rogosh: "ЦЕХ РОГОШ",
 };
 function workshopFromEmail(e) {
   return EMAIL_TO_WORKSHOP[(e.split("@")[0] || "").toLowerCase()] || "";
