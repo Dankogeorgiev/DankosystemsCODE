@@ -1099,3 +1099,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 /* Филтър „Само готови за работа" в лентата на цеховете */
 .task-ready-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
 .task-ready-lbl input { margin: 0; cursor: pointer; }
+
+/* План материали — много материали от един доставчик */
+.lp-form-box .lp-line-row input.mp-l-material { flex: 1; min-width: 0; width: auto; margin-top: 0; }
+.lp-form-box .lp-line-row input.mp-l-qty { width: 78px; flex: 0 0 auto; margin-top: 0; }
+.lp-form-box .lp-line-row input.mp-l-unit { width: 66px; flex: 0 0 auto; margin-top: 0; }

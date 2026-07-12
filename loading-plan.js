@@ -292,6 +292,13 @@ function mpFmtDate(s) {
   const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}.${m[2]}.${m[1]}` : s;
 }
+/* Материалите на една поръчка (нов формат: масив materials; съвместимо със стария единичен). */
+function mpItemLines(x) {
+  if (Array.isArray(x.materials) && x.materials.length) return x.materials;
+  if ((x.material && x.material !== "") || (x.qty != null && x.qty !== "") || (x.unit && x.unit !== ""))
+    return [{ material: x.material || "", qty: x.qty, unit: x.unit }];
+  return [{ material: "", qty: "", unit: "" }];
+}
 function mpRender() {
   const v = document.getElementById("materials-view");
   if (!v) return;
@@ -300,20 +307,30 @@ function mpRender() {
     const da = a.arrivalDate || "9999-12-31", db = b.arrivalDate || "9999-12-31";
     return da.localeCompare(db);                                             // по очаквано пристигане
   });
-  const rows = items.map(x => `
-    <tr class="${x.received ? "mp-received" : ""}">
-      <td data-label="Доставчик"><b>${escapeHtml(x.supplier || "—")}</b></td>
-      <td data-label="Материал">${escapeHtml(x.material || "")}</td>
-      <td class="num" data-label="Кол-во">${x.qty != null && x.qty !== "" ? lpFmtNum(x.qty) : "—"} ${escapeHtml(x.unit || "")}</td>
-      <td data-label="Поръчано">${mpFmtDate(x.orderDate)}</td>
-      <td data-label="Пристига">${mpFmtDate(x.arrivalDate)}</td>
-      <td data-label="Забележка">${escapeHtml(x.note || "")}</td>
-      <td class="lp-actions">
-        <button class="btn btn-small mp-recv" data-id="${x.id}" title="${x.received ? "Отбележи като чакащо" : "Отбележи като пристигнало"}">${x.received ? "↩" : "✓ прист."}</button>
-        <button class="btn btn-small mp-edit" data-id="${x.id}" title="Редактирай">✎</button>
-        <button class="btn btn-small mp-del" data-id="${x.id}" title="Изтрий">×</button>
-      </td>
-    </tr>`).join("");
+  const rowsArr = [];
+  items.forEach(x => {
+    const lines = mpItemLines(x);
+    const n = lines.length;
+    lines.forEach((ln, idx) => {
+      let tr = `<tr class="${x.received ? "mp-received" : ""}">`;
+      if (idx === 0) tr += `<td data-label="Доставчик" rowspan="${n}"><b>${escapeHtml(x.supplier || "—")}</b>${n > 1 ? ` <span class="lp-muted">(${n} вида)</span>` : ""}</td>`;
+      tr += `<td data-label="Материал">${escapeHtml(ln.material || "")}</td>
+        <td class="num" data-label="Кол-во">${ln.qty != null && ln.qty !== "" ? lpFmtNum(ln.qty) : "—"} ${escapeHtml(ln.unit || "")}</td>`;
+      if (idx === 0) {
+        tr += `<td data-label="Поръчано" rowspan="${n}">${mpFmtDate(x.orderDate)}</td>
+          <td data-label="Пристига" rowspan="${n}">${mpFmtDate(x.arrivalDate)}</td>
+          <td data-label="Забележка" rowspan="${n}">${escapeHtml(x.note || "")}</td>
+          <td class="lp-actions" rowspan="${n}">
+            <button class="btn btn-small mp-recv" data-id="${x.id}" title="${x.received ? "Отбележи като чакащо" : "Отбележи като пристигнало"}">${x.received ? "↩" : "✓ прист."}</button>
+            <button class="btn btn-small mp-edit" data-id="${x.id}" title="Редактирай">✎</button>
+            <button class="btn btn-small mp-del" data-id="${x.id}" title="Изтрий">×</button>
+          </td>`;
+      }
+      tr += `</tr>`;
+      rowsArr.push(tr);
+    });
+  });
+  const rows = rowsArr.join("");
 
   const pending = items.filter(x => !x.received).length;
   v.innerHTML = `
@@ -335,23 +352,27 @@ function mpRender() {
 
 function mpOpenForm(id) {
   const editing = id ? MP_ITEMS.find(x => x.id === id) : null;
+  const initLines = editing ? mpItemLines(editing).map(l => ({ material: l.material || "", qty: l.qty, unit: l.unit })) : [{ material: "", qty: "", unit: "" }];
+  const lineRow = ln => `
+    <div class="lp-line-row">
+      <input type="text" class="mp-l-material" list="mp-materials" value="${escapeAttr(ln.material || "")}" placeholder="материал (код/име)…" autocomplete="off" />
+      <input type="number" class="mp-l-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.qty != null ? String(ln.qty) : "")}" placeholder="кол-во" />
+      <input type="text" class="mp-l-unit" value="${escapeAttr(ln.unit || "")}" placeholder="мярка" />
+      <button type="button" class="btn btn-small lp-l-rm" title="Махни материала">×</button>
+    </div>`;
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   wrap.innerHTML = `
-    <div class="overlay-box ask-box">
+    <div class="overlay-box ask-box lp-form-box">
       <h3>${editing ? "✎ Редакция на поръчка материали" : "+ Нова поръчка материали"}</h3>
       <label>Доставчик *
         <input type="text" id="mp-supplier" list="mp-suppliers" value="${escapeAttr(editing ? (editing.supplier || "") : "")}" placeholder="избери или въведи" autocomplete="off" />
         <datalist id="mp-suppliers">${MP_SUPPLIERS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
       </label>
-      <label>Материал(и) *
-        <input type="text" id="mp-material" list="mp-materials" value="${escapeAttr(editing ? (editing.material || "") : "")}" placeholder="търси по код или име…" autocomplete="off" />
-        <datalist id="mp-materials">${MP_MATERIALS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
-      </label>
-      <div class="lp-form-row">
-        <label>Количество<input type="number" id="mp-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(editing && editing.qty != null ? String(editing.qty) : "")}" placeholder="кол-во" /></label>
-        <label>Мярка<input type="text" id="mp-unit" value="${escapeAttr(editing ? (editing.unit || "") : "")}" placeholder="кг/бр/м…" /></label>
-      </div>
+      <div class="lp-lines-head"><span>Материали (материал · кол-во · мярка)</span></div>
+      <div id="mp-lines">${initLines.map(lineRow).join("")}</div>
+      <datalist id="mp-materials">${MP_MATERIALS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
+      <button type="button" id="mp-addline" class="btn btn-small">+ още материал</button>
       <div class="lp-form-row">
         <label>Дата на поръчка<input type="date" id="mp-order" value="${escapeAttr(editing ? (editing.orderDate || "") : "")}" /></label>
         <label>Очаквано пристигане<input type="date" id="mp-arrival" value="${escapeAttr(editing ? (editing.arrivalDate || "") : "")}" /></label>
@@ -364,24 +385,46 @@ function mpOpenForm(id) {
     </div>`;
   document.body.appendChild(wrap);
   const close = () => wrap.remove();
+  const linesBox = wrap.querySelector("#mp-lines");
+  const wireRm = () => linesBox.querySelectorAll(".lp-l-rm").forEach(b => {
+    b.onclick = () => {
+      if (linesBox.querySelectorAll(".lp-line-row").length > 1) b.closest(".lp-line-row").remove();
+      else b.closest(".lp-line-row").querySelectorAll("input").forEach(i => { i.value = ""; });
+    };
+  });
+  wireRm();
+  wrap.querySelector("#mp-addline").addEventListener("click", () => {
+    const tmp = document.createElement("div"); tmp.innerHTML = lineRow({ material: "", qty: "", unit: "" });
+    linesBox.appendChild(tmp.firstElementChild);
+    wireRm();
+    const last = linesBox.querySelector(".lp-line-row:last-child .mp-l-material"); if (last) last.focus();
+  });
   wrap.querySelector("#mp-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
   wrap.querySelector("#mp-save").addEventListener("click", async () => {
     const supplier = wrap.querySelector("#mp-supplier").value.trim();
     if (!supplier) { alert("Въведи доставчик."); return; }
-    const material = wrap.querySelector("#mp-material").value.trim();
-    if (!material) { alert("Въведи материал."); return; }
+    const materials = [];
+    linesBox.querySelectorAll(".lp-line-row").forEach(row => {
+      const material = row.querySelector(".mp-l-material").value.trim();
+      const qty = row.querySelector(".mp-l-qty").value.trim();
+      const unit = row.querySelector(".mp-l-unit").value.trim();
+      if (material || qty || unit) materials.push({ material, qty, unit });
+    });
+    if (!materials.length) { alert("Добави поне един материал."); return; }
     const rec = {
-      supplier, material,
-      qty: wrap.querySelector("#mp-qty").value.trim(),
-      unit: wrap.querySelector("#mp-unit").value.trim(),
+      supplier, materials,
       orderDate: wrap.querySelector("#mp-order").value,
       arrivalDate: wrap.querySelector("#mp-arrival").value,
       note: wrap.querySelector("#mp-note").value.trim(),
     };
     const btn = wrap.querySelector("#mp-save"); btn.disabled = true; btn.textContent = "Записва…";
-    if (editing) { Object.assign(editing, rec); }
-    else { MP_ITEMS.push(Object.assign({ id: "mp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6), received: false, createdAt: new Date().toISOString() }, rec)); }
+    if (editing) {
+      Object.assign(editing, rec);
+      delete editing.material; delete editing.qty; delete editing.unit;   // мигриране към новия формат
+    } else {
+      MP_ITEMS.push(Object.assign({ id: "mp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6), received: false, createdAt: new Date().toISOString() }, rec));
+    }
     await mpSave();
     close();
     mpRender();
@@ -399,7 +442,7 @@ async function mpToggleReceived(id) {
 async function mpDelete(id) {
   const x = MP_ITEMS.find(i => i.id === id);
   if (!x) return;
-  if (!confirm(`Да изтрия ли поръчката за „${x.material || ""}" от „${x.supplier || ""}"?`)) return;
+  if (!confirm(`Да изтрия ли поръчката от „${x.supplier || ""}" (${mpItemLines(x).length} вида материал)?`)) return;
   MP_ITEMS = MP_ITEMS.filter(i => i.id !== id);
   await mpSave();
   mpRender();
