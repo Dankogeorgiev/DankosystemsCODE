@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=252" />
+  <link rel="stylesheet" href="styles.css?v=253" />
   <link rel="stylesheet" href="erp.css?v=236" />
 </head>
 <body>
@@ -534,6 +534,7 @@
         <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
         <button class="btn btn-small erp-tab" data-tab="pricelists">💲 Ценови листи</button>
         <button class="btn btn-small erp-tab" data-tab="materials">🧱 Материали (склад)</button>
+        <button class="btn btn-small erp-tab" data-tab="missmat" title="Проверка дали стигат материалите за заявките, пуснати в производство. Показва кои материали са отишли на минус (липсват) и кои заявки ги ползват — за да поръчаш навреме. Детайлите тръгват по цеховете дори при липса на материал (складът отива на минус).">⚠ Липсващи материали по заявки</button>
         <button class="btn btn-small erp-tab" data-tab="detailstock">📦 Склад детайли</button>
         <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
         <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
@@ -568,6 +569,7 @@
   <script src="erp-recipes.js?v=233"></script>
   <script src="erp-recipe-test.js?v=2"></script>
   <script src="erp-requirements.js?v=154"></script>
+  <script src="erp-missing-materials.js?v=1"></script>
   <script src="erp-operations.js?v=237"></script>
   <script src="erp-orders.js?v=245"></script>
   <script src="erp-detail-stock.js?v=223"></script>

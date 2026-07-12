@@ -1104,3 +1104,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .lp-form-box .lp-line-row input.mp-l-material { flex: 1; min-width: 0; width: auto; margin-top: 0; }
 .lp-form-box .lp-line-row input.mp-l-qty { width: 78px; flex: 0 0 auto; margin-top: 0; }
 .lp-form-box .lp-line-row input.mp-l-unit { width: 66px; flex: 0 0 auto; margin-top: 0; }
+
+/* Липсващи материали по заявки — чипове за заявките */
+.mm-order { display: inline-block; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 999px; padding: 1px 8px; font-size: 12px; margin: 1px 2px; white-space: nowrap; }

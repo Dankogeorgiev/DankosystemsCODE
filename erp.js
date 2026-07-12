@@ -178,6 +178,7 @@ function erpSetTab(tab) {
     b.classList.toggle("active", b.dataset.tab === tab));
   switch (tab) {
     case "materials":    erpRenderMaterials(); break;
+    case "missmat":      erpRenderMissingMaterials(); break;
     case "detailstock":  erpRenderDetailStock(); break;
     case "products":     erpRenderProducts(); break;
     case "needs":        erpRenderNeeds(); break;
