@@ -6,19 +6,26 @@ let erpReqProdId = null;
 let erpReqQty = 1;
 let erpReqRows = null;   // резултат от bom_requirements
 let erpReqBusy = false;
+let erpReqQuery = "";    // търсене по продукт
 
-function erpRenderRequirements() {
-  const v = erpView();
-  const options = ERP.products
-    .filter(p => (ERP.linesByProduct[p.id] || []).length > 0) // само с рецепта
+// Опции за падащото меню (само продукти с рецепта), филтрирани по търсене.
+function erpReqOptions(q) {
+  q = (q || "").toLowerCase().trim();
+  return ERP.products
+    .filter(p => (ERP.linesByProduct[p.id] || []).length > 0)   // само с рецепта
+    .filter(p => !q || ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"))
     .map(p => `<option value="${p.id}" ${p.id === erpReqProdId ? "selected" : ""}>${escapeHtml((p.code ? p.code + " · " : "") + p.name)}</option>`)
     .join("");
+}
 
+function erpRenderRequirements() {
+  const v = erpView();
   v.innerHTML = `
     <div class="erp-toolbar">
+      <input type="search" id="erp-req-q" placeholder="🔎 търси продукт по код или име…" value="${escapeAttr(erpReqQuery)}" autocomplete="off" style="min-width:230px" />
       <label class="erp-inline">Продукт
-        <select id="erp-req-prod"><option value="">— избери продукт —</option>${options}</select>
+        <select id="erp-req-prod"><option value="">— избери продукт —</option>${erpReqOptions(erpReqQuery)}</select>
       </label>
       <label class="erp-inline">Бройка
         <input type="number" id="erp-req-qty" min="1" step="any" value="${erpReqQty}" style="width:90px" />
@@ -27,7 +34,16 @@ function erpRenderRequirements() {
     </div>
     <div id="erp-req-result">${erpReqRows ? erpReqTable(erpReqRows) : `<p class="hint">Избери продукт и бройка, за да видиш нужните суровини и недостига спрямо склада.</p>`}</div>`;
 
-  document.getElementById("erp-req-prod").addEventListener("change", e => { erpReqProdId = Number(e.target.value) || null; });
+  const q = document.getElementById("erp-req-q");
+  const sel = document.getElementById("erp-req-prod");
+  q.addEventListener("input", e => {
+    erpReqQuery = e.target.value;
+    sel.innerHTML = `<option value="">— избери продукт —</option>` + erpReqOptions(erpReqQuery);
+    // ако има точно едно съвпадение — избираме го автоматично
+    const opts = [...sel.options].filter(o => o.value);
+    if (opts.length === 1) { sel.value = opts[0].value; erpReqProdId = Number(opts[0].value) || null; }
+  });
+  sel.addEventListener("change", e => { erpReqProdId = Number(e.target.value) || null; });
   document.getElementById("erp-req-qty").addEventListener("input", e => { erpReqQty = erpToNum(e.target.value) || 1; });
   document.getElementById("erp-req-go").addEventListener("click", erpComputeRequirements);
 }

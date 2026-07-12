@@ -5,6 +5,25 @@
    Ползва ERP/erpDialog/erpBuildTasks/erpToNum/erpNum/erpEur от другите erp-*.js. */
 
 let erpCOList = null;       // заредени заявки
+let erpCOSort = "deadline"; // подредба на списъка
+let erpCOQuery = "";        // търсене в списъка
+
+// Подрежда/филтрира заявките за списъка.
+function erpCOSortRows(rows) {
+  const q = (erpCOQuery || "").toLowerCase().trim();
+  let out = rows.filter(o => !q || `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""} ${o.status || ""}`.toLowerCase().includes(q));
+  const val = o => (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+  const S = String;
+  const cmp = {
+    deadline: (a, b) => S(a.deadline || "9999-99-99").localeCompare(S(b.deadline || "9999-99-99")),   // най-скорошен срок отгоре
+    client: (a, b) => (a.clientName || "").localeCompare(b.clientName || "", "bg"),
+    date: (a, b) => S(b.date || "").localeCompare(S(a.date || "")),                                    // най-нови отгоре
+    ourNo: (a, b) => S(a.ourNo || "").localeCompare(S(b.ourNo || ""), "bg", { numeric: true }),
+    status: (a, b) => (a.status || "").localeCompare(b.status || "", "bg"),
+    value: (a, b) => val(b) - val(a),                                                                   // най-голяма стойност отгоре
+  }[erpCOSort] || (() => 0);
+  return out.sort(cmp);
+}
 let erpClientsCache = null; // клиенти от Контакти (за избор)
 
 async function erpLoadCustomerOrders() {
@@ -87,10 +106,18 @@ async function erpRenderCustomerOrders() {
       `<p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица customer_orders) в Supabase.</p></div>`;
     return;
   }
-  const rows = erpCOList.slice();
+  const rows = erpCOSortRows(erpCOList.slice());
+  const sortOpts = [
+    ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
+    ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Стойност (голяма отгоре)"],
+  ];
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} заявки</span>
+      <input type="search" id="erp-co-q" placeholder="🔎 търси № / клиент / статус…" value="${escapeAttr(erpCOQuery)}" autocomplete="off" style="min-width:210px" />
+      <label class="erp-inline">Подреди по
+        <select id="erp-co-sort">${sortOpts.map(([k, l]) => `<option value="${k}" ${k === erpCOSort ? "selected" : ""}>${l}</option>`).join("")}</select>
+      </label>
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
@@ -114,6 +141,30 @@ async function erpRenderCustomerOrders() {
     </table>`;
 
   document.getElementById("erp-co-new").addEventListener("click", erpNewCO);
+  const sortSel = document.getElementById("erp-co-sort");
+  if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpRenderCustomerOrders(); });
+  const qEl = document.getElementById("erp-co-q");
+  if (qEl) qEl.addEventListener("input", e => {
+    erpCOQuery = e.target.value;
+    // пре-рисуваме само таблицата, за да не губим фокуса на търсачката
+    const tb = v.querySelector("table.erp-table tbody");
+    if (!tb) { erpRenderCustomerOrders(); return; }
+    const list = erpCOSortRows(erpCOList.slice());
+    tb.innerHTML = list.map(o => `
+      <tr class="erp-clickable" data-id="${o.id}">
+        <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
+        <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
+        <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
+        <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+        <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
+        <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
+        <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
+        <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
+        <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+      </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма съвпадения.</td></tr>`;
+    tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
+    tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
+  });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
 }
