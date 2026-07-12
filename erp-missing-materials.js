@@ -3,19 +3,38 @@
    (движения stock_movements с ref="order:…", изписани при пускането), сравнява с
    текущата наличност и показва кои материали са отишли на минус (липсват) и кои
    заявки ги ползват. НЕ пресмята наново рецептата — ползва вече изписаното, за да
-   няма двойно броене. Ползва erpEnsureLoaded/erpView/erpSelectAll/ERP.matById/
-   erpNum/escapeHtml от другите ЕРП файлове; openMaterialsPlan от loading-plan.js. */
+   няма двойно броене. „Налично" е текущата наличност (отразява ВСИЧКИ движения).
+   Прави ПЪЛНО презареждане (erpLoadAll) при всяко влизане/обновяване, за да е
+   свежа наличността. Ползва erpView/ERP.matById/erpNum/escapeHtml/erpSelectAll от
+   другите ЕРП файлове; openMaterialsPlan от loading-plan.js. */
+
+// Тегли САМО движенията от производство (ref започва с "order:") — филтрира на
+// сървъра, за да не се сваля цялата таблица движения.
+async function mmLoadOrderMoves() {
+  const PAGE = 1000; let from = 0, out = [];
+  for (;;) {
+    const { data, error } = await sb.from("stock_movements").select("material_id,quantity,ref")
+      .like("ref", "order:%").order("id", { ascending: true }).range(from, from + PAGE - 1);
+    if (error) return { data: out, error };
+    out = out.concat(data || []);
+    if (!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  return { data: out, error: null };
+}
 
 async function erpRenderMissingMaterials() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Проверявам материалите за пуснатите заявки…</p>`;
-  try { await erpEnsureLoaded(); }
+  // Пълно презареждане (не erpEnsureLoaded), за да е СВЕЖА наличността — иначе
+  // „Налично"/„Липсва" се смятат от остарял кеш (напр. след ново пускане).
+  try { await erpLoadAll(); }
   catch (e) { v.innerHTML = `<div class="erp-error"><h3>Грешка</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
 
   // 1) Движения от производство: ref започва с "order:" (изписване при пускане).
-  const mv = await erpSelectAll("stock_movements", "material_id,quantity,ref");
+  const mv = await mmLoadOrderMoves();
   if (mv.error) { v.innerHTML = `<p class="erp-warn">Не мога да заредя движенията: ${escapeHtml(mv.error.message)}</p>`; return; }
-  const prod = (mv.data || []).filter(m => typeof m.ref === "string" && m.ref.indexOf("order:") === 0);
+  const prod = mv.data || [];
 
   // 2) Етикети на заявките (№ · клиент) от поточните задачи (source.orders) и клиентските заявки.
   const label = {};
@@ -28,8 +47,9 @@ async function erpRenderMissingMaterials() {
   ((typeof erpCOList !== "undefined" && erpCOList) || []).forEach(o => { const sid = String(o.id); if (!label[sid]) label[sid] = { no: o.ourNo || "", client: o.clientName || "" }; });
   const orderText = sid => {
     const l = label[sid];
-    if (!l) return sid.indexOf("stock-") === 0 ? "За склад" : ("№" + sid);
-    return (l.no ? "№" + l.no : (sid.indexOf("stock-") === 0 ? "За склад" : sid)) + (l.client ? " · " + l.client : "");
+    const isStock = sid.indexOf("stock-") === 0;
+    if (!l) return isStock ? "За склад" : "заявка (без №)";
+    return (l.no ? "№" + l.no : (isStock ? "За склад" : "заявка (без №)")) + (l.client ? " · " + l.client : "");
   };
 
   // 3) Агрегиране: консумация по материал + кои заявки го ползват.
@@ -75,26 +95,27 @@ async function erpRenderMissingMaterials() {
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">${short.length ? `<span class="erp-warn">${short.length} липсващи материала</span>` : "Няма липси ✅"}${low.length ? ` · ${low.length} под минимум` : ""}</span>
+      <span class="erp-count">${!list.length ? "няма пуснати заявки" : short.length ? `<span class="erp-warn">${short.length} липсващи материала</span>` : "няма липси ✅"}${low.length ? ` · ${low.length} под минимум` : ""}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="mm-refresh">↻ Обнови</button>
       ${typeof openMaterialsPlan === "function" ? `<button class="btn btn-small btn-primary" id="mm-plan" title="Отвори План материали, за да поръчаш липсващото от доставчик">📦 План материали</button>` : ""}
     </div>
-    <p class="hint">Показва материалите, реално <b>изписани при пускането в производство</b> на заявките. „Липсва" = наличността е отишла на минус, т.е. не е стигнала за пуснатото. Не се пресмята наново рецептата (няма двойно броене). Детайл, за който липсва материал, <b>все пак тръгва по цеховете</b> — складът просто отива на минус, затова тук виждаш дефицита.</p>
-    ${short.length ? `
-      <h4 class="erp-group-head">⚠ Липсващи (наличността е на минус)</h4>
-      <table class="report-table erp-table">
-        <thead><tr><th>Материал</th><th>Мярка</th><th class="num">Изписано за пуснатите</th><th class="num">Налично</th><th class="num">Липсва</th><th>Заявки</th></tr></thead>
-        <tbody>${short.map(shortRow).join("")}</tbody>
-      </table>`
-      : `<p class="report-empty">✅ Материалите стигат за всички пуснати заявки — нищо не е на минус.</p>`}
-    ${low.length ? `
-      <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
-      <table class="report-table erp-table">
-        <thead><tr><th>Материал</th><th>Мярка</th><th class="num">Изписано за пуснатите</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th></tr></thead>
-        <tbody>${low.map(lowRow).join("")}</tbody>
-      </table>` : ""}
-    ${(!short.length && !low.length && !list.length) ? `<p class="hint">Още няма пуснати в производство заявки (няма изписани материали).</p>` : ""}`;
+    <p class="hint">Колоната <b>„Изписано за пуснатите"</b> е реалната консумация от заявките, ПУСНАТИ в производство (не се пресмята наново рецептата — няма двойно броене). <b>„Налично"</b> е текущата наличност в склада (тя отразява <i>всички</i> движения — и продажби/корекции), а <b>„Липсва"</b> = колко е на минус сега. Детайл, за който липсва материал, <b>все пак тръгва по цеховете</b> — складът просто отива на минус, затова тук виждаш дефицита. При съмнение защо е на минус — виж „Материали (склад)".</p>
+    ${!list.length ? `<p class="report-empty">Още няма пуснати в производство заявки (няма изписани материали за проверка).</p>` : `
+      ${short.length ? `
+        <h4 class="erp-group-head">⚠ Липсващи (наличността е на минус)</h4>
+        <table class="report-table erp-table">
+          <thead><tr><th>Материал</th><th>Мярка</th><th class="num">Изписано за пуснатите</th><th class="num">Налично</th><th class="num">Липсва</th><th>Заявки</th></tr></thead>
+          <tbody>${short.map(shortRow).join("")}</tbody>
+        </table>`
+        : `<p class="report-empty">✅ Нито един материал, ползван от пуснатите заявки, не е на минус.</p>`}
+      ${low.length ? `
+        <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
+        <table class="report-table erp-table">
+          <thead><tr><th>Материал</th><th>Мярка</th><th class="num">Изписано за пуснатите</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th></tr></thead>
+          <tbody>${low.map(lowRow).join("")}</tbody>
+        </table>` : ""}
+    `}`;
 
   const rb = document.getElementById("mm-refresh"); if (rb) rb.addEventListener("click", erpRenderMissingMaterials);
   const pb = document.getElementById("mm-plan"); if (pb) pb.addEventListener("click", () => { if (typeof openMaterialsPlan === "function") openMaterialsPlan(); });
