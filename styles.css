@@ -1153,3 +1153,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
   .rog-save-btn { width: 100%; }
   #rogosh-view .rog-toolbar > * { flex: 1 1 auto; }
 }
+
+/* Бутон „ЦЕХ РОГОШ" в Цехове — ярко жълт */
+#tasks-rogosh { background: #ffd400; border-color: #ffd400; color: #1f2937; font-weight: 700; }
+#tasks-rogosh:hover { background: #f4c400; border-color: #f4c400; }
