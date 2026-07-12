@@ -1126,7 +1126,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .rog-tot-line { text-align: right; padding: 8px 4px; color: #334155; font-size: 15px; }
 .rog-note-lbl { display: block; margin: 10px 0; font-size: 14px; color: #334155; }
 .rog-note-lbl input { width: 100%; box-sizing: border-box; margin-top: 4px; border: 1px solid var(--line, #cbd5e1); border-radius: 8px; padding: 10px; font-size: 16px; }
-.rog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
+/* Бутонът „Запиши деня" е закачен за долния край — винаги се вижда при скрол. */
+.rog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; position: sticky; bottom: 0; background: #fff; padding: 10px 0 4px; border-top: 1px solid #e5e7eb; z-index: 2; }
 .rog-save-btn { font-size: 16px; padding: 12px 22px; }
 .rog-table-wrap { overflow-x: auto; }
 .rog-sum-table { width: 100%; min-width: 360px; }
