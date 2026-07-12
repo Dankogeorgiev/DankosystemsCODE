@@ -9,6 +9,7 @@
 
 let timesRpt = { workshop: "", operation: "", machine: "", worker: "", from: "", to: "" };
 let timesShowDetail = false;   // подробните записи са скрити, докато не се поиска изрично
+let timesTrendMode = "week";   // тенденция по седмица / по месец
 
 // Секунди за 1 брой от едно вписване (директно tPiece, или tOrder/бройка).
 function timesPerPiece(r) {
@@ -81,6 +82,46 @@ function timesDur(sec) {
   return (sec == null) ? "—" : fmtSecDur({ sec: Math.round(sec) });
 }
 
+// ISO номер на седмица за дата (обект {year, week}).
+function timesIsoWeek(d) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThu = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((date - firstThu) / 86400000 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
+  return { year: date.getUTCFullYear(), week };
+}
+
+// Тенденция по седмица или месец (за да се вижда дали работим по-бързо/по-бавно).
+function timesTrend(rows, mode) {
+  const map = {};
+  rows.forEach(r => {
+    const ds = (r.date || "").slice(0, 10);
+    if (!ds) return;
+    let key, label;
+    if (mode === "month") { key = ds.slice(0, 7); label = key; }
+    else { const w = timesIsoWeek(new Date(ds + "T00:00:00")); key = w.year + "-W" + String(w.week).padStart(2, "0"); label = "седм. " + w.week + " / " + w.year; }
+    const g = map[key] || (map[key] = { key, label, entries: 0, pieces: 0, sec: 0, sumWeighted: 0, wq: 0 });
+    g.entries++;
+    g.pieces += Number(r.qty) || 0;
+    const t = timesTotalSec(r); if (t != null) g.sec += t;
+    const pp = timesPerPiece(r); if (pp != null) { const q = Number(r.qty) || 1; g.sumWeighted += pp * q; g.wq += q; }
+  });
+  return Object.values(map).map(g => ({ ...g, avg: g.wq > 0 ? g.sumWeighted / g.wq : null }))
+    .sort((a, b) => a.key < b.key ? 1 : -1);
+}
+
+// Бърз период — задава from/to спрямо днешната дата.
+function timesSetPeriod(kind) {
+  const iso = d => d.toISOString().slice(0, 10);
+  const now = new Date();
+  if (kind === "all") { timesRpt.from = ""; timesRpt.to = ""; return; }
+  if (kind === "month") { timesRpt.from = iso(new Date(now.getFullYear(), now.getMonth(), 1)); timesRpt.to = iso(now); return; }
+  if (kind === "prev") { timesRpt.from = iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)); timesRpt.to = iso(new Date(now.getFullYear(), now.getMonth(), 0)); return; }
+  if (kind === "90") { const f = new Date(now); f.setDate(f.getDate() - 89); timesRpt.from = iso(f); timesRpt.to = iso(now); return; }
+  if (kind === "week") { const day = (now.getDay() + 6) % 7; const f = new Date(now); f.setDate(f.getDate() - day); timesRpt.from = iso(f); timesRpt.to = iso(now); return; }
+}
+
 /* ---------- Изглед ---------- */
 function renderTimesReport() {
   showSub("times");
@@ -94,6 +135,7 @@ function renderTimesReport() {
   const ops = timesByOperation(rows);
   const byWorker = timesGroupBy(rows, "worker");
   const byShop = timesGroupBy(rows, "workshop");
+  const trend = timesTrend(rows, timesTrendMode);
   const detailed = rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const hasFilter = !!(f.worker || f.workshop || f.operation || f.machine);
   const showDetail = hasFilter || timesShowDetail;
@@ -116,6 +158,14 @@ function renderTimesReport() {
       <span class="muted times-count">${detailed.length} записа</span>
       <button id="tr-csv" class="btn btn-small">⤓ Excel</button>
       <button id="tr-pdf" class="btn btn-small">🖨 PDF</button>
+    </div>
+    <div class="times-periods">
+      <span class="muted">Период:</span>
+      <button class="btn btn-small" data-period="all">Всичко</button>
+      <button class="btn btn-small" data-period="week">Тази седмица</button>
+      <button class="btn btn-small" data-period="month">Този месец</button>
+      <button class="btn btn-small" data-period="prev">Миналия месец</button>
+      <button class="btn btn-small" data-period="90">Последни 90 дни</button>
     </div>
 
     <div class="times-summary-grid">
@@ -147,6 +197,21 @@ function renderTimesReport() {
         <td class="num">${g.entries}</td><td class="num">${g.pieces}</td>
         <td class="num">${timesDur(g.avg)}</td><td class="num">${timesDur(g.min)}</td><td class="num">${timesDur(g.max)}</td>
       </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма времена за този филтър.</td></tr>`}</tbody>
+    </table>
+
+    <div class="times-detail-head" style="margin-top:16px">
+      <h4 style="margin:0 0 4px">Тенденция <span class="muted">— по-бързо ли работим, или по-бавно?</span></h4>
+      <span class="times-trend-toggle">
+        <button class="btn btn-small ${timesTrendMode === "week" ? "on" : ""}" data-trend="week">По седмица</button>
+        <button class="btn btn-small ${timesTrendMode === "month" ? "on" : ""}" data-trend="month">По месец</button>
+      </span>
+    </div>
+    <table class="report-table times-table">
+      <thead><tr><th>Период</th><th class="num">Вписвания</th><th class="num">Бройки</th><th class="num">Общо време</th><th class="num">Средно/брой</th></tr></thead>
+      <tbody>${trend.map(g => `<tr>
+        <td><b>${escapeHtml(g.label)}</b></td><td class="num">${g.entries}</td><td class="num">${g.pieces}</td>
+        <td class="num">${timesDur(g.sec || null)}</td><td class="num">${timesDur(g.avg)}</td>
+      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма данни за този филтър.</td></tr>`}</tbody>
     </table>
 
     ${showDetail ? `
@@ -188,6 +253,8 @@ function renderTimesReport() {
   if (sd) sd.addEventListener("click", () => { timesShowDetail = true; renderTimesReport(); });
   const hd = v.querySelector("#tr-hidedetail");
   if (hd) hd.addEventListener("click", () => { timesShowDetail = false; renderTimesReport(); });
+  v.querySelectorAll("[data-period]").forEach(b => b.addEventListener("click", () => { timesSetPeriod(b.dataset.period); renderTimesReport(); }));
+  v.querySelectorAll("[data-trend]").forEach(b => b.addEventListener("click", () => { timesTrendMode = b.dataset.trend; renderTimesReport(); }));
   v.querySelector("#tr-csv").addEventListener("click", () => timesExportCsv(ops, detailed));
   v.querySelector("#tr-pdf").addEventListener("click", () => timesExportPdf(ops, detailed));
 }

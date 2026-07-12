@@ -817,6 +817,10 @@ tr.times-click:hover td { background: #ecfdf5; }
 .times-flabel { color: #0f766e; }
 .times-detail-hint { margin: 16px 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; background: #f8fafc; text-align: center; }
 .times-detail-hint p { margin: 0 0 10px; }
+.times-periods { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.times-periods .muted { font-size: 13px; }
+.times-trend-toggle { display: inline-flex; gap: 6px; }
+.times-trend-toggle .btn.on { background: #0f766e; color: #fff; border-color: #0f766e; }
 @media (max-width: 760px) { .times-summary-grid { grid-template-columns: 1fr; } }
 
 /* Поръчки за снабдяване / тип-раздели в съобщенията */
