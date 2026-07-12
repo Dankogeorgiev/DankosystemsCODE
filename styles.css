@@ -806,6 +806,19 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .times-table td .t-code { font-size: 11px; color: var(--muted); }
 .times-table .times-cons { white-space: normal; min-width: 160px; max-width: 240px; }
 
+/* Отчети — компактни обобщения (по служител / по цех) */
+.times-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 6px 0 4px; }
+.times-sumcard { min-width: 0; overflow-x: auto; }
+.times-sumcard h4 { margin: 0 0 6px; }
+.times-sumcard .muted { font-weight: 400; font-size: 12px; }
+tr.times-click { cursor: pointer; }
+tr.times-click:hover td { background: #ecfdf5; }
+.times-detail-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.times-flabel { color: #0f766e; }
+.times-detail-hint { margin: 16px 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; background: #f8fafc; text-align: center; }
+.times-detail-hint p { margin: 0 0 10px; }
+@media (max-width: 760px) { .times-summary-grid { grid-template-columns: 1fr; } }
+
 /* Поръчки за снабдяване / тип-раздели в съобщенията */
 .msg-typetabs { display: flex; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap; }
 .msg-ttab { border: 1px solid var(--line); background: #fff; color: #334155; border-radius: 10px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; cursor: pointer; }

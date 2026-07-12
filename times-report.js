@@ -1,17 +1,26 @@
-/* Данко Системс — „Времена" (анализ на времената за операциите).
-   Целта е ценообразуване: коя операция за колко време се извършва.
-   - анализ по операция: средно/най-бързо/най-бавно време за 1 брой, общо бройки;
-   - подробни записи (всяко отчитане с машина/време);
-   - филтри по цех/операция/машина/служител и период (от–до);
+/* Данко Системс — „ОТЧЕТИ" (анализ на времената и на изработеното).
+   Тук се събират всички отчети — целта е яснота: кой какво е направил и за колко.
+   - обобщение по служител и по цех (компактно, натисни за филтър);
+   - анализ по операция: средно/най-бързо/най-бавно време за 1 брой (за ценообразуване);
+   - подробни записи (скрити по подразбиране — излизат при избран филтър);
+   - филтри по служител/цех/операция/машина и период (от–до);
    - експорт в Excel (CSV) и PDF.
    Ползва collectTimeRows/fmtSecDur/fmtLogDate/logNotes от tasks.js. */
 
 let timesRpt = { workshop: "", operation: "", machine: "", worker: "", from: "", to: "" };
+let timesShowDetail = false;   // подробните записи са скрити, докато не се поиска изрично
 
 // Секунди за 1 брой от едно вписване (директно tPiece, или tOrder/бройка).
 function timesPerPiece(r) {
   if (r.tPiece && r.tPiece.sec) return r.tPiece.sec;
   if (r.tOrder && r.tOrder.sec && (Number(r.qty) || 0) > 0) return r.tOrder.sec / Number(r.qty);
+  return null;
+}
+
+// Общо работно време за едно вписване (за обобщенията).
+function timesTotalSec(r) {
+  if (r.tOrder && r.tOrder.sec) return r.tOrder.sec;
+  if (r.tPiece && r.tPiece.sec) return r.tPiece.sec * (Number(r.qty) || 1);
   return null;
 }
 
@@ -28,6 +37,20 @@ function timesRptRows() {
     if (f.to && d > f.to) return false;
     return true;
   });
+}
+
+// Обобщение по служител или по цех (компактно).
+function timesGroupBy(rows, key) {
+  const map = {};
+  rows.forEach(r => {
+    const k = r[key] || "(без)";
+    const g = map[k] || (map[k] = { name: k, entries: 0, pieces: 0, sec: 0 });
+    g.entries++;
+    g.pieces += Number(r.qty) || 0;
+    const t = timesTotalSec(r);
+    if (t != null) g.sec += t;
+  });
+  return Object.values(map).sort((a, b) => b.pieces - a.pieces);
 }
 
 // Обобщение по операция (за ценообразуване).
@@ -69,25 +92,54 @@ function renderTimesReport() {
 
   const rows = timesRptRows();
   const ops = timesByOperation(rows);
+  const byWorker = timesGroupBy(rows, "worker");
+  const byShop = timesGroupBy(rows, "workshop");
   const detailed = rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const hasFilter = !!(f.worker || f.workshop || f.operation || f.machine);
+  const showDetail = hasFilter || timesShowDetail;
+
+  const emptyRow = n => `<tr><td colspan="${n}" class="report-empty">Няма данни за този филтър.</td></tr>`;
+  const flabel = [f.worker, f.workshop, f.operation, f.machine].filter(Boolean).join(" · ");
 
   v.innerHTML = `
-    <div class="workers-head"><h3>⏱ Времена — анализ за ценообразуване</h3>
+    <div class="workers-head"><h3>📋 ОТЧЕТИ — какво е направено и за колко време</h3>
       <button id="tr-back" class="btn btn-small">← Назад</button></div>
     <div class="times-filters">
-      ${sel("tr-ws", f.workshop, uniq("workshop"), "Цех")}
+      ${sel("tr-w", f.worker, uniq("worker"), "👤 Служител")}
+      ${sel("tr-ws", f.workshop, uniq("workshop"), "🏭 Цех")}
       ${sel("tr-op", f.operation, uniq("operation"), "Операция")}
       ${sel("tr-m", f.machine, uniq("machine"), "Машина")}
-      ${sel("tr-w", f.worker, uniq("worker"), "Служител")}
       <label>От <input type="date" id="tr-from" value="${escapeAttr(f.from)}" /></label>
       <label>До <input type="date" id="tr-to" value="${escapeAttr(f.to)}" /></label>
+      ${hasFilter ? `<button id="tr-clear" class="btn btn-small">✕ Изчисти филтъра</button>` : ""}
       <span class="spacer"></span>
       <span class="muted times-count">${detailed.length} записа</span>
       <button id="tr-csv" class="btn btn-small">⤓ Excel</button>
       <button id="tr-pdf" class="btn btn-small">🖨 PDF</button>
     </div>
 
-    <h4>Анализ по операция</h4>
+    <div class="times-summary-grid">
+      <div class="times-sumcard">
+        <h4>👤 По служители <span class="muted">— натисни ред за филтър</span></h4>
+        <table class="report-table times-table">
+          <thead><tr><th>Служител</th><th class="num">Вписвания</th><th class="num">Бройки</th><th class="num">Общо време</th></tr></thead>
+          <tbody>${byWorker.map(g => `<tr class="times-click" data-w="${escapeAttr(g.name)}">
+            <td>${escapeHtml(g.name)}</td><td class="num">${g.entries}</td><td class="num">${g.pieces}</td><td class="num">${timesDur(g.sec || null)}</td>
+          </tr>`).join("") || emptyRow(4)}</tbody>
+        </table>
+      </div>
+      <div class="times-sumcard">
+        <h4>🏭 По цехове <span class="muted">— натисни ред за филтър</span></h4>
+        <table class="report-table times-table">
+          <thead><tr><th>Цех</th><th class="num">Вписвания</th><th class="num">Бройки</th><th class="num">Общо време</th></tr></thead>
+          <tbody>${byShop.map(g => `<tr class="times-click" data-shop="${escapeAttr(g.name)}">
+            <td>${escapeHtml(g.name)}</td><td class="num">${g.entries}</td><td class="num">${g.pieces}</td><td class="num">${timesDur(g.sec || null)}</td>
+          </tr>`).join("") || emptyRow(4)}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px">Анализ по операция <span class="muted">— средно време за 1 брой (за ценообразуване)</span></h4>
     <table class="report-table times-table">
       <thead><tr><th>Операция</th><th>Цех</th><th class="num">Вписвания</th><th class="num">Общо бройки</th><th class="num">Средно/брой</th><th class="num">Най-бързо/брой</th><th class="num">Най-бавно/брой</th></tr></thead>
       <tbody>${ops.map(g => `<tr>
@@ -97,24 +149,45 @@ function renderTimesReport() {
       </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма времена за този филтър.</td></tr>`}</tbody>
     </table>
 
-    <h4 style="margin-top:18px">Подробни записи</h4>
-    <table class="report-table times-table">
-      <thead><tr><th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
-        <th class="num">Брой</th><th class="num">За 1 брой</th><th>1 лист/прът</th><th>Кол-во/поръчка</th><th>Настройка</th><th>Бележки</th></tr></thead>
-      <tbody>${detailed.map(r => `<tr>
-        <td>${escapeHtml(fmtLogDate(r.date))}</td><td>${escapeHtml(r.workshop) || "—"}</td><td>${escapeHtml(r.machine) || "—"}</td>
-        <td>${r.client ? escapeHtml(r.client) : `<span class="serie">СЕРИЯ</span>`}</td>
-        <td>${escapeHtml(r.product) || "—"}${r.code ? `<div class="t-code">${escapeHtml(r.code)}</div>` : ""}</td>
-        <td>${escapeHtml(r.operation) || "—"}</td><td>${escapeHtml(r.worker) || "—"}</td>
-        <td class="num">${r.qty}</td><td class="num">${timesDur(timesPerPiece(r))}</td>
-        <td>${escapeHtml(fmtSecDur(r.tSheet))}</td><td>${escapeHtml(fmtSecDur(r.tOrder))}</td><td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
-        <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
-      </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записи за този филтър.</td></tr>`}</tbody>
-    </table>`;
+    ${showDetail ? `
+      <div class="times-detail-head">
+        <h4 style="margin:18px 0 4px">Подробни записи${flabel ? ` — <span class="times-flabel">${escapeHtml(flabel)}</span>` : ""} <span class="muted">(${detailed.length})</span></h4>
+        ${!hasFilter ? `<button id="tr-hidedetail" class="btn btn-small">Скрий подробните</button>` : ""}
+      </div>
+      <table class="report-table times-table">
+        <thead><tr><th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
+          <th class="num">Брой</th><th class="num">За 1 брой</th><th>1 лист/прът</th><th>Кол-во/поръчка</th><th>Настройка</th><th>Бележки</th></tr></thead>
+        <tbody>${detailed.map(r => `<tr>
+          <td>${escapeHtml(fmtLogDate(r.date))}</td><td>${escapeHtml(r.workshop) || "—"}</td><td>${escapeHtml(r.machine) || "—"}</td>
+          <td>${r.client ? escapeHtml(r.client) : `<span class="serie">СЕРИЯ</span>`}</td>
+          <td>${escapeHtml(r.product) || "—"}${r.code ? `<div class="t-code">${escapeHtml(r.code)}</div>` : ""}</td>
+          <td>${escapeHtml(r.operation) || "—"}</td><td>${escapeHtml(r.worker) || "—"}</td>
+          <td class="num">${r.qty}</td><td class="num">${timesDur(timesPerPiece(r))}</td>
+          <td>${escapeHtml(fmtSecDur(r.tSheet))}</td><td>${escapeHtml(fmtSecDur(r.tOrder))}</td><td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
+          <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
+        </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записи за този филтър.</td></tr>`}</tbody>
+      </table>
+    ` : `
+      <div class="times-detail-hint">
+        <p class="muted">Има <b>${detailed.length}</b> подробни записа. Изберете <b>служител</b> или <b>цех</b> отгоре (или натиснете ред в таблиците), за да видите точно техните записи.</p>
+        <button id="tr-showdetail" class="btn btn-small">Покажи всички подробни записи</button>
+      </div>
+    `}`;
 
   v.querySelector("#tr-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   const bind = (id, key) => { const el = v.querySelector("#" + id); if (el) el.addEventListener("change", e => { timesRpt[key] = e.target.value; renderTimesReport(); }); };
   bind("tr-ws", "workshop"); bind("tr-op", "operation"); bind("tr-m", "machine"); bind("tr-w", "worker"); bind("tr-from", "from"); bind("tr-to", "to");
+  v.querySelectorAll(".times-click").forEach(tr => tr.addEventListener("click", () => {
+    if (tr.dataset.w != null) timesRpt.worker = tr.dataset.w;
+    if (tr.dataset.shop != null) timesRpt.workshop = tr.dataset.shop;
+    renderTimesReport();
+  }));
+  const clr = v.querySelector("#tr-clear");
+  if (clr) clr.addEventListener("click", () => { timesRpt.worker = timesRpt.workshop = timesRpt.operation = timesRpt.machine = ""; timesShowDetail = false; renderTimesReport(); });
+  const sd = v.querySelector("#tr-showdetail");
+  if (sd) sd.addEventListener("click", () => { timesShowDetail = true; renderTimesReport(); });
+  const hd = v.querySelector("#tr-hidedetail");
+  if (hd) hd.addEventListener("click", () => { timesShowDetail = false; renderTimesReport(); });
   v.querySelector("#tr-csv").addEventListener("click", () => timesExportCsv(ops, detailed));
   v.querySelector("#tr-pdf").addEventListener("click", () => timesExportPdf(ops, detailed));
 }
@@ -137,7 +210,7 @@ function timesExportCsv(ops, detailed) {
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "vremena-analiz.csv";
+  a.download = "otcheti-analiz.csv";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -147,7 +220,7 @@ function timesExportPdf(ops, detailed) {
   const dur = sec => sec == null ? "—" : fmtSecDur({ sec: Math.round(sec) });
   const opRows = ops.map(g => `<tr><td>${esc(g.operation)}</td><td>${esc(g.workshop) || "—"}</td><td class="r">${g.entries}</td><td class="r">${g.pieces}</td><td class="r">${dur(g.avg)}</td><td class="r">${dur(g.min)}</td><td class="r">${dur(g.max)}</td></tr>`).join("") || `<tr><td colspan="7" class="c">няма данни</td></tr>`;
   const detRows = detailed.map(r => `<tr><td>${esc(fmtLogDate(r.date))}</td><td>${esc(r.workshop) || "—"}</td><td>${esc(r.machine) || "—"}</td><td>${esc(r.product) || "—"}${r.code ? " (" + esc(r.code) + ")" : ""}</td><td>${esc(r.operation) || "—"}</td><td>${esc(r.worker) || "—"}</td><td class="r">${r.qty}</td><td class="r">${dur(timesPerPiece(r))}</td></tr>`).join("") || `<tr><td colspan="8" class="c">няма данни</td></tr>`;
-  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Времена — анализ</title>
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Отчети — анализ</title>
   <style>
     *{box-sizing:border-box}body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 20px}
     .head{border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:10px}.head h1{font-size:20px;margin:0;color:#0f766e}
@@ -159,7 +232,7 @@ function timesExportPdf(ops, detailed) {
     .noprint{text-align:center;margin:12px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
   </style></head><body>
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат / Запази като PDF</button></div>
-    <div class="head"><h1>ВРЕМЕНА — анализ на операциите</h1></div>
+    <div class="head"><h1>ОТЧЕТИ — анализ на операциите</h1></div>
     <h3>Анализ по операция (за ценообразуване)</h3>
     <table><thead><tr><th>Операция</th><th>Цех</th><th class="r">Вписвания</th><th class="r">Общо бройки</th><th class="r">Средно/брой</th><th class="r">Най-бързо</th><th class="r">Най-бавно</th></tr></thead><tbody>${opRows}</tbody></table>
     <h3>Подробни записи</h3>
