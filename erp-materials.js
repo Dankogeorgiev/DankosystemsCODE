@@ -5,6 +5,28 @@
 let erpMatSearch = "";
 let erpMatOnlyBelow = false;
 
+// Мярката вече е в килограми? (кг, kg, килограм…)
+function erpUnitIsKg(unit) {
+  const u = String(unit || "").trim().toLowerCase();
+  return u === "кг" || u === "kg" || u === "килограм" || u === "килограми" || u === "kilogram";
+}
+// Тегло на 1 мярка в кг: за материал в кг → 1; иначе от ръчно въведеното (app_config).
+function erpMatKgPerUnit(m) {
+  if (erpUnitIsKg(m.unit)) return 1;
+  const w = Number((ERP.matKg || {})[m.id]);
+  return w > 0 ? w : null;
+}
+// Наличност в килограми (или null, ако тегло на мярката не е зададено).
+function erpMatStockKg(m) {
+  const f = erpMatKgPerUnit(m);
+  return f == null ? null : (Number(m.stock) || 0) * f;
+}
+async function erpSaveMatKg() {
+  const { error } = await sb.from("app_config").upsert({ id: "material_kg", data: { perUnit: ERP.matKg || {} }, updated_at: new Date().toISOString() });
+  if (error) alert("Грешка при запис на тегло: " + error.message);
+  return !error;
+}
+
 function erpRenderMaterials() {
   const v = erpView();
   const q = erpMatSearch.trim().toLowerCase();
@@ -17,6 +39,9 @@ function erpRenderMaterials() {
   rows.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
 
   const belowCount = ERP.materials.filter(m => m.below_min).length;
+  // Общо в килограми за показаните материали + колко нямат зададено тегло.
+  let totalKg = 0, noWeight = 0;
+  rows.forEach(m => { const kg = erpMatStockKg(m); if (kg == null) { if ((Number(m.stock) || 0) !== 0) noWeight++; } else totalKg += kg; });
 
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -26,30 +51,32 @@ function erpRenderMaterials() {
       <span class="erp-count">${rows.length} материала${belowCount ? ` · <span class="erp-warn">${belowCount} под минимум</span>` : ""}</span>
       <button class="btn btn-small btn-primary" id="erp-mat-add">+ Нов материал</button>
     </div>
+    <div class="erp-kg-total">⚖ Общо наличност: <strong>${erpNum(totalKg)} кг</strong>${noWeight ? ` <span class="erp-muted">(${noWeight} материала без зададено тегло на мярка — не влизат в сумата)</span>` : ""}</div>
     <table class="report-table erp-table">
       <thead>
         <tr><th>Код</th><th>Име</th><th>Група</th><th>Вид</th>
-            <th class="num">Наличност</th><th class="num">Минимум</th><th>Мярка</th>
+            <th class="num">Наличност</th><th>Мярка</th><th class="num">В кг</th><th class="num">Минимум</th>
             <th class="num cost-cell">Ср. цена</th><th></th></tr>
       </thead>
       <tbody>
-        ${rows.map(m => `
+        ${rows.map(m => { const kg = erpMatStockKg(m); return `
           <tr class="${m.below_min ? "erp-below" : ""}">
             <td data-label="Код">${escapeHtml(m.code || "—")}</td>
             <td data-label="Име">${escapeHtml(m.name || "")}</td>
             <td data-label="Група">${escapeHtml(m.group_name || "")}</td>
             <td data-label="Вид">${m.is_purchased ? "Покупни" : "Метал"}</td>
             <td class="num" data-label="Наличност">${erpNum(m.stock)}${m.below_min ? " ⚠" : ""}</td>
-            <td class="num" data-label="Минимум">${erpNum(m.min_stock)}</td>
             <td data-label="Мярка">${escapeHtml(m.unit || "")}</td>
+            <td class="num erp-kg-cell" data-label="В кг">${kg == null ? `<button class="btn btn-small erp-mat-setkg" data-setkg="${m.id}" title="Задай тегло на 1 мярка, за да се смята в кг">задай тегло</button>` : `<strong>${erpNum(kg)}</strong> кг`}</td>
+            <td class="num" data-label="Минимум">${erpNum(m.min_stock)}</td>
             <td class="num cost-cell" data-label="Ср. цена">${erpEur(m.avg_cost)}</td>
             <td class="erp-row-actions" data-label="">
               <button class="btn btn-small" data-move="${m.id}">Движение</button>
               <button class="btn btn-small" data-hist="${m.id}">История</button>
               <button class="btn btn-small" data-edit="${m.id}">✎</button>
             </td>
-          </tr>`).join("") ||
-          `<tr><td colspan="9" class="report-empty">Няма материали. Импортирай рецепти или добави ръчно.</td></tr>`}
+          </tr>`; }).join("") ||
+          `<tr><td colspan="10" class="report-empty">Няма материали. Импортирай рецепти или добави ръчно.</td></tr>`}
       </tbody>
     </table>`;
 
@@ -67,6 +94,34 @@ function erpRenderMaterials() {
     b.addEventListener("click", () => erpHistoryDialog(Number(b.dataset.hist))));
   v.querySelectorAll("[data-edit]").forEach(b =>
     b.addEventListener("click", () => erpEditMaterial(Number(b.dataset.edit))));
+  v.querySelectorAll("[data-setkg]").forEach(b =>
+    b.addEventListener("click", () => erpSetMatKg(Number(b.dataset.setkg))));
+}
+
+// Бърз диалог: тегло на 1 мярка (кг) за материал, който не е в кг.
+function erpSetMatKg(matId) {
+  const m = ERP.matById[matId]; if (!m) return;
+  const cur = Number((ERP.matKg || {})[matId]) || "";
+  const { wrap, close } = erpDialog(`
+    <h3>Тегло на 1 ${escapeHtml(m.unit || "мярка")}</h3>
+    <p class="erp-muted">${escapeHtml(m.code || "")} ${escapeHtml(m.name || "")}</p>
+    <label>Колко кг тежи 1 ${escapeHtml(m.unit || "мярка")}? <input type="number" id="mk-w" step="any" min="0" value="${escapeAttr(String(cur))}" /></label>
+    <p class="erp-muted">Наличност: ${erpNum(m.stock)} ${escapeHtml(m.unit || "")}. Ще се смята в кг = наличност × това тегло.</p>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="mk-cancel">Отказ</button>
+      <button class="btn btn-primary" id="mk-save">Запиши</button>
+    </div>
+    <p class="save-status" id="mk-status"></p>`);
+  wrap.querySelector("#mk-cancel").addEventListener("click", close);
+  wrap.querySelector("#mk-save").addEventListener("click", async () => {
+    const w = erpToNum(wrap.querySelector("#mk-w").value);
+    ERP.matKg = ERP.matKg || {};
+    if (w > 0) ERP.matKg[matId] = w; else delete ERP.matKg[matId];
+    wrap.querySelector("#mk-status").textContent = "Записва…";
+    const ok = await erpSaveMatKg();
+    if (!ok) { wrap.querySelector("#mk-status").textContent = "⚠ грешка"; return; }
+    close(); erpRenderMaterials();
+  });
 }
 
 /* ---------- Малък модал (общ помощник) ---------- */
@@ -180,6 +235,7 @@ function erpEditMaterial(matId) {
     <label>Име<input type="text" id="mt-name" value="${m ? escapeAttr(m.name || "") : ""}" /></label>
     <label>Група<input type="text" id="mt-group" value="${m ? escapeAttr(m.group_name || "") : ""}" /></label>
     <label>Мярка<input type="text" id="mt-unit" value="${m ? escapeAttr(m.unit || "кг") : "кг"}" /></label>
+    <label>Тегло на 1 мярка (кг) <span class="erp-muted">— ако мярката НЕ е кг (за наличност в кг)</span><input type="number" id="mt-kg" step="any" min="0" value="${m && ERP.matKg && ERP.matKg[m.id] ? escapeAttr(String(ERP.matKg[m.id])) : ""}" placeholder="напр. 1 лист = 47 кг" /></label>
     <label class="cost-cell">Средна цена (€)<input type="number" id="mt-cost" step="any" min="0" value="${m ? (m.avg_cost || 0) : 0}" /></label>
     <label>Минимум (точка на презареждане)<input type="number" id="mt-min" step="any" min="0" value="${m ? (m.min_stock || 0) : 0}" /></label>
     <label class="erp-check"><input type="checkbox" id="mt-purch" ${m && m.is_purchased ? "checked" : ""} /> Покупни/стока (иначе метал)</label>
@@ -202,10 +258,13 @@ function erpEditMaterial(matId) {
       is_purchased: wrap.querySelector("#mt-purch").checked,
     };
     wrap.querySelector("#mt-status").textContent = "Записва…";
+    const kgW = erpToNum(wrap.querySelector("#mt-kg").value);
     let error;
     if (m) ({ error } = await sb.from("materials").update(payload).eq("id", m.id));
     else ({ error } = await sb.from("materials").insert(payload));
     if (error) { wrap.querySelector("#mt-status").textContent = "⚠ " + error.message; return; }
+    // Тегло на мярка (кг) се пази в app_config; за нов материал се задава после с „задай тегло".
+    if (m) { ERP.matKg = ERP.matKg || {}; if (kgW > 0) ERP.matKg[m.id] = kgW; else delete ERP.matKg[m.id]; await erpSaveMatKg(); }
     close();
     await erpReload();
   });
