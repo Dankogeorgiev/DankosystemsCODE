@@ -583,6 +583,16 @@ function renderTasks() {
     const asgTh = headRow.querySelector('th[data-sort="assignee"]');
     if (asgTh) asgTh.insertAdjacentElement("afterend", thClaim); else headRow.appendChild(thClaim);
   } else if (!showClaim && thClaim) { thClaim.remove(); }
+  // ВАЖНО: при table-layout:fixed всяка колона трябва да има <col>. Без него
+  // добавената колона „Взимам" изместваше последната (Действия/ЗАПИШИ) в слот без
+  // ширина и бутонът изчезваше. Затова добавяме/махаме и <col> за колоната.
+  const colgroup = document.querySelector(".tasks-table colgroup");
+  let colClaim = colgroup ? colgroup.querySelector("col.col-claim") : null;
+  if (showClaim && !colClaim && colgroup) {
+    colClaim = document.createElement("col"); colClaim.className = "col-claim"; colClaim.style.width = "8%";
+    const cols = colgroup.querySelectorAll("col");
+    if (cols[10]) cols[10].insertAdjacentElement("afterend", colClaim); else colgroup.appendChild(colClaim);
+  } else if (!showClaim && colClaim) { colClaim.remove(); }
   // Цех Заваряване: „Коментар" вместо „Въпрос".
   const thQ = document.getElementById("th-question");
   if (thQ) thQ.textContent = isZavView ? "Коментар" : "Въпрос";
