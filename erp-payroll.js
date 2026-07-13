@@ -9,6 +9,28 @@ let erpPayView = "fri";      // fri | week | month
 let erpPayMonday = "";
 let erpPayMonth = "";
 let payAutoTimer = null;     // авто-запазване на седмичния изглед (на 2 мин)
+let payFilter = "";          // търсене по име на служител (общо за изгледите)
+
+// Скрива редовете, които не съвпадат с търсенето, без пре-рендер (пази въведеното).
+function payApplyFilter(v) {
+  const q = (payFilter || "").trim().toLowerCase();
+  const rows = [...v.querySelectorAll("tbody tr")];
+  rows.forEach(tr => {
+    if (tr.classList.contains("pay-ws") || tr.classList.contains("pr-total") || tr.querySelector(".report-empty")) return;
+    const name = (tr.getAttribute("data-row") || "").toLowerCase();
+    tr.style.display = (!q || name.includes(q)) ? "" : "none";
+  });
+  // Заглавие на цех: скрий, ако под него няма видим служител.
+  rows.forEach((tr, i) => {
+    if (!tr.classList.contains("pay-ws")) return;
+    let vis = false;
+    for (let j = i + 1; j < rows.length && !rows[j].classList.contains("pay-ws"); j++) {
+      if (rows[j].style.display !== "none" && !rows[j].querySelector(".report-empty")) { vis = true; break; }
+    }
+    tr.style.display = vis ? "" : "none";
+  });
+}
+function payFindBox() { return `<label class="erp-inline pay-findbox">🔍 <input type="search" id="pay-find" placeholder="търси служител" value="${escapeAttr(payFilter)}" /></label>`; }
 function payNowHM() { const d = new Date(); const p = n => String(n).padStart(2, "0"); return p(d.getHours()) + ":" + p(d.getMinutes()); }
 const PAY_MONEY = [{ k: "bank", l: "Банка" }, { k: "cash", l: "В брой (С005)" }, { k: "nadnik", l: "Надник" }, { k: "overtime", l: "Извънреден" }, { k: "bonus", l: "Бонус" }];
 const PAY_MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
@@ -147,6 +169,7 @@ async function erpPayFridaysView(v) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <label class="erp-inline">Месец <input type="month" id="pf-month" value="${escapeAttr(erpPayMonth)}" /></label>
+      ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
       <span class="spacer"></span>
@@ -184,6 +207,7 @@ async function erpPayFridaysView(v) {
     <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец (за нов месец попълваш само ПО БАНКА). Всеки петък има две полета: <b>Седм.</b> (седмично плащане) и <b>Изв.</b> (извънредни за тази седмица). Под тях се вижда колко от парите за петъка са <b>🏦 по банка</b> и колко по <b>005</b>. Долният ред <b>ОБЩО</b> показва за всеки петък сумарно за всички служители колко е по банка и колко по CODE 005. <b>ПО БАНКА</b> = чистата сума от ведомостта за месеца; докато я стигнеш, парите са по банка, над нея — CODE 005. Ако ПО БАНКА = 0, всичко влиза в CODE 005. Сумите са в евро.<br><b>РАЗЛИЧНИ</b> (преди ОБЩО) е за други плащания на служителя за месеца: <b>Сума</b> (влиза в ОБЩО) и <b>Бел.</b> (кратка забележка). Не влиза в разбивката по банка/005. <br><b>Запазване:</b> един бутон „💾 ЗАПАЗИ" горе записва ВСИЧКО (ставки, ПО БАНКА, всички петъци и РАЗЛИЧНИ). Таблицата се <b>авто-запазва на всеки 2 минути</b>.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
+  const pfFind = v.querySelector("#pay-find"); if (pfFind) pfFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
   v.querySelectorAll(".pf-rm").forEach(b => b.addEventListener("click", () => erpPayRemoveEmployee(b.dataset.name, v)));
 
@@ -230,6 +254,7 @@ async function erpPayFridaysView(v) {
   };
   v.querySelectorAll(".pf-net, .pf-friw, .pf-frio, .pf-rzsum").forEach(i => i.addEventListener("input", () => { recompute(i.dataset.name); recomputeFooter(); }));
   recomputeFooter();
+  payApplyFilter(v);
 
   const num = x => Number(String(x).replace(",", ".")) || 0;
   const flash = (btn, ok) => {
@@ -300,7 +325,7 @@ async function erpPayWeekView(v) {
   const cell = (name, k, val) => `<input type="number" class="pay-in" data-name="${escapeAttr(name)}" data-f="${k}" step="any" value="${val != null && val !== "" ? escapeAttr(String(val)) : ""}" />`;
   const empRow = e => {
     const r = entries[e.name] || {};
-    return `<tr>
+    return `<tr data-row="${escapeAttr(e.name)}">
       <td>${escapeHtml(e.name)} <button class="btn btn-small pay-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button></td>
       ${PAY_MONEY.map(c => { let val = r[c.k]; if (c.k === "nadnik" && (val == null || val === "")) val = e.nadnik; return `<td class="num">${cell(e.name, c.k, val)}</td>`; }).join("")}
       <td class="num">${cell(e.name, "days", r.days)}</td>
@@ -313,6 +338,7 @@ async function erpPayWeekView(v) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <label class="erp-inline">Седмица (дата от седмицата) <input type="date" id="pay-date" value="${escapeAttr(erpPayMonday)}" /></label>
+      ${payFindBox()}
       <span class="erp-count">Седмица ${payWeekNo(mon)} · ${payFmt(mon)} – ${payFmt(sun)}</span>
       <button class="btn btn-small" id="pay-add-emp">+ Добави служител</button>
       <span class="spacer"></span>
@@ -328,6 +354,7 @@ async function erpPayWeekView(v) {
     <p class="hint">Сумите са в евро. „Получено" = банка + в брой + надник + извънреден + бонус. Този отчет е за изплатеното (без осигуровки) — не влиза в себестойността.</p>`;
 
   v.querySelector("#pay-date").addEventListener("change", e => { erpPayMonday = payIso(payMondayOf(e.target.value)); erpPayWeekView(v); });
+  const pwFind = v.querySelector("#pay-find"); if (pwFind) pwFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
   v.querySelector("#pay-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
   v.querySelectorAll(".pay-rm").forEach(b => b.addEventListener("click", () => erpPayRemoveEmployee(b.dataset.name, v)));
   const recompute = name => {
@@ -336,6 +363,7 @@ async function erpPayWeekView(v) {
     const cellEl = v.querySelector(`.pay-total[data-total="${CSS.escape(name)}"]`); if (cellEl) cellEl.textContent = payEur(t);
   };
   v.querySelectorAll(".pay-in").forEach(i => i.addEventListener("input", () => recompute(i.dataset.name)));
+  payApplyFilter(v);
   v.querySelector("#pay-save").addEventListener("click", async () => {
     const st = v.querySelector("#pay-status"); st.textContent = "Записва…";
     const ent = {};
@@ -418,6 +446,7 @@ async function erpPayMonthView(v) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <label class="erp-inline">Месец <input type="month" id="pay-month" value="${escapeAttr(erpPayMonth)}" /></label>
+      ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length} седмици · ${list.length} служители</span>
       <span class="spacer"></span>
       <b>${payEur(grand)}</b>
@@ -426,7 +455,7 @@ async function erpPayMonthView(v) {
     <table class="report-table erp-table">
       <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">ОБЩО получено</th></tr></thead>
       <tbody>
-        ${list.map(r => `<tr>
+        ${list.map(r => `<tr data-row="${escapeAttr(r.name)}">
           <td><b>${escapeHtml(r.name)}</b></td><td>${escapeHtml(r.ws)}</td>
           ${PAY_MONEY.map(c => {
             let extra = "";
@@ -445,6 +474,8 @@ async function erpPayMonthView(v) {
     <p class="hint">Сумира всички попълнени седмици, чийто понеделник е в избрания месец.</p>`;
 
   v.querySelector("#pay-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayMonthView(v); });
+  const pmFind = v.querySelector("#pay-find"); if (pmFind) pmFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
+  payApplyFilter(v);
   v.querySelector("#pay-csv").addEventListener("click", () => {
     const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
     const n = x => String(Math.round((Number(x) || 0) * 100) / 100).replace(".", ",");

@@ -22,6 +22,7 @@
 .erp-h { margin: 0; font-size: 18px; }
 .erp-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
 .erp-inline select, .erp-inline input { margin-left: 4px; }
+.pay-findbox input { min-width: 180px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 .erp-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
 .erp-count { font-size: 13px; color: var(--muted); }
 .erp-ready-ok { font-size: 13px; font-weight: 700; color: #15803d; background: #dcfce7; border-radius: 8px; padding: 4px 10px; }
