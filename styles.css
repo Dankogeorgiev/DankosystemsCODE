@@ -915,12 +915,18 @@ tr.times-click:hover td { background: #ecfdf5; }
 .pf-table td.pf-fricol { vertical-align: top; }
 .pf-fline { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; justify-content: center; }
 .pf-fline span { font-size: 11px; color: #475569; width: 34px; text-align: right; flex: 0 0 auto; }
-.pf-fline input.pf-friw, .pf-fline input.pf-frio { width: 96px; text-align: right; }
+.pf-fricol .pf-fline span { width: 72px; }
+.pf-fline input.pf-frib, .pf-fline input.pf-fric, .pf-fline input.pf-frio { width: 84px; text-align: right; }
+.pf-fline input.pf-frib { background: #f0fdf4; border-color: #bbf7d0; }
+.pf-fline input.pf-fric { background: #f8fafc; border-color: #e2e8f0; }
 .pf-fline input.pf-frio { background: #fff7ed; border-color: #fed7aa; }
 .pf-fribd { font-size: 10px; line-height: 1.3; color: #166534; text-align: center; margin-top: 2px; padding: 2px 4px; background: #f0fdf4; border-radius: 4px; }
 .pf-fribd.pf-over { color: #b45309; background: #fff7ed; }
 .pf-table .pf-bank { color: #166534; }
+.pf-table .pf-bank.pf-over { color: #b45309; font-weight: 700; }
 .pf-table .pf-code { color: #64748b; }
+.pf-table td.pf-wscol { text-align: center; background: #ecfdf5; }
+.pf-wsbank { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #065f46; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .pf-table .pf-code.pf-over { color: #b45309; font-weight: 700; background: #fff7ed; }
 .pf-table .pf-tot { background: #f8fafc; }
 
