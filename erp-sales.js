@@ -234,7 +234,7 @@ async function erpRenderSaleForm(o) {
       ${locked ? "" : '<div class="erp-co-actions"><button class="btn btn-small" id="sa-add-prod">+ Продукт</button><button class="btn btn-small" id="sa-add-mat">+ Материал</button></div>'}
 
       <div class="erp-sale-totals" id="sa-totals"></div>
-      <p class="hint">При „Осчетоводи" продуктите се разбиват по рецепта и материалите се изписват от склада. Материалните редове се изписват директно. Средните цени не се променят.</p>
+      <p class="hint">Всеки продукт има избор „<b>Вид</b>": <b>🏭 готов детайл</b> = изписва готовото изделие от <b>Склад детайли</b> (по подразбиране — за вече произведените изделия); <b>📦 по рецепта</b> = разбива рецептата и изписва суровините от склад материали (за продажба без предварително производство). Материалните редове се изписват директно. Средните цени не се променят.</p>
     </div>`;
 
   if (!locked) {
@@ -270,7 +270,12 @@ function erpSaLinesHtml(o, locked) {
   const cur = erpSaleCur(o);
   return (o.lines || []).map((l, i) => `
     <tr>
-      <td data-label="Вид">${l.writeoffKind === "detail" ? "🏭 готов детайл" : l.itemKind === "material" ? "🧱 материал" : "📦 продукт"}</td>
+      <td data-label="Вид">${l.itemKind === "material" ? "🧱 материал"
+        : locked ? (l.writeoffKind === "detail" ? "🏭 готов детайл" : "📦 по рецепта")
+        : `<select class="sa-wok" data-i="${i}" title="Откъде да се изпише при продажба">
+             <option value="detail" ${l.writeoffKind === "detail" ? "selected" : ""}>🏭 готов детайл</option>
+             <option value="recipe" ${l.writeoffKind !== "detail" ? "selected" : ""}>📦 по рецепта</option>
+           </select>`}</td>
       <td data-label="Код">${escapeHtml(l.code || "")}</td>
       <td data-label="Наименование">${locked ? escapeHtml(l.name || "") : `<input type="text" class="sa-name" data-i="${i}" value="${escapeAttr(l.name || "")}" style="width:100%;min-width:150px" title="Име за фактурата (напр. името при клиента)" />`}</td>
       <td class="num" data-label="Кол.">${locked ? erpNum(l.qty) : `<input type="number" class="sa-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
@@ -286,6 +291,10 @@ function erpSaWireLines(o, locked) {
   body.querySelectorAll(".sa-name").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].name = inp.value; }));
   body.querySelectorAll(".sa-qty").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].qty = erpToNum(inp.value); erpSaRefresh(o); }));
   body.querySelectorAll(".sa-price").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].unitPrice = erpToNum(inp.value); erpSaRefresh(o); }));
+  body.querySelectorAll(".sa-wok").forEach(sel => sel.addEventListener("change", () => {
+    const l = o.lines[Number(sel.dataset.i)];
+    if (sel.value === "detail") l.writeoffKind = "detail"; else delete l.writeoffKind;
+  }));
   body.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { o.lines.splice(Number(b.dataset.rm), 1); erpSaRefreshFull(o); }));
 }
 function erpSaRefresh(o) { // само сумите, без загуба на фокус
@@ -342,7 +351,11 @@ function erpSaAddLine(o, kind) {
       const dispName = (ple && ple.cname) ? ple.cname : (x.name || "");   // име при клиента за фактурата
       const plPrice = (ple && erpToNum(ple.price) > 0) ? erpToNum(ple.price) : null;
       const unitPrice = plPrice != null ? plPrice : (last ? last.price : "");
-      o.lines.push({ itemKind: kind, refId: x.id, code: x.code || "", name: dispName, ourName: x.name || "", unit: isMat ? (x.unit || "") : "бр.", qty: 1, unitPrice });
+      const line = { itemKind: kind, refId: x.id, code: x.code || "", name: dispName, ourName: x.name || "", unit: isMat ? (x.unit || "") : "бр.", qty: 1, unitPrice };
+      // Продуктите по подразбиране се изписват като ГОТОВ ДЕТАЙЛ от Склад детайли
+      // (готовите изделия са там); за поръчкови без наличност се превключва на „по рецепта".
+      if (kind === "product") line.writeoffKind = "detail";
+      o.lines.push(line);
       close(); erpSaRefreshFull(o);
     }));
   };
