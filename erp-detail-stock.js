@@ -80,6 +80,7 @@ async function erpRenderDetailStock() {
       <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
       <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip" multiple hidden />
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
+      <button type="button" class="btn btn-small" id="ds-fixcls" title="Намира продукти, ползвани като части в рецепти, но маркирани като артикул — и ги оправя, за да влязат тук">🔧 Провери класификацията</button>
     </div>
     <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
       <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
@@ -102,6 +103,8 @@ async function erpRenderDetailStock() {
   if (db) db.addEventListener("change", e => { const fs = [...(e.target.files || [])]; e.target.value = ""; if (fs.length) dsBulkDrawings(fs); });
   const dc = document.getElementById("ds-draw-check");
   if (dc) dc.addEventListener("click", dsCheckDrawings);
+  const fc = document.getElementById("ds-fixcls");
+  if (fc) fc.addEventListener("click", dsFixClassification);
   dsFillRows();
   if (q) q.focus();
   // Зареждаме кои имат чертежи и оцветяваме бутоните (без да чакаме за самата таблица).
@@ -160,6 +163,55 @@ async function dsProduce(pid) {
   alert(`Пуснах ${erpNum(q)} бр. „${p.name}" по цеховете.\n`
     + `Щом минат последната операция, ще влязат автоматично в Склад детайли.`
     + (miss.length ? `\n\n⚠ Липсват детайли: ` + miss.map(m => m.code || m.name).join(", ") : ""));
+}
+
+/* ---------- Поправка на класификацията (детайл/възел ↔ артикул) ----------
+   Импортът налучква is_semifinished по името на групата, затова много части
+   остават като „артикул" и не влизат в Склад детайли. Тук ползваме сигурния
+   сигнал: продукт, ползван като част (child_product_id) в нечия рецепта, е
+   детайл/възел → маркираме го като полуфабрикат, за да се следи тук. */
+async function dsFixClassification() {
+  const usedAsChild = new Set();
+  (ERP.lines || []).forEach(l => { if (l.child_product_id) usedAsChild.add(Number(l.child_product_id)); });
+  // Ползват се като части, но са маркирани „артикул" → трябва да станат възли.
+  const toSemi = ERP.products.filter(p => usedAsChild.has(Number(p.id)) && !p.is_semifinished)
+    .sort((a, b) => (a.code || "").localeCompare(b.code || "", "bg"));
+  // Само за сведение: маркирани „възел", но никъде не се ползват и нямат рецепта.
+  const orphanSemi = ERP.products.filter(p => p.is_semifinished && !usedAsChild.has(Number(p.id)) && !((ERP.linesByProduct[p.id] || []).length));
+
+  const { wrap, close } = erpDialog(`
+    <h3>🔧 Проверка на класификацията</h3>
+    <p class="hint">Правило: продукт, който се ползва като <b>част в рецептата на друг продукт</b>, е <b>детайл/възел</b> и трябва да се следи в Склад детайли. Импортът често ги е оставил като „артикул".</p>
+    <p><b>${toSemi.length}</b> продукта се ползват като части, но са маркирани „артикул" — затова не влизат в Склад детайли.</p>
+    ${toSemi.length ? `<div class="dc-list" style="max-height:320px;overflow:auto"><table class="report-table erp-table"><thead><tr><th>Код</th><th>Име</th><th>Сега</th></tr></thead><tbody>${
+      toSemi.slice(0, 500).map(p => `<tr><td><b>${escapeHtml(p.code || "")}</b></td><td>${escapeHtml(p.name || "")}</td><td class="erp-muted">артикул</td></tr>`).join("")
+    }</tbody></table>${toSemi.length > 500 ? `<p class="erp-muted">…и още ${toSemi.length - 500}</p>` : ""}</div>` : `<p class="erp-ready-ok">Няма продукти за поправка 👍</p>`}
+    ${orphanSemi.length ? `<p class="hint erp-muted">ℹ Има и ${orphanSemi.length} продукта, маркирани „възел", които никъде не се ползват и нямат рецепта — <b>не ги пипам</b> (само за сведение).</p>` : ""}
+    <div class="erp-dialog-actions">
+      <button class="btn" id="dfc-cancel">Затвори</button>
+      ${toSemi.length ? `<button class="btn btn-primary" id="dfc-go">✔ Маркирай ${toSemi.length} като детайл/възел</button>` : ""}
+    </div>
+    <p class="save-status" id="dfc-status"></p>`);
+  wrap.querySelector("#dfc-cancel").addEventListener("click", close);
+  const go = wrap.querySelector("#dfc-go");
+  if (go) go.addEventListener("click", async () => {
+    go.disabled = true;
+    const st = wrap.querySelector("#dfc-status"); st.textContent = "Записва…";
+    const ids = toSemi.map(p => Number(p.id));
+    let done = 0, err = null;
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const { error } = await sb.from("products").update({ is_semifinished: true }).in("id", chunk);
+      if (error) { err = error; break; }
+      done += chunk.length;
+      st.textContent = `Записани ${done}/${ids.length}…`;
+    }
+    if (err) { st.textContent = "⚠ Грешка: " + err.message; go.disabled = false; return; }
+    await erpLoadAll();
+    close();
+    erpRenderDetailStock();
+    alert(`Готово! ${done} продукта са маркирани като детайл/възел и вече ще се следят в Склад детайли.`);
+  });
 }
 
 // Индекс по код (веднъж), сортиран по дължина — за бързо и точно разпознаване.
