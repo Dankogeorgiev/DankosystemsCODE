@@ -108,7 +108,7 @@ async function erpLoadAll() {
   try {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
     // (recipe_lines има две връзки към products, така избягваме двусмислието).
-    const [matsRaw, stock, prods, ops, lines, routing, detailRoute] = await Promise.all([
+    const [matsRaw, stock, prods, ops, lines, routing, detailRoute, matKg] = await Promise.all([
       erpSelectAll("materials", "id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
       erpSelectAll("v_material_stock", "id,stock,below_min"),
       erpSelectAll("v_product_cost", "id,code,name,is_semifinished,group_name,needs_recipe,cost_eur"),
@@ -116,12 +116,15 @@ async function erpLoadAll() {
       erpSelectAll("recipe_lines", "id,product_id,position,quantity,unit,line_cost,material_id,child_product_id,operation_id"),
       sb.from("app_config").select("data").eq("id", "erp_op_routing").maybeSingle(),
       sb.from("app_config").select("data").eq("id", "erp_detail_routing").maybeSingle(),
+      sb.from("app_config").select("data").eq("id", "material_kg").maybeSingle(),
     ]);
 
     const firstErr = matsRaw.error || stock.error || prods.error || ops.error || lines.error;
     if (firstErr) throw firstErr;
     ERP.opRoutingSaved = (routing && routing.data && routing.data.data && routing.data.data.byCode) || {};
     ERP.detailRouting = (detailRoute && detailRoute.data && detailRoute.data.data && detailRoute.data.data.byKey) || {};
+    // Тегло на 1 мярка (кг) за материали, които НЕ са в кг — за наличности в килограми.
+    ERP.matKg = (matKg && matKg.data && matKg.data.data && matKg.data.data.perUnit) || {};
 
     // Наличности по материал.
     const stockById = {};
