@@ -7,35 +7,6 @@ const TASK_DEFAULT_WORKSHOPS = ["Лазери", "РАЗКРОЙ ТРЪБИ", "CN
 // Дебелини (мм) за падащото меню в колона „Дебелина“ (десетите се пишат със запетая)
 const THICKNESS_OPTIONS = ["0,5", "0,7", "0,8", "1", "1,2", "1,5", "2", "2,5", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "15", "16", "18", "20", "22", "25"];
 
-// KROHNE LTD — детайлите минават през 4 операции; поръчката се приключва само когато всички са готови
-const KROHNE_OPS = [
-  { key: "op1", label: "Операция 1", short: "Оп1" },
-  { key: "op2", label: "Операция 2", short: "Оп2" },
-  { key: "op3", label: "Операция 3", short: "Оп3" },
-  { key: "dm", label: "Операция DATA Matrix", short: "DM" },
-];
-function isKrohne(t) { return ((t && t.client) || "").toUpperCase().includes("KROHNE"); }
-function krohnePct(t) {
-  const q = Number(t.qty) || 0; if (!q) return 0;
-  const ops = t.ops || {};
-  const sum = KROHNE_OPS.reduce((a, o) => a + Math.min(q, Number(ops[o.key]) || 0), 0);
-  return Math.round(sum / (q * KROHNE_OPS.length) * 100);
-}
-function krohneDone(t) {
-  const q = Number(t.qty) || 0; if (!q) return false;
-  const ops = t.ops || {};
-  return KROHNE_OPS.every(o => (Number(ops[o.key]) || 0) >= q);
-}
-function krohneProgressHtml(t) {
-  const q = Number(t.qty) || 0; const ops = t.ops || {}; const pct = krohnePct(t);
-  const chips = KROHNE_OPS.map(o => {
-    const v = Math.min(q || Infinity, Number(ops[o.key]) || 0);
-    const ok = q && v >= q;
-    return `<span class="kp-op ${ok ? "ok" : ""}">${o.short} ${v}${q ? "/" + q : ""}</span>`;
-  }).join(" ");
-  return `<div class="krohne-prog"><div class="kp-bar"><span style="width:${pct}%"></span></div><div class="kp-meta"><b>${pct}%</b> ${chips}</div></div>`;
-}
-
 // Машини по цехове (за задължителното записване на време при изработка)
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
@@ -376,11 +347,6 @@ function workshopList() {
   return [...TASK_DEFAULT_WORKSHOPS, ...extra];
 }
 function taskStatus(t) {
-  if (isKrohne(t)) {
-    if (krohneDone(t)) return "done";
-    const ops = t.ops || {};
-    return KROHNE_OPS.some(o => (Number(ops[o.key]) || 0) > 0) ? "progress" : "todo";
-  }
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (qty > 0 && prod >= qty) return "done";
   if (prod > 0) return "progress";
@@ -683,7 +649,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () { const n = taskOrderNos(t); return n.length ? `<div class="t-orderno" title="Номер на поръчката">📋 № ${escapeHtml(n.join(", "))}</div>` : ""; })()}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -1076,91 +1042,6 @@ async function reportSetupScrap(t, n, note) {
       : `Добавих още ${n} бр. към тази операция (спешно).`));
 }
 
-// KROHNE LTD — записване по операция; „произведено“ = напълно готови детайли (мин. по операции)
-async function logProductionKrohne(t, opKey, qtyVal, extra) {
-  const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
-  if (!add || add <= 0) { alert("Въведи брой детайли."); return; }
-  let worker;
-  if (amWorker()) {
-    worker = MY_WORKER;
-    if (!taskHasWorker(t, MY_WORKER)) taskSetAssignees(t, [...taskAssignees(t), MY_WORKER]);
-  } else {
-    worker = t.assignee || document.getElementById("task-worker-filter").value;
-    if (!worker) worker = prompt("Кой служител?", "") || "";
-  }
-  const q = Number(t.qty) || 0;
-  t.ops = t.ops || {};
-  const cur = Number(t.ops[opKey]) || 0;
-  t.ops[opKey] = q ? Math.min(q, cur + add) : cur + add;
-  // напълно готови детайли = минимумът по всички операции
-  let done = Infinity;
-  KROHNE_OPS.forEach(o => { done = Math.min(done, Number(t.ops[o.key]) || 0); });
-  t.produced = isFinite(done) ? done : 0;
-  t.logs = t.logs || [];
-  const entry = { date: todayStr(), worker, qty: add, op: opKey };
-  if (extra) Object.assign(entry, extra);
-  t.logs.push(entry);
-  await tSaveTask(t);
-  if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
-  renderTasks();
-}
-
-// Специален отчетен прозорец за детайли на KROHNE LTD (4 операции)
-function openKrohneDialog(t, qtyPrefill) {
-  const machines = MACHINES_BY_WORKSHOP[t.workshop] || MACHINES_BY_WORKSHOP["CNC цех"] || [];
-  const q = Number(t.qty) || 0; const ops = t.ops || {};
-  const timeFields = [
-    { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
-    { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
-  ];
-  const opsStatus = KROHNE_OPS.map(o => {
-    const v = Number(ops[o.key]) || 0; const ok = q && v >= q;
-    return `<div class="kd-op ${ok ? "ok" : ""}">${escapeHtml(o.label)}: <b>${v}${q ? "/" + q : ""}</b>${ok ? " ✓" : ""}</div>`;
-  }).join("");
-  const timeRow = (f) => `<label>${escapeHtml(f.label)}<span class="pd-time"><input id="pd-${f.key}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" /><select id="pd-${f.key}-u"><option value="sec" ${f.unit === "sec" ? "selected" : ""}>сек</option><option value="min" ${f.unit === "min" ? "selected" : ""}>мин</option><option value="hour" ${f.unit === "hour" ? "selected" : ""}>час</option></select></span></label>`;
-  const wrap = document.createElement("div"); wrap.className = "overlay ask-overlay";
-  wrap.innerHTML = `<div class="overlay-box ask-box pd-box">
-    <h3>⏱ KROHNE LTD — записване</h3>
-    <div class="pd-task"><div><b>Клиент:</b> ${escapeHtml(t.client || "")}</div><div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div></div>
-    <div class="kd-status"><div class="kd-status-title">Готовност: ${krohnePct(t)}%</div>${opsStatus}</div>
-    <label>Машина *<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select></label>
-    <label>Коя операция извърши? *<select id="pd-op"><option value="">— избери операция —</option>${KROHNE_OPS.map(o => `<option value="${o.key}">${escapeHtml(o.label)}</option>`).join("")}</select></label>
-    <label>Брой детайли (за тази операция) *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
-    <p class="pd-hint">⏱ Попълни поне едно от времената:</p>
-    ${timeFields.map(timeRow).join("")}
-    <label>Изразходени консумативи<textarea id="pd-x-consumables" rows="2" placeholder="по желание"></textarea></label>
-    <label>Специфична работа<textarea id="pd-x-specific" rows="2" placeholder="по желание"></textarea></label>
-    <div class="ask-actions"><button id="pd-save" class="btn btn-primary">Запиши изработката</button><button id="pd-cancel" class="btn">Отказ</button></div>
-  </div>`;
-  document.body.appendChild(wrap);
-  const close = () => wrap.remove();
-  wrap.querySelector("#pd-cancel").addEventListener("click", close);
-  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
-  wrap.querySelector("#pd-save").addEventListener("click", async () => {
-    const machine = (wrap.querySelector("#pd-machine").value || "").trim();
-    const op = wrap.querySelector("#pd-op").value;
-    const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
-    if (!machine) { alert("Избери машина."); return; }
-    if (!op) { alert("Избери коя операция извърши."); return; }
-    if (!qty || qty <= 0) { alert("Въведи брой детайли."); return; }
-    const extra = { machine };
-    let timeCount = 0;
-    for (const f of timeFields) {
-      const v = Number(String(wrap.querySelector("#pd-" + f.key + "-v").value).replace(",", "."));
-      const unit = wrap.querySelector("#pd-" + f.key + "-u").value;
-      const mult = unit === "hour" ? 3600 : (unit === "min" ? 60 : 1);
-      const sec = v > 0 ? Math.round(v * mult) : 0;
-      if (sec) { extra[f.key] = { v, unit, sec }; timeCount++; }
-    }
-    if (timeCount === 0) { alert("Попълни поне едно от полетата за време."); return; }
-    const cons = (wrap.querySelector("#pd-x-consumables").value || "").trim(); if (cons) extra.consumables = cons;
-    const spec = (wrap.querySelector("#pd-x-specific").value || "").trim(); if (spec) extra.specific = spec;
-    close();
-    await logProductionKrohne(t, op, qty, extra);
-  });
-  setTimeout(() => { const m = wrap.querySelector("#pd-machine"); if (m) m.focus(); }, 50);
-}
-
 /* ---------- Допълнителна дейност (извън стандартната работа) ----------
    Служителят ЗАПИСВА извънредна дейност (описание + време). Записът се пази
    като лог в скрита задача „Допълнителна дейност" за цеха и се показва във
@@ -1284,7 +1165,6 @@ async function saveExtraActivity(desc, sec, worker, wsName) {
 
 // Задължителен прозорец за машина + времена (полетата може да зависят от машината)
 function openProductionDialog(t, qtyPrefill) {
-  if (isKrohne(t)) return openKrohneDialog(t, qtyPrefill);
   // Персонален Отчетен прозорец (по служител) има предимство пред настройката на цеха.
   const wname = MY_WORKER || t.assignee || "";
   let wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
@@ -2391,7 +2271,7 @@ function fmtLogDate(d) {
 }
 function logNotes(l) {
   const parts = [];
-  if (l.op) { const o = KROHNE_OPS.find(x => x.key === l.op); parts.push("Операция: " + (o ? o.label : l.op)); }
+  if (l.op) parts.push("Операция: " + l.op);   // стари записи по операция (KROHNE)
   if (l.sheets) parts.push("Насечени листи: " + l.sheets);
   if (l.consumables) parts.push("Консумативи: " + l.consumables);
   if (l.assemblyNote) parts.push("Сглобено: " + l.assemblyNote);
