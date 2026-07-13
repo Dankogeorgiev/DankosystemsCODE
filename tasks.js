@@ -557,10 +557,12 @@ function renderTasks() {
   const worker = isW ? MY_WORKER : document.getElementById("task-worker-filter").value;
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
   const readyOnly = !!(document.getElementById("task-ready-filter") || {}).checked;
+  const hideDoneEl = document.getElementById("task-hide-done");
+  const hideDone = hideDoneEl ? hideDoneEl.checked : true;
   tbody.innerHTML = "";
 
   const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
-  const rows = TASKS.filter(t => {
+  let rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
     if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) {
@@ -574,11 +576,20 @@ function renderTasks() {
     return true;
   });
 
+  // Изпълнените задачи: по подразбиране скрити, за да не пълнят списъка.
+  const doneHidden = rows.filter(t => taskStatus(t) === "done").length;
+  if (hideDone) rows = rows.filter(t => taskStatus(t) !== "done");
+  const dc = document.getElementById("done-count");
+  if (dc) dc.textContent = doneHidden ? ` (${doneHidden})` : "";
+
   // Приоритетните задачи винаги изплуват най-горе; в рамките на еднакъв приоритет —
   // по избраната колона (по подразбиране по срок).
   const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
   const f = SORT_KEYS[selKey];
   rows.sort((a, b) => {
+    // Изпълнените (когато се показват) винаги най-долу.
+    const da = taskStatus(a) === "done" ? 1 : 0, db = taskStatus(b) === "done" ? 1 : 0;
+    if (da !== db) return da - db;
     if (selKey !== "priority") {
       const pa = priLevel(a), pb = priLevel(b);
       if (pa !== pb) return pb - pa;
@@ -2560,6 +2571,8 @@ function tInit() {
   document.getElementById("task-search").addEventListener("input", renderTasks);
   const rf = document.getElementById("task-ready-filter");
   if (rf) rf.addEventListener("change", renderTasks);
+  const hd = document.getElementById("task-hide-done");
+  if (hd) hd.addEventListener("change", renderTasks);
   const thead = document.querySelector(".tasks-table thead");
   if (thead) thead.addEventListener("click", e => {
     const th = e.target.closest("th[data-sort]"); if (!th) return;

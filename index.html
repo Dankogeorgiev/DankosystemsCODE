@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 251</p>
+      <p class="login-version">версия 252</p>
     </form>
   </div>
 
@@ -393,6 +393,7 @@
         <select id="task-worker-filter" title="Служител"><option value="">Всички служители</option></select>
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
         <label class="task-ready-lbl" title="Показвай само задачите, за които детайлите вече са пристигнали от предната операция (не се чакат други цехове)"><input type="checkbox" id="task-ready-filter" /> ⚡ Само готови за работа</label>
+        <label class="task-ready-lbl" title="Скрива напълно изпълнените задачи, за да не пълнят списъка. Махни отметката, за да ги видиш най-долу."><input type="checkbox" id="task-hide-done" checked /> ✅ Скрий изпълнените<span id="done-count"></span></label>
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
         <button id="btn-board" class="btn btn-small">📺 Табло</button>
@@ -569,7 +570,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="app.js?v=237"></script>
-  <script src="tasks.js?v=249"></script>
+  <script src="tasks.js?v=250"></script>
   <script src="prod-report.js?v=163"></script>
   <script src="times-report.js?v=166"></script>
   <script src="planning.js?v=165"></script>
