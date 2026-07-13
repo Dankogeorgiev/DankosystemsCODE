@@ -73,6 +73,8 @@ const TIME_FIELDS_BY_WORKSHOP = {
 const NO_SPECIFIC_WORKSHOP = ["Преси", "Абкант"];
 // Цехове, в чийто списък със задачи НЕ показваме колоната „Дебелина".
 const HIDE_THICKNESS_WORKSHOPS = ["Заваръчно", "Преси"];
+// Цехове с колона „Взимам" — служителят сам взима задачата, за да се знае кой я произвежда.
+const CLAIM_WORKSHOPS = ["Лазери", "Абкант", "Преси"];
 // Допълнителни (текстови) полета по цех — напр. изразходени консумативи
 const EXTRA_FIELDS_BY_WORKSHOP = {
   "CNC цех": [
@@ -605,6 +607,16 @@ function renderTasks() {
   const isZavView = ws === "Заваръчно";
   const tbl = document.querySelector(".tasks-table");
   if (tbl) tbl.classList.toggle("hide-thickness", HIDE_THICKNESS_WORKSHOPS.includes(ws));
+  // Колона „Взимам" — само за Лазери/Абкант/Преси. Заглавието се добавя/маха динамично.
+  const showClaim = CLAIM_WORKSHOPS.includes(ws);
+  if (tbl) tbl.classList.toggle("has-claim", showClaim);
+  const headRow = document.querySelector(".tasks-table thead tr");
+  let thClaim = document.getElementById("th-claim");
+  if (showClaim && !thClaim && headRow) {
+    thClaim = document.createElement("th"); thClaim.id = "th-claim"; thClaim.textContent = "Взимам";
+    const asgTh = headRow.querySelector('th[data-sort="assignee"]');
+    if (asgTh) asgTh.insertAdjacentElement("afterend", thClaim); else headRow.appendChild(thClaim);
+  } else if (!showClaim && thClaim) { thClaim.remove(); }
   // Цех Заваряване: „Коментар" вместо „Въпрос".
   const thQ = document.getElementById("th-question");
   if (thQ) thQ.textContent = isZavView ? "Коментар" : "Въпрос";
@@ -687,6 +699,13 @@ function renderTasks() {
             <span class="t-asg-list">${assignees.map(w => `<span class="t-asg-chip">${escapeHtml(w)}<button type="button" class="t-asg-rm" data-w="${escapeAttr(w)}" title="Махни">×</button></span>`).join("") || `<span class="t-asg-none">— никой —</span>`}</span>
             <select class="t-asg-add" title="Добави отговорник (може двама на една задача)">${addOpts.join("")}</select>
           </td>`}
+      ${showClaim ? (function () {
+        const me = isW ? MY_WORKER : (worker || "");
+        const mine = me && assignees.includes(me);
+        return `<td class="t-claim-cell" data-label="Взимам">${mine
+          ? `<span class="t-claimed" title="Ти взе тази задача">✓ ${escapeHtml(me)}</span>`
+          : `<button type="button" class="btn btn-small t-claim">✋ Взимам</button>`}</td>`;
+      })() : ""}
       <td class="t-q" data-label="${t.workshop === "Заваръчно" ? "Коментар" : "Въпрос"}">${t.workshop === "Заваръчно" ? taskCommentCell(t) : taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
@@ -714,6 +733,13 @@ function renderTasks() {
       if (amWorker()) return;
       taskSetAssignees(t, taskAssignees(t).filter(x => x !== b.dataset.w)); tSaveTask(t); renderTasks();
     }));
+    const claimBtn = tr.querySelector(".t-claim");
+    if (claimBtn) claimBtn.addEventListener("click", () => {
+      const me = isW ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+      if (!me) { alert("Първо избери служител горе, за да се знае кой взима задачата."); return; }
+      if (!taskAssignees(t).includes(me)) { taskSetAssignees(t, [...taskAssignees(t), me]); tSaveTask(t); }
+      renderTasks();
+    });
     const thk = tr.querySelector("select.t-thick");
     if (thk) thk.addEventListener("change", () => { t.thickness = thk.value; tSaveTask(t); });
     const sel = tr.querySelector(".t-sel");

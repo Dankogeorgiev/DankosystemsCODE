@@ -1114,6 +1114,14 @@ tr.times-click:hover td { background: #ecfdf5; }
 .t-asg-chip .t-asg-rm:hover { color: #b3261e; }
 .t-asg-none { color: #9ca3af; font-size: 12px; }
 .t-asg-add { margin-top: 3px; font-size: 12px; max-width: 100%; }
+/* В цеховете с колона „Взимам" полето „+ служител" е по-малко (по-компактно) */
+.tasks-table.has-claim .t-asg-cell { min-width: 90px; }
+.tasks-table.has-claim .t-asg-add { max-width: 92px; font-size: 11px; padding: 2px 4px; }
+/* Колона „Взимам" */
+.t-claim-cell { white-space: nowrap; text-align: center; }
+.t-claim-cell .t-claim { background: #fef9c3; border-color: #fde047; color: #713f12; font-weight: 600; }
+.t-claim-cell .t-claim:hover { background: #fef08a; }
+.t-claimed { display: inline-block; background: #dcfce7; border: 1px solid #86efac; color: #166534; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
 
 /* Филтър „Само готови за работа" в лентата на цеховете */
 .task-ready-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
