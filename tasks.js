@@ -702,9 +702,9 @@ function renderTasks() {
       ${showClaim ? (function () {
         const me = isW ? MY_WORKER : (worker || "");
         const mine = me && assignees.includes(me);
-        return `<td class="t-claim-cell" data-label="Взимам">${mine
-          ? `<span class="t-claimed" title="Ти взе тази задача">✓ ${escapeHtml(me)}</span>`
-          : `<button type="button" class="btn btn-small t-claim">✋ Взимам</button>`}</td>`;
+        // Показва всички, които са я взели (видимо за всички), без да я заключва.
+        const tags = assignees.map(w => `<span class="t-claimed${w === me ? " is-me" : ""}" title="Взе задачата">✓ ${escapeHtml(w)}</span>`).join(" ");
+        return `<td class="t-claim-cell" data-label="Взимам">${tags}${mine ? "" : `${tags ? " " : ""}<button type="button" class="btn btn-small t-claim">✋ Взимам</button>`}</td>`;
       })() : ""}
       <td class="t-q" data-label="${t.workshop === "Заваръчно" ? "Коментар" : "Въпрос"}">${t.workshop === "Заваръчно" ? taskCommentCell(t) : taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
