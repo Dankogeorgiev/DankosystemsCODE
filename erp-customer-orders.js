@@ -7,11 +7,14 @@
 let erpCOList = null;       // заредени заявки
 let erpCOSort = "deadline"; // подредба на списъка
 let erpCOQuery = "";        // търсене в списъка
+let erpCOHideDone = true;   // скрий завършените (по подразбиране)
 
 // Подрежда/филтрира заявките за списъка.
 function erpCOSortRows(rows) {
   const q = (erpCOQuery || "").toLowerCase().trim();
   let out = rows.filter(o => !q || `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""} ${o.status || ""}`.toLowerCase().includes(q));
+  // Завършените се крият по подразбиране (освен ако търсиш изрично по статус).
+  if (erpCOHideDone && !q) out = out.filter(o => (o.status || "нова") !== "завършена");
   const val = o => (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
   const S = String;
   const cmp = {
@@ -118,6 +121,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline">Подреди по
         <select id="erp-co-sort">${sortOpts.map(([k, l]) => `<option value="${k}" ${k === erpCOSort ? "selected" : ""}>${l}</option>`).join("")}</select>
       </label>
+      <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
@@ -143,6 +147,8 @@ async function erpRenderCustomerOrders() {
   document.getElementById("erp-co-new").addEventListener("click", erpNewCO);
   const sortSel = document.getElementById("erp-co-sort");
   if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpRenderCustomerOrders(); });
+  const hideDoneEl = document.getElementById("erp-co-hidedone");
+  if (hideDoneEl) hideDoneEl.addEventListener("change", e => { erpCOHideDone = e.target.checked; erpRenderCustomerOrders(); });
   const qEl = document.getElementById("erp-co-q");
   if (qEl) qEl.addEventListener("input", e => {
     erpCOQuery = e.target.value;
