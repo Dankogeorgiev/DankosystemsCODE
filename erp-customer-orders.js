@@ -280,7 +280,7 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-test" title="Провери маршрута — дали рецептите ще вървят правилно, преди да пуснеш">🧪 Тест рецепта</button>
         <button class="btn btn-small" id="co-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
         <button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>
-        ${o.production ? '<button class="btn btn-small" id="co-status" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
+        ${o.production ? '<button class="btn btn-small" id="co-live-status" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
         <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
         <button class="btn btn-small" id="co-sale">🧾 Създай продажба</button>
@@ -320,7 +320,7 @@ async function erpRenderCOForm(o) {
     if (typeof erpSimulateProduction === "function") erpSimulateProduction(items, { title: o.ourNo ? ("заявка №" + o.ourNo) : "", stockTop: true });
   });
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
-  const stBtn = document.getElementById("co-status");
+  const stBtn = document.getElementById("co-live-status");
   if (stBtn) stBtn.addEventListener("click", () => {
     if (typeof erpOrderStatus === "function") erpOrderStatus(o.id, o.ourNo ? ("заявка №" + o.ourNo) : (o.clientName || ""));
   });
