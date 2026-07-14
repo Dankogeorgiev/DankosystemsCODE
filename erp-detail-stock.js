@@ -302,24 +302,54 @@ function dsFindDuplicates() {
     close();
     erpRenderDetailStock();
     alert(`Готово! Обединени ${res.merged} записа в #${keeperId}.`
+      + (res.jsonFixed ? `\nПренасочени ${res.jsonFixed} връзки в мостри/заявки/продажби/ценови листи.` : "")
       + (res.notDeleted ? `\n(${res.notDeleted} дубликата не можаха да се изтрият — останаха без наличност и без рецепта, безобидни.)` : ""));
   }));
 }
 
-// Прехвърля наличност + рецепти (дете и родител) от дубликатите към keeper, после трие дубликатите.
+// Прехвърля ВСИЧКИ референции от дубликатите към keeper, после трие дубликатите.
+// 1) DB таблици с FK (пренасочваме ПРЕДИ триене — иначе cascade трие наличност/рецепта).
+// 2) JSONB референции без FK (мостри/заявки/продажби/ценови листи) — тихо чупене, затова и тях.
 async function dsMergeInto(keeperId, dupIds) {
-  let merged = 0, notDeleted = 0;
+  const K = Number(keeperId);
+  const dupSet = new Set(dupIds.map(Number));
+  const isDup = v => v != null && dupSet.has(Number(v));
+  let merged = 0, notDeleted = 0, jsonFixed = 0;
+
+  // 1) DB таблици с FK
   for (const D of dupIds) {
-    let r = await sb.from("product_movements").update({ product_id: keeperId }).eq("product_id", D);
+    let r = await sb.from("product_movements").update({ product_id: K }).eq("product_id", D);
     if (r.error) return { error: "движения: " + r.error.message };
-    r = await sb.from("recipe_lines").update({ child_product_id: keeperId }).eq("child_product_id", D);
+    r = await sb.from("recipe_lines").update({ child_product_id: K }).eq("child_product_id", D);
     if (r.error) return { error: "рецепти (вложен): " + r.error.message };
-    r = await sb.from("recipe_lines").update({ product_id: keeperId }).eq("product_id", D);
+    r = await sb.from("recipe_lines").update({ product_id: K }).eq("product_id", D);
     if (r.error) return { error: "рецепти (родител): " + r.error.message };
+  }
+
+  // 2) JSONB референции (без FK — пренасочваме ръчно, за да не се счупи тихо)
+  try {
+    const { data } = await erpSelectAll("samples", "id,data");
+    for (const row of (data || [])) { const d = row.data || {}; if (isDup(d.erpProductId)) { d.erpProductId = K; await sb.from("samples").update({ data: d }).eq("id", row.id); jsonFixed++; } }
+  } catch (e) { /* таблицата може да липсва */ }
+  try {
+    const { data } = await erpSelectAll("customer_orders", "id,data");
+    for (const row of (data || [])) { const d = row.data || {}; let ch = false; (d.lines || []).forEach(l => { if (isDup(l.productId)) { l.productId = K; ch = true; } }); if (ch) { await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", row.id); jsonFixed++; } }
+  } catch (e) {}
+  try {
+    const { data } = await erpSelectAll("sales", "id,data,posted");
+    for (const row of (data || [])) { const d = row.data || {}; let ch = false; (d.lines || []).forEach(l => { if (l.itemKind === "product" && isDup(l.refId)) { l.refId = K; ch = true; } }); if (ch) { await sb.from("sales").update({ data: d, posted: !!row.posted, updated_at: new Date().toISOString() }).eq("id", row.id); jsonFixed++; } }
+  } catch (e) {}
+  try {
+    const { data } = await sb.from("app_config").select("id,data").like("id", "pricelist_%");
+    for (const row of (data || [])) { const d = row.data || {}, ent = d.entries || {}; let ch = false; dupIds.forEach(D => { if (ent[D] != null) { if (ent[K] == null) ent[K] = ent[D]; delete ent[D]; ch = true; } }); if (ch) { d.entries = ent; await sb.from("app_config").update({ data: d, updated_at: new Date().toISOString() }).eq("id", row.id); jsonFixed++; } }
+  } catch (e) {}
+
+  // 3) Трием дубликатите (FK вече чисти; JSON вече пренасочен)
+  for (const D of dupIds) {
     const del = await sb.from("products").delete().eq("id", D);
     if (del.error) notDeleted++; else merged++;
   }
-  return { merged, notDeleted };
+  return { merged, notDeleted, jsonFixed };
 }
 
 // Индекс по код (веднъж), сортиран по дължина — за бързо и точно разпознаване.
