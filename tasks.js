@@ -1139,10 +1139,12 @@ async function logProduction(t, qtyVal, extra) {
   }
   t.produced = (Number(t.produced) || 0) + add;
   t.logs = t.logs || [];
-  const entry = { date: todayStr(), worker, qty: add };
+  const entry = { date: todayStr(), worker, qty: add, lid: prodLogId() };
   if (extra) Object.assign(entry, extra);   // machine, tPiece, tSheet, tOrder, consumables...
   t.logs.push(entry);
   await tSaveTask(t);
+  // Производствен дневник — ВЕЧЕН запис (оцелява триене/изтегляне на задачата).
+  await prodLogWrite(t, entry);
   // Последователно производство: ако задачата стана готова — пусни следващата операция.
   if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
   // Заприходяване в Склад детайли (последна операция: всичкото произведено).
@@ -2483,11 +2485,58 @@ function logNotes(l) {
   if (l.activity) parts.push("Дейност: " + l.activity);
   return parts.join(" · ");
 }
+/* ---------- Производствен дневник (вечна история — не зависи от задачите) ---------- */
+let PROD_LOG = [];            // заредени вписвания от таблица production_log
+let prodLogSeq = 0;
+function prodLogId() { return Date.now().toString(36) + "-" + (prodLogSeq++).toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
+
+// Зарежда вечния дневник (ако таблицата е създадена — production-log.sql).
+async function loadProdLog() {
+  try {
+    const { data, error } = await sb.from("production_log").select("lid,data").order("created_at", { ascending: true }).limit(50000);
+    if (error) { PROD_LOG = []; return; }
+    PROD_LOG = (data || []).map(r => Object.assign({ lid: r.lid }, r.data || {}));
+  } catch (e) { PROD_LOG = []; }
+}
+
+// Записва едно отчитане в дневника (снимка с целия контекст на задачата).
+async function prodLogWrite(t, entry) {
+  try {
+    const snap = Object.assign({}, entry, {
+      workshop: t.workshop || "", operation: t.operation || "", product: t.product || "", code: t.code || "",
+      client: t.client || "", orderNo: (typeof taskOrderNos === "function" ? taskOrderNos(t).join(", ") : ""),
+      notes: (typeof logNotes === "function" ? logNotes(entry) : (entry.notes || "")),
+    });
+    await sb.from("production_log").insert({ lid: entry.lid || null, task_id: (typeof t.id === "number" ? t.id : null), data: snap });
+    PROD_LOG.push(snap);   // добавяме и в кеша, за да се вижда веднага в ОТЧЕТИ
+  } catch (e) { /* таблицата може още да не е създадена — тихо, логът остава на задачата */ }
+}
+
+// Условие „смислено" вписване (направено през Отчетния прозорец).
+function timeRowMeaningful(l) {
+  return !!(l.machine || l.tPiece || l.tSheet || l.tOrder || l.tSetup || l.sheets || l.consumables || l.specific || l.assemblyNote || l.activity);
+}
+
 function collectTimeRows() {
   const rows = [];
+  const seen = new Set();
+  // 1) Вечен дневник — оцелява триене на задачите.
+  (PROD_LOG || []).forEach(l => {
+    if (l.lid) seen.add(l.lid);
+    if (!timeRowMeaningful(l)) return;
+    rows.push({
+      date: l.date || "", workshop: l.workshop || "", machine: l.machine || "",
+      client: l.client || "", orderNo: l.orderNo || "", product: l.product || "", code: l.code || "", operation: l.operation || "",
+      worker: l.worker || "", qty: Number(l.qty) || 0,
+      tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder, tSetup: l.tSetup,
+      notes: l.notes || "",
+    });
+  });
+  // 2) Логове по ЖИВИ задачи, които още не са в дневника (стари/неуспял запис) — без дублиране по lid.
   TASKS.forEach(t => (t.logs || []).forEach(l => {
     // включваме всяко вписване, направено през Отчетния прозорец (с машина, време или бележка)
-    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.tSetup && !l.sheets && !l.consumables && !l.specific && !l.assemblyNote && !l.activity) return;
+    if (!timeRowMeaningful(l)) return;
+    if (l.lid && seen.has(l.lid)) return;   // вече е в дневника
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
       client: t.client || "", orderNo: taskOrderNos(t).join(", "), product: t.product || "", code: t.code || "", operation: t.operation || "",
@@ -2498,9 +2547,10 @@ function collectTimeRows() {
   }));
   return rows;
 }
-function toggleTimes() {
+async function toggleTimes() {
   const v = document.getElementById("times-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
+  await loadProdLog();   // вечният дневник (за да излизат и отчетите на вече изтеглени поръчки)
   if (typeof renderTimesReport === "function") renderTimesReport(); else renderTimes();
 }
 function renderTimes() {
