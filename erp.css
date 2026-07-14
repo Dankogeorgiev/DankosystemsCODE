@@ -313,3 +313,4 @@
 .erp-tab.erp-tab-alert.active { background: #fee2e2; }
 .erp-tab-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; text-align: center; vertical-align: middle; }
 @keyframes erpTabPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,.0); } 50% { box-shadow: 0 0 0 3px rgba(220,38,38,.18); } }
+.erp-co-status[class*="продажба"] { background: #ccfbf1; color: #0f766e; }
