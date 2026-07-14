@@ -88,6 +88,7 @@ async function openErp() {
     ERP.loaded = true;
   }
   erpSetTab(ERP.tab || "materials");
+  if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяване на таба при липса
 }
 
 function closeErp() { document.getElementById("erp-modal").hidden = true; }

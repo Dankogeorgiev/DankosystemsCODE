@@ -940,9 +940,10 @@ async function erpProduce(s) {
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
     + `\n\n📥 Като се отчете последната операция, готовите детайли влизат в Склад детайли. После натисни „🧾 Създай продажба", за да ги изпишеш с продажба.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
-    + (matShort.length ? `\n\n⚠ НЕДОСТИГ НА МАТЕРИАЛИ (изписани, складът е на минус):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
+    + (matShort.length ? `\n\n⚠ НЯМА ДА СТИГНЕ МАТЕРИАЛ (виж таб „⚠ Липсващи материали"):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяването НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
+  if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяваме таба, ако липсва материал
 }
 
 // Създава чернова Продажба от произведена нестандартна поръчка. Готовият детайл

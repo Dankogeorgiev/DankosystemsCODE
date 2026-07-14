@@ -579,9 +579,10 @@ async function erpCOProduce(o) {
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
-    + (matShort.length ? `\n\n⚠ НЕДОСТИГ НА МАТЕРИАЛИ (изписани, складът е на минус):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
+    + (matShort.length ? `\n\n⚠ НЯМА ДА СТИГНЕ МАТЕРИАЛ (виж таб „⚠ Липсващи материали"):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяване НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
+  if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяваме таба, ако липсва материал
   // Пре-рисуваме цялата форма, за да се появи бутонът „⬅ Изтегли от производство"
   // и проследяването (иначе остават скрити до повторно отваряне на заявката).
   erpRenderCOForm(o);

@@ -8,6 +8,43 @@
    за да е свежа наличността. Ползва erpView/ERP.matById/erpNum/escapeHtml/
    erpSelectAll; openMaterialsPlan от loading-plan.js. */
 
+// Осветява/гаси таба „Липсващи материали" според броя недостигащи (без звук).
+function erpSetMissingBadge(n) {
+  const btn = document.querySelector('.erp-tab[data-tab="missmat"]');
+  if (!btn) return;
+  btn.classList.toggle("erp-tab-alert", n > 0);
+  let badge = btn.querySelector(".erp-tab-badge");
+  if (n > 0) {
+    if (!badge) { badge = document.createElement("span"); badge.className = "erp-tab-badge"; btn.appendChild(badge); }
+    badge.textContent = n;
+  } else if (badge) { badge.remove(); }
+}
+
+// Брой материали, които няма да стигнат за пуснатите заявки (за индикатора).
+async function erpMissingMatCount() {
+  try {
+    if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded();
+    if (typeof erpRefreshMatStock === "function") await erpRefreshMatStock();
+    const tk = await erpSelectAll("tasks", "data", "data->source->>flow", "true");
+    const need = {};
+    (tk.data || []).forEach(r => {
+      const src = r.data && r.data.source;
+      if (!src || !Array.isArray(src.materials) || !src.materials.length) return;
+      const remaining = Math.max(0, (Number(r.data.qty) || 0) - (Number(r.data.produced) || 0));
+      if (remaining <= 0) return;
+      src.materials.forEach(mm => { const mid = Number(mm.mid) || 0; if (!mid) return; need[mid] = (need[mid] || 0) + (Number(mm.per) || 0) * remaining; });
+    });
+    let short = 0;
+    Object.keys(need).forEach(mid => { const m = ERP.matById[mid] || ERP.matById[Number(mid)] || {}; if (need[mid] - (Number(m.stock) || 0) > 1e-9) short++; });
+    return short;
+  } catch (e) { return 0; }
+}
+
+// Пресмята и осветява таба (за отваряне на ЕРП и след пускане на заявка).
+async function erpUpdateMissingBadge() {
+  try { erpSetMissingBadge(await erpMissingMatCount()); } catch (e) {}
+}
+
 async function erpRenderMissingMaterials() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Проверявам материалите за пуснатите заявки…</p>`;
@@ -57,6 +94,7 @@ async function erpRenderMissingMaterials() {
   });
   const short = list.filter(r => r.missing > 0).sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name, "bg"));
   const low = list.filter(r => r.missing <= 0 && r.min > 0 && r.stock < r.min).sort((a, b) => (a.stock - a.min) - (b.stock - b.min));
+  erpSetMissingBadge(short.length);   // осветяваме таба според недостига
 
   const ordersCell = r => r.orders.map(orderText).map(t => `<span class="mm-order">${escapeHtml(t)}</span>`).join(" ") || "—";
   const shortRow = r => `
