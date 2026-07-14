@@ -198,7 +198,7 @@ async function erpRenderSaleForm(o) {
       <button class="btn btn-small" id="sa-back">← Назад към продажбите</button>
       <span class="spacer"></span>
       <button class="btn btn-small" id="sa-print">🖨 Печат</button>
-      ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span>'
+      ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span> <button class="btn btn-small btn-danger" id="sa-unpost" title="Връща движенията в склада, за да осчетоводиш продажбата пак">↩ Отмени осчетоводяване</button>'
         : '<button class="btn btn-small" id="sa-save">💾 Запази</button><button class="btn btn-small btn-primary" id="sa-post">📤 Осчетоводи (изпиши от склада)</button>'}
     </div>
     <div class="erp-co-form">
@@ -262,8 +262,29 @@ async function erpRenderSaleForm(o) {
   }
   document.getElementById("sa-back").addEventListener("click", erpRenderSales);
   document.getElementById("sa-print").addEventListener("click", () => erpPrintSale(o));
+  const upBtn = document.getElementById("sa-unpost");
+  if (upBtn) upBtn.addEventListener("click", () => erpUnpostSale(o));
   erpSaWireLines(o, locked);
   erpSaTotals(o);
+}
+
+// Отменя осчетоводяване: връща движенията (материали + детайли) в склада по ref,
+// сваля „осчетоводена", за да може продажбата да се направи пак (напр. с правилен
+// „Вид" на редовете — готов детайл вместо суровини).
+async function erpUnpostSale(o) {
+  if (!o.posted) { alert("Продажбата не е осчетоводена."); return; }
+  if (!confirm(`Да отменя ли осчетоводяването на продажба №${o.saleNo || ""}?\n\nВсички движения от тази продажба ще се върнат (изписаните материали/детайли се възстановяват в склада), за да можеш да я осчетоводиш пак — напр. с Вид = готов детайл.`)) return;
+  const ref = `Продажба ${o.saleNo || "—"} · ${o.clientName || ""}`.trim();
+  const e1 = await sb.from("stock_movements").delete().eq("ref", ref);
+  if (e1.error) { alert("Грешка при връщане на материалите: " + e1.error.message); return; }
+  const e2 = await sb.from("product_movements").delete().eq("ref", ref);
+  if (e2.error) { alert("Грешка при връщане на детайлите: " + e2.error.message); return; }
+  o.posted = false; o.postedAt = null;
+  try { await erpSaveSale(o); } catch (e) { alert("⚠ Движенията са върнати, но статусът не се записа: " + (e.message || e)); }
+  try { await erpLoadAll(); } catch {}
+  try { await erpLoadSales(); } catch {}
+  alert("Осчетоводяването е отменено и складът е възстановен.\n\nСега смени Вид на реда на „готов детайл“ и натисни Осчетоводи пак.");
+  erpRenderSaleForm(o);
 }
 
 function erpSaLinesHtml(o, locked) {
