@@ -219,7 +219,8 @@ async function erpRenderCOForm(o) {
 
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
-        <button class="btn btn-small" id="co-test" title="Симулирай пускането — провери дали рецептите ще вървят правилно, преди да пуснеш">🧪 Тест рецепта</button>
+        <button class="btn btn-small" id="co-test" title="Провери маршрута — дали рецептите ще вървят правилно, преди да пуснеш">🧪 Тест рецепта</button>
+        <button class="btn btn-small" id="co-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
         <button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
         <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
@@ -252,6 +253,12 @@ async function erpRenderCOForm(o) {
     const items = (o.lines || []).filter(l => l.productId).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
     if (!items.length) { alert("Добави поне един продукт от каталога, за да тестваш рецептата."); return; }
     if (typeof erpTestRecipeMulti === "function") erpTestRecipeMulti(items, true, o.ourNo ? ("заявка №" + o.ourNo) : "");
+  });
+  const coSim = document.getElementById("co-sim");
+  if (coSim) coSim.addEventListener("click", () => {
+    const items = (o.lines || []).filter(l => l.productId).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
+    if (!items.length) { alert("Добави поне един продукт от каталога, за да симулираш."); return; }
+    if (typeof erpSimulateProduction === "function") erpSimulateProduction(items, { title: o.ourNo ? ("заявка №" + o.ourNo) : "", stockTop: true });
   });
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
   const wBtn = document.getElementById("co-withdraw");
