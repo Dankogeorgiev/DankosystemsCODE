@@ -240,6 +240,7 @@ async function dsFixClassification() {
    id (не по код), наличността „виси" на единия, а рецептата ползва другия → нетването
    при пускане в производство не ги засича. Тук ги обединяваме в един запис. */
 function dsCodeKey(p) { return String((p && p.code) || "").trim().toLowerCase(); }
+function dsNameKey(p) { return String((p && p.name) || "").trim().toLowerCase(); }
 // Ползва ли се продуктът като вложен детайл (child) и има ли собствена рецепта (parent)?
 function dsProductUsage(pid) {
   let asChild = 0;
@@ -247,15 +248,29 @@ function dsProductUsage(pid) {
   const asParent = (ERP.linesByProduct[pid] || []).length;
   return { asChild, asParent };
 }
+// Групи дубликати по КОД и по ИМЕ (понякога дублирането е на името, не на кода).
 function dsDuplicateGroups() {
-  const byCode = {};
-  (ERP.products || []).forEach(p => { const k = dsCodeKey(p); if (!k) return; (byCode[k] = byCode[k] || []).push(p); });
-  return Object.values(byCode).filter(arr => arr.length > 1);
+  const out = [], seen = new Set();
+  const collect = (keyFn, by) => {
+    const map = {};
+    (ERP.products || []).forEach(p => { const k = keyFn(p); if (!k) return; (map[k] = map[k] || []).push(p); });
+    Object.values(map).forEach(arr => {
+      if (arr.length < 2) return;
+      const sig = arr.map(p => p.id).sort((a, b) => a - b).join(",");
+      if (seen.has(sig)) return;   // не показвай един и същ набор два пъти
+      seen.add(sig);
+      out.push({ by, items: arr });
+    });
+  };
+  collect(dsCodeKey, "код");
+  collect(dsNameKey, "име");
+  return out;
 }
 
 function dsFindDuplicates() {
   const groups = dsDuplicateGroups();
-  const groupHtml = (arr, gi) => {
+  const groupHtml = (g, gi) => {
+    const arr = g.items;
     const rows = arr.map(p => {
       const u = dsProductUsage(p.id);
       const score = u.asChild * 2 + u.asParent * 2 + ((Number(p.stock) || 0) > 0 ? 1 : 0);
@@ -265,29 +280,31 @@ function dsFindDuplicates() {
     const bothRecipes = rows.filter(r => r.u.asParent > 0).length > 1;
     const body = rows.map(r => `<tr>
       <td><input type="radio" name="keep-${gi}" value="${r.p.id}" ${r.p.id === keeperId ? "checked" : ""} /></td>
+      <td>${escapeHtml(r.p.code || "")}</td>
       <td>${escapeHtml(r.p.name || "")} <span class="erp-muted">#${r.p.id}</span></td>
       <td class="num">${erpNum(Number(r.p.stock) || 0)}</td>
       <td>${r.p.is_semifinished ? "възел" : "артикул"}</td>
       <td class="num">${r.u.asChild}</td>
       <td>${r.u.asParent ? "да" : "—"}</td>
     </tr>`).join("");
+    const title = g.by === "код" ? `Код <b>${escapeHtml(arr[0].code || "")}</b>` : `Име <b>${escapeHtml(arr[0].name || "")}</b>`;
     return `<div class="ds-dupgroup">
-      <h4 style="margin:6px 0">Код <b>${escapeHtml(arr[0].code || "")}</b> — ${arr.length} записа</h4>
-      <table class="report-table erp-table"><thead><tr><th>Запази</th><th>Име</th><th class="num">Наличност</th><th>Тип</th><th class="num">Ползва се като детайл</th><th>Има рецепта</th></tr></thead><tbody>${body}</tbody></table>
+      <h4 style="margin:6px 0">${title} — ${arr.length} записа <span class="erp-muted">(дублиран ${g.by})</span></h4>
+      <table class="report-table erp-table"><thead><tr><th>Запази</th><th>Код</th><th>Име</th><th class="num">Наличност</th><th>Тип</th><th class="num">Като детайл</th><th>Рецепта</th></tr></thead><tbody>${body}</tbody></table>
       ${bothRecipes ? `<p class="erp-warn">⚠ Повече от един запис има собствена рецепта — обединяването ще ги слее. Провери внимателно преди да продължиш.</p>` : ""}
       <div style="text-align:right;margin:4px 0 2px"><button class="btn btn-small btn-primary ds-merge" data-gi="${gi}">🔗 Обедини в избрания</button></div>
     </div>`;
   };
   const { wrap, close } = erpDialog(`
-    <h3>🔗 Дублирани продукти по код</h3>
-    <p class="hint">Продукти с еднакъв код, заведени повече от веднъж (напр. наличността на единия, рецептата на другия). Избери кой запис да <b>остане</b> (по подразбиране — най-свързаният с рецепти) и натисни „Обедини". Наличността и рецептите на другите се прехвърлят към него, а дубликатите се изтриват.</p>
+    <h3>🔗 Дублирани продукти по код или име</h3>
+    <p class="hint">Продукти, заведени повече от веднъж с <b>еднакъв код ИЛИ еднакво име</b> (напр. наличността на единия, рецептата на другия — затова нетването не ги засича). Избери кой запис да <b>остане</b> (по подразбиране — най-свързаният с рецепти) и натисни „Обедини". Наличността, рецептите и връзките на другите се прехвърлят към него, а дубликатите се изтриват.</p>
     <div class="ds-dup-list" style="max-height:60vh;overflow:auto">${groups.length ? groups.map(groupHtml).join("<hr/>") : `<p class="erp-ready-ok">Няма дублирани кодове 👍</p>`}</div>
     <div class="erp-dialog-actions"><button class="btn" id="dd-close">Затвори</button></div>
     <p class="save-status" id="dd-status"></p>`);
   wrap.querySelector("#dd-close").addEventListener("click", close);
   wrap.querySelectorAll(".ds-merge").forEach(b => b.addEventListener("click", async () => {
     const gi = Number(b.dataset.gi);
-    const grp = groups[gi];
+    const grp = (groups[gi] && groups[gi].items) || [];
     const sel = wrap.querySelector(`input[name="keep-${gi}"]:checked`);
     if (!sel) { alert("Избери кой запис да остане."); return; }
     const keeperId = Number(sel.value);
