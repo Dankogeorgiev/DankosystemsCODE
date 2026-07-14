@@ -559,7 +559,7 @@ async function erpCOProduce(o) {
   if (res.error) { alert("Грешка при създаване на задачи: " + (res.error.message || res.error)); return; }
 
   const fs = res.fromStock || [];
-  o.production = { at: new Date().toISOString(), count: res.seriesCount || totalSteps, flow: true, external: external.length, fromStock: fs.length };
+  o.production = { at: new Date().toISOString(), count: (res.seriesCount != null ? res.seriesCount : totalSteps), flow: true, external: external.length, fromStock: fs.length };
   o.status = "в производство";
   // Записваме статуса надеждно (не го гълтаме тихо) — заявката трябва да остане
   // „в производство" без ръчна намеса.
@@ -569,6 +569,13 @@ async function erpCOProduce(o) {
   const st = document.getElementById("co-status"); if (st) st.value = "в производство";
   const miss = res.missing || [];
   const matShort = res.materialsShort || [];
+  if ((res.seriesCount === 0) && !miss.length) {
+    alert(`✅ Всичко е налично в Склад детайли — няма какво да се произвежда.\n`
+      + (fs.length ? `\n📦 Покрито от склад:\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") + `\n` : "")
+      + `\nЗаявката е готова за продажба — натисни „🧾 Създай продажба".`);
+    if (typeof erpRenderCOForm === "function") erpRenderCOForm(o);
+    return;
+  }
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
@@ -613,11 +620,14 @@ async function erpCOTracking(o) {
     ? `<div class="erp-prod-active">${active.map(a => `↳ <b>${escapeHtml(a.product || "")}</b> — ${escapeHtml(a.operation || "")} (цех ${escapeHtml(a.workshop || "")}): ${Number(a.produced) || 0}/${Number(a.qty) || 0}${(a.source && a.source.orderIds && a.source.orderIds.length >= 2) ? " · СЕРИЯ" : ""}`).join("<br>")}</div>`
     : (done ? `<div class="erp-prod-active">✓ всички операции са готови</div>` : "");
   const allDone = planned > 0 && done === planned;
+  const allFromStock = !planned && o.production && Number(o.production.count) === 0;
   box.innerHTML = planned
     ? `<div class="erp-prod-line"><b>Поточно производство:</b> ${done} / ${planned} операции готови (${pct}%)
          <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
          <button class="btn btn-small" id="co-refresh">↻</button></div>${activeHtml}`
        + (allDone ? `<div class="erp-prod-active" style="color:#047857">✅ Готовото е в Склад детайли (заприходява се автоматично при последната операция). Изпиши го с „🧾 Създай продажба".</div>` : "")
-    : `<p class="erp-muted">Няма задачи за тази заявка.</p>`;
+    : (allFromStock
+        ? `<div class="erp-prod-active" style="color:#047857"><b>✅ Всичко е налично в Склад детайли</b> — няма какво да се произвежда. Готово за продажба (🧾 Създай продажба).</div>`
+        : `<p class="erp-muted">Няма задачи за тази заявка.</p>`);
   const rb = document.getElementById("co-refresh"); if (rb) rb.addEventListener("click", () => erpCOTracking(o));
 }
