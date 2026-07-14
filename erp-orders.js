@@ -40,6 +40,7 @@ function erpRenderOrderPanel(s) {
           <button type="button" class="btn btn-small" id="erp-op-test" title="Провери маршрута — дали рецептата ще върви правилно, преди да пуснеш">🧪 Тест рецепта</button>
           <button type="button" class="btn btn-small" id="erp-op-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
           <button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>
+          ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-status" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-sale">🧾 Създай продажба</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small btn-danger" id="erp-op-withdraw">⬅ Изтегли от производство</button>' : ""}
         </div>
@@ -69,6 +70,10 @@ function erpRenderOrderPanel(s) {
   });
   const prodBtn = host.querySelector("#erp-op-produce");
   if (prodBtn) prodBtn.addEventListener("click", () => erpProduce(s));
+  const statusBtn = host.querySelector("#erp-op-status");
+  if (statusBtn) statusBtn.addEventListener("click", () => {
+    if (typeof erpOrderStatus === "function") erpOrderStatus(s.id, (s.erpProductCode || "") + " " + (s.erpProductName || ""));
+  });
   const saleBtn = host.querySelector("#erp-op-sale");
   if (saleBtn) saleBtn.addEventListener("click", () => erpSaleFromProduction(s));
   const wBtn = host.querySelector("#erp-op-withdraw");
