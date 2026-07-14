@@ -362,7 +362,11 @@ function erpFlowSteps(s, opts) {
   const route = op => (typeof erpEffectiveRoute === "function") ? erpEffectiveRoute(op) : { primary: op.workshop || "", alt: [] };
   // Суфикс на ключовете (за да не се смесва „производство за склад" с поръчковите серии).
   const sfx = (opts && opts.keySuffix) || "";
-  const toStockTop = !!(opts && opts.toStockTop);
+  const toStockTop = !!(opts && opts.toStockTop);   // готовият връх влиза в Склад детайли
+  // Дали да НЕ нетваме върха срещу склада. Само при „производство ЗА склад"
+  // (натрупваме нарочно). За ПОРЪЧКА върхът СЕ нетва — ако имаме готова/импортирана
+  // наличност, тя се използва, вместо да произвеждаме наново.
+  const noNetTop = !!(opts && opts.noNetTop);
   const nodes = [];      // { key, product, code, ops:[{operation,workshop,qty}], isTop }
   const nodeGate = {};   // node.key -> [seriesKey на директните части] — първата операция ги чака
   // walk връща { hasOps, make, outKeys }: outKeys = ключовете, чието завършване
@@ -370,11 +374,10 @@ function erpFlowSteps(s, opts) {
   // възел чака своите директни части, не само финалът).
   (function walk(pid, mult, anc, depth) {
     // Нетна потребност: колко от този детайл има на склад -> толкова не се прави.
-    // При „краен детайл за склад" (toStockTop) НЕ нетваме самия краен детайл (depth 0)
-    // спрямо склада — правим го наново за поръчката; иначе повторно пускане би се
-    // нетнало срещу собствената си предишна продукция. Подчастите (depth>0) се нетват.
+    // Върхът (depth 0) НЕ се нетва само при „производство ЗА склад" (noNetTop).
+    // При ПОРЪЧКА върхът се нетва като всичко друго — използваме готовата наличност.
     let make = mult;
-    if (stock && !(depth === 0 && toStockTop)) {
+    if (stock && !(depth === 0 && noNetTop)) {
       const have = Math.max(0, Number(stock[pid]) || 0);
       const use = Math.min(have, mult);
       if (use > 0) {
@@ -515,8 +518,8 @@ async function erpFlowApply(meta, productLines) {
     // stockTop: при обикновена заявка готовият краен детайл влиза в Склад детайли
     // (после се изписва с Продажба) — без да сменяме поръчковия режим на „за склад".
     const stepsOpts = toStock
-      ? { keySuffix: sfx, toStockTop: true }
-      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop }
+      ? { keySuffix: sfx, toStockTop: true, noNetTop: true }   // за склад: върхът НЕ се нетва (натрупваме)
+      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop }   // поръчка: върхът СЕ нетва спрямо готовата наличност
                  : (meta.stockTop ? { toStockTop: true } : undefined));
     const { steps, external, missing, materials } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
     Object.keys(materials || {}).forEach(mid => { matNeed[mid] = (Number(matNeed[mid]) || 0) + Number(materials[mid] || 0); });
@@ -856,7 +859,7 @@ async function erpProduceToStock(productId, qty) {
   const p = ERP.prodById[productId] || {};
   const q = erpToNum(qty) || 0;
   if (!(q > 0)) { alert("Въведи брой по-голям от 0."); return { error: true }; }
-  const pre = erpFlowSteps({ erpProductId: productId, erpQty: q }, { toStockTop: true });
+  const pre = erpFlowSteps({ erpProductId: productId, erpQty: q }, { toStockTop: true, noNetTop: true });
   if (!pre.steps.length) {
     alert((pre.missing && pre.missing.length)
       ? `Не мога да го пусна — липсват детайли без рецепта:\n` + pre.missing.map(m => `• ${m.code ? m.code + " " : ""}${m.name}`).join("\n")
