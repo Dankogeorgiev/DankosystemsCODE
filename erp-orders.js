@@ -649,7 +649,9 @@ function erpFlowAvailable(t, map) {
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (!src || !src.flow) return Math.max(0, qty - prod);
   if (Array.isArray(src.gate) && src.gate.length) {
-    const done = src.gate.every(k => { const g = map[k]; return g && g.qty > 0 && g.produced >= g.qty; });
+    // Готова е частта, която: няма серия (изцяло от склад), няма остатък за
+    // правене (qty<=0), или е напълно произведена. Само реален недостиг блокира.
+    const done = src.gate.every(k => { const g = map[k]; return !g || (Number(g.qty) || 0) <= 0 || (Number(g.produced) || 0) >= g.qty; });
     if (!done) return 0;
   }
   if (src.prevKey) {
@@ -661,6 +663,14 @@ function erpFlowAvailable(t, map) {
     return Math.max(0, (up ? up.produced : 0) - prod - brak);
   }
   return Math.max(0, qty - prod);
+}
+
+// Кои гейтни части реално още не са готови (за ясно съобщение „чака: …").
+function erpFlowGatePending(t, map) {
+  const src = t && t.source;
+  if (!src || !Array.isArray(src.gate)) return [];
+  return src.gate.filter(k => { const g = map[k]; return g && (Number(g.qty) || 0) > 0 && (Number(g.produced) || 0) < g.qty; })
+    .map(k => { const g = map[k]; const p = String(k).split("¦"); return { code: p[0] || "", operation: p[1] || "", produced: Number(g.produced) || 0, qty: Number(g.qty) || 0 }; });
 }
 
 // Заприходява готови детайли в Склад детайли (движение „заприходяване").
