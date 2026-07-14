@@ -98,6 +98,7 @@ async function erpRenderDetailStock() {
       <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip" multiple hidden />
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
       <button type="button" class="btn btn-small" id="ds-fixcls" title="Намира продукти, ползвани като части в рецепти, но маркирани като артикул — и ги оправя, за да влязат тук">🔧 Провери класификацията</button>
+      <button type="button" class="btn btn-small" id="ds-dedup" title="Открива продукти с еднакъв код, заведени два пъти (наличността на единия, рецептата на другия) — и ги обединява">🔗 Дублирани по код</button>
     </div>
     <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
       <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
@@ -122,6 +123,8 @@ async function erpRenderDetailStock() {
   if (dc) dc.addEventListener("click", dsCheckDrawings);
   const fc = document.getElementById("ds-fixcls");
   if (fc) fc.addEventListener("click", dsFixClassification);
+  const dd = document.getElementById("ds-dedup");
+  if (dd) dd.addEventListener("click", dsFindDuplicates);
   dsFillRows();
   if (q) q.focus();
   // Зареждаме кои имат чертежи и оцветяваме бутоните (без да чакаме за самата таблица).
@@ -229,6 +232,94 @@ async function dsFixClassification() {
     erpRenderDetailStock();
     alert(`Готово! ${done} продукта са маркирани като детайл/възел и вече ще се следят в Склад детайли.`);
   });
+}
+
+/* ---------- Обединяване на дублирани продукти по код ----------
+   Понякога един и същ детайл е заведен два пъти (напр. единият дошъл от импорта на
+   рецептата, другият създаден ръчно със склад). Тъй като всичко се свързва по вътрешен
+   id (не по код), наличността „виси" на единия, а рецептата ползва другия → нетването
+   при пускане в производство не ги засича. Тук ги обединяваме в един запис. */
+function dsCodeKey(p) { return String((p && p.code) || "").trim().toLowerCase(); }
+// Ползва ли се продуктът като вложен детайл (child) и има ли собствена рецепта (parent)?
+function dsProductUsage(pid) {
+  let asChild = 0;
+  (ERP.lines || []).forEach(l => { if (String(l.child_product_id) === String(pid)) asChild++; });
+  const asParent = (ERP.linesByProduct[pid] || []).length;
+  return { asChild, asParent };
+}
+function dsDuplicateGroups() {
+  const byCode = {};
+  (ERP.products || []).forEach(p => { const k = dsCodeKey(p); if (!k) return; (byCode[k] = byCode[k] || []).push(p); });
+  return Object.values(byCode).filter(arr => arr.length > 1);
+}
+
+function dsFindDuplicates() {
+  const groups = dsDuplicateGroups();
+  const groupHtml = (arr, gi) => {
+    const rows = arr.map(p => {
+      const u = dsProductUsage(p.id);
+      const score = u.asChild * 2 + u.asParent * 2 + ((Number(p.stock) || 0) > 0 ? 1 : 0);
+      return { p, u, score };
+    }).sort((a, b) => b.score - a.score);
+    const keeperId = rows[0].p.id;   // по подразбиране най-свързаният с рецепти
+    const bothRecipes = rows.filter(r => r.u.asParent > 0).length > 1;
+    const body = rows.map(r => `<tr>
+      <td><input type="radio" name="keep-${gi}" value="${r.p.id}" ${r.p.id === keeperId ? "checked" : ""} /></td>
+      <td>${escapeHtml(r.p.name || "")} <span class="erp-muted">#${r.p.id}</span></td>
+      <td class="num">${erpNum(Number(r.p.stock) || 0)}</td>
+      <td>${r.p.is_semifinished ? "възел" : "артикул"}</td>
+      <td class="num">${r.u.asChild}</td>
+      <td>${r.u.asParent ? "да" : "—"}</td>
+    </tr>`).join("");
+    return `<div class="ds-dupgroup">
+      <h4 style="margin:6px 0">Код <b>${escapeHtml(arr[0].code || "")}</b> — ${arr.length} записа</h4>
+      <table class="report-table erp-table"><thead><tr><th>Запази</th><th>Име</th><th class="num">Наличност</th><th>Тип</th><th class="num">Ползва се като детайл</th><th>Има рецепта</th></tr></thead><tbody>${body}</tbody></table>
+      ${bothRecipes ? `<p class="erp-warn">⚠ Повече от един запис има собствена рецепта — обединяването ще ги слее. Провери внимателно преди да продължиш.</p>` : ""}
+      <div style="text-align:right;margin:4px 0 2px"><button class="btn btn-small btn-primary ds-merge" data-gi="${gi}">🔗 Обедини в избрания</button></div>
+    </div>`;
+  };
+  const { wrap, close } = erpDialog(`
+    <h3>🔗 Дублирани продукти по код</h3>
+    <p class="hint">Продукти с еднакъв код, заведени повече от веднъж (напр. наличността на единия, рецептата на другия). Избери кой запис да <b>остане</b> (по подразбиране — най-свързаният с рецепти) и натисни „Обедини". Наличността и рецептите на другите се прехвърлят към него, а дубликатите се изтриват.</p>
+    <div class="ds-dup-list" style="max-height:60vh;overflow:auto">${groups.length ? groups.map(groupHtml).join("<hr/>") : `<p class="erp-ready-ok">Няма дублирани кодове 👍</p>`}</div>
+    <div class="erp-dialog-actions"><button class="btn" id="dd-close">Затвори</button></div>
+    <p class="save-status" id="dd-status"></p>`);
+  wrap.querySelector("#dd-close").addEventListener("click", close);
+  wrap.querySelectorAll(".ds-merge").forEach(b => b.addEventListener("click", async () => {
+    const gi = Number(b.dataset.gi);
+    const grp = groups[gi];
+    const sel = wrap.querySelector(`input[name="keep-${gi}"]:checked`);
+    if (!sel) { alert("Избери кой запис да остане."); return; }
+    const keeperId = Number(sel.value);
+    const dupIds = grp.filter(p => Number(p.id) !== keeperId).map(p => Number(p.id));
+    const keeper = grp.find(p => Number(p.id) === keeperId) || {};
+    if (!confirm(`Да обединя ли ${dupIds.length} дубликат(а) в „${keeper.code || ""} ${keeper.name || ""}" (#${keeperId})?\n\nНаличността и рецептите им се прехвърлят към този запис, а дубликатите се изтриват.`)) return;
+    b.disabled = true;
+    const st = wrap.querySelector("#dd-status"); if (st) st.textContent = "Обединявам…";
+    const res = await dsMergeInto(keeperId, dupIds);
+    if (res.error) { if (st) st.textContent = "⚠ " + res.error; b.disabled = false; return; }
+    await erpLoadAll();
+    close();
+    erpRenderDetailStock();
+    alert(`Готово! Обединени ${res.merged} записа в #${keeperId}.`
+      + (res.notDeleted ? `\n(${res.notDeleted} дубликата не можаха да се изтрият — останаха без наличност и без рецепта, безобидни.)` : ""));
+  }));
+}
+
+// Прехвърля наличност + рецепти (дете и родител) от дубликатите към keeper, после трие дубликатите.
+async function dsMergeInto(keeperId, dupIds) {
+  let merged = 0, notDeleted = 0;
+  for (const D of dupIds) {
+    let r = await sb.from("product_movements").update({ product_id: keeperId }).eq("product_id", D);
+    if (r.error) return { error: "движения: " + r.error.message };
+    r = await sb.from("recipe_lines").update({ child_product_id: keeperId }).eq("child_product_id", D);
+    if (r.error) return { error: "рецепти (вложен): " + r.error.message };
+    r = await sb.from("recipe_lines").update({ product_id: keeperId }).eq("product_id", D);
+    if (r.error) return { error: "рецепти (родител): " + r.error.message };
+    const del = await sb.from("products").delete().eq("id", D);
+    if (del.error) notDeleted++; else merged++;
+  }
+  return { merged, notDeleted };
 }
 
 // Индекс по код (веднъж), сортиран по дължина — за бързо и точно разпознаване.
