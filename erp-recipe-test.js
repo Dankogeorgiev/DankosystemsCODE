@@ -70,11 +70,12 @@ function erpRTNodeHtml(node) {
   const pad = `style="margin-left:${node.depth * 18}px"`;
   if (node.fullyStocked) {
     return `<div class="rt-node rt-stocked" ${pad}>
-      <div class="rt-head">${icon} <b>${escapeHtml(node.code)}</b> ${escapeHtml(node.name)}
+      <div class="rt-head">${icon} <b>${escapeHtml(node.code)}</b> ${escapeHtml(node.name)} <span class="rt-muted">#${node.pid}</span>
         <span class="rt-badge rt-badge-stock">✔ изцяло от склад (наличност ${erpNum(node.stock)})</span></div></div>`;
   }
-  const head = `<div class="rt-head">${icon} <b>${escapeHtml(node.code)}</b> ${escapeHtml(node.name)}
+  const head = `<div class="rt-head">${icon} <b>${escapeHtml(node.code)}</b> ${escapeHtml(node.name)} <span class="rt-muted">#${node.pid}</span>
     <span class="rt-qty">× ${erpNum(node.makeCount)}</span>
+    <span class="rt-muted">(налич. ${erpNum(node.stock)})</span>
     ${node.netFromStock > 0 ? `<span class="rt-badge rt-badge-stock">↧ ${erpNum(node.netFromStock)} от склад</span>` : ""}
     ${node.blocked ? `<span class="rt-badge rt-badge-bad">🚫 няма цех/рецепта — блокира сглобяването</span>
       <button type="button" class="btn btn-small rt-open" data-pid="${node.pid}">✎ рецепта</button>` : ""}</div>`;
