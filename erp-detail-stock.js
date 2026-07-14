@@ -99,6 +99,7 @@ async function erpRenderDetailStock() {
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
       <button type="button" class="btn btn-small" id="ds-fixcls" title="Намира продукти, ползвани като части в рецепти, но маркирани като артикул — и ги оправя, за да влязат тук">🔧 Провери класификацията</button>
       <button type="button" class="btn btn-small" id="ds-dedup" title="Открива продукти с еднакъв код, заведени два пъти (наличността на единия, рецептата на другия) — и ги обединява">🔗 Дублирани по код</button>
+      <button type="button" class="btn btn-small btn-danger" id="ds-reset" title="За тестване: връща склада ТОЧНО до внесената база — трие движенията от пускане/производство/продажба и поточните задачи. Внесените наличности НЕ се пипат.">🧪 Нулирай тестови движения</button>
     </div>
     <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
       <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
@@ -125,6 +126,8 @@ async function erpRenderDetailStock() {
   if (fc) fc.addEventListener("click", dsFixClassification);
   const dd = document.getElementById("ds-dedup");
   if (dd) dd.addEventListener("click", dsFindDuplicates);
+  const rs = document.getElementById("ds-reset");
+  if (rs) rs.addEventListener("click", dsResetTestMovements);
   dsFillRows();
   if (q) q.focus();
   // Зареждаме кои имат чертежи и оцветяваме бутоните (без да чакаме за самата таблица).
@@ -183,6 +186,75 @@ async function dsProduce(pid) {
   alert(`Пуснах ${erpNum(q)} бр. „${p.name}" по цеховете.\n`
     + `Щом минат последната операция, ще влязат автоматично в Склад детайли.`
     + (miss.length ? `\n\n⚠ Липсват детайли: ` + miss.map(m => m.code || m.name).join(", ") : ""));
+}
+
+/* ---------- Нулиране на тестовите движения (връща склада до внесената база) ----------
+   Всичко, което цикълът (пускане→производство→продажба) записва, е с ЕТИКЕТ:
+     product_movements:  order: / prod: / sale: / orderdone:
+     stock_movements:     order: / sale:
+   Внесената начална наличност е „корекция" БЕЗ етикет и покупките имат друг етикет,
+   затова триенето по тези етикети връща склада точно до внесеното, без да пипа базата.
+   За тестване: пусни заявка на живо → провери целия цикъл → нулирай → почни чисто. */
+async function dsResetTestMovements() {
+  const msg = "⚠ НУЛИРАНЕ НА ТЕСТОВИТЕ ДВИЖЕНИЯ\n\n"
+    + "Връща склада ТОЧНО до внесената база.\n\n"
+    + "ЩЕ СЕ ИЗТРИЯТ:\n"
+    + "• движенията от пускане/производство/продажба\n"
+    + "   (етикети order: / prod: / sale: / orderdone:)\n"
+    + "• всички поточни задачи по цеховете\n"
+    + "• флагът „в производство“ на заявките (стават чакащи)\n\n"
+    + "ЩЕ ОСТАНАТ НЕПОКЪТНАТИ:\n"
+    + "• внесените начални наличности (корекции без етикет)\n"
+    + "• материалният склад от покупки\n"
+    + "• рецепти, продукти, заявки (само флагът се маха)\n\n"
+    + "Продължавам?";
+  if (!confirm(msg)) return;
+  const typed = prompt("За потвърждение напиши с ГЛАВНИ букви:  НУЛИРАЙ");
+  if ((typed || "").trim() !== "НУЛИРАЙ") { alert("Отказано — текстът не съвпадна."); return; }
+
+  const log = [];
+  try {
+    // 1) Движения в Склад детайли (готово, нетване, продажби, ръчно заприходено).
+    for (const pfx of ["order:", "prod:", "sale:", "orderdone:"]) {
+      const { error } = await sb.from("product_movements").delete().like("ref", pfx + "%");
+      if (error) throw new Error("детайлни движения (" + pfx + "): " + error.message);
+    }
+    // 2) Материални движения от пускане и от продажби (покупките имат друг етикет).
+    for (const pfx of ["order:", "sale:"]) {
+      const { error } = await sb.from("stock_movements").delete().like("ref", pfx + "%");
+      if (error) throw new Error("материални движения (" + pfx + "): " + error.message);
+    }
+    // 3) Поточни задачи по цеховете.
+    const { error: tErr } = await sb.from("tasks").delete().eq("data->source->>flow", "true");
+    if (tErr) throw new Error("поточни задачи: " + tErr.message);
+    // 4) Флаг „в производство“ по заявките — за да станат отново чакащи.
+    for (const tbl of ["samples", "customer_orders"]) {
+      let rows = [];
+      try {
+        const { data, error } = await sb.from(tbl).select("id,data").not("data->production", "is", null);
+        if (error) throw error;
+        rows = data || [];
+      } catch (e) {
+        // Резервен вариант: изтегли всички и филтрирай локално.
+        const { data } = await sb.from(tbl).select("id,data");
+        rows = (data || []).filter(r => r && r.data && r.data.production);
+      }
+      for (const r of rows) {
+        const d = r.data || {}; delete d.production;
+        const { error } = await sb.from(tbl).update({ data: d, updated_at: new Date().toISOString() }).eq("id", r.id);
+        if (error) throw new Error(tbl + " флаг: " + error.message);
+      }
+      log.push(tbl + ": " + rows.length + " заявки върнати в чакащи");
+    }
+  } catch (e) {
+    alert("Грешка при нулиране: " + (e.message || e) + "\n\nНякои неща може да са изтрити частично — може да натиснеш нулиране пак.");
+    return;
+  }
+
+  try { await erpLoadAll(); } catch (e) {}
+  if (typeof erpRenderDetailStock === "function") erpRenderDetailStock();
+  alert("✅ Нулирано — складът е върнат до внесената база.\n" + log.join("\n")
+    + "\n\nПрезареди страницата (Ctrl+F5), за да се опреснят списъците със заявки.");
 }
 
 /* ---------- Поправка на класификацията (детайл/възел ↔ артикул) ----------
