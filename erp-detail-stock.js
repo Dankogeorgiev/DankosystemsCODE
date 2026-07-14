@@ -47,9 +47,21 @@ function dsShowInStock(p) {
   return dsIsDetail(p) || (Number(p.stock) || 0) !== 0;
 }
 
+// Опреснява наличностите на продуктите от v_product_stock (готовото, заприходено
+// от производствената дъска, не минава през ERP кеша — затова презареждаме тук).
+async function dsRefreshStock() {
+  try {
+    const { data, error } = await erpSelectAll("v_product_stock", "id,stock");
+    if (error) return;
+    const byId = {}; (data || []).forEach(r => { byId[r.id] = Number(r.stock) || 0; });
+    (ERP.products || []).forEach(p => { p.stock = byId[p.id] != null ? byId[p.id] : 0; });
+  } catch (e) { /* при грешка оставаме на кешираните стойности */ }
+}
+
 async function erpRenderDetailStock() {
   try { await erpEnsureLoaded(); }
   catch (e) { erpView().innerHTML = `<div class="erp-error"><h3>Грешка</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
+  await dsRefreshStock();   // винаги свежи наличности (готовото от цеха се вижда веднага)
 
   // Проверка дали складът за детайли е създаден.
   const probe = await sb.from("product_movements").select("id").limit(1);

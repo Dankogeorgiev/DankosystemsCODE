@@ -170,7 +170,9 @@ function erpNewSaleFromOrder(order) {
     const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(order.clientId, order.clientName, l.productId) : null;
     const name = (ple && ple.cname) ? ple.cname : (l.name || "");   // име при клиента за фактурата
     return {
-      itemKind: "product", refId: l.productId, code: l.code || "", name, ourName: l.ourName || l.name || "",
+      // Готовото изделие е в Склад детайли (заприходено при производството) —
+      // изписва се оттам, а НЕ по рецепта (иначе двойно броене на суровините).
+      itemKind: "product", writeoffKind: "detail", refId: l.productId, code: l.code || "", name, ourName: l.ourName || l.name || "",
       unit: "бр.", qty: erpToNum(l.qty) || 1, unitPrice: "",
     };
   });
@@ -397,6 +399,7 @@ async function erpPostSale(o) {
   if (o.posted) { alert("Вече е осчетоводена."); return; }
   if (!(o.lines || []).length) { alert("Добави поне един ред."); return; }
   try { await erpSaveSale(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
+  if (typeof dsRefreshStock === "function") await dsRefreshStock();   // свежи наличности на детайлите преди проверката „на минус"
 
   // Събираме нужното за изписване:
   //  • редове „готов детайл" (writeoffKind:"detail") — изписват СЕ директно от Склад
