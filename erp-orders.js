@@ -319,6 +319,29 @@ async function erpSaveDetailRoute(detailKey, workshop) {
   return error;
 }
 
+// Пряко вложените части на един възел, които СЕ ЗАПРИХОЖДАТ в Склад детайли
+// (имат собствена операция) — с бройка за 1 бр. родител. Прозрачните възли
+// (без своя операция) се „пробиват" до реалните детайли под тях. Ползва се при
+// сглобяване, за да се изпишат вложените части от Склад детайли.
+function erpDirectStockComponents(pid, anc) {
+  anc = anc || new Set([pid]);
+  const out = [];
+  (ERP.linesByProduct[pid] || []).forEach(l => {
+    if (!l.child_product_id || anc.has(l.child_product_id)) return;
+    const per = Number(l.quantity) || 1;
+    const childHasOp = (ERP.linesByProduct[l.child_product_id] || []).some(x => x.operation_id);
+    if (childHasOp) {
+      out.push({ pid: l.child_product_id, per });
+    } else {
+      erpDirectStockComponents(l.child_product_id, new Set([...anc, l.child_product_id]))
+        .forEach(g => out.push({ pid: g.pid, per: (Number(g.per) || 0) * per }));
+    }
+  });
+  const byPid = {};
+  out.forEach(g => { byPid[g.pid] = (byPid[g.pid] || 0) + (Number(g.per) || 0); });
+  return Object.keys(byPid).map(k => ({ pid: Number(k), per: byPid[k] }));
+}
+
 function erpFlowSteps(s, opts) {
   const qty = erpToNum(s.erpQty) || 1;
   const steps = [], external = [], missing = [], materials = {};   // materials: material_id -> нужно к-во
@@ -413,12 +436,22 @@ function erpFlowSteps(s, opts) {
       gateIdx = n.ops.findIndex(o => erpIsAssemblyOp(o.operation));
       if (gateIdx < 0) gateIdx = lastIdx;
     }
+    // Вложените части, които се ЗАПРИХОЖДАТ в склада (включително изцяло от склад,
+    // затова е от рецептата, не от gate) — изписват се от Склад детайли на
+    // сглобяващата операция (или на последната, ако няма явна сглобяваща).
+    const stockComps = erpDirectStockComponents(n.pid);
+    let consumeIdx = -1;
+    if (stockComps.length) {
+      consumeIdx = n.ops.findIndex(o => erpIsAssemblyOp(o.operation));
+      if (consumeIdx < 0) consumeIdx = lastIdx;
+    }
     n.ops.forEach((op, i) => {
       steps.push({
         product: n.product, code: n.code, operation: op.operation, workshop: op.workshop, qty: op.qty,
         seriesKey: n.key + "¦" + op.operation + sfx,
         prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation + sfx) : null,
         gate: (i === gateIdx && gate && gate.length) ? gate.slice() : null,
+        consumes: (i === consumeIdx && stockComps.length) ? stockComps.slice() : null,
         step: i, role: n.isTop ? "final" : "part",
         pid: n.pid, last: i === lastIdx, toStock: n.isTop && toStockTop,
       });
@@ -495,19 +528,19 @@ async function erpFlowApply(meta, productLines) {
     } catch (e) { /* без чертежи, ако колоната липсва */ }
   }
 
-  // 1б) Записваме изписването от склада за взетите детайли (идемпотентно по ref).
+  // 1б) Наличните детайли НЕ се пускат в цех (само намаляват производството).
+  //     ВЕЧЕ НЕ ги изписваме тук — изписването става при СГЛОБЯВАНЕ на родителя
+  //     (erpFlowConsume), за да не се брои двойно. Тук само чистим стари order:
+  //     движения (от предишния модел) и градим списъка „взето от склад" за съобщение.
   const fromStock = [];
   if (stockOn) {
-    await sb.from("product_movements").delete().eq("ref", ref);
-    const rows = [];
+    try { await sb.from("product_movements").delete().eq("ref", ref); } catch (e) {}   // стар модел — чистим
     Object.keys(consumed).forEach(pid => {
       const qtyUsed = Number(consumed[pid]) || 0;
       if (qtyUsed <= 0) return;
       const p = ERP.prodById[pid] || {};
       fromStock.push({ code: p.code || "", name: p.name || "", qty: qtyUsed });
-      rows.push({ product_id: Number(pid), kind: "изписване", quantity: -qtyUsed, ref, note: "Взето от склад за заявка №" + (meta.orderNo || sid) });
     });
-    if (rows.length) { const { error } = await sb.from("product_movements").insert(rows); if (error) return { error }; }
   }
 
   // 1в) Изписване на МАТЕРИАЛИТЕ, вложени в реалното (нето) производство.
@@ -558,9 +591,10 @@ async function erpFlowApply(meta, productLines) {
         qty: 0, produced: 0, due: "", thickness: "", files: [], logs: [],
         source: {
           kind: "series", flow: true, seriesKey: k, prevKey: st.prevKey || null, gate: st.gate || null,
+          consumes: st.consumes || null,
           step: st.step, role: st.role || "part", code: st.code, product: st.product,
           orders: [], orderIds: [], sampleType: meta.sampleType || "order",
-          pid: st.pid, last: !!st.last, toStock: !!st.toStock, stock: toStock, stocked: 0,
+          pid: st.pid, last: !!st.last, toStock: !!st.toStock, stock: toStock, stocked: 0, consumedUnits: 0,
         },
       } };
       bySeries[k] = r;
@@ -571,6 +605,7 @@ async function erpFlowApply(meta, productLines) {
     // отразяват, а произведеното/логовете/цехът се запазват.
     src.prevKey = st.prevKey || null;
     src.gate = st.gate || null;
+    src.consumes = st.consumes || null;
     src.step = st.step;
     src.role = st.role || src.role || "part";
     src.last = !!st.last;
@@ -708,20 +743,41 @@ async function erpStockCredit(pid, qty, note, ref) {
   } catch (e) { console.error("stock credit", e); }
 }
 
-// След отчитане на последната операция на детайл — вкарва готовите бройки в
-// Склад детайли. При „производство за склад" влиза всичкото произведено; при
-// поръчка — само свръхпроизводството (над нужното). Идемпотентно чрез
+// След отчитане на ПОСЛЕДНАТА операция на детайл/възел — вкарва ВСИЧКОТО
+// произведено в Склад детайли (не се заключва към заявка). Изписва се после при
+// сглобяване на родителя (erpFlowConsume) или при Продажба. Идемпотентно чрез
 // source.stocked (заприходяваме само новата разлика).
 async function erpFlowStockIn(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.last || !src.pid) return;
-  const produced = Number(t.produced) || 0, qty = Number(t.qty) || 0;
-  const desired = src.toStock ? produced : Math.max(0, produced - qty);
+  const produced = Number(t.produced) || 0;
   const stocked = Number(src.stocked) || 0;
-  const delta = desired - stocked;
+  const delta = produced - stocked;
   if (delta <= 0) return;
-  await erpStockCredit(src.pid, delta, (src.toStock ? "Производство за склад" : "Свръхпроизводство") + " · " + (t.code || t.product || ""), "prod:" + t.id);
-  src.stocked = desired;
+  await erpStockCredit(src.pid, delta, "Производство · " + (t.code || t.product || ""), "prod:" + t.id);
+  src.stocked = produced;
+  if (typeof tSaveTask === "function") await tSaveTask(t);
+}
+
+// При отчитане на СГЛОБЯВАЩАТА операция — изписва вложените части от Склад
+// детайли (толкова, колкото сглобени бройки × бройка за 1 родител). Така
+// произведените части не се трупат: влизат при производство, излизат при
+// сглобяване. Идемпотентно чрез source.consumedUnits (изписваме само делтата).
+async function erpFlowConsume(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !Array.isArray(src.consumes) || !src.consumes.length) return;
+  const produced = Number(t.produced) || 0;
+  const done = Number(src.consumedUnits) || 0;
+  const delta = produced - done;
+  if (delta <= 0) return;
+  const rows = [];
+  src.consumes.forEach(c => {
+    const pid = Number(c && c.pid) || 0;
+    const use = (Number(c && c.per) || 0) * delta;
+    if (pid && use > 0) rows.push({ product_id: pid, kind: "изписване", quantity: -use, ref: "consume:" + t.id, note: "Вложен в " + (t.code || t.product || "") });
+  });
+  if (rows.length) { try { await sb.from("product_movements").insert(rows); } catch (e) { console.error("consume", e); } }
+  src.consumedUnits = produced;
   if (typeof tSaveTask === "function") await tSaveTask(t);
 }
 

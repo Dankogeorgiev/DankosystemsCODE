@@ -994,8 +994,10 @@ async function logProduction(t, qtyVal, extra) {
   await tSaveTask(t);
   // Последователно производство: ако задачата стана готова — пусни следващата операция.
   if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
-  // Заприходяване в Склад детайли (последна операция: за склад / свръхпроизводство).
+  // Заприходяване в Склад детайли (последна операция: всичкото произведено).
   if (typeof erpFlowStockIn === "function") { try { await erpFlowStockIn(t); } catch (e) { console.error("stock-in", e); } }
+  // Изписване на вложените части при сглобяване (толкова, колкото сглобени).
+  if (typeof erpFlowConsume === "function") { try { await erpFlowConsume(t); } catch (e) { console.error("consume", e); } }
   renderTasks();
 }
 
