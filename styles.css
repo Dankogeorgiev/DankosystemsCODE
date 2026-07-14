@@ -1045,6 +1045,28 @@ tr.times-click:hover td { background: #ecfdf5; }
 .sim-col table { font-size: .84rem; }
 .sim-top-row { background: #eff6ff; }
 .sim-top-row td { font-weight: 600; }
+/* Статус на поръчката (на живо) */
+.ost-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; font-size: .95rem; }
+.ost-summary .erp-prodbar { flex: 0 0 160px; }
+.ost-block { margin: 4px 0 8px; }
+.ost-bl { font-size: .87rem; padding: 2px 0; }
+.ost-details { display: flex; flex-direction: column; gap: 8px; }
+.ost-detail { border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px 10px; background: #fafafa; }
+.ost-detail-h { font-weight: 600; margin-bottom: 4px; }
+.ost-stocked { color: #047857; font-weight: 700; font-size: .82rem; margin-left: 6px; }
+.ost-op { display: grid; grid-template-columns: 20px 1.4fr 1fr auto 2fr; gap: 8px; align-items: baseline; font-size: .85rem; padding: 2px 0; border-top: 1px dashed #eee; }
+.ost-op:first-of-type { border-top: 0; }
+.ost-op-name { font-weight: 600; }
+.ost-op-ws { color: #6b7280; }
+.ost-op-qty { font-variant-numeric: tabular-nums; color: #374151; }
+.ost-op-st { color: #6b7280; }
+.ost-op.ost-done .ost-op-st { color: #047857; }
+.ost-op.ost-done { opacity: .75; }
+.ost-op.ost-ready .ost-op-st { color: #047857; font-weight: 600; }
+.ost-op.ost-prog .ost-op-st { color: #1d4ed8; font-weight: 600; }
+.ost-op.ost-mat .ost-op-st { color: #b3261e; font-weight: 700; }
+.ost-op.ost-parts .ost-op-st { color: #b45309; font-weight: 600; }
+@media (max-width: 640px) { .ost-op { grid-template-columns: 20px 1fr auto; } .ost-op-ws, .ost-op-st { grid-column: 2 / -1; } }
 .rt-node { padding: 4px 0; }
 .rt-head { font-size: .98rem; }
 .rt-qty { color: #6b7280; font-size: .9rem; }
