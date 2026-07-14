@@ -215,14 +215,14 @@ async function dsResetTestMovements() {
   const log = [];
   try {
     // 1) Движения в Склад детайли (готово, нетване, влагане при сглобяване,
-    //    продажби, ръчно заприходено).
-    for (const pfx of ["order:", "prod:", "consume:", "sale:", "orderdone:"]) {
+    //    продажби, ръчно заприходено). Продажбите пишат ref „Продажба <№> · <клиент>".
+    for (const pfx of ["order:", "prod:", "consume:", "sale:", "orderdone:", "Продажба "]) {
       const { error } = await sb.from("product_movements").delete().like("ref", pfx + "%");
       if (error) throw new Error("детайлни движения (" + pfx + "): " + error.message);
     }
     // 2) Материални движения от пускане, от рязане и от продажби (покупките имат
     //    друг етикет и остават).
-    for (const pfx of ["order:", "matprod:", "sale:"]) {
+    for (const pfx of ["order:", "matprod:", "sale:", "Продажба "]) {
       const { error } = await sb.from("stock_movements").delete().like("ref", pfx + "%");
       if (error) throw new Error("материални движения (" + pfx + "): " + error.message);
     }

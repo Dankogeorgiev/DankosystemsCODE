@@ -676,7 +676,14 @@ async function erpFlowRemoveOrder(sampleId) {
     if (idx < 0) continue;
     d.qty = Math.max(0, (Number(d.qty) || 0) - (Number(orders[idx].qty) || 0));
     orders.splice(idx, 1);
-    if (!orders.length) { await sb.from("tasks").delete().eq("id", r.id); continue; }
+    if (!orders.length) {
+      await sb.from("tasks").delete().eq("id", r.id);
+      // Изтриваме и движенията, породени от тази задача — иначе остават „фантомни"
+      // готови детайли/материали и повторното пускане ги удвоява.
+      try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
+      try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
+      continue;
+    }
     src.orders = orders; src.orderIds = orders.map(o => String(o.id));
     d.client = orders.length >= 2 ? "" : (orders[0].client || "");
     d.due = orders.length >= 2 ? "" : (orders[0].due || "");
