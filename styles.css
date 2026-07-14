@@ -1067,6 +1067,23 @@ tr.times-click:hover td { background: #ecfdf5; }
 .ost-op.ost-mat .ost-op-st { color: #b3261e; font-weight: 700; }
 .ost-op.ost-parts .ost-op-st { color: #b45309; font-weight: 600; }
 @media (max-width: 640px) { .ost-op { grid-template-columns: 20px 1fr auto; } .ost-op-ws, .ost-op-st { grid-column: 2 / -1; } }
+/* Поръчки в производство */
+.oip-list { display: flex; flex-direction: column; gap: 6px; }
+.oip-order { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+.oip-head { width: 100%; text-align: left; background: #f8fafc; border: 0; padding: 8px 10px; cursor: pointer; font: inherit; display: flex; align-items: center; gap: 8px; }
+.oip-head:hover { background: #eef2f7; }
+.oip-toggle { color: #6b7280; }
+.oip-prog { margin-left: auto; color: #6b7280; font-size: .85rem; }
+.oip-body { padding: 6px 10px 8px; }
+.oip-detail { padding: 4px 0; border-top: 1px dashed #eee; }
+.oip-detail:first-child { border-top: 0; }
+.oip-detail-h { font-weight: 600; font-size: .88rem; margin-bottom: 3px; }
+.oip-ops { display: flex; flex-wrap: wrap; gap: 6px; }
+.oip-op { font-size: .8rem; border-radius: 6px; padding: 1px 7px; background: #f1f5f9; color: #334155; }
+.oip-op.ost-done { background: #ecfdf5; color: #047857; }
+.oip-op.ost-ready { background: #ecfdf5; color: #047857; font-weight: 600; }
+.oip-op.ost-prog { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+.oip-op.ost-prev { background: #fff7ed; color: #b45309; }
 .rt-node { padding: 4px 0; }
 .rt-head { font-size: .98rem; }
 .rt-qty { color: #6b7280; font-size: .9rem; }
