@@ -41,8 +41,9 @@ async function erpSimulateProduction(lines, opts) {
     const res = erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty },
       { stock: availDetails, consumed, toStockTop: !!opts.stockTop });
     (res.steps || []).forEach(st => {
-      const cur = mine[st.seriesKey] || (mine[st.seriesKey] = { qty: 0, st });
+      const cur = mine[st.seriesKey] || (mine[st.seriesKey] = { qty: 0, make: 0, st });
       cur.qty += st.qty;
+      cur.make += (Number(st.make) || 0);   // сумираме бройката и при споделен детайл между линии
     });
     (res.missing || []).forEach(m => {
       const k = m.code || m.name; const c = missingMap[k] || (missingMap[k] = { code: m.code, name: m.name, qty: 0 });
@@ -66,7 +67,7 @@ async function erpSimulateProduction(lines, opts) {
     series[k] = {
       key: k, qty: mine[k].qty, produced: 0,
       code: st.code, product: st.product, operation: st.operation, workshop: st.workshop,
-      step: st.step, last: !!st.last, role: st.role, pid: st.pid, make: st.make,
+      step: st.step, last: !!st.last, role: st.role, pid: st.pid, make: mine[k].make,
       source: { flow: true, seriesKey: k, prevKey: st.prevKey || null, gate: st.gate || null, materials: st.materials || null, pid: st.pid, last: !!st.last },
     };
   });
