@@ -228,6 +228,7 @@ function erpSetTab(tab) {
     case "requirements": erpRenderRequirements(); break;
     case "operations":   erpRenderOperations(); break;
     case "customer":     erpRenderCustomerOrders(); break;
+    case "archive":      erpRenderArchive(); break;
     case "pricelists":   erpRenderPriceLists(); break;
     case "sales":        erpRenderSales(); break;
     case "finance":
