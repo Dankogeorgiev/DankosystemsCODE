@@ -457,12 +457,40 @@ async function erpPostSale(o) {
 
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSaveSale(o); } catch {}
+  // Заявката, от която е продажбата, се приключва автоматично (изчезва от активния списък).
+  let closedNote = "";
+  if (o.fromOrderId) { try { closedNote = await erpMarkOrderDone(o.fromOrderId); } catch (e) {} }
   await erpLoadAll();       // опреснява наличности в кеша
   await erpLoadSales();
   alert(`Готово! Осчетоводена продажба №${o.saleNo}.`
     + (dids.length ? `\nИзписани ${dids.length} готови детайла от Склад детайли.` : "")
-    + (mids.length ? `\nИзписани ${mids.length} материала от склад материали.` : ""));
+    + (mids.length ? `\nИзписани ${mids.length} материала от склад материали.` : "")
+    + closedNote);
   erpRenderSaleForm(o);
+}
+
+// Приключва заявката (клиентска заявка или мостра/поръчка), от която е направена
+// продажбата — тя изчезва от активния списък. Обратимо (статусът се сменя).
+async function erpMarkOrderDone(orderId) {
+  if (!orderId) return "";
+  try {
+    const co = await sb.from("customer_orders").select("id,data").eq("id", orderId).maybeSingle();
+    if (co && co.data) {
+      const d = co.data.data || {}; d.status = "завършена"; d.closedAt = new Date().toISOString();
+      await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", orderId);
+      if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) it.status = "завършена"; }
+      return `\n\n✅ Заявка №${d.ourNo || ""} е приключена (скрита от активния списък).`;
+    }
+  } catch (e) {}
+  try {
+    const sm = await sb.from("samples").select("id,data").eq("id", orderId).maybeSingle();
+    if (sm && sm.data) {
+      const d = sm.data.data || {}; d.completed = true;
+      await sb.from("samples").update({ data: d, completed: true, updated_at: new Date().toISOString() }).eq("id", orderId);
+      return `\n\n✅ Поръчката е отбелязана като завършена.`;
+    }
+  } catch (e) {}
+  return "";
 }
 
 /* ---------- Печат на документа „Продажба" ---------- */
