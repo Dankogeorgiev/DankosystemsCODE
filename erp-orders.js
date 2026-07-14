@@ -416,7 +416,7 @@ function erpFlowSteps(s, opts) {
     });
     if (ops.length) {
       const mats = Object.keys(nodeMats).map(mid => ({ mid: Number(mid), per: nodeMats[mid] }));
-      nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0, mats });
+      nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0, mats, make });
       // Първата операция на този възел чака директните му части (с нужните бройки).
       if (childOutKeys.length) {
         const byKey = {};
@@ -464,7 +464,7 @@ function erpFlowSteps(s, opts) {
         gate: (i === gateIdx && gate && gate.length) ? gate.slice() : null,
         consumes: (i === consumeIdx && stockComps.length) ? stockComps.slice() : null,
         materials: (i === 0 && n.mats && n.mats.length) ? n.mats.slice() : null,   // материалът се влага на първата операция (рязане)
-        step: i, role: n.isTop ? "final" : "part",
+        step: i, role: n.isTop ? "final" : "part", make: n.make,
         pid: n.pid, last: i === lastIdx, toStock: n.isTop && toStockTop,
       });
     });
