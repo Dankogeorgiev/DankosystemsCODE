@@ -66,10 +66,28 @@ async function erpSimulateProduction(lines, opts) {
     series[k] = {
       key: k, qty: mine[k].qty, produced: 0,
       code: st.code, product: st.product, operation: st.operation, workshop: st.workshop,
-      step: st.step, last: !!st.last, role: st.role,
+      step: st.step, last: !!st.last, role: st.role, pid: st.pid, make: st.make,
       source: { flow: true, seriesKey: k, prevKey: st.prevKey || null, gate: st.gate || null, materials: st.materials || null, pid: st.pid, last: !!st.last },
     };
   });
+
+  // Какво взема от Склад детайли (готова наличност — не се пуска в цех).
+  const fromStock = Object.keys(consumed).map(pid => {
+    const p = ERP.prodById[pid] || {};
+    return { code: p.code || "", name: p.name || "", qty: Number(consumed[pid]) || 0, unit: p.unit || "бр." };
+  }).filter(x => x.qty > 0).sort((a, b) => b.qty - a.qty);
+
+  // Какво пуска в производство (нето — по детайл/възел, бройка за правене).
+  const prodByPid = {};
+  keys.forEach(k => {
+    const t = series[k];
+    const g = prodByPid[t.pid] || (prodByPid[t.pid] = { code: t.code, name: t.product, make: Number(t.make) || 0, ops: [], isTop: t.role === "final" });
+    if (t.operation) g.ops.push({ operation: t.operation, workshop: t.workshop, step: t.step });
+  });
+  const produceList = Object.values(prodByPid).map(g => {
+    g.ops.sort((a, b) => (a.step || 0) - (b.step || 0));
+    return g;
+  }).sort((a, b) => (b.isTop ? 1 : 0) - (a.isTop ? 1 : 0) || String(a.name).localeCompare(String(b.name), "bg"));
 
   // 3) Наличности на материалите — копие.
   const matStock = {};
@@ -159,7 +177,7 @@ async function erpSimulateProduction(lines, opts) {
 
   erpSimShow({
     title: opts.title || "", waves, stalls, missing: Object.values(missingMap), external: Object.values(externalMap),
-    orderedTop, producedTop, topQty, buyList, seriesCount: keys.length,
+    orderedTop, producedTop, topQty, buyList, seriesCount: keys.length, fromStock, produceList,
   });
 }
 
@@ -203,6 +221,23 @@ function erpSimShow(r) {
         ${otherStalls.length ? `<div class="sim-block"><b>Друго:</b>${stallHtml(otherStalls)}</div>` : ""}
         ${r.external.length ? `<div class="sim-block"><b>Външни услуги (подизпълнител):</b> ${r.external.map(e => escapeHtml((e.product || "") + " · " + (e.op || ""))).join("; ")}</div>` : ""}
       ` : `<div class="rt-verdict rt-verdict-ok" style="margin-top:8px">Няма спирачки — потокът минава чисто.</div>`}
+
+      <div class="sim-cols">
+        <div class="sim-col">
+          <h4 style="margin:14px 0 6px">📦 Взема от Склад детайли <span class="rt-muted">(готово — не влиза в цех)</span></h4>
+          ${r.fromStock.length
+            ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Детайл</th><th class="num">Бройка</th></tr></thead>
+               <tbody>${r.fromStock.map(s => `<tr><td>${escapeHtml(s.code)}</td><td>${escapeHtml(s.name)}</td><td class="num"><b>${simNum(s.qty)}</b> ${escapeHtml(s.unit)}</td></tr>`).join("")}</tbody></table>`
+            : `<p class="rt-muted" style="margin:2px 0">Нищо — няма готова наличност за нетване.</p>`}
+        </div>
+        <div class="sim-col">
+          <h4 style="margin:14px 0 6px">🏭 Пуска в производство <span class="rt-muted">(нето, по детайл)</span></h4>
+          ${r.produceList.length
+            ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Детайл/възел</th><th class="num">Бройка</th><th>Операции</th></tr></thead>
+               <tbody>${r.produceList.map(p => `<tr${p.isTop ? ` class="sim-top-row"` : ""}><td>${escapeHtml(p.code)}${p.isTop ? " 🏁" : ""}</td><td>${escapeHtml(p.name)}</td><td class="num"><b>${simNum(p.make)}</b></td><td class="rt-muted">${p.ops.map(o => escapeHtml(o.operation) + (o.workshop ? " → " + escapeHtml(o.workshop) : "")).join(" · ")}</td></tr>`).join("")}</tbody></table>`
+            : `<p class="rt-muted" style="margin:2px 0">Нищо за пускане.</p>`}
+        </div>
+      </div>
 
       ${r.buyList.length ? `
         <h4 style="margin:14px 0 6px">🛒 Трябва да се купи материал</h4>

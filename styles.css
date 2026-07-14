@@ -1039,6 +1039,11 @@ tr.times-click:hover td { background: #ecfdf5; }
 .sim-wave-ws { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; }
 .sim-ws { font-weight: 700; font-size: .85rem; color: #1f2937; margin-right: 4px; }
 .sim-op { display: inline-block; font-size: .82rem; background: #eef2ff; color: #3730a3; border-radius: 6px; padding: 1px 7px; }
+.sim-cols { display: flex; flex-wrap: wrap; gap: 14px; }
+.sim-col { flex: 1 1 320px; min-width: 280px; }
+.sim-col table { font-size: .84rem; }
+.sim-top-row { background: #eff6ff; }
+.sim-top-row td { font-weight: 600; }
 .rt-node { padding: 4px 0; }
 .rt-head { font-size: .98rem; }
 .rt-qty { color: #6b7280; font-size: .9rem; }
