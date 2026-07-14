@@ -224,6 +224,75 @@ function taskClients(t) {
   return [...set];
 }
 
+// Прозорец „Поръчки в производство" — за ВСИЧКИ (чете от задачите, без ЕРП).
+// Показва пуснатите поръчки (с незавършени задачи) и детайлите на всяка.
+function openOrdersInProduction() {
+  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
+  const orders = {};
+  TASKS.forEach(t => {
+    const src = t.source;
+    if (!src || !src.flow) return;
+    const os = (Array.isArray(src.orders) && src.orders.length) ? src.orders : [{ id: src.seriesKey, no: "", client: t.client || "" }];
+    os.forEach(o => {
+      const id = String(o.id);
+      const e = orders[id] || (orders[id] = { id, no: o.no || "", client: o.client || "", tasks: [] });
+      if (!e.no && o.no) e.no = o.no;
+      if (!e.client && o.client) e.client = o.client;
+      e.tasks.push(t);
+    });
+  });
+  const isDone = t => { const q = Number(t.qty) || 0, p = Number(t.produced) || 0; return q > 0 && p >= q; };
+  let list = Object.values(orders).map(o => {
+    const total = o.tasks.length, done = o.tasks.filter(isDone).length;
+    return Object.assign(o, { total, done, active: done < total });
+  }).filter(o => o.active);   // в производство = има още незавършени операции
+  list.sort((a, b) => String(a.no || "").localeCompare(String(b.no || ""), "bg", { numeric: true }) || String(a.client || "").localeCompare(String(b.client || ""), "bg"));
+
+  const opState = t => {
+    const q = Number(t.qty) || 0, p = Number(t.produced) || 0;
+    if (q > 0 && p >= q) return { ic: "✅", cls: "ost-done" };
+    const av = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : (q - p);
+    if (av > 0) return p > 0 ? { ic: "🔵", cls: "ost-prog" } : { ic: "🟢", cls: "ost-ready" };
+    return { ic: "⏳", cls: "ost-prev" };
+  };
+  const detailsHtml = o => {
+    const byCode = {};
+    o.tasks.forEach(t => { const k = t.code || t.product || "?"; (byCode[k] = byCode[k] || { code: t.code || "", product: t.product || "", ops: [] }).ops.push(t); });
+    return Object.values(byCode).map(g => {
+      g.ops.sort((a, b) => ((a.source && a.source.step) || 0) - ((b.source && b.source.step) || 0));
+      const stocked = (function () { const lt = g.ops.find(t => t.source && t.source.last); return lt ? (Number(lt.source.stocked) || 0) : 0; })();
+      return `<div class="oip-detail"><div class="oip-detail-h">🔩 <b>${escapeHtml(g.code)}</b> ${escapeHtml(g.product)}${stocked > 0 ? ` <span class="ost-stocked">📥 в склада: ${stocked}</span>` : ""}</div>
+        <div class="oip-ops">${g.ops.map(t => { const s = opState(t); return `<span class="oip-op ${s.cls}">${s.ic} ${escapeHtml(t.operation || "")} ${Number(t.produced) || 0}/${Number(t.qty) || 0}${t.workshop ? " · " + escapeHtml(t.workshop) : ""}</span>`; }).join("")}</div></div>`;
+    }).join("");
+  };
+
+  const html = `<div class="sim-dialog oip-dialog">
+    <h3>📋 Поръчки в производство (${list.length})</h3>
+    <p class="hint">Пуснатите поръчки с още незавършени операции. Натисни поръчка, за да видиш детайлите ѝ и докъде са стигнали.</p>
+    <div class="oip-list">${list.map(o => `
+      <div class="oip-order">
+        <button type="button" class="oip-head" data-oid="${escapeAttr(o.id)}">
+          <span class="oip-toggle">▾</span> 📦 ${o.no ? "№" + escapeHtml(o.no) : "СЕРИЯ"} · <b>${escapeHtml(o.client || "—")}</b>
+          <span class="oip-prog">${o.done}/${o.total} операции</span>
+        </button>
+        <div class="oip-body" data-body="${escapeAttr(o.id)}" hidden>${detailsHtml(o)}</div>
+      </div>`).join("") || `<p class="report-empty">Няма поръчки в производство.</p>`}</div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="oip-close">Затвори</button></div>
+  </div>`;
+
+  let wrap, close;
+  if (typeof erpDialog === "function") { ({ wrap, close } = erpDialog(html)); const box = wrap.querySelector(".erp-dialog-box"); if (box) box.classList.add("sim-box"); }
+  else {
+    wrap = document.createElement("div"); wrap.className = "overlay erp-dialog"; wrap.innerHTML = `<div class="erp-dialog-box sim-box">${html}</div>`;
+    document.body.appendChild(wrap); close = () => wrap.remove(); wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  }
+  wrap.querySelector("#oip-close").addEventListener("click", close);
+  wrap.querySelectorAll(".oip-head").forEach(b => b.addEventListener("click", () => {
+    const body = wrap.querySelector(`.oip-body[data-body="${CSS.escape(b.dataset.oid)}"]`);
+    if (body) { body.hidden = !body.hidden; const tg = b.querySelector(".oip-toggle"); if (tg) tg.textContent = body.hidden ? "▾" : "▴"; }
+  }));
+}
+
 // Отговорници на задачата — вече може да са НЯКОЛКО (напр. двама на Абкант работят
 // едно и също). Пази съвместимост със стария единичен t.assignee.
 function taskAssignees(t) {
@@ -2603,6 +2672,8 @@ function tInit() {
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
   const clientFilterEl = document.getElementById("task-client-filter");
   if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);
+  const ordersProdBtn = document.getElementById("btn-orders-prod");
+  if (ordersProdBtn) ordersProdBtn.addEventListener("click", openOrdersInProduction);
   document.getElementById("task-search").addEventListener("input", renderTasks);
   const rf = document.getElementById("task-ready-filter");
   if (rf) rf.addEventListener("change", renderTasks);
