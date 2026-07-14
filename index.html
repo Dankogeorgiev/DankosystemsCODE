@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 289</p>
+      <p class="login-version">версия 290</p>
     </form>
   </div>
 
@@ -391,6 +391,7 @@
       <div class="tasks-controls">
         <select id="task-workshop" title="Цех"></select>
         <select id="task-worker-filter" title="Служител"><option value="">Всички служители</option></select>
+        <select id="task-client-filter" title="Клиент — покажи всичко пуснато за избран клиент"><option value="">Всички клиенти</option></select>
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
         <label class="task-ready-lbl" title="Показвай само задачите, за които детайлите вече са пристигнали от предната операция (не се чакат други цехове)"><input type="checkbox" id="task-ready-filter" /> ⚡ Само готови за работа</label>
         <label class="task-ready-lbl" title="Скрива напълно изпълнените задачи, за да не пълнят списъка. Махни отметката, за да ги видиш най-долу."><input type="checkbox" id="task-hide-done" checked /> ✅ Скрий изпълнените<span id="done-count"></span></label>
@@ -572,7 +573,7 @@
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
   <script src="app.js?v=237"></script>
-  <script src="tasks.js?v=262"></script>
+  <script src="tasks.js?v=263"></script>
   <script src="prod-report.js?v=164"></script>
   <script src="times-report.js?v=168"></script>
   <script src="planning.js?v=165"></script>

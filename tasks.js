@@ -215,6 +215,15 @@ function taskOrderNos(t) {
   return [];
 }
 
+// Всички клиенти, за които работи тази задача (серия може да е за няколко клиента).
+function taskClients(t) {
+  const set = new Set();
+  if (t && t.client) set.add(t.client);
+  const orders = t && t.source && t.source.orders;
+  if (Array.isArray(orders)) orders.forEach(o => { if (o && o.client) set.add(o.client); });
+  return [...set];
+}
+
 // Отговорници на задачата — вече може да са НЯКОЛКО (напр. двама на Абкант работят
 // едно и също). Пази съвместимост със стария единичен t.assignee.
 function taskAssignees(t) {
@@ -584,6 +593,15 @@ function renderTasks() {
   const readyOnly = !!(document.getElementById("task-ready-filter") || {}).checked;
   const hideDoneEl = document.getElementById("task-hide-done");
   const hideDone = hideDoneEl ? hideDoneEl.checked : true;
+  // Филтър по клиент — падащо меню с клиентите на всички пуснати заявки.
+  const clientSel = document.getElementById("task-client-filter");
+  let clientFilter = "";
+  if (clientSel) {
+    const cur = clientSel.value;
+    const clients = [...new Set(TASKS.flatMap(taskClients).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "bg"));
+    clientSel.innerHTML = `<option value="">Всички клиенти</option>` + clients.map(c => `<option ${c === cur ? "selected" : ""}>${escapeHtml(c)}</option>`).join("");
+    clientFilter = clientSel.value;
+  }
   tbody.innerHTML = "";
 
   const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
@@ -600,6 +618,7 @@ function renderTasks() {
       return false;
     }
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    if (clientFilter && !taskClients(t).includes(clientFilter)) return false;   // всичко пуснато за избрания клиент
     if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
     return true;
   });
@@ -2573,6 +2592,8 @@ function tInit() {
   });
   document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); });
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
+  const clientFilterEl = document.getElementById("task-client-filter");
+  if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);
   document.getElementById("task-search").addEventListener("input", renderTasks);
   const rf = document.getElementById("task-ready-filter");
   if (rf) rf.addEventListener("change", renderTasks);
