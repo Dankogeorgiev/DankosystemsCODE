@@ -373,6 +373,29 @@ function flowWaitSources(t, seriesInfo, flowMap) {
     };
   });
 }
+// Форматира бройка/кг (материалите може да са дробни).
+function matQtyFmt(n) {
+  if (typeof erpNum === "function") return erpNum(n);
+  const x = Number(n) || 0;
+  return (Math.round(x * 1000) / 1000).toLocaleString("bg-BG");
+}
+// Липсва ли материал за ОСТАВАЩОТО количество на тази задача (за 1-ва операция).
+// Връща списък недостигащи материали или null. Ползва живите наличности от ERP.
+function taskMaterialShort(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return null;
+  if (typeof ERP === "undefined" || !ERP.matById) return null;
+  const remaining = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+  if (remaining <= 0) return null;
+  const short = [];
+  src.materials.forEach(m => {
+    const mat = ERP.matById[m.mid] || {};
+    const need = (Number(m.per) || 0) * remaining;
+    const have = Number(mat.stock) || 0;
+    if (need > 0 && have < need) short.push({ code: mat.code || "", name: mat.name || "", unit: mat.unit || "", need, have, short: need - have });
+  });
+  return short.length ? short : null;
+}
 function taskStatus(t) {
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (qty > 0 && prod >= qty) return "done";
@@ -393,6 +416,13 @@ async function openTasks() {
   renderWorkerFilter();
   mUpdateBadge();
   renderTasks();
+  // Зареждаме наличностите на материалите за индикатора „чака материал" (без да
+  // бавим таблицата) и пре-рисуваме, щом дойдат.
+  if (typeof erpEnsureLoaded === "function") {
+    erpEnsureLoaded().then(() => { if (typeof erpRefreshMatStock === "function") return erpRefreshMatStock(); })
+      .then(() => { if (!document.getElementById("tasks-modal").hidden) renderTasks(); })
+      .catch(() => {});
+  }
 }
 
 // Отваря директно даден цех (за линк ?cex=Лазери на телефон/таблет)
@@ -671,6 +701,10 @@ function renderTasks() {
     const waitShops = [...new Set(waitSrc.map(s => s.workshop).filter(Boolean))];
     const waitTitle = waitSrc.map(s => `${s.code || ""}${s.product ? " " + s.product : ""} · ${s.operation || "?"}: готови ${s.produced}/${s.qty}${s.workshop ? " (цех " + s.workshop + ")" : ""}`).join("\n");
     const waitHtml = waitShops.length ? `<div class="t-flow-from" title="${escapeAttr(waitTitle)}">⏳ чака от: ${waitShops.map(escapeHtml).join(", ")}</div>` : "";
+    // „Чака материал" — за първата операция (рязане), ако материалът не стига.
+    const matShort = (typeof taskMaterialShort === "function") ? taskMaterialShort(t) : null;
+    const matTitle = matShort ? matShort.map(m => `${m.code ? m.code + " " : ""}${m.name}: налично ${matQtyFmt(m.have)}, липсват ${matQtyFmt(m.short)} ${m.unit || ""}`).join("\n") : "";
+    const matHtml = matShort ? `<div class="t-mat-wait" title="${escapeAttr(matTitle)}">⏳ чака материал: ${matShort.map(m => escapeHtml((m.code ? m.code + " " : "") + m.name) + " (липсват " + matQtyFmt(m.short) + " " + escapeHtml(m.unit || "") + ")").join(", ")}</div>` : "";
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
@@ -694,7 +728,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () { const n = taskOrderNos(t); return n.length ? `<div class="t-orderno" title="Номер на поръчката">📋 № ${escapeHtml(n.join(", "))}</div>` : ""; })()}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${matHtml}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -978,6 +1012,15 @@ async function logProduction(t, qtyVal, extra) {
       }
     }
   }
+  // Материал за рязането: ако не стига за това, което записваш — предупреждаваме
+  // (складът ще отиде на минус), но позволяваме (ти преценяваш).
+  if (typeof taskMaterialShort === "function") {
+    const ms = taskMaterialShort(t);
+    if (ms) {
+      const txt = ms.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: налично ${matQtyFmt(m.have)}, липсват ${matQtyFmt(m.short)} ${m.unit || ""}`).join("\n");
+      if (!confirm(`⚠ Няма достатъчно материал за оставащото на този детайл:\n${txt}\n\nСкладът за материали ще отиде на минус. Да продължа ли с ${add} бр.?`)) return;
+    }
+  }
   let worker;
   if (amWorker()) {
     worker = MY_WORKER;
@@ -998,6 +1041,8 @@ async function logProduction(t, qtyVal, extra) {
   if (typeof erpFlowStockIn === "function") { try { await erpFlowStockIn(t); } catch (e) { console.error("stock-in", e); } }
   // Изписване на вложените части при сглобяване (толкова, колкото сглобени).
   if (typeof erpFlowConsume === "function") { try { await erpFlowConsume(t); } catch (e) { console.error("consume", e); } }
+  // Изписване на материала при рязане (толкова, колкото нарязано).
+  if (typeof erpFlowMaterialConsume === "function") { try { await erpFlowMaterialConsume(t); } catch (e) { console.error("mat-consume", e); } }
   renderTasks();
 }
 

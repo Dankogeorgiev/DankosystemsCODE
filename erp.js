@@ -130,6 +130,20 @@ async function erpReload() {
    тези клиентски кешове (ERP.products/prodById/costById/prodStock/p.stock/linesByProduct)
    се опресняват само чрез повторно викане на erpLoadAll() (или erpReload()).
 */
+// Опреснява само наличностите на материалите (за индикатора „чака материал" и
+// списъка „необходими материали") — без да презарежда цялото ЕРП.
+async function erpRefreshMatStock() {
+  if (typeof ERP === "undefined" || !ERP.matById) return;
+  try {
+    const { data, error } = await sb.from("v_material_stock").select("id,stock,below_min");
+    if (error) return;
+    (data || []).forEach(r => {
+      const m = ERP.matById[r.id];
+      if (m) { m.stock = Number(r.stock) || 0; m.below_min = !!r.below_min; }
+    });
+  } catch (e) { /* тихо — оставяме старите наличности */ }
+}
+
 async function erpLoadAll() {
   try {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
