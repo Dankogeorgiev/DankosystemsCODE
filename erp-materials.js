@@ -360,21 +360,25 @@ function erpQuickIntake() {
 
   const addLine = (id) => {
     const m = ERP.matById[id]; if (!m) return;
-    if (!lines.some(l => l.id === id)) lines.push({ id, code: m.code || "", name: m.name || "", unit: m.unit || "", qty: "" });
+    // Цената по подразбиране = текущата средна цена (за удобство; смени я с реалната).
+    if (!lines.some(l => l.id === id)) lines.push({ id, code: m.code || "", name: m.name || "", unit: m.unit || "", qty: "", price: (Number(m.avg_cost) > 0 ? String(m.avg_cost) : "") });
     searchEl.value = ""; renderResults(""); renderLines();
     const last = linesBox.querySelector('.qi-qty[data-i="' + (lines.length - 1) + '"]'); if (last) last.focus();
   };
 
   const renderLines = () => {
     linesBox.innerHTML = lines.length
-      ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Приход</th><th>Мярка</th><th></th></tr></thead>
+      ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Приход</th><th>Мярка</th><th class="num">Цена/мярка (€)</th><th></th></tr></thead>
          <tbody>${lines.map((l, i) => `<tr>
            <td>${escapeHtml(l.code)}</td><td>${escapeHtml(l.name)}</td>
-           <td class="num"><input type="number" class="qi-qty" data-i="${i}" step="any" min="0" value="${escapeAttr(String(l.qty))}" style="width:90px" /></td>
+           <td class="num"><input type="number" class="qi-qty" data-i="${i}" step="any" min="0" value="${escapeAttr(String(l.qty))}" style="width:80px" /></td>
            <td>${escapeHtml(l.unit)}</td>
-           <td><button type="button" class="btn btn-small" data-rm="${i}">×</button></td></tr>`).join("")}</tbody></table>`
+           <td class="num"><input type="number" class="qi-price" data-i="${i}" step="any" min="0" value="${escapeAttr(String(l.price))}" placeholder="0.00" style="width:90px" /></td>
+           <td><button type="button" class="btn btn-small" data-rm="${i}">×</button></td></tr>`).join("")}</tbody></table>
+         <p class="hint">Цената е за 1 мярка (напр. €/кг). При запис обновява средната цена на материала (претеглена спрямо наличното). Празна цена → не пипа цената.</p>`
       : `<p class="erp-muted">Още няма добавени материали — потърси и избери отгоре.</p>`;
     linesBox.querySelectorAll(".qi-qty").forEach(inp => inp.addEventListener("input", e => { lines[Number(e.target.dataset.i)].qty = e.target.value; }));
+    linesBox.querySelectorAll(".qi-price").forEach(inp => inp.addEventListener("input", e => { lines[Number(e.target.dataset.i)].price = e.target.value; }));
     linesBox.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { lines.splice(Number(b.dataset.rm), 1); renderLines(); }));
   };
 
@@ -383,15 +387,42 @@ function erpQuickIntake() {
   wrap.querySelector("#qi-cancel").addEventListener("click", close);
   wrap.querySelector("#qi-save").addEventListener("click", async () => {
     const ref = wrap.querySelector("#qi-ref").value || null;
-    const rows = lines.map(l => ({ id: l.id, q: erpToNum(l.qty) || 0 })).filter(l => l.q > 0);
+    const rows = lines.map(l => ({ id: l.id, q: erpToNum(l.qty) || 0, price: erpToNum(l.price) || 0 })).filter(l => l.q > 0);
     if (!rows.length) { wrap.querySelector("#qi-status").textContent = "Въведи поне един материал с бройка > 0."; return; }
     wrap.querySelector("#qi-status").textContent = "Записва…";
     const by = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || null;
-    const moves = rows.map(l => ({ material_id: l.id, kind: "входящ", quantity: Math.abs(l.q), ref, note: null, created_by: by }));
+
+    // Свежи наличности и средни цени (за претеглената средна цена), с резервен вариант от кеша.
+    const ids = rows.map(l => l.id);
+    const stockById = {}, avgById = {};
+    try {
+      const [stk, mat] = await Promise.all([
+        sb.from("v_material_stock").select("id,stock").in("id", ids),
+        sb.from("materials").select("id,avg_cost").in("id", ids),
+      ]);
+      if (!stk.error) (stk.data || []).forEach(r => { stockById[r.id] = Number(r.stock) || 0; });
+      if (!mat.error) (mat.data || []).forEach(r => { avgById[r.id] = Number(r.avg_cost) || 0; });
+    } catch (e) {}
+    ids.forEach(id => { const m = ERP.matById[id] || {}; if (stockById[id] == null) stockById[id] = Number(m.stock) || 0; if (avgById[id] == null) avgById[id] = Number(m.avg_cost) || 0; });
+
+    const moves = [], avgUpdates = [];
+    rows.forEach(l => {
+      moves.push({ material_id: l.id, kind: "входящ", quantity: Math.abs(l.q), ref, note: null, created_by: by });
+      if (l.price > 0) {
+        const stock = stockById[l.id] || 0, avg = avgById[l.id] || 0;
+        const newAvg = (stock + l.q) > 0 ? (stock * avg + l.q * l.price) / (stock + l.q) : l.price;
+        avgUpdates.push({ id: l.id, avg: newAvg });
+      }
+    });
     const { error } = await sb.from("stock_movements").insert(moves);
     if (error) { wrap.querySelector("#qi-status").textContent = "⚠ " + error.message; return; }
+    for (const u of avgUpdates) {
+      const { error: e2 } = await sb.from("materials").update({ avg_cost: u.avg }).eq("id", u.id);
+      if (e2) { wrap.querySelector("#qi-status").textContent = "⚠ цена: " + e2.message; return; }
+    }
     close();
     await erpReload();
-    alert(`Заприходени ${rows.length} материала` + (ref ? ` (${ref})` : "") + ".");
+    alert(`Заприходени ${rows.length} материала` + (ref ? ` (${ref})` : "") + "."
+      + (avgUpdates.length ? `\nОбновени средни цени: ${avgUpdates.length}.` : ""));
   });
 }

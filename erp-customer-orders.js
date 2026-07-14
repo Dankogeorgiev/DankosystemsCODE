@@ -263,7 +263,7 @@ async function erpRenderCOForm(o) {
         <label>Срок <input type="date" id="co-deadline" value="${escapeAttr(o.deadline || "")}" /></label>
         <label>Статус
           <select id="co-status">
-            ${["нова", "в производство", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
+            ${["нова", "в производство", "готова за продажба", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
           </select></label>
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
@@ -560,13 +560,15 @@ async function erpCOProduce(o) {
 
   const fs = res.fromStock || [];
   o.production = { at: new Date().toISOString(), count: (res.seriesCount != null ? res.seriesCount : totalSteps), flow: true, external: external.length, fromStock: fs.length };
-  o.status = "в производство";
-  // Записваме статуса надеждно (не го гълтаме тихо) — заявката трябва да остане
-  // „в производство" без ръчна намеса.
+  // Ако всичко е налично от склада (0 операции) — заявката е готова за продажба;
+  // иначе е „в производство".
+  const readyNow = (res.seriesCount === 0) && !(res.missing || []).length;
+  o.status = readyNow ? "готова за продажба" : "в производство";
+  // Записваме статуса надеждно (не го гълтаме тихо).
   try { await erpSaveCO(o); }
   catch (e) { alert("⚠ Производството е пуснато, но статусът не се записа: " + (e.message || e) + "\nОтвори заявката пак и натисни 💾 Запази."); }
   try { await erpLoadCustomerOrders(); } catch {}
-  const st = document.getElementById("co-status"); if (st) st.value = "в производство";
+  const st = document.getElementById("co-status"); if (st) st.value = o.status;
   const miss = res.missing || [];
   const matShort = res.materialsShort || [];
   if ((res.seriesCount === 0) && !miss.length) {
@@ -622,6 +624,11 @@ async function erpCOTracking(o) {
     : (done ? `<div class="erp-prod-active">✓ всички операции са готови</div>` : "");
   const allDone = planned > 0 && done === planned;
   const allFromStock = !planned && o.production && Number(o.production.count) === 0;
+  // Производството е приключило (или всичко е от склад) → „готова за продажба".
+  if ((allDone || allFromStock) && o.status === "в производство") {
+    o.status = "готова за продажба";
+    try { await erpSaveCO(o); const st = document.getElementById("co-status"); if (st) st.value = o.status; if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(o.id)); if (it) it.status = o.status; } } catch (e) {}
+  }
   box.innerHTML = planned
     ? `<div class="erp-prod-line"><b>Поточно производство:</b> ${done} / ${planned} операции готови (${pct}%)
          <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
