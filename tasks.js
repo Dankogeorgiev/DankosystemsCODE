@@ -517,7 +517,7 @@ async function openWorkshopDirect(ws) {
 }
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close", "btn-master"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
@@ -1091,9 +1091,10 @@ async function removeTaskFile(t, i) {
   renderTasks();
 }
 
-async function logProduction(t, qtyVal, extra) {
+async function logProduction(t, qtyVal, extra, opts) {
+  const silent = !!(opts && opts.silent);   // мастер режим: без диалози/подсказки
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
-  if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
+  if (!add || add <= 0) { if (!silent) alert("Въведи брой в полето „днес“."); return; }
   // Поточно производство: операция, която ЧАКА предната, не може да отчете
   // повече от произведеното преди нея. Първата операция (разкрой) може да
   // произведе и повече от нужното за поръчката — излишъкът влиза в Склад детайли.
@@ -1103,12 +1104,14 @@ async function logProduction(t, qtyVal, extra) {
       const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
       const avail = erpFlowAvailable(t, map);
       if (add > avail) {
-        if (avail > 0) {
-          alert(`Поточно производство: сега можеш да запишеш най-много ${avail} бр. (толкова са произведени в предната операция).`);
-        } else {
-          const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
-          const detail = pend.length ? "\n\nЧака да се завършат:\n" + pend.map(p => `• ${p.code}${p.operation ? " · " + p.operation : ""}: готови ${p.produced}/${p.qty}`).join("\n") : "";
-          alert(`Поточно производство: детайлите за тази стъпка още не са готови в предната операция.${detail}\n\nИзчакай съответния цех.`);
+        if (!silent) {
+          if (avail > 0) {
+            alert(`Поточно производство: сега можеш да запишеш най-много ${avail} бр. (толкова са произведени в предната операция).`);
+          } else {
+            const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
+            const detail = pend.length ? "\n\nЧака да се завършат:\n" + pend.map(p => `• ${p.code}${p.operation ? " · " + p.operation : ""}: готови ${p.produced}/${p.qty}`).join("\n") : "";
+            alert(`Поточно производство: детайлите за тази стъпка още не са готови в предната операция.${detail}\n\nИзчакай съответния цех.`);
+          }
         }
         return;
       }
@@ -1116,13 +1119,13 @@ async function logProduction(t, qtyVal, extra) {
       const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
       if (q > 0 && pr + add > q) {
         const extra = (pr + add) - q;
-        if (!confirm(`Записваш ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
+        if (!silent && !confirm(`Записваш ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
       }
     }
   }
   // Материал за рязането: ако не стига за това, което записваш — предупреждаваме
   // (складът ще отиде на минус), но позволяваме (ти преценяваш).
-  if (typeof taskMaterialShort === "function") {
+  if (!silent && typeof taskMaterialShort === "function") {
     const ms = taskMaterialShort(t);
     if (ms) {
       const txt = ms.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: налично ${matQtyFmt(m.have)}, липсват ${matQtyFmt(m.short)} ${m.unit || ""}`).join("\n");
@@ -1130,7 +1133,9 @@ async function logProduction(t, qtyVal, extra) {
     }
   }
   let worker;
-  if (amWorker()) {
+  if (silent) {
+    worker = (opts && opts.worker) || t.assignee || "Мастер";
+  } else if (amWorker()) {
     worker = MY_WORKER;
     if (!taskHasWorker(t, MY_WORKER)) taskSetAssignees(t, [...taskAssignees(t), MY_WORKER]);   // поемаме незаета задача
   } else {
@@ -1153,7 +1158,7 @@ async function logProduction(t, qtyVal, extra) {
   if (typeof erpFlowConsume === "function") { try { await erpFlowConsume(t); } catch (e) { console.error("consume", e); } }
   // Изписване на материала при рязане (толкова, колкото нарязано).
   if (typeof erpFlowMaterialConsume === "function") { try { await erpFlowMaterialConsume(t); } catch (e) { console.error("mat-consume", e); } }
-  renderTasks();
+  if (!silent) renderTasks();   // в мастер режим гридът се пре-рисува сам
 }
 
 /* ---------- Брак при настройка (връща спешно нарязване към първата операция) ----------
@@ -2732,6 +2737,8 @@ function tInit() {
   if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);
   const ordersProdBtn = document.getElementById("btn-orders-prod");
   if (ordersProdBtn) ordersProdBtn.addEventListener("click", openOrdersInProduction);
+  const masterBtn = document.getElementById("btn-master");
+  if (masterBtn) masterBtn.addEventListener("click", () => { if (typeof openMasterReport === "function") openMasterReport(); });
   document.getElementById("task-search").addEventListener("input", renderTasks);
   const rf = document.getElementById("task-ready-filter");
   if (rf) rf.addEventListener("change", renderTasks);

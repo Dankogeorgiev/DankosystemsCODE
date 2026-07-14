@@ -1239,3 +1239,29 @@ tr.times-click:hover td { background: #ecfdf5; }
 /* Бутон „ЦЕХ РОГОШ" в Цехове — ярко жълт */
 #tasks-rogosh { background: #ffd400; border-color: #ffd400; color: #1f2937; font-weight: 700; }
 #tasks-rogosh:hover { background: #f4c400; border-color: #f4c400; }
+
+/* ⚡ Мастер отчитане */
+.master-modal { display: flex; align-items: flex-start; justify-content: center; z-index: 300; padding: 24px 12px; overflow: auto; }
+.master-box { background: #fff; border-radius: 14px; padding: 16px 18px; width: min(1100px, 96vw); max-height: 92vh; overflow: auto; box-shadow: var(--shadow); }
+.master-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.master-head h3 { margin: 0; }
+.master-tools { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.master-tools input { flex: 0 0 260px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.master-list { display: flex; flex-direction: column; gap: 10px; }
+.m-order { border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px 10px; background: #fafafa; }
+.m-order-h { display: flex; align-items: center; gap: 10px; font-size: .95rem; margin-bottom: 6px; flex-wrap: wrap; }
+.m-prog-n { color: #6b7280; font-size: .85rem; }
+.m-order-h .m-complete { margin-left: auto; }
+.m-detail { padding: 4px 0; border-top: 1px dashed #eee; }
+.m-detail:first-of-type { border-top: 0; }
+.m-detail-h { font-weight: 600; font-size: .88rem; margin-bottom: 4px; }
+.m-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.m-chip { border: 1px solid transparent; border-radius: 8px; padding: 4px 10px; font: inherit; font-size: .84rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.m-chip .m-qn { font-variant-numeric: tabular-nums; opacity: .85; font-weight: 700; }
+.m-chip:disabled { opacity: .5; cursor: default; }
+.m-chip.m-done { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.m-chip.m-ready { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+.m-chip.m-ready:hover { background: #bfdbfe; }
+.m-chip.m-prog { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.m-chip.m-wait { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
+.m-chip.m-wait:hover { background: #e5e7eb; }

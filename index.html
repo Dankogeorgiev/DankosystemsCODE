@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=272" />
+  <link rel="stylesheet" href="styles.css?v=273" />
   <link rel="stylesheet" href="erp.css?v=240" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 302</p>
+      <p class="login-version">версия 305</p>
     </form>
   </div>
 
@@ -396,6 +396,7 @@
         <label class="task-ready-lbl" title="Показвай само задачите, за които детайлите вече са пристигнали от предната операция (не се чакат други цехове)"><input type="checkbox" id="task-ready-filter" /> ⚡ Само готови за работа</label>
         <label class="task-ready-lbl" title="Скрива напълно изпълнените задачи, за да не пълнят списъка. Махни отметката, за да ги видиш най-долу."><input type="checkbox" id="task-hide-done" checked /> ✅ Скрий изпълнените<span id="done-count"></span></label>
         <button id="btn-orders-prod" class="btn btn-small" title="Покажи поръчките в производство и детайлите на пуснатите продукти">📋 Поръчки в производство</button>
+        <button id="btn-master" class="btn btn-small" title="Мастер отчитане — бързо докарване на операциите до етап (само за офиса)">⚡ Мастер отчитане</button>
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
         <button id="btn-board" class="btn btn-small">📺 Табло</button>
@@ -574,7 +575,8 @@
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
   <script src="app.js?v=237"></script>
-  <script src="tasks.js?v=267"></script>
+  <script src="tasks.js?v=268"></script>
+  <script src="master-report.js?v=1"></script>
   <script src="prod-report.js?v=164"></script>
   <script src="times-report.js?v=168"></script>
   <script src="planning.js?v=165"></script>
