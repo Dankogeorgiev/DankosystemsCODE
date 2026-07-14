@@ -377,6 +377,7 @@ function erpFlowSteps(s, opts) {
     const ops = [];
     let childHasOps = false;
     const childOutKeys = [];   // изходите на директните деца (родителят ги чака)
+    const nodeMats = {};       // material_id -> бройка за 1 бр. от този детайл (per)
     (ERP.linesByProduct[pid] || []).forEach(l => {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
@@ -388,7 +389,9 @@ function erpFlowSteps(s, opts) {
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         ops.push({ operation: op.name || "", workshop: ws, qty: cnt });
       } else if (l.material_id) {
-        materials[l.material_id] = (materials[l.material_id] || 0) + make * (Number(l.quantity) || 1);
+        const per = Number(l.quantity) || 1;
+        materials[l.material_id] = (materials[l.material_id] || 0) + make * per;
+        nodeMats[l.material_id] = (nodeMats[l.material_id] || 0) + per;   // за 1 бр. детайл
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
         const need = make * (Number(l.quantity) || 1);
         const res = walk(l.child_product_id, need, new Set([...anc, l.child_product_id]), depth + 1);
@@ -405,7 +408,8 @@ function erpFlowSteps(s, opts) {
       }
     });
     if (ops.length) {
-      nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
+      const mats = Object.keys(nodeMats).map(mid => ({ mid: Number(mid), per: nodeMats[mid] }));
+      nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0, mats });
       // Първата операция на този възел чака директните му части (с нужните бройки).
       if (childOutKeys.length) {
         const byKey = {};
@@ -452,6 +456,7 @@ function erpFlowSteps(s, opts) {
         prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation + sfx) : null,
         gate: (i === gateIdx && gate && gate.length) ? gate.slice() : null,
         consumes: (i === consumeIdx && stockComps.length) ? stockComps.slice() : null,
+        materials: (i === 0 && n.mats && n.mats.length) ? n.mats.slice() : null,   // материалът се влага на първата операция (рязане)
         step: i, role: n.isTop ? "final" : "part",
         pid: n.pid, last: i === lastIdx, toStock: n.isTop && toStockTop,
       });
@@ -543,21 +548,20 @@ async function erpFlowApply(meta, productLines) {
     });
   }
 
-  // 1в) Изписване на МАТЕРИАЛИТЕ, вложени в реалното (нето) производство.
-  //     Идемпотентно по ref (при повторно пускане/изтегляне се преизчислява).
+  // 1в) МАТЕРИАЛИТЕ ВЕЧЕ НЕ се изписват при пускане — излизат при РЯЗАНЕ (първата
+  //     операция), точно колкото е нарязано (erpFlowMaterialConsume). Тук само
+  //     чистим стари order: движения (от предишния модел) и смятаме недостига за
+  //     информационно съобщение „ще ти липсва материал".
   const materialsShort = [];
   {
-    try { await sb.from("stock_movements").delete().eq("ref", ref); } catch (e) {}
-    const matRows = [];
+    try { await sb.from("stock_movements").delete().eq("ref", ref); } catch (e) {}   // стар модел — чистим
     Object.keys(matNeed).forEach(mid => {
       const q = Number(matNeed[mid]) || 0;
       if (q <= 0) return;
       const m = (ERP.matById && ERP.matById[mid]) || {};
       const have = Number(m.stock) || 0;
       if (q > have) materialsShort.push({ code: m.code || "", name: m.name || "", unit: m.unit || "", need: q, have });
-      matRows.push({ material_id: Number(mid), kind: "изписване", quantity: -q, ref, note: "Вложен в производство №" + (meta.orderNo || sid) });
     });
-    if (matRows.length) { try { await sb.from("stock_movements").insert(matRows); } catch (e) {} }
   }
 
   // 2) Изчистваме стари НЕпоточни задачи на тази поръчка (стар последователен режим).
@@ -591,10 +595,10 @@ async function erpFlowApply(meta, productLines) {
         qty: 0, produced: 0, due: "", thickness: "", files: [], logs: [],
         source: {
           kind: "series", flow: true, seriesKey: k, prevKey: st.prevKey || null, gate: st.gate || null,
-          consumes: st.consumes || null,
+          consumes: st.consumes || null, materials: st.materials || null,
           step: st.step, role: st.role || "part", code: st.code, product: st.product,
           orders: [], orderIds: [], sampleType: meta.sampleType || "order",
-          pid: st.pid, last: !!st.last, toStock: !!st.toStock, stock: toStock, stocked: 0, consumedUnits: 0,
+          pid: st.pid, last: !!st.last, toStock: !!st.toStock, stock: toStock, stocked: 0, consumedUnits: 0, matConsumed: 0,
         },
       } };
       bySeries[k] = r;
@@ -606,6 +610,7 @@ async function erpFlowApply(meta, productLines) {
     src.prevKey = st.prevKey || null;
     src.gate = st.gate || null;
     src.consumes = st.consumes || null;
+    src.materials = st.materials || null;
     src.step = st.step;
     src.role = st.role || src.role || "part";
     src.last = !!st.last;
@@ -779,6 +784,50 @@ async function erpFlowConsume(t) {
   if (rows.length) { try { await sb.from("product_movements").insert(rows); } catch (e) { console.error("consume", e); } }
   src.consumedUnits = produced;
   if (typeof tSaveTask === "function") await tSaveTask(t);
+}
+
+// При отчитане на РЯЗАНЕТО (първата операция) — изписва материала от склад
+// материали (нарязани бройки × материал за 1 бр.). Материалът вече не излиза при
+// пускане, а точно колкото е нарязано. Идемпотентно чрез source.matConsumed.
+async function erpFlowMaterialConsume(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return;
+  const produced = Number(t.produced) || 0;
+  const done = Number(src.matConsumed) || 0;
+  const delta = produced - done;
+  if (delta <= 0) return;
+  const rows = [];
+  src.materials.forEach(m => {
+    const mid = Number(m && m.mid) || 0;
+    const use = (Number(m && m.per) || 0) * delta;
+    if (mid && use > 0) rows.push({ material_id: mid, kind: "изписване", quantity: -use, ref: "matprod:" + t.id, note: "Вложен в " + (t.code || t.product || "") });
+  });
+  if (rows.length) { try { await sb.from("stock_movements").insert(rows); } catch (e) { console.error("mat consume", e); } }
+  src.matConsumed = produced;
+  if (typeof tSaveTask === "function") await tSaveTask(t);
+}
+
+// Жив списък „необходими материали" — сумира оставащата нужда за материал по
+// ВСИЧКИ активни поточни задачи (за 1-ва операция) и вади наличното. Показва
+// колко трябва да се купи. rows от erpFlowMatNeeded(TASKS).
+function erpFlowMatNeeded(tasks) {
+  const need = {};   // material_id -> оставаща нужда
+  (tasks || []).forEach(t => {
+    const src = t && t.source;
+    if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return;
+    const remaining = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    if (remaining <= 0) return;
+    src.materials.forEach(m => {
+      const mid = Number(m && m.mid) || 0;
+      if (!mid) return;
+      need[mid] = (need[mid] || 0) + (Number(m && m.per) || 0) * remaining;
+    });
+  });
+  return Object.keys(need).map(mid => {
+    const m = (ERP.matById && ERP.matById[mid]) || {};
+    const q = need[mid], have = Math.max(0, Number(m.stock) || 0);
+    return { mid: Number(mid), code: m.code || "", name: m.name || "", unit: m.unit || "", need: q, have, buy: Math.max(0, q - have) };
+  }).sort((a, b) => b.buy - a.buy || String(a.name).localeCompare(String(b.name), "bg"));
 }
 
 // Пуска детайл за производство ЗА СКЛАД (без заявка). Минава по цеховете и щом

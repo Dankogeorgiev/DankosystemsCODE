@@ -49,6 +49,7 @@ function erpRenderMaterials() {
       <label class="erp-check"><input type="checkbox" id="erp-mat-below" ${erpMatOnlyBelow ? "checked" : ""} /> Само липсващите</label>
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} материала${belowCount ? ` · <span class="erp-warn">${belowCount} под минимум</span>` : ""}</span>
+      <button class="btn btn-small" id="erp-mat-needed" title="Какви материали трябва да купим за пуснатите в производство заявки">🛒 Необходими материали</button>
       <button class="btn btn-small btn-primary" id="erp-mat-add">+ Нов материал</button>
     </div>
     <div class="erp-kg-total">⚖ Общо наличност: <strong>${erpNum(totalKg)} кг</strong>${noWeight ? ` <span class="erp-muted">(${noWeight} материала без зададено тегло на мярка — не влизат в сумата)</span>` : ""}</div>
@@ -88,6 +89,8 @@ function erpRenderMaterials() {
     erpMatOnlyBelow = e.target.checked; erpRenderMaterials();
   });
   document.getElementById("erp-mat-add").addEventListener("click", () => erpEditMaterial(null));
+  const needBtn = document.getElementById("erp-mat-needed");
+  if (needBtn) needBtn.addEventListener("click", erpMatNeededDialog);
   v.querySelectorAll("[data-move]").forEach(b =>
     b.addEventListener("click", () => erpMovementDialog(Number(b.dataset.move))));
   v.querySelectorAll("[data-hist]").forEach(b =>
@@ -267,5 +270,54 @@ function erpEditMaterial(matId) {
     if (m) { ERP.matKg = ERP.matKg || {}; if (kgW > 0) ERP.matKg[m.id] = kgW; else delete ERP.matKg[m.id]; await erpSaveMatKg(); }
     close();
     await erpReload();
+  });
+}
+
+// „Необходими материали" — какво трябва да купим за пуснатите в производство
+// заявки. Сумира оставащата нужда по всички поточни задачи (за 1-ва операция) и
+// вади наличното. На живо — щом купиш/нарежеш, числата се променят.
+async function erpMatNeededDialog() {
+  try { if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded(); } catch (e) {}
+  if (typeof erpRefreshMatStock === "function") await erpRefreshMatStock();
+  let tasks = (typeof TASKS !== "undefined" && Array.isArray(TASKS) && TASKS.length) ? TASKS : null;
+  if (!tasks) {
+    try {
+      const { data } = await sb.from("tasks").select("id,data").eq("data->source->>flow", "true");
+      tasks = (data || []).map(r => Object.assign({ id: r.id }, r.data || {}));
+    } catch (e) { tasks = []; }
+  }
+  const rows = (typeof erpFlowMatNeeded === "function") ? erpFlowMatNeeded(tasks) : [];
+  const buyRows = rows.filter(r => r.buy > 0);
+  const okRows = rows.filter(r => r.buy <= 0);
+  const rowHtml = r => `<tr class="${r.buy > 0 ? "erp-below" : ""}">
+    <td data-label="Код">${escapeHtml(r.code || "—")}</td>
+    <td data-label="Материал">${escapeHtml(r.name || "")}</td>
+    <td class="num" data-label="Нужно">${erpNum(r.need)}</td>
+    <td class="num" data-label="Налично">${erpNum(r.have)}</td>
+    <td class="num" data-label="За купуване"><b>${r.buy > 0 ? erpNum(r.buy) : "—"}</b></td>
+    <td data-label="Мярка">${escapeHtml(r.unit || "")}</td></tr>`;
+  const table = list => `<table class="report-table erp-table">
+    <thead><tr><th>Код</th><th>Материал</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num">За купуване</th><th>Мярка</th></tr></thead>
+    <tbody>${list.map(rowHtml).join("") || `<tr><td colspan="6" class="report-empty">Няма.</td></tr>`}</tbody></table>`;
+
+  const { wrap, close } = erpDialog(`
+      <h3>🛒 Необходими материали за производството</h3>
+      <p class="hint">Сумата на оставащия материал по всички пуснати заявки (по първата операция), минус наличното.
+        Числата са на живо — щом купиш материал или нарежеш детайли, се обновяват.</p>
+      ${buyRows.length ? `<h4 class="erp-warn">⚠ Трябва да се купи (${buyRows.length})</h4>${table(buyRows)}` : `<div class="erp-kg-total">✅ За пуснатото има достатъчно материал.</div>`}
+      ${okRows.length ? `<h4 style="margin-top:14px">Достатъчно на склад (${okRows.length})</h4>${table(okRows)}` : ""}
+      <div class="erp-dialog-actions">
+        ${(typeof reportExportXls === "function" && rows.length) ? `<button class="btn btn-small" id="mn-xls">⤓ Excel</button>` : ""}
+        <button class="btn btn-primary" id="mn-close">Затвори</button>
+      </div>`);
+  wrap.querySelector("#mn-close").addEventListener("click", close);
+  const xls = wrap.querySelector("#mn-xls");
+  if (xls) xls.addEventListener("click", () => {
+    const headers = [{ label: "Код" }, { label: "Материал" }, { label: "Нужно", num: true }, { label: "Налично", num: true }, { label: "За купуване", num: true }, { label: "Мярка" }];
+    const toRow = r => [r.code || "", r.name || "", erpNum(r.need), erpNum(r.have), r.buy > 0 ? erpNum(r.buy) : "", r.unit || ""];
+    reportExportXls("neobhodimi-materiali", "Необходими материали за производството", [
+      { title: "За купуване", headers, rows: buyRows.map(toRow) },
+      { title: "Достатъчно на склад", headers, rows: okRows.map(toRow) },
+    ]);
   });
 }
