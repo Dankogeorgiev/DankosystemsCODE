@@ -103,7 +103,33 @@ async function erpReload() {
   erpSetTab(ERP.tab);
 }
 
-/* ---------- Зареждане на данните ---------- */
+/* ---------- Зареждане на данните ----------
+   КАРТА НА ИЗТОЧНИЦИТЕ — какво се пълни, от коя таблица/изглед и с кои колони.
+   Всичко минава през erpLoadAll() (виж и erpReload / erpEnsureLoaded).
+
+   ERP.products       ← изглед v_product_cost
+                        (id, code, name, is_semifinished, group_name, needs_recipe, cost_eur).
+                        Подредени по name. След зареждането на всеки ред се закача p.stock.
+   ERP.prodById       ← индекс product_id → реда от ERP.products (същия изглед v_product_cost).
+   ERP.costById       ← product_id → Number(cost_eur) от v_product_cost.
+                        cost_eur се смята рекурсивно от SQL функцията product_cost(id)
+                        върху recipe_lines + materials.avg_cost + operations.unit_cost
+                        (многостепенно, child_product_id се обхожда рекурсивно).
+   p.stock            ← изглед v_product_stock (колони id, stock), закачен на всеки p.
+                        v_product_stock.stock = coalesce(sum(product_movements.quantity),0).
+                        Ако изгледът липсва (детайл-складът erp-detail-stock.sql не е пуснат)
+                        → p.stock = 0 за всички (работим без нето по детайли).
+   ERP.prodStock      ← product_id → Number(stock) от v_product_stock (междинен кеш за p.stock).
+   ERP.linesByProduct ← таблица recipe_lines, групирана по product_id, сортирана по position.
+                        Ред: (id, product_id, position, quantity, unit, line_cost,
+                              material_id, child_product_id, operation_id).
+                        Всеки ред сочи ТОЧНО едно от material_id / child_product_id / operation_id.
+
+   ВАЖНО: v_product_cost и v_product_stock са ОБИКНОВЕНИ изгледи (не материализирани) —
+   стойностите им се преизчисляват при всяка SQL заявка. Затова след запис в базата
+   тези клиентски кешове (ERP.products/prodById/costById/prodStock/p.stock/linesByProduct)
+   се опресняват само чрез повторно викане на erpLoadAll() (или erpReload()).
+*/
 async function erpLoadAll() {
   try {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
