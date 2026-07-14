@@ -254,5 +254,7 @@ function erpSimShow(r) {
     </div>`;
 
   const { wrap, close } = erpDialog(html);
+  const box = wrap.querySelector(".erp-dialog-box");
+  if (box) box.classList.add("sim-box");   // по-широк диалог за симулацията
   wrap.querySelector("#sim-close").addEventListener("click", close);
 }
