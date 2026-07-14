@@ -471,12 +471,14 @@ async function erpCOProduce(o) {
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   msg += missTxt;
   msg += `\n\n📦 Материалите за производството ще се изпишат от склада.`;
+  msg += `\n✅ Щом мине последната операция, готовото изделие влиза в Склад детайли (после се изписва с Продажба).`;
   if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще обновя дела на заявката.`;
   if (!confirm(msg)) return;
 
   const res = await erpFlowApply({
     clientName: o.clientName || "", deadline: o.deadline || "", sampleId: o.id,
     sampleType: "customer_order", orderNo: o.ourNo || "",
+    stockTop: true,   // готовото изделие влиза в Склад детайли при завършване (после се изписва с Продажба)
   }, lines);
   if (res.error) { alert("Грешка при създаване на задачи: " + (res.error.message || res.error)); return; }
 
