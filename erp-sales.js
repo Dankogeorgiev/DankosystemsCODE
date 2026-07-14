@@ -166,16 +166,19 @@ function erpOpenSale(id) {
 // Създава чернова продажба от завършена заявка от клиенти (готовите продукти).
 function erpNewSaleFromOrder(order) {
   const today = new Date().toISOString().slice(0, 10);
+  // По подразбиране продаваме ОСТАТЪКА (поръчано минус вече доставено) и
+  // прескачаме напълно доставените редове — за частично фактуриране.
   const lines = (order.lines || []).map(l => {
+    const remaining = Math.max(0, (erpToNum(l.qty) || 0) - (Number(l.delivered) || 0));
     const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(order.clientId, order.clientName, l.productId) : null;
     const name = (ple && ple.cname) ? ple.cname : (l.name || "");   // име при клиента за фактурата
     return {
       // Готовото изделие е в Склад детайли (заприходено при производството) —
       // изписва се оттам, а НЕ по рецепта (иначе двойно броене на суровините).
       itemKind: "product", writeoffKind: "detail", refId: l.productId, code: l.code || "", name, ourName: l.ourName || l.name || "",
-      unit: "бр.", qty: erpToNum(l.qty) || 1, unitPrice: "",
+      unit: "бр.", qty: remaining, unitPrice: "",
     };
-  });
+  }).filter(l => (erpToNum(l.qty) || 0) > 0);
   erpRenderSaleForm({
     saleNo: erpNextSaleNo(), clientName: order.clientName || "", clientId: order.clientId || null,
     clientVat: "", clientCity: "", clientStreet: "", clientCountry: "BG",
@@ -457,9 +460,10 @@ async function erpPostSale(o) {
 
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSaveSale(o); } catch {}
-  // Заявката, от която е продажбата, се приключва автоматично (изчезва от активния списък).
+  // Заявката, от която е продажбата: добавяме доставеното; приключва само при
+  // пълна доставка, иначе остава отворена с остатъка.
   let closedNote = "";
-  if (o.fromOrderId) { try { closedNote = await erpMarkOrderDone(o.fromOrderId); } catch (e) {} }
+  if (o.fromOrderId) { try { closedNote = await erpMarkOrderDone(o.fromOrderId, o.lines); } catch (e) {} }
   await erpLoadAll();       // опреснява наличности в кеша
   await erpLoadSales();
   alert(`Готово! Осчетоводена продажба №${o.saleNo}.`
@@ -469,17 +473,33 @@ async function erpPostSale(o) {
   erpRenderSaleForm(o);
 }
 
-// Приключва заявката (клиентска заявка или мостра/поръчка), от която е направена
-// продажбата — тя изчезва от активния списък. Обратимо (статусът се сменя).
-async function erpMarkOrderDone(orderId) {
+// Отразява доставеното по заявката от продажбата. Клиентска заявка: добавя
+// доставените бройки по продукт (line.delivered); приключва („завършена") само
+// при ПЪЛНА доставка, иначе остава „в производство" с остатъка. Мостра/поръчка:
+// засега пълно приключване. Обратимо (статусът се сменя ръчно).
+async function erpMarkOrderDone(orderId, saleLines) {
   if (!orderId) return "";
   try {
     const co = await sb.from("customer_orders").select("id,data").eq("id", orderId).maybeSingle();
     if (co && co.data) {
-      const d = co.data.data || {}; d.status = "завършена"; d.closedAt = new Date().toISOString();
+      const d = co.data.data || {};
+      const lines = d.lines || [];
+      // Добавяме доставеното по продукт (по refId на продажбата = productId на реда).
+      (saleLines || []).forEach(sl => {
+        const pid = sl && sl.refId; const q = erpToNum(sl && sl.qty) || 0;
+        if (!pid || q <= 0) return;
+        const line = lines.find(l => String(l.productId) === String(pid));
+        if (line) line.delivered = (Number(line.delivered) || 0) + q;
+      });
+      const allDone = lines.length > 0 && lines.every(l => (Number(l.delivered) || 0) >= (erpToNum(l.qty) || 0) - 1e-9);
+      d.status = allDone ? "завършена" : "в производство";
+      if (allDone) d.closedAt = new Date().toISOString(); else delete d.closedAt;
       await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", orderId);
-      if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) it.status = "завършена"; }
-      return `\n\n✅ Заявка №${d.ourNo || ""} е приключена (скрита от активния списък).`;
+      if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) { it.status = d.status; it.lines = lines; } }
+      if (allDone) return `\n\n✅ Заявка №${d.ourNo || ""} е доставена НАПЪЛНО и приключена.`;
+      const rem = lines.filter(l => (Number(l.delivered) || 0) < (erpToNum(l.qty) || 0))
+        .map(l => `• ${l.code ? l.code + " " : ""}${l.ourName || l.name || ""}: остават ${erpNum((erpToNum(l.qty) || 0) - (Number(l.delivered) || 0))} бр.`);
+      return `\n\n📦 Заявка №${d.ourNo || ""} — частична доставка. Остава да се издължи:\n` + rem.join("\n");
     }
   } catch (e) {}
   try {
