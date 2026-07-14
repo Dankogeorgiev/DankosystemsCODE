@@ -41,6 +41,11 @@ function dsIsDetail(p) {
   if (g.includes("детайл") || g.includes("възл") || g.includes("полуфабрикат") || g.includes("заготов")) return true;
   return false;
 }
+// В списъка показваме и всичко, което реално има наличност/движения (готова
+// продукция от заявки), за да не „изчезва", ако още не е класифицирано.
+function dsShowInStock(p) {
+  return dsIsDetail(p) || (Number(p.stock) || 0) !== 0;
+}
 
 async function erpRenderDetailStock() {
   try { await erpEnsureLoaded(); }
@@ -116,7 +121,7 @@ async function erpRenderDetailStock() {
 function dsFillRows() {
   const tbody = document.getElementById("ds-tbody");
   if (!tbody) return;
-  let list = ERP.products.filter(dsIsDetail);
+  let list = ERP.products.filter(dsShowInStock);
   if (DS_TERM) { const q = DS_TERM.toLowerCase().trim(); list = list.filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q)); }
   if (DS_ONLY_STOCK) list = list.filter(p => (Number(p.stock) || 0) > 0);
   list.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));

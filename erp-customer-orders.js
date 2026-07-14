@@ -536,10 +536,42 @@ async function erpCOTracking(o) {
   const activeHtml = active.length
     ? `<div class="erp-prod-active">${active.map(a => `↳ <b>${escapeHtml(a.product || "")}</b> — ${escapeHtml(a.operation || "")} (цех ${escapeHtml(a.workshop || "")}): ${Number(a.produced) || 0}/${Number(a.qty) || 0}${(a.source && a.source.orderIds && a.source.orderIds.length >= 2) ? " · СЕРИЯ" : ""}`).join("<br>")}</div>`
     : (done ? `<div class="erp-prod-active">✓ всички операции са готови</div>` : "");
+  const allDone = planned > 0 && done === planned;
   box.innerHTML = planned
     ? `<div class="erp-prod-line"><b>Поточно производство:</b> ${done} / ${planned} операции готови (${pct}%)
          <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
          <button class="btn btn-small" id="co-refresh">↻</button></div>${activeHtml}`
+       + (allDone ? `<div style="margin-top:6px"><button class="btn btn-small btn-primary" id="co-stock-done" title="За заявки, завършени преди готовото да влиза автоматично в склада">📦 Заприходи готовото в Склад детайли</button></div>` : "")
     : `<p class="erp-muted">Няма задачи за тази заявка.</p>`;
   const rb = document.getElementById("co-refresh"); if (rb) rb.addEventListener("click", () => erpCOTracking(o));
+  const sd = document.getElementById("co-stock-done"); if (sd) sd.addEventListener("click", () => erpCOStockFinished(o, rows));
+}
+
+// Заприходява готовите изделия по завършена заявка в Склад детайли — за заявки,
+// пуснати преди stockTop (готовото не е влязло автоматично). Пропуска изделия,
+// които вече са заприходени автоматично (src.toStock + stocked>0), за да не удвои.
+async function erpCOStockFinished(o, rows) {
+  const autoStocked = new Set();
+  (rows || []).forEach(r => { const s = (r.data || {}).source; if (s && s.toStock && Number(s.stocked) > 0 && s.pid) autoStocked.add(String(s.pid)); });
+  const lines = (o.lines || []).filter(l => l.productId && (erpToNum(l.qty) > 0));
+  const toCredit = lines.filter(l => !autoStocked.has(String(l.productId)));
+  if (!lines.length) { alert("Няма продукти за заприходяване."); return; }
+  if (!toCredit.length) { alert("Готовите изделия вече са в Склад детайли (заприходени автоматично при завършване)."); return; }
+  if (!confirm(`Да заприходя ли готовите изделия по заявка №${o.ourNo || o.id} в Склад детайли?\n\n`
+    + toCredit.map(l => `• ${l.code ? l.code + " " : ""}${l.ourName || l.name || ""}: ${erpNum(erpToNum(l.qty))} бр.`).join("\n")
+    + `\n\n(Няма да се удвои при повторно натискане.)`)) return;
+  let ok = 0, err = null;
+  for (const l of toCredit) {
+    const ref = "orderdone:" + o.id + ":" + l.productId;
+    try {
+      await sb.from("product_movements").delete().eq("ref", ref);
+      const { error } = await sb.from("product_movements").insert({ product_id: Number(l.productId), kind: "заприходяване", quantity: Math.abs(erpToNum(l.qty)), ref, note: "Готово по заявка №" + (o.ourNo || o.id) });
+      if (error) { err = error; break; }
+      ok++;
+    } catch (e) { err = e; break; }
+  }
+  if (err) { alert("Грешка при заприходяване: " + (err.message || err)); return; }
+  try { await erpLoadAll(); } catch {}
+  alert(`Готово! Заприходени ${ok} изделия в Склад детайли.`);
+  erpCOTracking(o);
 }
