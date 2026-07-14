@@ -926,9 +926,13 @@ async function logProduction(t, qtyVal, extra) {
       const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
       const avail = erpFlowAvailable(t, map);
       if (add > avail) {
-        alert(avail > 0
-          ? `Поточно производство: сега можеш да запишеш най-много ${avail} бр. (толкова са произведени в предната операция).`
-          : `Поточно производство: предната операция още не е произвела детайли за тази стъпка. Изчакай предния цех.`);
+        if (avail > 0) {
+          alert(`Поточно производство: сега можеш да запишеш най-много ${avail} бр. (толкова са произведени в предната операция).`);
+        } else {
+          const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
+          const detail = pend.length ? "\n\nЧака да се завършат:\n" + pend.map(p => `• ${p.code}${p.operation ? " · " + p.operation : ""}: готови ${p.produced}/${p.qty}`).join("\n") : "";
+          alert(`Поточно производство: детайлите за тази стъпка още не са готови в предната операция.${detail}\n\nИзчакай съответния цех.`);
+        }
         return;
       }
     } else if (!t.source.toStock) {
