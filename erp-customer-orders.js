@@ -36,6 +36,26 @@ async function erpLoadCustomerOrders() {
   if (typeof erpPLEnsureCache === "function") { try { await erpPLEnsureCache(); } catch (e) {} }   // клиентски ценови листи
 }
 
+// Ако цялото производство на заявката е готово → статус „готова за продажба".
+// Ползва се и от Мастер отчитане (за да не остане „в производство" след докарване).
+async function erpMarkOrderReadyIfDone(orderId) {
+  if (!orderId) return false;
+  try {
+    const co = await sb.from("customer_orders").select("id,data").eq("id", orderId).maybeSingle();
+    if (!co || !co.data) return false;   // не е клиентска заявка (мостра/за склад)
+    const d = co.data.data || {};
+    if (d.status !== "в производство") return false;
+    const { rows } = (typeof erpFlowTasksFor === "function") ? await erpFlowTasksFor(orderId) : { rows: [] };
+    if (!rows.length) return false;
+    const allDone = rows.every(r => { const dd = r.data || {}; const q = Number(dd.qty) || 0, p = Number(dd.produced) || 0; return q > 0 && p >= q; });
+    if (!allDone) return false;
+    d.status = "готова за продажба";
+    await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", orderId);
+    if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) it.status = d.status; }
+    return true;
+  } catch (e) { return false; }
+}
+
 async function erpLoadClients() {
   if (erpClientsCache) return erpClientsCache;
   try {

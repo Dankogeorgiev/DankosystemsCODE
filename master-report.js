@@ -121,6 +121,7 @@ function masterRender() {
     const d = g.details.find(x => x.key === code); if (!d) return;
     wrap.querySelectorAll(".m-chip, .m-complete").forEach(x => x.disabled = true);
     try { await masterAdvanceDetail(d.ops, step); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
   }));
@@ -131,6 +132,7 @@ function masterRender() {
     if (!confirm(`Да докарам ли цялата заявка ${g.no ? "№" + g.no : ""} до готово (всички операции)?`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete").forEach(x => x.disabled = true);
     try { await masterCompleteOrder(g.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
   }));
