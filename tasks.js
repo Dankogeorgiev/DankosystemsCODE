@@ -593,13 +593,22 @@ function renderTasks() {
   const readyOnly = !!(document.getElementById("task-ready-filter") || {}).checked;
   const hideDoneEl = document.getElementById("task-hide-done");
   const hideDone = hideDoneEl ? hideDoneEl.checked : true;
-  // Филтър по клиент — падащо меню с клиентите на всички пуснати заявки.
+  // Филтър по клиент — падащо меню с клиентите на всички пуснати заявки (с №).
   const clientSel = document.getElementById("task-client-filter");
   let clientFilter = "";
   if (clientSel) {
     const cur = clientSel.value;
-    const clients = [...new Set(TASKS.flatMap(taskClients).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "bg"));
-    clientSel.innerHTML = `<option value="">Всички клиенти</option>` + clients.map(c => `<option ${c === cur ? "selected" : ""}>${escapeHtml(c)}</option>`).join("");
+    const clientOrders = {};
+    TASKS.forEach(t => {
+      const nos = taskOrderNos(t);
+      taskClients(t).forEach(c => { if (!c) return; const set = clientOrders[c] || (clientOrders[c] = new Set()); nos.forEach(n => set.add(n)); });
+    });
+    const clients = Object.keys(clientOrders).sort((a, b) => a.localeCompare(b, "bg"));
+    clientSel.innerHTML = `<option value="">Всички клиенти</option>` + clients.map(c => {
+      const nos = [...clientOrders[c]].filter(Boolean);
+      const label = c + (nos.length ? ` (№${nos.join(", №")})` : "");
+      return `<option value="${escapeAttr(c)}" ${c === cur ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
     clientFilter = clientSel.value;
   }
   tbody.innerHTML = "";
