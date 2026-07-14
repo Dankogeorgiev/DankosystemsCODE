@@ -298,10 +298,38 @@ function dsFindDuplicates() {
   const { wrap, close } = erpDialog(`
     <h3>🔗 Дублирани продукти по код или име</h3>
     <p class="hint">Продукти, заведени повече от веднъж с <b>еднакъв код ИЛИ еднакво име</b> (напр. наличността на единия, рецептата на другия — затова нетването не ги засича). Избери кой запис да <b>остане</b> (по подразбиране — най-свързаният с рецепти) и натисни „Обедини". Наличността, рецептите и връзките на другите се прехвърлят към него, а дубликатите се изтриват.</p>
-    <div class="ds-dup-list" style="max-height:60vh;overflow:auto">${groups.length ? groups.map(groupHtml).join("<hr/>") : `<p class="erp-ready-ok">Няма дублирани кодове 👍</p>`}</div>
+    <div class="ds-manual" style="border:1px dashed var(--line,#cbd5e1);border-radius:10px;padding:10px;margin:0 0 10px;background:#f8fafc">
+      <b>✋ Ръчно обединяване</b> <span class="erp-muted">— когато кодовете И имената са различни (напр. след преименуване). Търси и избери двата записа от списъка.</span>
+      <datalist id="dm-products">${(ERP.products || []).map(p => `<option value="${escapeAttr((p.code || "") + " · " + (p.name || "") + " · #" + p.id)}"></option>`).join("")}</datalist>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:6px">
+        <label class="erp-inline" style="flex-direction:column;align-items:flex-start">Запази (остава)<input list="dm-products" id="dm-keep" placeholder="търси код/име" style="min-width:240px" /></label>
+        <label class="erp-inline" style="flex-direction:column;align-items:flex-start">Обедини в него (трие се)<input list="dm-products" id="dm-dup" placeholder="търси код/име" style="min-width:240px" /></label>
+        <button class="btn btn-small btn-primary" id="dm-merge">🔗 Обедини ръчно</button>
+      </div>
+    </div>
+    <div class="ds-dup-list" style="max-height:50vh;overflow:auto">${groups.length ? groups.map(groupHtml).join("<hr/>") : `<p class="erp-ready-ok">Няма автоматично открити дубликати. Ако знаеш два записа за едно нещо — ползвай „Ръчно обединяване" горе.</p>`}</div>
     <div class="erp-dialog-actions"><button class="btn" id="dd-close">Затвори</button></div>
     <p class="save-status" id="dd-status"></p>`);
   wrap.querySelector("#dd-close").addEventListener("click", close);
+  const dmMerge = wrap.querySelector("#dm-merge");
+  if (dmMerge) dmMerge.addEventListener("click", async () => {
+    const pid = s => { const m = /#(\d+)\s*$/.exec(String(s || "")); return m ? Number(m[1]) : null; };
+    const keeperId = pid(wrap.querySelector("#dm-keep").value);
+    const dupId = pid(wrap.querySelector("#dm-dup").value);
+    if (!keeperId || !dupId) { alert("Избери и двата продукта от падащия списък (да съдържат #номер)."); return; }
+    if (keeperId === dupId) { alert("Избери два различни записа."); return; }
+    const keeper = ERP.prodById[keeperId], dup = ERP.prodById[dupId];
+    if (!keeper || !dup) { alert("Един от продуктите не е намерен. Избери от списъка."); return; }
+    if (!confirm(`Да обединя ли „${dup.code || ""} ${dup.name || ""}" (#${dupId}) в „${keeper.code || ""} ${keeper.name || ""}" (#${keeperId})?\n\nНаличността, рецептите и връзките минават към записа, който остава; дубликатът се трие.`)) return;
+    dmMerge.disabled = true;
+    const st = wrap.querySelector("#dd-status"); if (st) st.textContent = "Обединявам…";
+    const res = await dsMergeInto(keeperId, [dupId]);
+    if (res.error) { if (st) st.textContent = "⚠ " + res.error; dmMerge.disabled = false; return; }
+    await erpLoadAll();
+    close();
+    erpRenderDetailStock();
+    alert(`Готово! Обединен запис #${dupId} в #${keeperId}.` + (res.jsonFixed ? `\nПренасочени ${res.jsonFixed} връзки (мостри/заявки/продажби/цени).` : ""));
+  });
   wrap.querySelectorAll(".ds-merge").forEach(b => b.addEventListener("click", async () => {
     const gi = Number(b.dataset.gi);
     const grp = (groups[gi] && groups[gi].items) || [];
