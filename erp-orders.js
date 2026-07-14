@@ -929,6 +929,13 @@ async function erpProduce(s) {
   erpRenderOrderPanel(s);
   const miss = res.missing || [];
   const matShort = res.materialsShort || [];
+  // Всичко е налично от склада — няма какво да се произвежда.
+  if (res.seriesCount === 0 && !miss.length) {
+    alert(`✅ Всичко е налично в Склад детайли — няма какво да се произвежда.\n`
+      + (fs.length ? `\n📦 Покрито от склад:\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.` ).join("\n") + `\n` : "")
+      + `\nПоръчката е готова за продажба — натисни „🧾 Създай продажба".`);
+    return;
+  }
   alert(`Готово! Пуснах поточно производство (${res.seriesCount} операции).\n`
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
     + `\n\n📥 Като се отчете последната операция, готовите детайли влизат в Склад детайли. После натисни „🧾 Създай продажба", за да ги изпишеш с продажба.`
@@ -995,12 +1002,16 @@ async function erpShowProduction(s) {
   const activeHtml = active.length
     ? active.map(a => `↳ <b>${escapeHtml(a.operation || "")}</b> (цех ${escapeHtml(a.workshop || "")}): ${Number(a.produced) || 0}/${Number(a.qty) || 0}${(a.source && a.source.orderIds && a.source.orderIds.length >= 2) ? " · СЕРИЯ" : ""}`).join("<br>")
     : (done ? "✓ всички операции са готови" : "");
+  // Всичко е било налично от склада — 0 операции, но производството Е пуснато.
+  const allFromStock = !planned && s.production && Number(s.production.count) === 0;
   box.innerHTML = planned
     ? `<div class="erp-prod-line"><b>Поточно производство:</b> ${done} / ${planned} операции готови (${pct}%)
          <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
          <button type="button" class="btn btn-small" id="erp-op-refresh">↻</button></div>
        <div class="erp-prod-active">${activeHtml}</div>`
-    : `<span class="erp-muted">Няма задачи за тази поръчка (възможно е да са изчистени от цеха).</span>`;
+    : (allFromStock
+        ? `<div class="erp-prod-active" style="color:#047857"><b>✅ Всичко е налично в Склад детайли</b> — няма какво да се произвежда. Готово за продажба (🧾 Създай продажба).</div>`
+        : `<span class="erp-muted">Няма задачи за тази поръчка (възможно е да са изчистени от цеха).</span>`);
   const rb = document.getElementById("erp-op-refresh");
   if (rb) rb.addEventListener("click", () => erpShowProduction(s));
 }
