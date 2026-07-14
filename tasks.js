@@ -705,6 +705,9 @@ function renderTasks() {
     const matShort = (typeof taskMaterialShort === "function") ? taskMaterialShort(t) : null;
     const matTitle = matShort ? matShort.map(m => `${m.code ? m.code + " " : ""}${m.name}: налично ${matQtyFmt(m.have)}, липсват ${matQtyFmt(m.short)} ${m.unit || ""}`).join("\n") : "";
     const matHtml = matShort ? `<div class="t-mat-wait" title="${escapeAttr(matTitle)}">⏳ чака материал: ${matShort.map(m => escapeHtml((m.code ? m.code + " " : "") + m.name) + " (липсват " + matQtyFmt(m.short) + " " + escapeHtml(m.unit || "") + ")").join(", ")}</div>` : "";
+    // „в склада: N" — колко вече са заприходени в Склад детайли от последната операция.
+    const stockedN = (t.source && t.source.flow && t.source.last) ? (Number(t.source.stocked) || 0) : 0;
+    const stockedHtml = stockedN > 0 ? `<div class="t-stocked" title="Толкова бройки от този детайл вече са заприходени в Склад детайли (при последната операция)">📥 в склада: ${matQtyFmt(stockedN)}</div>` : "";
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
@@ -728,7 +731,7 @@ function renderTasks() {
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () { const n = taskOrderNos(t); return n.length ? `<div class="t-orderno" title="Номер на поръчката">📋 № ${escapeHtml(n.join(", "))}</div>` : ""; })()}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${matHtml}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${stockedHtml}${matHtml}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
