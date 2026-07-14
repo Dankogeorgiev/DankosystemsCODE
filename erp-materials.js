@@ -50,6 +50,7 @@ function erpRenderMaterials() {
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} материала${belowCount ? ` · <span class="erp-warn">${belowCount} под минимум</span>` : ""}</span>
       <button class="btn btn-small" id="erp-mat-needed" title="Какви материали трябва да купим за пуснатите в производство заявки">🛒 Необходими материали</button>
+      <button class="btn btn-small" id="erp-mat-quick" title="Заприходи няколко материала наведнъж (цяла доставка)">⚡ Бърз приход</button>
       <button class="btn btn-small btn-primary" id="erp-mat-add">+ Нов материал</button>
     </div>
     <div class="erp-kg-total">⚖ Общо наличност: <strong>${erpNum(totalKg)} кг</strong>${noWeight ? ` <span class="erp-muted">(${noWeight} материала без зададено тегло на мярка — не влизат в сумата)</span>` : ""}</div>
@@ -91,6 +92,8 @@ function erpRenderMaterials() {
   document.getElementById("erp-mat-add").addEventListener("click", () => erpEditMaterial(null));
   const needBtn = document.getElementById("erp-mat-needed");
   if (needBtn) needBtn.addEventListener("click", erpMatNeededDialog);
+  const quickBtn = document.getElementById("erp-mat-quick");
+  if (quickBtn) quickBtn.addEventListener("click", erpQuickIntake);
   v.querySelectorAll("[data-move]").forEach(b =>
     b.addEventListener("click", () => erpMovementDialog(Number(b.dataset.move))));
   v.querySelectorAll("[data-hist]").forEach(b =>
@@ -319,5 +322,76 @@ async function erpMatNeededDialog() {
       { title: "За купуване", headers, rows: buyRows.map(toRow) },
       { title: "Достатъчно на склад", headers, rows: okRows.map(toRow) },
     ]);
+  });
+}
+
+// ⚡ Бърз приход — заприходява няколко материала наведнъж (една доставка) с общ
+// доставчик/№. Записва движения „входящ" (+) в stock_movements.
+function erpQuickIntake() {
+  const lines = [];   // { id, code, name, unit, qty }
+  const { wrap, close } = erpDialog(`
+    <h3>⚡ Бърз приход на материали</h3>
+    <p class="hint">Заприходи няколко материала наведнъж (цяла доставка). Търси, добави с бройка, запиши всички.</p>
+    <label>Доставчик / № на доставка <input type="text" id="qi-ref" placeholder="напр. Метал ООД, № 1234" /></label>
+    <label>Търси материал <input type="search" id="qi-search" placeholder="код или име…" autocomplete="off" /></label>
+    <div id="qi-results" class="erp-lp-list"></div>
+    <div id="qi-lines" style="margin-top:10px"></div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="qi-cancel">Затвори</button>
+      <button class="btn btn-primary" id="qi-save">💾 Заприходи всички</button>
+    </div>
+    <p class="save-status" id="qi-status"></p>`);
+
+  const results = wrap.querySelector("#qi-results");
+  const linesBox = wrap.querySelector("#qi-lines");
+  const searchEl = wrap.querySelector("#qi-search");
+
+  const renderResults = (q) => {
+    q = (q || "").toLowerCase().trim();
+    let list = (ERP.materials || []).slice();
+    if (q) list = list.filter(m => ((m.code || "") + " " + (m.name || "") + " " + (m.group_name || "")).toLowerCase().includes(q));
+    list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    results.innerHTML = list.slice(0, 40).map(m =>
+      `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">${escapeHtml(m.unit || "")}${m.group_name ? " · " + escapeHtml(m.group_name) : ""}</span></button>`
+    ).join("") + (list.length > 40 ? `<p class="hint">Показани 40 от ${list.length}. Уточни търсенето.</p>` : "")
+      || `<p class="report-empty">Няма съвпадения. Създай материала с „+ Нов материал".</p>`;
+    results.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => addLine(Number(b.dataset.id))));
+  };
+
+  const addLine = (id) => {
+    const m = ERP.matById[id]; if (!m) return;
+    if (!lines.some(l => l.id === id)) lines.push({ id, code: m.code || "", name: m.name || "", unit: m.unit || "", qty: "" });
+    searchEl.value = ""; renderResults(""); renderLines();
+    const last = linesBox.querySelector('.qi-qty[data-i="' + (lines.length - 1) + '"]'); if (last) last.focus();
+  };
+
+  const renderLines = () => {
+    linesBox.innerHTML = lines.length
+      ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Приход</th><th>Мярка</th><th></th></tr></thead>
+         <tbody>${lines.map((l, i) => `<tr>
+           <td>${escapeHtml(l.code)}</td><td>${escapeHtml(l.name)}</td>
+           <td class="num"><input type="number" class="qi-qty" data-i="${i}" step="any" min="0" value="${escapeAttr(String(l.qty))}" style="width:90px" /></td>
+           <td>${escapeHtml(l.unit)}</td>
+           <td><button type="button" class="btn btn-small" data-rm="${i}">×</button></td></tr>`).join("")}</tbody></table>`
+      : `<p class="erp-muted">Още няма добавени материали — потърси и избери отгоре.</p>`;
+    linesBox.querySelectorAll(".qi-qty").forEach(inp => inp.addEventListener("input", e => { lines[Number(e.target.dataset.i)].qty = e.target.value; }));
+    linesBox.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { lines.splice(Number(b.dataset.rm), 1); renderLines(); }));
+  };
+
+  searchEl.addEventListener("input", e => renderResults(e.target.value));
+  renderResults(""); renderLines();
+  wrap.querySelector("#qi-cancel").addEventListener("click", close);
+  wrap.querySelector("#qi-save").addEventListener("click", async () => {
+    const ref = wrap.querySelector("#qi-ref").value || null;
+    const rows = lines.map(l => ({ id: l.id, q: erpToNum(l.qty) || 0 })).filter(l => l.q > 0);
+    if (!rows.length) { wrap.querySelector("#qi-status").textContent = "Въведи поне един материал с бройка > 0."; return; }
+    wrap.querySelector("#qi-status").textContent = "Записва…";
+    const by = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || null;
+    const moves = rows.map(l => ({ material_id: l.id, kind: "входящ", quantity: Math.abs(l.q), ref, note: null, created_by: by }));
+    const { error } = await sb.from("stock_movements").insert(moves);
+    if (error) { wrap.querySelector("#qi-status").textContent = "⚠ " + error.message; return; }
+    close();
+    await erpReload();
+    alert(`Заприходени ${rows.length} материала` + (ref ? ` (${ref})` : "") + ".");
   });
 }
