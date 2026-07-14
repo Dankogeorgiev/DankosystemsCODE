@@ -197,32 +197,28 @@ function prodComputeAndRender() {
   if (allW) allW.addEventListener("click", () => { prodRptWorker = ""; renderProdReport(); });
 }
 
-/* ---------- Експорт ---------- */
+/* ---------- Експорт (обща красива таблица — виж report-export.js) ---------- */
 function prodExportCsv() {
   const { from, to, label } = prodPeriodRange(prodRptMode, prodRptDate);
   const agg = prodAggregate(from, to, prodRptShop, prodRptWorker);
-  const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-  const lines = [];
-  lines.push([esc("Производствен отчет"), esc(prodRptShop === "__all" ? "Всички цехове" : prodRptShop), esc(label)].join(","));
-  lines.push("");
+  const sections = [];
   if (prodRptShop === "__all") {
-    lines.push([esc("По цехове"), esc("Произведено"), esc("Дял %")].join(","));
-    Object.entries(agg.byShop).sort((a, b) => b[1] - a[1]).forEach(([s, q]) => lines.push([esc(s), esc(q), esc(prodPct(q, agg.total))].join(",")));
-    lines.push([esc("Всичко"), esc(agg.total), esc(100)].join(","));
-    lines.push("");
+    const rows = Object.entries(agg.byShop).sort((a, b) => b[1] - a[1]).map(([s, q]) => [s, q, prodPct(q, agg.total)]);
+    rows.push(["Всичко", agg.total, 100]);
+    sections.push({ title: "По цехове", headers: [{ label: "Цех" }, { label: "Произведено", num: true }, { label: "Дял %", num: true }], rows });
   }
-  lines.push([esc("Служител"), esc("Цех"), esc("Произведено"), esc("Вписвания"), esc("Дял %")].join(","));
-  Object.entries(agg.byWorker).sort((a, b) => b[1].qty - a[1].qty).forEach(([w, d]) => lines.push([esc(w), esc(d.shop), esc(d.qty), esc(d.cnt), esc(prodPct(d.qty, agg.total))].join(",")));
-  lines.push("");
-  lines.push([esc("Цех"), esc("Клиент"), esc("Продукт"), esc("Код"), esc("Операция"), esc("Произведено")].join(","));
-  Object.values(agg.byItem).sort((a, b) => b.qty - a.qty).forEach(r => lines.push([esc(r.workshop), esc(r.client), esc(r.product), esc(r.code), esc(r.operation), esc(r.qty)].join(",")));
-
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `proizvodstven-otchet-${from}${from !== to ? "_" + to : ""}.csv`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  sections.push({
+    title: "По служители",
+    headers: [{ label: "Служител" }, { label: "Цех" }, { label: "Произведено", num: true }, { label: "Вписвания", num: true }, { label: "Дял %", num: true }],
+    rows: Object.entries(agg.byWorker).sort((a, b) => b[1].qty - a[1].qty).map(([w, d]) => [w, d.shop, d.qty, d.cnt, prodPct(d.qty, agg.total)]),
+  });
+  sections.push({
+    title: "Подробно (по продукт/операция)",
+    headers: [{ label: "Цех" }, { label: "Клиент" }, { label: "Продукт" }, { label: "Код" }, { label: "Операция" }, { label: "Произведено", num: true }],
+    rows: Object.values(agg.byItem).sort((a, b) => b.qty - a.qty).map(r => [r.workshop, r.client, r.product, r.code, r.operation, r.qty]),
+  });
+  const title = `Производствен отчет · ${prodRptShop === "__all" ? "Всички цехове" : prodRptShop} · ${label}`;
+  reportExportXls(`proizvodstven-otchet-${from}${from !== to ? "_" + to : ""}`, title, sections);
 }
 
 function prodExportPdf() {

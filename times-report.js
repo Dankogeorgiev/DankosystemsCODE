@@ -303,56 +303,37 @@ function renderTimesReport() {
   v.querySelector("#tr-pdf").addEventListener("click", () => timesExportPdf(analysis, detailed, timesAnalysisMode));
 }
 
-/* ---------- Експорт ---------- */
-function timesExportCsv(ops, detailed, mode) {
-  const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-  const secTxt = sec => sec == null ? "" : Math.round(sec);
+/* ---------- Експорт (обща красива таблица — виж report-export.js) ---------- */
+function timesSections(ops, detailed, mode) {
   const byDetail = mode === "detail";
-  const lines = [];
-  lines.push([esc(byDetail ? "Анализ по детайл" : "Анализ по операция")].join(","));
-  lines.push([...(byDetail ? ["Детайл", "Операция"] : ["Операция"]), "Цех", "Вписвания", "Общо бройки", "Средно/брой (сек)", "Най-бързо/брой (сек)", "Най-бавно/брой (сек)"].map(esc).join(","));
-  ops.forEach(g => lines.push([...(byDetail ? [g.detail, g.operation] : [g.operation]), g.workshop, g.entries, g.pieces, secTxt(g.avg), secTxt(g.min), secTxt(g.max)].map(esc).join(",")));
-  lines.push("");
-  lines.push([esc("Подробни записи")].join(","));
-  lines.push(["Дата", "Цех", "Машина", "Клиент", "Продукт", "Код", "Операция", "Служител", "Брой", "За 1 брой (сек)", "1 лист (сек)", "Кол-во/поръчка (сек)", "Настройка (сек)", "Бележки"].map(esc).join(","));
-  detailed.forEach(r => lines.push([
-    fmtLogDate(r.date), r.workshop, r.machine, r.client, r.product, r.code, r.operation, r.worker, r.qty,
-    secTxt(timesPerPiece(r)), (r.tSheet && r.tSheet.sec) || "", (r.tOrder && r.tOrder.sec) || "", (r.tSetup && r.tSetup.sec) || "", r.notes || "",
-  ].map(esc).join(",")));
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "otcheti-analiz.csv";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-function timesExportPdf(ops, detailed, mode) {
-  const esc = s => escapeHtml(String(s == null ? "" : s));
   const dur = sec => sec == null ? "—" : fmtSecDur({ sec: Math.round(sec) });
-  const byDetail = mode === "detail";
-  const opCols = byDetail ? 8 : 7;
-  const opRows = ops.map(g => `<tr>${byDetail ? `<td>${esc(g.detail)}</td><td>${esc(g.operation) || "—"}</td>` : `<td>${esc(g.operation)}</td>`}<td>${esc(g.workshop) || "—"}</td><td class="r">${g.entries}</td><td class="r">${g.pieces}</td><td class="r">${dur(g.avg)}</td><td class="r">${dur(g.min)}</td><td class="r">${dur(g.max)}</td></tr>`).join("") || `<tr><td colspan="${opCols}" class="c">няма данни</td></tr>`;
-  const detRows = detailed.map(r => `<tr><td>${esc(fmtLogDate(r.date))}</td><td>${esc(r.workshop) || "—"}</td><td>${esc(r.machine) || "—"}</td><td>${esc(r.product) || "—"}${r.code ? " (" + esc(r.code) + ")" : ""}</td><td>${esc(r.operation) || "—"}</td><td>${esc(r.worker) || "—"}</td><td class="r">${r.qty}</td><td class="r">${dur(timesPerPiece(r))}</td></tr>`).join("") || `<tr><td colspan="8" class="c">няма данни</td></tr>`;
-  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Отчети — анализ</title>
-  <style>
-    *{box-sizing:border-box}body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 20px}
-    .head{border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:10px}.head h1{font-size:20px;margin:0;color:#0f766e}
-    h3{font-size:13px;margin:16px 0 4px;color:#0f766e}
-    table{width:100%;border-collapse:collapse;margin-bottom:6px}
-    th,td{border:1px solid #cbd5e1;padding:4px 7px;font-size:11px;text-align:left}
-    th{background:#ecfdf5;color:#065f46}td.r,th.r{text-align:right}td.c{text-align:center;color:#777}
-    @media print{body{margin:8mm}.noprint{display:none}}
-    .noprint{text-align:center;margin:12px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
-  </style></head><body>
-    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат / Запази като PDF</button></div>
-    <div class="head"><h1>ОТЧЕТИ — анализ на операциите</h1></div>
-    <h3>${byDetail ? "Анализ по детайл" : "Анализ по операция"} (за ценообразуване)</h3>
-    <table><thead><tr>${byDetail ? `<th>Детайл (продукт)</th><th>Операция</th>` : `<th>Операция</th>`}<th>Цех</th><th class="r">Вписвания</th><th class="r">Общо бройки</th><th class="r">Средно/брой</th><th class="r">Най-бързо</th><th class="r">Най-бавно</th></tr></thead><tbody>${opRows}</tbody></table>
-    <h3>Подробни записи</h3>
-    <table><thead><tr><th>Дата</th><th>Цех</th><th>Машина</th><th>Продукт</th><th>Операция</th><th>Служител</th><th class="r">Брой</th><th class="r">За 1 брой</th></tr></thead><tbody>${detRows}</tbody></table>
-  </body></html>`;
-  const w = window.open("", "_blank");
-  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за този сайт и опитай пак."); return; }
-  w.document.write(html); w.document.close(); w.focus();
+  const opHeaders = [
+    ...(byDetail ? [{ label: "Детайл (продукт)" }, { label: "Операция" }] : [{ label: "Операция" }]),
+    { label: "Цех" }, { label: "Вписвания", num: true }, { label: "Общо бройки", num: true },
+    { label: "Средно/брой", num: true }, { label: "Най-бързо", num: true }, { label: "Най-бавно", num: true },
+  ];
+  const opRows = ops.map(g => [
+    ...(byDetail ? [g.detail, g.operation || "—"] : [g.operation]),
+    g.workshop || "—", g.entries, g.pieces, dur(g.avg), dur(g.min), dur(g.max),
+  ]);
+  const detHeaders = [
+    { label: "Дата" }, { label: "Цех" }, { label: "Машина" }, { label: "Клиент" }, { label: "Продукт" }, { label: "Код" },
+    { label: "Операция" }, { label: "Служител" }, { label: "Брой", num: true }, { label: "За 1 брой", num: true },
+    { label: "1 лист/прът", num: true }, { label: "Кол-во/поръчка", num: true }, { label: "Настройка", num: true }, { label: "Бележки" },
+  ];
+  const detRows = detailed.map(r => [
+    fmtLogDate(r.date), r.workshop || "—", r.machine || "—", r.client || "СЕРИЯ", r.product || "—", r.code || "",
+    r.operation || "—", r.worker || "—", r.qty, dur(timesPerPiece(r)),
+    fmtSecDur(r.tSheet), fmtSecDur(r.tOrder), fmtSecDur(r.tSetup), r.notes || "",
+  ]);
+  return [
+    { title: byDetail ? "Анализ по детайл (за ценообразуване)" : "Анализ по операция (за ценообразуване)", headers: opHeaders, rows: opRows },
+    { title: "Подробни записи", headers: detHeaders, rows: detRows },
+  ];
+}
+function timesExportCsv(ops, detailed, mode) {
+  reportExportXls("otcheti-analiz", "ОТЧЕТИ — анализ на операциите", timesSections(ops, detailed, mode));
+}
+function timesExportPdf(ops, detailed, mode) {
+  reportOpenView("ОТЧЕТИ — анализ на операциите", timesSections(ops, detailed, mode));
 }

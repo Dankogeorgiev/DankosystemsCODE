@@ -113,12 +113,8 @@ function erpETEdit(index, v) {
 }
 
 function erpETExport(rows, calc) {
-  const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-  const n = x => String(Math.round((Number(x) || 0) * 100) / 100).replace(".", ",");
-  const head = ["№ седм.", "Дата", "Задължения", "Вземания", "Съотношение", "Разлика", "Заявки", "Банкова наличност", "Материали (тон)", "Външен оборот", "Вътрешен оборот", "Инвестиции", "Забележка"];
-  const lines = [head.map(esc).join(",")];
-  rows.forEach(r => { const c = calc(r); lines.push([etWeekNo(r.date), etDate(r.date), n(r.liabilities), n(r.receivables), c.ratio != null ? n(c.ratio) : "", n(c.diff), n(r.orders), n(r.bank), n(r.materialTons), n(r.extTurnover), n(r.intTurnover), n(r.investments), r.note || ""].map(esc).join(",")); });
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tablica-erp.csv"; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const headers = [{ label: "№ седм.", num: true }, { label: "Дата" }, { label: "Задължения", num: true }, { label: "Вземания", num: true }, { label: "Съотношение", num: true }, { label: "Разлика", num: true }, { label: "Заявки", num: true }, { label: "Банкова наличност", num: true }, { label: "Материали (тон)", num: true }, { label: "Външен оборот", num: true }, { label: "Вътрешен оборот", num: true }, { label: "Инвестиции", num: true }, { label: "Забележка" }];
+  const outRows = rows.map(r => { const c = calc(r); return [etWeekNo(r.date), etDate(r.date), n(r.liabilities), n(r.receivables), c.ratio != null ? n(c.ratio) : "", n(c.diff), n(r.orders), n(r.bank), n(r.materialTons), n(r.extTurnover), n(r.intTurnover), n(r.investments), r.note || ""]; });
+  reportExportXls("tablica-erp", "ЕРП таблица (седмично)", [{ headers, rows: outRows }]);
 }
