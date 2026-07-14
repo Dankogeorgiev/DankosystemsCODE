@@ -342,7 +342,13 @@ function erpCOLinesHtml(o) {
   return (o.lines || []).map((l, i) => `
     <tr>
       <td data-label="Код">${escapeHtml(l.code || "")}</td>
-      <td data-label="Продукт">${escapeHtml(l.name || "")}</td>
+      <td data-label="Продукт">${escapeHtml(l.name || "")}${(function () {
+        const del = Number(l.delivered) || 0; if (del <= 0) return "";
+        const rem = Math.max(0, (erpToNum(l.qty) || 0) - del);
+        return rem > 0
+          ? `<div class="erp-co-deliv" title="Доставено при частично фактуриране">📦 доставени ${erpNum(del)} · остават <b>${erpNum(rem)}</b></div>`
+          : `<div class="erp-co-deliv erp-co-deliv-full" title="Напълно доставено">✅ доставени ${erpNum(del)} (напълно)</div>`;
+      })()}</td>
       <td class="num" data-label="Бройка"><input type="number" class="co-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || 1))}" style="width:70px" /></td>
       <td class="num sell-cell" data-label="Прод. цена"><input type="number" class="co-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="0.00" /></td>
       <td class="num sell-cell" data-label="Сума">${erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>

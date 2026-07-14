@@ -303,3 +303,7 @@
 .co-client-row { display: flex; gap: 6px; align-items: center; }
 .co-client-row input { flex: 1; min-width: 0; }
 .co-client-row .btn { flex: 0 0 auto; white-space: nowrap; }
+
+/* Частична доставка по заявка */
+.erp-co-deliv { font-size: 11px; color: #b45309; font-weight: 600; margin-top: 2px; }
+.erp-co-deliv-full { color: #047857; }
