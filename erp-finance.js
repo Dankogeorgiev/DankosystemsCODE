@@ -150,16 +150,12 @@ function erpFinDetailHtml(c) {
 }
 
 function erpFinExportCsv(list, calc) {
-  const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-  const n = x => String((Math.round((Number(x) || 0) * 100) / 100)).replace(".", ",");
-  const lines = [["Наш №", "Клиент", "Дата", "Приходи", "Себестойност", "Маржин", "Маржин %"].map(esc).join(",")];
-  list.forEach(o => { const c = calc[o.id]; lines.push([o.ourNo || "", o.clientName || "", o.date || "", n(c.rev), n(c.cost), n(c.margin), c.rev > 0 ? n(c.pct) : ""].map(esc).join(",")); });
+  const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rows = list.map(o => { const c = calc[o.id]; return [o.ourNo || "", o.clientName || "", o.date || "", n(c.rev), n(c.cost), n(c.margin), c.rev > 0 ? n(c.pct) + "%" : ""]; });
   const T = list.reduce((a, o) => { const c = calc[o.id]; a.rev += c.rev; a.cost += c.cost; a.margin += c.margin; return a; }, { rev: 0, cost: 0, margin: 0 });
-  lines.push(["ОБЩО", "", "", n(T.rev), n(T.cost), n(T.margin), T.rev > 0 ? n(T.margin / T.rev * 100) : ""].map(esc).join(","));
-  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "marjin-po-poruchka.csv";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  rows.push(["ОБЩО", "", "", n(T.rev), n(T.cost), n(T.margin), T.rev > 0 ? n(T.margin / T.rev * 100) + "%" : ""]);
+  reportExportXls("marjin-po-poruchka", "Маржин по поръчка", [{
+    headers: [{ label: "Наш №" }, { label: "Клиент" }, { label: "Дата" }, { label: "Приходи", num: true }, { label: "Себестойност", num: true }, { label: "Маржин", num: true }, { label: "Маржин %", num: true }],
+    rows,
+  }]);
 }

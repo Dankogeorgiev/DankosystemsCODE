@@ -521,13 +521,10 @@ async function erpPayMonthView(v) {
   const pmFind = v.querySelector("#pay-find"); if (pmFind) pmFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
   payApplyFilter(v);
   v.querySelector("#pay-csv").addEventListener("click", () => {
-    const esc = s => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-    const n = x => String(Math.round((Number(x) || 0) * 100) / 100).replace(".", ",");
-    const lines = [["Служител", "Цех", ...PAY_MONEY.map(c => c.l), "ОБЩО получено"].map(esc).join(",")];
-    list.forEach(r => lines.push([r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.total)].map(esc).join(",")));
-    lines.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), n(grand)].map(esc).join(","));
-    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `zaplati-${erpPayMonth}.csv`; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "ОБЩО получено", num: true }];
+    const rows = list.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.total)]);
+    rows.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), n(grand)]);
+    reportExportXls(`zaplati-${erpPayMonth}`, `Заплати · ${PAY_MONTHS[M - 1]} ${Y}`, [{ headers, rows }]);
   });
 }
