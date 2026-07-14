@@ -297,7 +297,8 @@ function dsFindDuplicates() {
   };
   const { wrap, close } = erpDialog(`
     <h3>🔗 Дублирани продукти по код или име</h3>
-    <p class="hint">Продукти, заведени повече от веднъж с <b>еднакъв код ИЛИ еднакво име</b> (напр. наличността на единия, рецептата на другия — затова нетването не ги засича). Избери кой запис да <b>остане</b> (по подразбиране — най-свързаният с рецепти) и натисни „Обедини". Наличността, рецептите и връзките на другите се прехвърлят към него, а дубликатите се изтриват.</p>
+    <p class="hint">Продукти, заведени повече от веднъж с <b>еднакъв код ИЛИ еднакво име</b> (напр. наличността на единия, рецептата на другия — затова нетването не ги засича). Избери кой запис да <b>остане</b> (по подразбиране — най-свързаният с рецепти) и натисни „Обедини". Наличността, рецептите и връзките на другия се <b>прехвърлят</b> към него. По подразбиране дубликатът <b>НЕ се трие</b> — само остава празен (нищо не се губи). Може по избор да го изтриеш.</p>
+    <label class="erp-check" style="margin:0 0 8px"><input type="checkbox" id="dd-delete" /> 🗑 Изтрий празния дубликат след обединяване (по избор)</label>
     <div class="ds-manual" style="border:1px dashed var(--line,#cbd5e1);border-radius:10px;padding:10px;margin:0 0 10px;background:#f8fafc">
       <b>✋ Ръчно обединяване</b> <span class="erp-muted">— когато кодовете И имената са различни (напр. след преименуване). Търси и избери двата записа от списъка.</span>
       <datalist id="dm-products">${(ERP.products || []).map(p => `<option value="${escapeAttr((p.code || "") + " · " + (p.name || "") + " · #" + p.id)}"></option>`).join("")}</datalist>
@@ -320,15 +321,18 @@ function dsFindDuplicates() {
     if (keeperId === dupId) { alert("Избери два различни записа."); return; }
     const keeper = ERP.prodById[keeperId], dup = ERP.prodById[dupId];
     if (!keeper || !dup) { alert("Един от продуктите не е намерен. Избери от списъка."); return; }
-    if (!confirm(`Да обединя ли „${dup.code || ""} ${dup.name || ""}" (#${dupId}) в „${keeper.code || ""} ${keeper.name || ""}" (#${keeperId})?\n\nНаличността, рецептите и връзките минават към записа, който остава; дубликатът се трие.`)) return;
+    const deleteDup = !!(wrap.querySelector("#dd-delete") || {}).checked;
+    if (!confirm(`Да обединя ли „${dup.code || ""} ${dup.name || ""}" (#${dupId}) в „${keeper.code || ""} ${keeper.name || ""}" (#${keeperId})?\n\nНаличността, рецептите и връзките минават към записа, който остава.\n${deleteDup ? "Дубликатът ще бъде изтрит." : "Дубликатът остава празен (не се трие)."}`)) return;
     dmMerge.disabled = true;
     const st = wrap.querySelector("#dd-status"); if (st) st.textContent = "Обединявам…";
-    const res = await dsMergeInto(keeperId, [dupId]);
+    const res = await dsMergeInto(keeperId, [dupId], { deleteDup });
     if (res.error) { if (st) st.textContent = "⚠ " + res.error; dmMerge.disabled = false; return; }
     await erpLoadAll();
     close();
     erpRenderDetailStock();
-    alert(`Готово! Обединен запис #${dupId} в #${keeperId}.` + (res.jsonFixed ? `\nПренасочени ${res.jsonFixed} връзки (мостри/заявки/продажби/цени).` : ""));
+    alert(`Готово! Прехвърлен запис #${dupId} в #${keeperId}.`
+      + (res.jsonFixed ? `\nПренасочени ${res.jsonFixed} връзки (мостри/заявки/продажби/цени).` : "")
+      + (res.deleteDup ? `\nДубликатът е изтрит.` : `\nДубликатът остана празен (не е изтрит).`));
   });
   wrap.querySelectorAll(".ds-merge").forEach(b => b.addEventListener("click", async () => {
     const gi = Number(b.dataset.gi);
@@ -338,28 +342,32 @@ function dsFindDuplicates() {
     const keeperId = Number(sel.value);
     const dupIds = grp.filter(p => Number(p.id) !== keeperId).map(p => Number(p.id));
     const keeper = grp.find(p => Number(p.id) === keeperId) || {};
-    if (!confirm(`Да обединя ли ${dupIds.length} дубликат(а) в „${keeper.code || ""} ${keeper.name || ""}" (#${keeperId})?\n\nНаличността и рецептите им се прехвърлят към този запис, а дубликатите се изтриват.`)) return;
+    const deleteDup = !!(wrap.querySelector("#dd-delete") || {}).checked;
+    if (!confirm(`Да обединя ли ${dupIds.length} дубликат(а) в „${keeper.code || ""} ${keeper.name || ""}" (#${keeperId})?\n\nНаличността и рецептите им се прехвърлят към този запис.\n${deleteDup ? "Дубликатите ще бъдат изтрити." : "Дубликатите остават празни (не се трият)."}`)) return;
     b.disabled = true;
     const st = wrap.querySelector("#dd-status"); if (st) st.textContent = "Обединявам…";
-    const res = await dsMergeInto(keeperId, dupIds);
+    const res = await dsMergeInto(keeperId, dupIds, { deleteDup });
     if (res.error) { if (st) st.textContent = "⚠ " + res.error; b.disabled = false; return; }
     await erpLoadAll();
     close();
     erpRenderDetailStock();
-    alert(`Готово! Обединени ${res.merged} записа в #${keeperId}.`
+    alert(`Готово! Прехвърлени ${res.consolidated} записа в #${keeperId}.`
       + (res.jsonFixed ? `\nПренасочени ${res.jsonFixed} връзки в мостри/заявки/продажби/ценови листи.` : "")
-      + (res.notDeleted ? `\n(${res.notDeleted} дубликата не можаха да се изтрият — останаха без наличност и без рецепта, безобидни.)` : ""));
+      + (res.deleteDup ? `\nИзтрити ${res.deleted} дубликата.` : `\nДубликатите останаха празни (не са изтрити).`)
+      + (res.notDeleted ? `\n(${res.notDeleted} не можаха да се изтрият — безобидни, празни.)` : ""));
   }));
 }
 
-// Прехвърля ВСИЧКИ референции от дубликатите към keeper, после трие дубликатите.
-// 1) DB таблици с FK (пренасочваме ПРЕДИ триене — иначе cascade трие наличност/рецепта).
+// Прехвърля ВСИЧКИ референции от дубликатите към keeper.
+// 1) DB таблици с FK (пренасочваме ПРЕДИ евентуално триене).
 // 2) JSONB референции без FK (мостри/заявки/продажби/ценови листи) — тихо чупене, затова и тях.
-async function dsMergeInto(keeperId, dupIds) {
+// 3) Дубликатът се трие САМО ако opts.deleteDup === true; иначе остава празен (безобиден).
+async function dsMergeInto(keeperId, dupIds, opts) {
   const K = Number(keeperId);
+  const deleteDup = !!(opts && opts.deleteDup);
   const dupSet = new Set(dupIds.map(Number));
   const isDup = v => v != null && dupSet.has(Number(v));
-  let merged = 0, notDeleted = 0, jsonFixed = 0;
+  let deleted = 0, notDeleted = 0, jsonFixed = 0;
 
   // 1) DB таблици с FK
   for (const D of dupIds) {
@@ -389,12 +397,14 @@ async function dsMergeInto(keeperId, dupIds) {
     for (const row of (data || [])) { const d = row.data || {}, ent = d.entries || {}; let ch = false; dupIds.forEach(D => { if (ent[D] != null) { if (ent[K] == null) ent[K] = ent[D]; delete ent[D]; ch = true; } }); if (ch) { d.entries = ent; await sb.from("app_config").update({ data: d, updated_at: new Date().toISOString() }).eq("id", row.id); jsonFixed++; } }
   } catch (e) {}
 
-  // 3) Трием дубликатите (FK вече чисти; JSON вече пренасочен)
-  for (const D of dupIds) {
-    const del = await sb.from("products").delete().eq("id", D);
-    if (del.error) notDeleted++; else merged++;
+  // 3) Триене — само по изричен избор. Иначе дубликатът остава празен (0 наличност, без рецепта).
+  if (deleteDup) {
+    for (const D of dupIds) {
+      const del = await sb.from("products").delete().eq("id", D);
+      if (del.error) notDeleted++; else deleted++;
+    }
   }
-  return { merged, notDeleted, jsonFixed };
+  return { consolidated: dupIds.length, deleted, notDeleted, jsonFixed, deleteDup };
 }
 
 // Индекс по код (веднъж), сортиран по дължина — за бързо и точно разпознаване.
