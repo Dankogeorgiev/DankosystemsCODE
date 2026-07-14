@@ -2335,7 +2335,7 @@ function collectTimeRows() {
     if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.tSetup && !l.sheets && !l.consumables && !l.specific && !l.assemblyNote && !l.activity) return;
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
-      client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
+      client: t.client || "", orderNo: taskOrderNos(t).join(", "), product: t.product || "", code: t.code || "", operation: t.operation || "",
       worker: l.worker || "", qty: Number(l.qty) || 0,
       tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder, tSetup: l.tSetup,
       notes: logNotes(l),

@@ -7,7 +7,7 @@
    - експорт в Excel (CSV) и PDF.
    Ползва collectTimeRows/fmtSecDur/fmtLogDate/logNotes от tasks.js. */
 
-let timesRpt = { workshop: "", operation: "", machine: "", worker: "", from: "", to: "" };
+let timesRpt = { workshop: "", operation: "", machine: "", worker: "", client: "", orderNo: "", from: "", to: "" };
 let timesShowDetail = false;   // подробните записи са скрити, докато не се поиска изрично
 let timesTrendMode = "week";   // тенденция по седмица / по месец
 let timesAnalysisMode = "detail";   // анализ по детайл (продукт) / по операция
@@ -34,6 +34,10 @@ function timesRptRows() {
     if (f.operation && r.operation !== f.operation) return false;
     if (f.machine && r.machine !== f.machine) return false;
     if (f.worker && r.worker !== f.worker) return false;
+    if (f.client && r.client !== f.client) return false;
+    // Заявка: едно вписване може да носи няколко номера (споделена серия) —
+    // съвпадение, ако търсеният номер е сред тях.
+    if (f.orderNo && !String(r.orderNo || "").split(",").map(s => s.trim()).includes(f.orderNo)) return false;
     const d = (r.date || "").slice(0, 10);
     if (f.from && d < f.from) return false;
     if (f.to && d > f.to) return false;
@@ -156,6 +160,9 @@ function renderTimesReport() {
   const v = document.getElementById("times-view");
   const all = (typeof collectTimeRows === "function") ? collectTimeRows() : [];
   const uniq = key => [...new Set(all.map(r => r[key]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "bg"));
+  // Номерата на заявки идват слепени (споделена серия „1, 2") — разделяме ги.
+  const uniqOrders = () => [...new Set(all.flatMap(r => String(r.orderNo || "").split(",").map(s => s.trim()).filter(Boolean)))]
+    .sort((a, b) => String(a).localeCompare(String(b), "bg", { numeric: true }));
   const f = timesRpt;
   const sel = (id, cur, list, label) => `<label>${label} <select id="${id}"><option value="">Всички</option>${list.map(x => `<option ${x === cur ? "selected" : ""}>${escapeHtml(x)}</option>`).join("")}</select></label>`;
 
@@ -165,11 +172,11 @@ function renderTimesReport() {
   const byShop = timesGroupBy(rows, "workshop");
   const trend = timesTrend(rows, timesTrendMode);
   const detailed = rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const hasFilter = !!(f.worker || f.workshop || f.operation || f.machine);
+  const hasFilter = !!(f.worker || f.workshop || f.operation || f.machine || f.client || f.orderNo);
   const showDetail = hasFilter || timesShowDetail;
 
   const emptyRow = n => `<tr><td colspan="${n}" class="report-empty">Няма данни за този филтър.</td></tr>`;
-  const flabel = [f.worker, f.workshop, f.operation, f.machine].filter(Boolean).join(" · ");
+  const flabel = [f.worker, f.workshop, f.operation, f.machine, f.client, f.orderNo ? "заявка №" + f.orderNo : ""].filter(Boolean).join(" · ");
 
   v.innerHTML = `
     <div class="workers-head"><h3>📋 ОТЧЕТИ — какво е направено и за колко време</h3>
@@ -179,6 +186,8 @@ function renderTimesReport() {
       ${sel("tr-ws", f.workshop, uniq("workshop"), "🏭 Цех")}
       ${sel("tr-op", f.operation, uniq("operation"), "Операция")}
       ${sel("tr-m", f.machine, uniq("machine"), "Машина")}
+      ${sel("tr-cl", f.client, uniq("client"), "🤝 Клиент")}
+      ${sel("tr-ord", f.orderNo, uniqOrders(), "📋 Заявка №")}
       <label>От <input type="date" id="tr-from" value="${escapeAttr(f.from)}" /></label>
       <label>До <input type="date" id="tr-to" value="${escapeAttr(f.to)}" /></label>
       ${hasFilter ? `<button id="tr-clear" class="btn btn-small">✕ Изчисти филтъра</button>` : ""}
@@ -263,17 +272,18 @@ function renderTimesReport() {
         ${!hasFilter ? `<button id="tr-hidedetail" class="btn btn-small">Скрий подробните</button>` : ""}
       </div>
       <table class="report-table times-table">
-        <thead><tr><th>Дата</th><th>Цех</th><th>Машина</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
+        <thead><tr><th>Дата</th><th>Цех</th><th>Машина</th><th>Заявка №</th><th>Клиент</th><th>Продукт</th><th>Операция</th><th>Служител</th>
           <th class="num">Брой</th><th class="num">За 1 брой</th><th>1 лист/прът</th><th>Кол-во/поръчка</th><th>Настройка</th><th>Бележки</th></tr></thead>
         <tbody>${detailed.map(r => `<tr>
           <td>${escapeHtml(fmtLogDate(r.date))}</td><td>${escapeHtml(r.workshop) || "—"}</td><td>${escapeHtml(r.machine) || "—"}</td>
+          <td>${r.orderNo ? escapeHtml(r.orderNo) : "—"}</td>
           <td>${r.client ? escapeHtml(r.client) : `<span class="serie">СЕРИЯ</span>`}</td>
           <td>${escapeHtml(r.product) || "—"}${r.code ? `<div class="t-code">${escapeHtml(r.code)}</div>` : ""}</td>
           <td>${escapeHtml(r.operation) || "—"}</td><td>${escapeHtml(r.worker) || "—"}</td>
           <td class="num">${r.qty}</td><td class="num">${timesDur(timesPerPiece(r))}</td>
           <td>${escapeHtml(fmtSecDur(r.tSheet))}</td><td>${escapeHtml(fmtSecDur(r.tOrder))}</td><td>${escapeHtml(fmtSecDur(r.tSetup))}</td>
           <td class="times-cons">${r.notes ? escapeHtml(r.notes) : "—"}</td>
-        </tr>`).join("") || `<tr><td colspan="13" class="report-empty">Няма записи за този филтър.</td></tr>`}</tbody>
+        </tr>`).join("") || `<tr><td colspan="14" class="report-empty">Няма записи за този филтър.</td></tr>`}</tbody>
       </table>
     ` : `
       <div class="times-detail-hint">
@@ -284,14 +294,14 @@ function renderTimesReport() {
 
   v.querySelector("#tr-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   const bind = (id, key) => { const el = v.querySelector("#" + id); if (el) el.addEventListener("change", e => { timesRpt[key] = e.target.value; renderTimesReport(); }); };
-  bind("tr-ws", "workshop"); bind("tr-op", "operation"); bind("tr-m", "machine"); bind("tr-w", "worker"); bind("tr-from", "from"); bind("tr-to", "to");
+  bind("tr-ws", "workshop"); bind("tr-op", "operation"); bind("tr-m", "machine"); bind("tr-w", "worker"); bind("tr-cl", "client"); bind("tr-ord", "orderNo"); bind("tr-from", "from"); bind("tr-to", "to");
   v.querySelectorAll(".times-click").forEach(tr => tr.addEventListener("click", () => {
     if (tr.dataset.w != null) timesRpt.worker = tr.dataset.w;
     if (tr.dataset.shop != null) timesRpt.workshop = tr.dataset.shop;
     renderTimesReport();
   }));
   const clr = v.querySelector("#tr-clear");
-  if (clr) clr.addEventListener("click", () => { timesRpt.worker = timesRpt.workshop = timesRpt.operation = timesRpt.machine = ""; timesShowDetail = false; renderTimesReport(); });
+  if (clr) clr.addEventListener("click", () => { timesRpt.worker = timesRpt.workshop = timesRpt.operation = timesRpt.machine = timesRpt.client = timesRpt.orderNo = ""; timesShowDetail = false; renderTimesReport(); });
   const sd = v.querySelector("#tr-showdetail");
   if (sd) sd.addEventListener("click", () => { timesShowDetail = true; renderTimesReport(); });
   const hd = v.querySelector("#tr-hidedetail");
@@ -317,12 +327,12 @@ function timesSections(ops, detailed, mode) {
     g.workshop || "—", g.entries, g.pieces, dur(g.avg), dur(g.min), dur(g.max),
   ]);
   const detHeaders = [
-    { label: "Дата" }, { label: "Цех" }, { label: "Машина" }, { label: "Клиент" }, { label: "Продукт" }, { label: "Код" },
+    { label: "Дата" }, { label: "Цех" }, { label: "Машина" }, { label: "Заявка №" }, { label: "Клиент" }, { label: "Продукт" }, { label: "Код" },
     { label: "Операция" }, { label: "Служител" }, { label: "Брой", num: true }, { label: "За 1 брой", num: true },
     { label: "1 лист/прът", num: true }, { label: "Кол-во/поръчка", num: true }, { label: "Настройка", num: true }, { label: "Бележки" },
   ];
   const detRows = detailed.map(r => [
-    fmtLogDate(r.date), r.workshop || "—", r.machine || "—", r.client || "СЕРИЯ", r.product || "—", r.code || "",
+    fmtLogDate(r.date), r.workshop || "—", r.machine || "—", r.orderNo || "—", r.client || "СЕРИЯ", r.product || "—", r.code || "",
     r.operation || "—", r.worker || "—", r.qty, dur(timesPerPiece(r)),
     fmtSecDur(r.tSheet), fmtSecDur(r.tOrder), fmtSecDur(r.tSetup), r.notes || "",
   ]);
