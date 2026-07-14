@@ -37,7 +37,8 @@ function erpRenderOrderPanel(s) {
             <input type="number" id="erp-op-qty" min="1" step="any" value="${escapeAttr(String(s.erpQty || 1))}" style="width:90px" />
           </label>
           <button type="button" class="btn btn-small" id="erp-op-fill">↧ Вземи материалите от рецептата</button>
-          <button type="button" class="btn btn-small" id="erp-op-test" title="Симулирай пускането — провери дали рецептата ще върви правилно, преди да пуснеш">🧪 Тест рецепта</button>
+          <button type="button" class="btn btn-small" id="erp-op-test" title="Провери маршрута — дали рецептата ще върви правилно, преди да пуснеш">🧪 Тест рецепта</button>
+          <button type="button" class="btn btn-small" id="erp-op-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
           <button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>
           ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-sale">🧾 Създай продажба</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small btn-danger" id="erp-op-withdraw">⬅ Изтегли от производство</button>' : ""}
@@ -59,6 +60,12 @@ function erpRenderOrderPanel(s) {
   if (testBtn) testBtn.addEventListener("click", () => {
     if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
     if (typeof erpTestRecipe === "function") erpTestRecipe(s.erpProductId, s.erpQty || 1, true);
+  });
+  const simBtn = host.querySelector("#erp-op-sim");
+  if (simBtn) simBtn.addEventListener("click", () => {
+    if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }
+    if (typeof erpSimulateProduction === "function")
+      erpSimulateProduction([{ productId: s.erpProductId, qty: s.erpQty || 1 }], { title: (s.erpProductCode || "") + " " + (s.erpProductName || ""), stockTop: true });
   });
   const prodBtn = host.querySelector("#erp-op-produce");
   if (prodBtn) prodBtn.addEventListener("click", () => erpProduce(s));
