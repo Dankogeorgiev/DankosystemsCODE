@@ -175,6 +175,58 @@ async function erpRenderCustomerOrders() {
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
 }
 
+/* ---------- 📚 Архив (изпълнени заявки) ----------
+   Тук отиват приключените заявки (продажбата им е осчетоводена). Всяка е
+   свързана със своята продажба — която в бъдеще ще стане фактура (счетоводен
+   модул). Така заявката и продажбата се пазят на едно място. */
+let erpArchiveQuery = "";
+async function erpRenderArchive() {
+  const v = erpView();
+  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  try { await erpLoadCustomerOrders(); }
+  catch (e) { v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя архива</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
+  const prod = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production);   // без цени/продажби за производство
+  let sales = [];
+  if (!prod) { try { if (typeof erpLoadSales === "function") await erpLoadSales(); sales = (typeof erpSales !== "undefined" && erpSales) ? erpSales : []; } catch (e) {} }
+  const saleByOrder = {};
+  sales.forEach(s => { if (s && s.fromOrderId) (saleByOrder[String(s.fromOrderId)] = saleByOrder[String(s.fromOrderId)] || []).push(s); });
+
+  const q = (erpArchiveQuery || "").toLowerCase().trim();
+  let done = (erpCOList || []).filter(o => (o.status || "") === "завършена");
+  if (q) done = done.filter(o => `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""}`.toLowerCase().includes(q));
+  done.sort((a, b) => String(b.closedAt || b.date || "").localeCompare(String(a.closedAt || a.date || "")));
+  const val = o => (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">📚 Архив — ${done.length} изпълнени заявки</span>
+      <input type="search" id="erp-arch-q" placeholder="🔎 търси № / клиент…" value="${escapeAttr(erpArchiveQuery)}" style="min-width:210px" autocomplete="off" />
+    </div>
+    <p class="hint">Тук отиват заявките, чиято продажба е осчетоводена. Продажбите се пазят и ще станат фактури, когато свържем счетоводния модул.</p>
+    <table class="report-table erp-table">
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Приключена</th><th class="num">Продукти</th>${prod ? "" : `<th class="num sell-cell">Стойност</th><th>Продажба</th>`}<th></th></tr></thead>
+      <tbody>${done.map(o => {
+        const ss = saleByOrder[String(o.id)] || [];
+        const saleCell = ss.length ? ss.map(s => `<button class="btn btn-small erp-arch-sale" data-sale="${s.id}" title="Отвори продажбата">🧾 №${escapeHtml(s.saleNo || "")}${s.posted ? " ✓" : ""}</button>`).join(" ") : `<span class="erp-muted">няма</span>`;
+        return `<tr class="erp-clickable" data-id="${o.id}">
+          <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
+          <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
+          <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
+          <td data-label="Приключена">${escapeHtml((o.closedAt || "").slice(0, 10) || o.date || "")}</td>
+          <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
+          ${prod ? "" : `<td class="num sell-cell" data-label="Стойност">${erpEur(val(o))}</td><td data-label="Продажба">${saleCell}</td>`}
+          <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="${prod ? 6 : 8}" class="report-empty">Още няма изпълнени заявки. Появяват се тук, щом осчетоводиш продажбата им.</td></tr>`}</tbody>
+    </table>`;
+
+  const qEl = document.getElementById("erp-arch-q");
+  if (qEl) qEl.addEventListener("input", e => { erpArchiveQuery = e.target.value; erpRenderArchive(); const el = document.getElementById("erp-arch-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
+  v.querySelectorAll(".erp-arch-sale").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); if (typeof erpOpenSale === "function") erpOpenSale(b.dataset.sale); }));
+  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
+}
+
 function erpNewCO() {
   const today = new Date().toISOString().slice(0, 10);
   erpRenderCOForm({ ourNo: erpNextOrderNo(), clientNo: "", clientName: "", clientId: null, date: today, deadline: "", note: "", status: "нова", lines: [] });
