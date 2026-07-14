@@ -376,15 +376,21 @@ function erpFlowSteps(s, opts) {
           const cp = ERP.prodById[l.child_product_id] || {};
           missing.push({ code: cp.code || "", name: cp.name || "", qty: res.make });
         }
-        (res.outKeys || []).forEach(k => childOutKeys.push(k));
+        // outKeys носят и НУЖНОТО количество за ТОЗИ възел (не сумата на серията),
+        // за да не чака заваряването споделен детайл да се произведе за други изделия.
+        (res.outKeys || []).forEach(o => childOutKeys.push(o));
       }
     });
     if (ops.length) {
       nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0 });
-      // Първата операция на този възел чака директните му части да са готови.
-      if (childOutKeys.length) nodeGate[key] = [...new Set(childOutKeys)];
-      // Изходът на този възел за родителя = последната му операция.
-      return { hasOps: true, make, outKeys: [key + "¦" + ops[ops.length - 1].operation + sfx] };
+      // Първата операция на този възел чака директните му части (с нужните бройки).
+      if (childOutKeys.length) {
+        const byKey = {};
+        childOutKeys.forEach(o => { byKey[o.key] = (byKey[o.key] || 0) + (Number(o.need) || 0); });
+        nodeGate[key] = Object.keys(byKey).map(k => ({ key: k, need: byKey[k] }));
+      }
+      // Изходът на този възел за родителя = последната му операция; нужното = make.
+      return { hasOps: true, make, outKeys: [{ key: key + "¦" + ops[ops.length - 1].operation + sfx, need: make }] };
     }
     // Възел без свои операции: изходите му са изходите на децата (pass-through).
     return { hasOps: childHasOps, make, outKeys: childOutKeys };
@@ -650,8 +656,18 @@ function erpFlowAvailable(t, map) {
   if (!src || !src.flow) return Math.max(0, qty - prod);
   if (Array.isArray(src.gate) && src.gate.length) {
     // Готова е частта, която: няма серия (изцяло от склад), няма остатък за
-    // правене (qty<=0), или е напълно произведена. Само реален недостиг блокира.
-    const done = src.gate.every(k => { const g = map[k]; return !g || (Number(g.qty) || 0) <= 0 || (Number(g.produced) || 0) >= g.qty; });
+    // правене (target<=0), или е произведена в НУЖНИЯ за ТОЗИ възел брой.
+    // Гейтът чака само нужното (need) за този възел, не цялата серия — иначе
+    // споделен детайл би блокирал заваряването, докато се произведе и за други
+    // изделия. Стар формат (низ) → падаме към количеството на серията (g.qty).
+    const done = src.gate.every(entry => {
+      const k = (typeof entry === "string") ? entry : (entry && entry.key);
+      const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
+      const g = map[k];
+      if (!g) return true;
+      const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
+      return target <= 0 || (Number(g.produced) || 0) >= target;
+    });
     if (!done) return 0;
   }
   if (src.prevKey) {
@@ -669,8 +685,19 @@ function erpFlowAvailable(t, map) {
 function erpFlowGatePending(t, map) {
   const src = t && t.source;
   if (!src || !Array.isArray(src.gate)) return [];
-  return src.gate.filter(k => { const g = map[k]; return g && (Number(g.qty) || 0) > 0 && (Number(g.produced) || 0) < g.qty; })
-    .map(k => { const g = map[k]; const p = String(k).split("¦"); return { code: p[0] || "", operation: p[1] || "", produced: Number(g.produced) || 0, qty: Number(g.qty) || 0 }; });
+  const out = [];
+  src.gate.forEach(entry => {
+    const k = (typeof entry === "string") ? entry : (entry && entry.key);
+    const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
+    const g = map[k];
+    if (!g) return;
+    const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
+    if (target > 0 && (Number(g.produced) || 0) < target) {
+      const p = String(k).split("¦");
+      out.push({ code: p[0] || "", operation: p[1] || "", produced: Number(g.produced) || 0, qty: target });
+    }
+  });
+  return out;
 }
 
 // Заприходява готови детайли в Склад детайли (движение „заприходяване").
