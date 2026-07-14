@@ -351,17 +351,25 @@ function workshopList() {
 function flowWaitSources(t, seriesInfo, flowMap) {
   const src = t && t.source;
   if (!src || !src.flow) return [];
-  const keys = [];
-  if (src.prevKey) keys.push(src.prevKey);
-  if (Array.isArray(src.gate)) src.gate.forEach(k => { if (!keys.includes(k)) keys.push(k); });
-  return keys.map(k => {
-    const info = (seriesInfo && seriesInfo[k]) || {};
-    const g = (flowMap && flowMap[k]) || {};
-    const parts = String(k).split("¦");
+  // Гейтът може да носи низове (стар формат) или { key, need } (нужното за ТОЗИ
+  // възел). Нормализираме до { key, need } и не дублираме ключове.
+  const items = [];
+  const seen = {};
+  const push = (key, need) => { if (!key || seen[key]) return; seen[key] = 1; items.push({ key, need }); };
+  if (src.prevKey) push(src.prevKey, null);
+  if (Array.isArray(src.gate)) src.gate.forEach(entry => {
+    if (typeof entry === "string") push(entry, null);
+    else if (entry && entry.key) push(entry.key, Number(entry.need) || 0);
+  });
+  return items.map(({ key, need }) => {
+    const info = (seriesInfo && seriesInfo[key]) || {};
+    const g = (flowMap && flowMap[key]) || {};
+    const parts = String(key).split("¦");
+    const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
     return {
       workshop: info.workshop || "", operation: info.operation || parts[1] || "",
       code: info.code || parts[0] || "", product: info.product || "",
-      produced: Number(g.produced) || 0, qty: Number(g.qty) || 0,
+      produced: Number(g.produced) || 0, qty: target,
     };
   });
 }
