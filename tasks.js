@@ -346,6 +346,25 @@ function workshopList() {
   const extra = Object.keys(WORKERS).filter(w => !TASK_DEFAULT_WORKSHOPS.includes(w));
   return [...TASK_DEFAULT_WORKSHOPS, ...extra];
 }
+// Източниците, от които тази поточна стъпка чака детайли (предната операция и/или
+// вложените части) — с цех, операция и готовност. За информационния надпис „чака от".
+function flowWaitSources(t, seriesInfo, flowMap) {
+  const src = t && t.source;
+  if (!src || !src.flow) return [];
+  const keys = [];
+  if (src.prevKey) keys.push(src.prevKey);
+  if (Array.isArray(src.gate)) src.gate.forEach(k => { if (!keys.includes(k)) keys.push(k); });
+  return keys.map(k => {
+    const info = (seriesInfo && seriesInfo[k]) || {};
+    const g = (flowMap && flowMap[k]) || {};
+    const parts = String(k).split("¦");
+    return {
+      workshop: info.workshop || "", operation: info.operation || parts[1] || "",
+      code: info.code || parts[0] || "", product: info.product || "",
+      produced: Number(g.produced) || 0, qty: Number(g.qty) || 0,
+    };
+  });
+}
 function taskStatus(t) {
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (qty > 0 && prod >= qty) return "done";
@@ -530,6 +549,9 @@ function renderTasks() {
   tbody.innerHTML = "";
 
   const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
+  // Карта seriesKey → цех/операция (за да покажем „чака от кой цех").
+  const seriesInfo = {};
+  TASKS.forEach(tk => { const s = tk.source; if (s && s.flow && s.seriesKey && !seriesInfo[s.seriesKey]) seriesInfo[s.seriesKey] = { workshop: tk.workshop || "", operation: tk.operation || "", product: tk.product || "", code: tk.code || "" }; });
   let rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
     if (ws !== "__all" && t.workshop !== ws) return false;
@@ -636,6 +658,11 @@ function renderTasks() {
     // първата операция то е равно на цялото количество и само дублира остатъка.
     const flowGated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
     const flowAvail = (flowGated && typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : null;
+    // „Чака от кой цех" — източниците на предната операция / вложените части.
+    const waitSrc = flowGated ? flowWaitSources(t, seriesInfo, flowMap) : [];
+    const waitShops = [...new Set(waitSrc.map(s => s.workshop).filter(Boolean))];
+    const waitTitle = waitSrc.map(s => `${s.code || ""}${s.product ? " " + s.product : ""} · ${s.operation || "?"}: готови ${s.produced}/${s.qty}${s.workshop ? " (цех " + s.workshop + ")" : ""}`).join("\n");
+    const waitHtml = waitShops.length ? `<div class="t-flow-from" title="${escapeAttr(waitTitle)}">⏳ чака от: ${waitShops.map(escapeHtml).join(", ")}</div>` : "";
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
@@ -667,7 +694,7 @@ function renderTasks() {
       <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
-      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}</td>
+      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>
       <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${assignees.length ? assignees.map(escapeHtml).join(", ") : "—"}</td>`

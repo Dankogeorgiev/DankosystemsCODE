@@ -332,6 +332,7 @@ tr.prio-urgent td:nth-child(2) { font-weight: 700; }
 .t-actions .t-add { margin-left: 4px; }
 .t-today-info { font-size: 11px; color: var(--ok); font-weight: 600; }
 .t-flow-avail { font-size: 11px; color: #7c3aed; font-weight: 600; margin-top: 2px; }
+.t-flow-from { font-size: 11px; color: #b45309; font-weight: 600; margin-top: 2px; white-space: normal; cursor: help; }
 /* Цех Заваряване: скрита колона „Дебелина" */
 .tasks-table.hide-thickness th[data-sort="thickness"],
 .tasks-table.hide-thickness td[data-label="Дебелина"],
