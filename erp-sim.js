@@ -250,6 +250,7 @@ function erpSimShow(r) {
       <div class="sim-waves">${wavesHtml || `<p class="report-empty">Нищо не тръгва.</p>`}</div>
 
       <div class="erp-dialog-actions">
+        <button class="btn btn-small" id="sim-print">🖨 Печат</button>
         <button class="btn btn-primary" id="sim-close">Затвори</button>
       </div>
     </div>`;
@@ -258,4 +259,32 @@ function erpSimShow(r) {
   const box = wrap.querySelector(".erp-dialog-box");
   if (box) box.classList.add("sim-box");   // по-широк диалог за симулацията
   wrap.querySelector("#sim-close").addEventListener("click", close);
+  const pr = wrap.querySelector("#sim-print");
+  if (pr) pr.addEventListener("click", () => erpSimPrint(wrap, r.title));
+}
+
+// Печат на симулацията — отваря чист изглед със същите стилове и извиква печат.
+function erpSimPrint(wrap, titleText) {
+  const box = wrap && wrap.querySelector(".sim-dialog");
+  if (!box) return;
+  const clone = box.cloneNode(true);
+  clone.querySelectorAll(".erp-dialog-actions, button").forEach(el => el.remove());   // без бутоните
+  const styleLinks = [...document.querySelectorAll('link[rel="stylesheet"]')].map(l => `<link rel="stylesheet" href="${l.href}">`).join("");
+  const w = window.open("", "_blank");
+  if (!w) { alert("Разреши изскачащите прозорци, за да принтираш."); return; }
+  w.document.write(`<!doctype html><html lang="bg"><head><meta charset="utf-8">
+    <title>${escapeHtml(titleText ? "Симулация — " + titleText : "Симулация на производството")}</title>
+    ${styleLinks}
+    <style>
+      body { padding: 16px 20px; background: #fff; color: #111; }
+      .sim-dialog { max-width: 100%; }
+      .sim-cols { display: flex; gap: 16px; flex-wrap: wrap; }
+      .sim-col { flex: 1 1 320px; }
+      table { page-break-inside: auto; }
+      tr, .sim-wave, .sim-block, .sim-detail { page-break-inside: avoid; }
+      @media print { .no-print { display: none; } }
+    </style></head><body>${clone.outerHTML}</body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
 }
