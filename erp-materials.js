@@ -158,6 +158,9 @@ function erpMovementDialog(matId) {
     <label>Количество (${escapeHtml(m.unit || "")})
       <input type="number" id="mv-qty" step="any" min="0" inputmode="decimal" placeholder="0" />
     </label>
+    <label id="mv-price-lbl">Доставна цена (€ за 1 ${escapeHtml(m.unit || "мярка")}) <span class="erp-muted">— обновява средната цена</span>
+      <input type="number" id="mv-price" step="any" min="0" inputmode="decimal" placeholder="0.00" value="${(Number(m.avg_cost) > 0) ? escapeAttr(String(m.avg_cost)) : ""}" />
+    </label>
     <label>Доставчик / № заявка / бележка
       <input type="text" id="mv-ref" placeholder="напр. Метал ООД, № 1234" />
     </label>
@@ -174,11 +177,17 @@ function erpMovementDialog(matId) {
   const kind = wrap.querySelector("#mv-kind");
   const qty = wrap.querySelector("#mv-qty");
   const corrHint = wrap.querySelector("#mv-corr-hint");
-  kind.addEventListener("change", () => {
+  const priceLbl = wrap.querySelector("#mv-price-lbl");
+  const updKind = () => {
     const isCorr = kind.value === "корекция";
     corrHint.hidden = !isCorr;
     qty.min = isCorr ? "" : "0";
-  });
+    // Доставна цена има смисъл само при приход (входящ / начално салдо).
+    const isIn = kind.value === "входящ" || kind.value === "начално";
+    if (priceLbl) priceLbl.hidden = !isIn;
+  };
+  kind.addEventListener("change", updKind);
+  updKind();
   wrap.querySelector("#mv-cancel").addEventListener("click", close);
   wrap.querySelector("#mv-save").addEventListener("click", async () => {
     const k = kind.value;
@@ -199,6 +208,14 @@ function erpMovementDialog(matId) {
       created_by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || null,
     });
     if (error) { wrap.querySelector("#mv-status").textContent = "⚠ " + error.message; return; }
+    // Доставна цена при приход → обновяваме средната цена (претеглено; при начално салдо — директно).
+    const priceEl = wrap.querySelector("#mv-price");
+    const price = priceEl ? (erpToNum(priceEl.value) || 0) : 0;
+    if ((k === "входящ" || k === "начално") && price > 0) {
+      const stock = Number(m.stock) || 0, avg = Number(m.avg_cost) || 0, addq = Math.abs(amount);
+      const newAvg = (k === "начално") ? price : ((stock + addq) > 0 ? (stock * avg + addq * price) / (stock + addq) : price);
+      try { await sb.from("materials").update({ avg_cost: newAvg }).eq("id", matId); } catch (e) {}
+    }
     close();
     await erpReload();
   });
