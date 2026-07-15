@@ -178,7 +178,7 @@ async function erpSimulateProduction(lines, opts) {
 
   erpSimShow({
     title: opts.title || "", waves, stalls, missing: Object.values(missingMap), external: Object.values(externalMap),
-    orderedTop, producedTop, topQty, buyList, seriesCount: keys.length, fromStock, produceList,
+    orderedTop, producedTop, topQty, buyList, seriesCount: keys.length, fromStock, produceList, lines,
   });
 }
 
@@ -250,6 +250,7 @@ function erpSimShow(r) {
       <div class="sim-waves">${wavesHtml || `<p class="report-empty">Нищо не тръгва.</p>`}</div>
 
       <div class="erp-dialog-actions">
+        <button class="btn btn-small" id="sim-codes">📋 Всички кодове</button>
         <button class="btn btn-small" id="sim-print">🖨 Печат</button>
         <button class="btn btn-primary" id="sim-close">Затвори</button>
       </div>
@@ -261,6 +262,55 @@ function erpSimShow(r) {
   wrap.querySelector("#sim-close").addEventListener("click", close);
   const pr = wrap.querySelector("#sim-print");
   if (pr) pr.addEventListener("click", () => erpSimPrint(wrap, r.title));
+  const cb = wrap.querySelector("#sim-codes");
+  if (cb) cb.addEventListener("click", () => erpSimCodesDialog(r.lines, r.title));
+}
+
+// Пълен списък на ВСИЧКИ кодове (детайли/възли + крайно изделие), участващи в
+// поръчката, с общи количества (пълно разбиване на рецептата, без нетване).
+function erpSimAllCodes(lines) {
+  const acc = {};
+  const walk = (pid, mult, anc, depth) => {
+    const p = ERP.prodById[pid] || {};
+    const e = acc[pid] || (acc[pid] = { pid, code: p.code || "", name: p.name || "", qty: 0, isTop: false, hasChildren: false });
+    e.qty += mult;
+    if (depth === 0) e.isTop = true;
+    const plines = ERP.linesByProduct[pid] || [];
+    if (plines.some(l => l.child_product_id)) e.hasChildren = true;
+    plines.forEach(l => {
+      if (l.child_product_id && !anc.has(l.child_product_id)) {
+        walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]), depth + 1);
+      }
+    });
+  };
+  (lines || []).forEach(l => { if (l.productId) walk(l.productId, Number(l.qty) || 1, new Set([l.productId]), 0); });
+  return Object.values(acc).sort((a, b) => (b.isTop ? 1 : 0) - (a.isTop ? 1 : 0) || String(a.code).localeCompare(String(b.code), "bg"));
+}
+
+function erpSimCodesDialog(lines, title) {
+  const codes = erpSimAllCodes(lines);
+  const typeOf = c => c.isTop ? "крайно изделие" : (c.hasChildren ? "възел" : "детайл");
+  const rowsHtml = codes.map(c => `<tr${c.isTop ? ' class="sim-top-row"' : ''}><td><b>${escapeHtml(c.code)}</b>${c.isTop ? " 🏁" : ""}</td><td>${escapeHtml(c.name)}</td><td class="num"><b>${simNum(c.qty)}</b></td><td>${typeOf(c)}</td></tr>`).join("");
+  const html = `<div class="sim-dialog">
+    <h3>📋 Всички кодове в поръчката${title ? " — " + escapeHtml(title) : ""} <span class="rt-muted">(${codes.length})</span></h3>
+    <p class="hint">Всички кодове (детайли, възли и крайното изделие 🏁), които участват в поръчката, с общи количества.</p>
+    <table class="report-table erp-table"><thead><tr><th>Код</th><th>Наименование</th><th class="num">Бройка</th><th>Вид</th></tr></thead>
+      <tbody>${rowsHtml || `<tr><td colspan="4" class="report-empty">Няма кодове.</td></tr>`}</tbody></table>
+    <div class="erp-dialog-actions">
+      <button class="btn btn-small" id="sc-xls">⤓ Excel</button>
+      <button class="btn btn-small" id="sc-print">🖨 Печат</button>
+      <button class="btn btn-primary" id="sc-close">Затвори</button>
+    </div></div>`;
+  const { wrap, close } = erpDialog(html);
+  const box = wrap.querySelector(".erp-dialog-box"); if (box) box.classList.add("sim-box");
+  wrap.querySelector("#sc-close").addEventListener("click", close);
+  const sections = () => [{
+    title: "Всички кодове в поръчката" + (title ? " — " + title : ""),
+    headers: [{ label: "Код" }, { label: "Наименование" }, { label: "Бройка", num: true }, { label: "Вид" }],
+    rows: codes.map(c => [c.code, c.name, simNum(c.qty), typeOf(c)]),
+  }];
+  const xls = wrap.querySelector("#sc-xls"); if (xls) xls.addEventListener("click", () => { if (typeof reportExportXls === "function") reportExportXls("kodove-porachka", "Всички кодове в поръчката" + (title ? " — " + title : ""), sections()); });
+  const pr = wrap.querySelector("#sc-print"); if (pr) pr.addEventListener("click", () => { if (typeof reportOpenView === "function") reportOpenView("Всички кодове в поръчката" + (title ? " — " + title : ""), sections()); });
 }
 
 // Печат на симулацията — отваря чист изглед със същите стилове и извиква печат.
