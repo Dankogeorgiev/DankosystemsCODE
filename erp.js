@@ -102,6 +102,15 @@ async function erpEnsureLoaded() {
 async function erpReload() {
   await erpLoadAll();
   erpSetTab(ERP.tab);
+  // Ако Цеховете са отворени (в друг таб на приложението), опресни ги — така
+  // индикаторът „⏳ чака материал" се маха ВЕДНАГА след заприходяване на
+  // материал, без да е нужно повторно отваряне на Цеховете. Наличностите на
+  // материалите вече са пресни (erpLoadAll обнови ERP.matById.stock).
+  try {
+    const tm = document.getElementById("tasks-modal");
+    if (tm && !tm.hidden && typeof renderTasks === "function") renderTasks();
+    if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();
+  } catch (e) { /* тихо */ }
 }
 
 /* ---------- Зареждане на данните ----------
