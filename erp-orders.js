@@ -72,7 +72,10 @@ function erpRenderOrderPanel(s) {
   if (prodBtn) prodBtn.addEventListener("click", () => erpProduce(s));
   const statusBtn = host.querySelector("#erp-op-livestatus");
   if (statusBtn) statusBtn.addEventListener("click", () => {
-    if (typeof erpOrderStatus === "function") erpOrderStatus(s.id, (s.erpProductCode || "") + " " + (s.erpProductName || ""));
+    if (typeof erpOrderStatus === "function") erpOrderStatus(s.id, (s.erpProductCode || "") + " " + (s.erpProductName || ""), {
+      productLines: [{ pid: s.erpProductId, qty: erpToNum(s.erpQty) || 1 }],
+      stockCover: (s.production && s.production.stockCover) || [],
+    });
   });
   const saleBtn = host.querySelector("#erp-op-sale");
   if (saleBtn) saleBtn.addEventListener("click", () => erpSaleFromProduction(s));
@@ -559,7 +562,7 @@ async function erpFlowApply(meta, productLines) {
       const qtyUsed = Number(consumed[pid]) || 0;
       if (qtyUsed <= 0) return;
       const p = ERP.prodById[pid] || {};
-      fromStock.push({ code: p.code || "", name: p.name || "", qty: qtyUsed });
+      fromStock.push({ pid: Number(pid), code: p.code || "", name: p.name || "", qty: qtyUsed });
     });
   }
 
@@ -924,7 +927,7 @@ async function erpProduce(s) {
   if (res.error) { alert("Грешка при пускане: " + (res.error.message || res.error)); return; }
 
   const fs = res.fromStock || [];
-  s.production = { at: new Date().toISOString(), count: res.seriesCount, flow: true, external: external.length, fromStock: fs.length };
+  s.production = { at: new Date().toISOString(), count: res.seriesCount, flow: true, external: external.length, fromStock: fs.length, stockCover: fs };
   touch(s);
   erpRenderOrderPanel(s);
   const miss = res.missing || [];
