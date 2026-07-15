@@ -27,7 +27,11 @@ function ostOpState(t, map) {
 }
 
 // Отваря статуса за поръчка (sampleId = s.id или o.id).
-async function erpOrderStatus(orderId, title) {
+// info (по избор): { productLines:[{pid,qty}], stockCover:[{pid,code,name,qty}] } —
+// поръчаните крайни изделия и какво е взето от готова наличност при пускането.
+// Така статусът смята РЕАЛНАТА готовност спрямо поръчаното количество и показва
+// частите, покрити от склад (иначе те са невидими — не стават поточни задачи).
+async function erpOrderStatus(orderId, title, info) {
   try { if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded(); } catch (e) {}
   if (typeof erpRefreshMatStock === "function") { try { await erpRefreshMatStock(); } catch (e) {} }
 
@@ -46,11 +50,39 @@ async function erpOrderStatus(orderId, title) {
   const sid = String(orderId);
   const mine = all.filter(t => t.source && t.source.kind === "series" && (t.source.orderIds || []).map(String).includes(sid));
 
-  erpOrderStatusShow(mine, map, title || "", orderId);
+  erpOrderStatusShow(mine, map, title || "", orderId, info || {});
 }
 
-function erpOrderStatusShow(mine, map, title, orderId) {
+// Готовността спрямо поръчаното: колко крайни изделия има готови (произведени +
+// взети от готова наличност) от общо поръчаните, и списъкът „взето от склад".
+function ostStockInfo(info) {
+  const topPids = new Set((info.productLines || []).map(l => Number(l.pid)).filter(Boolean));
+  const orderedTop = (info.productLines || []).reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  const stockList = (info.stockCover || []).filter(c => (Number(c.qty) || 0) > 0);
+  const topFromStock = stockList.reduce((s, c) => s + (topPids.has(Number(c.pid)) ? (Number(c.qty) || 0) : 0), 0);
+  return { topPids, orderedTop, stockList, topFromStock };
+}
+
+function erpOrderStatusShow(mine, map, title, orderId, info) {
+  info = info || {};
+  const si = ostStockInfo(info);
   if (!mine.length) {
+    // Няма поточни задачи. Ако при пускането всичко е било покрито от готова
+    // наличност — поръчката е готова за продажба, показваме взетото от склад.
+    if (si.stockList.length) {
+      const { wrap, close } = erpDialog(`<div class="sim-dialog ost-dialog">
+        <h3>📊 Статус на поръчката${title ? " — " + escapeHtml(title) : ""}</h3>
+        <div class="rt-verdict rt-verdict-ok">✅ Всичко е от готова наличност — няма нищо за производство. Готова за продажба.</div>
+        <div class="ost-summary">Готово за доставка: <b>${ostNum(si.orderedTop)}/${ostNum(si.orderedTop)}</b> бр. (100%)
+          <span class="erp-prodbar"><span style="width:100%"></span></span>
+          <div class="rt-muted">📥 всичко покрито от Склад детайли (не се произвежда)</div></div>
+        <h4 style="margin:12px 0 6px">📥 От готова наличност (склад)</h4>
+        <div class="ost-block">${si.stockList.map(c => `<div class="ost-bl">✅ ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")} — ${ostNum(c.qty)} бр.</div>`).join("")}</div>
+        <div class="erp-dialog-actions"><button class="btn btn-primary" id="ost-close">Затвори</button></div></div>`);
+      const box = wrap.querySelector(".erp-dialog-box"); if (box) box.classList.add("sim-box");
+      wrap.querySelector("#ost-close").addEventListener("click", close);
+      return;
+    }
     const { wrap, close } = erpDialog(`<h3>📊 Статус на поръчката${title ? " — " + escapeHtml(title) : ""}</h3>
       <p class="rt-muted">Няма пуснато производство за тази поръчка (или е изтеглена).</p>
       <div class="erp-dialog-actions"><button class="btn btn-primary" id="ost-close">Затвори</button></div>`);
@@ -75,7 +107,13 @@ function erpOrderStatusShow(mine, map, title, orderId) {
   const pct = totalOps ? Math.round(doneOps / totalOps * 100) : 0;
   const tops = mine.filter(t => t.source && t.source.role === "final" && t.source.last);
   const producedTop = tops.reduce((s, t) => s + (Number(t.produced) || 0), 0);
-  const topQty = tops.reduce((s, t) => s + (Number(t.qty) || 0), 0);
+  const topQtyNet = tops.reduce((s, t) => s + (Number(t.qty) || 0), 0);
+  // Реална готовност спрямо ПОРЪЧАНОТО: произведено + взето от готова наличност.
+  // orderedTop идва от поръчката; ако липсва (стар зов), падаме към нето+склад.
+  const topFromStock = si.topFromStock;
+  const orderedTop = si.orderedTop || (topQtyNet + topFromStock);
+  const topReady = producedTop + topFromStock;
+  const readyPct = orderedTop ? Math.round(topReady / orderedTop * 100) : pct;
 
   // Спирачки (по видове).
   const flat = [];
@@ -84,8 +122,9 @@ function erpOrderStatusShow(mine, map, title, orderId) {
   const partBlock = flat.filter(x => x.o.state.k === "parts");
   const active = flat.filter(x => x.o.state.k === "ready" || x.o.state.k === "progress");
 
+  const allReady = orderedTop ? (topReady >= orderedTop) : (doneOps >= totalOps);
   let verdict, vcls;
-  if (doneOps >= totalOps) { verdict = `✅ Всичко е готово — ${ostNum(producedTop)} бр. краен продукт.`; vcls = "rt-verdict-ok"; }
+  if (allReady) { verdict = `✅ Готова за продажба — ${ostNum(topReady)} бр. краен продукт` + (topFromStock > 0 ? ` (${ostNum(topFromStock)} от склад).` : "."); vcls = "rt-verdict-ok"; }
   else if (matBlock.length) { verdict = `🔴 Спряло — чака материал (${matBlock.length} ${matBlock.length === 1 ? "детайл" : "детайла"}).`; vcls = "rt-verdict-bad"; }
   else if (active.length) { verdict = `🟢 Тече — ${active.length} ${active.length === 1 ? "операция може" : "операции могат"} да се работят сега.`; vcls = "rt-verdict-ok"; }
   else if (partBlock.length) { verdict = `🟡 Чака сглобяване — частите още не са готови.`; vcls = "rt-verdict-warn"; }
@@ -118,17 +157,24 @@ function erpOrderStatusShow(mine, map, title, orderId) {
     <div class="ost-block">${active.map(x => `<div class="ost-bl">▶ ${escapeHtml(x.g.code)} ${escapeHtml(x.g.product)} · <b>${escapeHtml(x.o.operation)}</b> ${x.o.workshop ? "→ " + escapeHtml(x.o.workshop) : ""} <span class="rt-muted">(${escapeHtml(x.o.state.label)})</span></div>`).join("")}</div>
   ` : "";
 
+  const stockHtml = si.stockList.length ? `
+    <h4 style="margin:12px 0 6px">📥 От готова наличност (склад)</h4>
+    <div class="ost-block">${si.stockList.map(c => `<div class="ost-bl">✅ ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")} — ${ostNum(c.qty)} бр. <span class="rt-muted">(не се произвежда, взето от Склад детайли)</span></div>`).join("")}</div>
+  ` : "";
+
   const html = `
     <div class="sim-dialog ost-dialog">
       <h3>📊 Статус на поръчката${title ? " — " + escapeHtml(title) : ""}</h3>
       <div class="rt-verdict ${vcls}">${verdict}</div>
       <div class="ost-summary">
-        Операции: <b>${doneOps}/${totalOps}</b> готови (${pct}%)
-        <span class="erp-prodbar"><span style="width:${pct}%"></span></span>
-        ${topQty ? ` · Крайно изделие: <b>${ostNum(producedTop)}/${ostNum(topQty)}</b> бр.` : ""}
+        Готово за доставка: <b>${ostNum(topReady)}/${ostNum(orderedTop)}</b> бр. краен продукт (${readyPct}%)
+        <span class="erp-prodbar"><span style="width:${readyPct}%"></span></span>
+        ${topFromStock > 0 ? `<div class="rt-muted">📥 от които <b>${ostNum(topFromStock)}</b> бр. от готова наличност (склад)</div>` : ""}
+        <div class="rt-muted">🏭 Производствени операции: <b>${doneOps}/${totalOps}</b> готови (${pct}%)</div>
       </div>
       ${blockersHtml}
       ${activeHtml}
+      ${stockHtml}
       <h4 style="margin:14px 0 6px">🧭 По детайли</h4>
       <div class="ost-details">${detailHtml}</div>
       <div class="erp-dialog-actions">
@@ -141,5 +187,5 @@ function erpOrderStatusShow(mine, map, title, orderId) {
   const box = wrap.querySelector(".erp-dialog-box");
   if (box) box.classList.add("sim-box");
   wrap.querySelector("#ost-close").addEventListener("click", close);
-  wrap.querySelector("#ost-refresh").addEventListener("click", () => { close(); erpOrderStatus(orderId, title); });
+  wrap.querySelector("#ost-refresh").addEventListener("click", () => { close(); erpOrderStatus(orderId, title, info); });
 }

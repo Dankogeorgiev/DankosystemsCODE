@@ -361,7 +361,10 @@ async function erpRenderCOForm(o) {
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
   const stBtn = document.getElementById("co-live-status");
   if (stBtn) stBtn.addEventListener("click", () => {
-    if (typeof erpOrderStatus === "function") erpOrderStatus(o.id, o.ourNo ? ("заявка №" + o.ourNo) : (o.clientName || ""));
+    if (typeof erpOrderStatus === "function") erpOrderStatus(o.id, o.ourNo ? ("заявка №" + o.ourNo) : (o.clientName || ""), {
+      productLines: (o.lines || []).filter(l => l.productId).map(l => ({ pid: l.productId, qty: erpToNum(l.qty) || 1 })),
+      stockCover: (o.production && o.production.stockCover) || [],
+    });
   });
   const wBtn = document.getElementById("co-withdraw");
   if (wBtn) wBtn.addEventListener("click", () => erpCOWithdraw(o));
@@ -598,7 +601,7 @@ async function erpCOProduce(o) {
   if (res.error) { alert("Грешка при създаване на задачи: " + (res.error.message || res.error)); return; }
 
   const fs = res.fromStock || [];
-  o.production = { at: new Date().toISOString(), count: (res.seriesCount != null ? res.seriesCount : totalSteps), flow: true, external: external.length, fromStock: fs.length };
+  o.production = { at: new Date().toISOString(), count: (res.seriesCount != null ? res.seriesCount : totalSteps), flow: true, external: external.length, fromStock: fs.length, stockCover: fs };
   // Ако всичко е налично от склада (0 операции) — заявката е готова за продажба;
   // иначе е „в производство".
   const readyNow = (res.seriesCount === 0) && !(res.missing || []).length;
