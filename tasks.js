@@ -22,9 +22,10 @@ const MACHINE_TIME_LABELS = {
 // Полета за време по цех (key, етикет, мерна единица по подразбиране)
 const TIME_FIELDS_BY_WORKSHOP = {
   "Лазери": [
-    { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
-    { key: "tSheet", label: "Време за 1 лист", unit: "min" },
-    { key: "tOrder", label: "Време за цялата нарязана част", unit: "min" },
+    // Без „Време за 1 брой" — то се пресмята само от „Време за произведеното
+    // количество" ÷ брой. Допуска се да се въведат само две от трите стойности.
+    { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+    { key: "tSheet", label: "Време за един лист", unit: "min" },
   ],
   "CNC цех": [
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
@@ -81,15 +82,15 @@ const FIELDS_BY_WORKER = {
       "Gweike 3kw 1": {
         qtyLabel: "Брой детайли",
         timeFields: [
-          { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
-          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+          { key: "tSheet", label: "Време за един лист", unit: "min" },
         ],
       },
       "Gweike 3kw 2": {
         qtyLabel: "Брой детайли",
         timeFields: [
-          { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
-          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+          { key: "tSheet", label: "Време за един лист", unit: "min" },
         ],
       },
       "DURMA щанца": {
