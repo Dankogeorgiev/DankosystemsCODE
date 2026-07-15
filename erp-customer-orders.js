@@ -8,13 +8,17 @@ let erpCOList = null;       // заредени заявки
 let erpCOSort = "deadline"; // подредба на списъка
 let erpCOQuery = "";        // търсене в списъка
 let erpCOHideDone = true;   // скрий завършените (по подразбиране)
+let erpCOStatusFilter = ""; // филтър по статус
+let erpCOClientFilter = ""; // филтър по клиент
 
 // Подрежда/филтрира заявките за списъка.
 function erpCOSortRows(rows) {
   const q = (erpCOQuery || "").toLowerCase().trim();
   let out = rows.filter(o => !q || `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""} ${o.status || ""}`.toLowerCase().includes(q));
-  // Завършените се крият по подразбиране (освен ако търсиш изрично по статус).
-  if (erpCOHideDone && !q) out = out.filter(o => (o.status || "нова") !== "завършена");
+  if (erpCOStatusFilter) out = out.filter(o => (o.status || "нова") === erpCOStatusFilter);
+  if (erpCOClientFilter) out = out.filter(o => (o.clientName || "") === erpCOClientFilter);
+  // Завършените се крият по подразбиране (освен при търсене или изрично избран статус).
+  if (erpCOHideDone && !q && !erpCOStatusFilter) out = out.filter(o => (o.status || "нова") !== "завършена");
   const val = o => (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
   const S = String;
   const cmp = {
@@ -134,14 +138,23 @@ async function erpRenderCustomerOrders() {
     ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
     ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Стойност (голяма отгоре)"],
   ];
+  const statusOpts = ["нова", "в производство", "готова за продажба", "завършена"];
+  const clientOpts = [...new Set((erpCOList || []).map(o => o.clientName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} заявки</span>
-      <input type="search" id="erp-co-q" placeholder="🔎 търси № / клиент / статус…" value="${escapeAttr(erpCOQuery)}" autocomplete="off" style="min-width:210px" />
+      <input type="search" id="erp-co-q" placeholder="🔎 търси № / клиент / статус…" value="${escapeAttr(erpCOQuery)}" autocomplete="off" style="min-width:190px" />
+      <label class="erp-inline">Статус
+        <select id="erp-co-fstatus"><option value="">Всички</option>${statusOpts.map(s => `<option ${s === erpCOStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select>
+      </label>
+      <label class="erp-inline">Клиент
+        <select id="erp-co-fclient"><option value="">Всички</option>${clientOpts.map(c => `<option ${c === erpCOClientFilter ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select>
+      </label>
       <label class="erp-inline">Подреди по
         <select id="erp-co-sort">${sortOpts.map(([k, l]) => `<option value="${k}" ${k === erpCOSort ? "selected" : ""}>${l}</option>`).join("")}</select>
       </label>
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
+      ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
@@ -167,6 +180,12 @@ async function erpRenderCustomerOrders() {
   document.getElementById("erp-co-new").addEventListener("click", erpNewCO);
   const sortSel = document.getElementById("erp-co-sort");
   if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpRenderCustomerOrders(); });
+  const fStatus = document.getElementById("erp-co-fstatus");
+  if (fStatus) fStatus.addEventListener("change", e => { erpCOStatusFilter = e.target.value; erpRenderCustomerOrders(); });
+  const fClient = document.getElementById("erp-co-fclient");
+  if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpRenderCustomerOrders(); });
+  const clearF = document.getElementById("erp-co-clearf");
+  if (clearF) clearF.addEventListener("click", () => { erpCOStatusFilter = ""; erpCOClientFilter = ""; erpRenderCustomerOrders(); });
   const hideDoneEl = document.getElementById("erp-co-hidedone");
   if (hideDoneEl) hideDoneEl.addEventListener("change", e => { erpCOHideDone = e.target.checked; erpRenderCustomerOrders(); });
   const qEl = document.getElementById("erp-co-q");
