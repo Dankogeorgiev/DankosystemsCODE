@@ -719,31 +719,46 @@ function erpFlowAvailable(t, map) {
   const src = t && t.source;
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (!src || !src.flow) return Math.max(0, qty - prod);
+  // Гейт (сглобяване/заваряване): ВЕЧЕ НЕ е „всичко или нищо". Позволяваме
+  // ЧАСТИЧНО сглобяване — колкото родители стигат готовите части. Пример: за
+  // 100 бр. е нарязана само 30 части → може да се заварят 30, а останалите 70
+  // изчакват частите. gateLimit = най-малкият брой родители, който всяка гейтна
+  // част покрива. Липсваща серия (изцяло от склад) не ограничава.
+  let gateLimit = Infinity;
   if (Array.isArray(src.gate) && src.gate.length) {
-    // Готова е частта, която: няма серия (изцяло от склад), няма остатък за
-    // правене (target<=0), или е произведена в НУЖНИЯ за ТОЗИ възел брой.
-    // Гейтът чака само нужното (need) за този възел, не цялата серия — иначе
-    // споделен детайл би блокирал заваряването, докато се произведе и за други
-    // изделия. Стар формат (низ) → падаме към количеството на серията (g.qty).
-    const done = src.gate.every(entry => {
+    src.gate.forEach(entry => {
       const k = (typeof entry === "string") ? entry : (entry && entry.key);
       const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
       const g = map[k];
-      if (!g) return true;
-      const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
-      return target <= 0 || (Number(g.produced) || 0) >= target;
+      if (!g) return;                        // няма серия (изцяло от склад) → не ограничава
+      const produced = Number(g.produced) || 0;
+      if (need == null || need <= 0) {
+        // Стар формат (низ) — пада към „всичко или нищо" по цялата серия.
+        if (produced < (Number(g.qty) || 0)) gateLimit = 0;
+        return;
+      }
+      // need = брой на частта за ЦЯЛОТО количество на този възел; qty = броят
+      // родители на тази операция → per = части за 1 родител. Колко родители
+      // покриват наличните части = произведени / per.
+      const per = qty > 0 ? need / qty : need;
+      const covers = per > 0 ? Math.floor(produced / per) : (produced >= need ? qty : 0);
+      gateLimit = Math.min(gateLimit, covers);
     });
-    if (!done) return 0;
   }
+  let avail;
   if (src.prevKey) {
     // Брак при настройка на ТАЗИ операция „изяжда" толкова детайла от входа —
     // затова ги вадим от наличното (те са бракувани, не могат да се обработят).
     // Допълнителните бройки за тях се нарязват наново от първата операция.
     const brak = Number(t.brak) || 0;
     const up = map[src.prevKey];
-    return Math.max(0, (up ? up.produced : 0) - prod - brak);
+    avail = Math.max(0, (up ? up.produced : 0) - prod - brak);
+  } else {
+    avail = Math.max(0, qty - prod);
   }
-  return Math.max(0, qty - prod);
+  // Гейтът ограничава ОБЩИЯ брой сглобени (gateLimit); вадим вече сглобеното.
+  if (gateLimit !== Infinity) avail = Math.min(avail, Math.max(0, gateLimit - prod));
+  return avail;
 }
 
 // Кои гейтни части реално още не са готови (за ясно съобщение „чака: …").
