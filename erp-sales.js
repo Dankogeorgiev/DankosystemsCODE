@@ -172,11 +172,16 @@ function erpNewSaleFromOrder(order) {
     const remaining = Math.max(0, (erpToNum(l.qty) || 0) - (Number(l.delivered) || 0));
     const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(order.clientId, order.clientName, l.productId) : null;
     const name = (ple && ple.cname) ? ple.cname : (l.name || "");   // име при клиента за фактурата
+    // Цената идва от ПОРЪЧКАТА (въведената „Прод. цена" на реда) — не се въвежда
+    // пак. Ако редът няма цена, падаме към клиентската ценова листа; иначе празно
+    // (erpFillClientPrices допълва от историята).
+    const orderPrice = erpToNum(l.unitPrice) || 0;
+    const plePrice = (ple && erpToNum(ple.price) > 0) ? erpToNum(ple.price) : 0;
     return {
       // Готовото изделие е в Склад детайли (заприходено при производството) —
       // изписва се оттам, а НЕ по рецепта (иначе двойно броене на суровините).
       itemKind: "product", writeoffKind: "detail", refId: l.productId, code: l.code || "", name, ourName: l.ourName || l.name || "",
-      unit: "бр.", qty: remaining, unitPrice: "",
+      unit: "бр.", qty: remaining, unitPrice: orderPrice > 0 ? orderPrice : (plePrice > 0 ? plePrice : ""),
     };
   }).filter(l => (erpToNum(l.qty) || 0) > 0);
   erpRenderSaleForm({
