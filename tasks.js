@@ -517,9 +517,13 @@ async function openWorkshopDirect(ws) {
 }
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close", "btn-master"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
+  // „Мастер отчитане" — за офиса/админ + изрично за grigor.baykov (дори с цехов достъп).
+  const meEmail = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const masterOk = !w || meEmail === "grigor.baykov@dankosystems.com";
+  const mBtn = document.getElementById("btn-master"); if (mBtn) mBtn.style.display = masterOk ? "" : "none";
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
   // „Отчет боядисване“ — за админи и за служители от Цех Боя (Бояджийно)
   const pb = document.getElementById("tasks-painting");
