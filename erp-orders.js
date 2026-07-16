@@ -439,7 +439,13 @@ function erpFlowSteps(s, opts) {
           byKey[o.key] = (byKey[o.key] || 0) + (Number(o.need) || 0);
           byStock[o.key] = (byStock[o.key] || 0) + (Number(o.stock) || 0);
         });
-        nodeGate[key] = Object.keys(byKey).map(k => ({ key: k, need: byKey[k], stock: byStock[k] || 0 }));
+        // per = части за 1 възел (КОНСТАНТА, не зависи от количеството) = (нужно+
+        // от склад) / брой възли. Пази съотношението при обединяване на серии от
+        // няколко заявки, където количеството расте, а нуждата се преизчислява.
+        nodeGate[key] = Object.keys(byKey).map(k => {
+          const need = byKey[k], stk = byStock[k] || 0;
+          return { key: k, need, stock: stk, per: make > 0 ? (need + stk) / make : (need + stk) };
+        });
       }
       // Изходът на този възел за родителя = последната му операция; нужното = make,
       // а stock = колко от този възел са от готова наличност.
@@ -663,7 +669,6 @@ async function erpFlowApply(meta, productLines) {
     // пускане след промяна) — така новодобавени операции и ново изчакване се
     // отразяват, а произведеното/логовете/цехът се запазват.
     src.prevKey = st.prevKey || null;
-    src.gate = st.gate || null;
     src.consumes = st.consumes || null;
     src.materials = st.materials || null;
     src.step = st.step;
@@ -672,9 +677,25 @@ async function erpFlowApply(meta, productLines) {
     src.toStock = !!st.toStock;
     src.pid = st.pid;
     src.orders = src.orders || [];
-    src.orders.push({ id: meta.sampleId, no: meta.orderNo || "", client: meta.clientName || "", due: meta.deadline || "", qty: add.qty });
+    // Gate при СПОДЕЛЕНА серия: per (части за 1 възел) е константа и се презаписва
+    // безопасно; stock (части от готова наличност) се НАТРУПВА по заявки — пазим
+    // приноса на всяка заявка в order.gateStock, за да е коректно и при повторно
+    // пускане/изтегляне. Иначе gate на едната заявка се презаписваше, а
+    // количеството растеше → грешно съотношение и отрицателен склад детайли.
+    const myGateStock = {};
+    if (Array.isArray(st.gate)) st.gate.forEach(g => { if (g && g.key != null) myGateStock[g.key] = Number(g.stock) || 0; });
+    src.orders.push({ id: meta.sampleId, no: meta.orderNo || "", client: meta.clientName || "", due: meta.deadline || "", qty: add.qty, gateStock: Object.keys(myGateStock).length ? myGateStock : undefined });
     src.orderIds = src.orders.map(o => String(o.id));
     r.data.qty = (Number(r.data.qty) || 0) + add.qty;
+    if (Array.isArray(st.gate) && st.gate.length) {
+      src.gate = st.gate.map(g => ({
+        key: g.key,
+        per: (g.per != null) ? Number(g.per) : null,
+        stock: src.orders.reduce((s, o) => s + ((o.gateStock && Number(o.gateStock[g.key])) || 0), 0),
+      }));
+    } else {
+      src.gate = null;
+    }
     // Закачаме чертежите от рецептата на детайла (без дублиране).
     const dr = drawingsByPid[st.pid] || [];
     if (dr.length) {
@@ -753,6 +774,13 @@ async function erpFlowRemoveOrder(sampleId) {
     src.orders = orders; src.orderIds = orders.map(o => String(o.id));
     d.client = orders.length >= 2 ? "" : (orders[0].client || "");
     d.due = orders.length >= 2 ? "" : (orders[0].due || "");
+    // Gate: per остава, stock (части от склад) се преизчислява от останалите заявки.
+    if (Array.isArray(src.gate) && src.gate.some(g => g && g.per != null)) {
+      src.gate = src.gate.map(g => ({
+        key: g.key, per: g.per,
+        stock: orders.reduce((s, o) => s + ((o.gateStock && Number(o.gateStock[g.key])) || 0), 0),
+      }));
+    }
     const qty = Number(d.qty) || 0, prod = Number(d.produced) || 0;
     await sb.from("tasks").update({ data: d, done: qty > 0 && prod >= qty, updated_at: new Date().toISOString() }).eq("id", r.id);
   }
@@ -788,25 +816,32 @@ function erpFlowAvailable(t, map) {
   if (Array.isArray(src.gate) && src.gate.length) {
     src.gate.forEach(entry => {
       const k = (typeof entry === "string") ? entry : (entry && entry.key);
-      const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
-      // fromStock = колко от тази част са ПОКРИТИ ОТ ГОТОВА НАЛИЧНОСТ (нетнати при
-      // пускането). Те са налични веднага и не чакат рязане — иначе сглобяването
-      // на наличните бройки блокира заради частта, която тепърва се произвежда.
+      // fromStock = колко части са ПОКРИТИ ОТ ГОТОВА НАЛИЧНОСТ (налични веднага,
+      // не чакат рязане). Натрупано по всички заявки в серията.
       const fromStock = (typeof entry === "string") ? 0 : (Number(entry && entry.stock) || 0);
+      const per = (typeof entry === "object" && entry && entry.per != null) ? Number(entry.per) : null;
       const g = map[k];
       if (!g) return;                        // няма серия (изцяло от склад) → не ограничава
       const produced = Number(g.produced) || 0;
+      if (per != null) {
+        // НОВ формат: per = части за 1 възел (константа, независима от заявките).
+        // Налични части сега = от склад + произведени; толкова възела могат да се
+        // сглобят. Пази коректност при обединени серии от няколко заявки.
+        const have = fromStock + produced;
+        const covers = per > 0 ? Math.floor(have / per) : (have > 0 ? qty : 0);
+        gateLimit = Math.min(gateLimit, covers);
+        return;
+      }
+      // СТАР формат: {key, need(, stock)} или низ (за серии, пуснати преди фикса).
+      const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
       if (need == null || need <= 0) {
-        // Стар формат (низ) — пада към „всичко или нищо" по цялата серия.
         if (produced < (Number(g.qty) || 0)) gateLimit = 0;
         return;
       }
-      // Всички нужни части = произвеждани (need) + от склад (fromStock).
-      // per = части за 1 родител; налични сега = от склад + вече произведени.
       const total = need + fromStock;
-      const per = qty > 0 ? total / qty : total;
+      const perL = qty > 0 ? total / qty : total;
       const have = fromStock + produced;
-      const covers = per > 0 ? Math.floor(have / per) : (have >= total ? qty : 0);
+      const covers = perL > 0 ? Math.floor(have / perL) : (have >= total ? qty : 0);
       gateLimit = Math.min(gateLimit, covers);
     });
   }
@@ -831,17 +866,28 @@ function erpFlowGatePending(t, map) {
   const src = t && t.source;
   if (!src || !Array.isArray(src.gate)) return [];
   const out = [];
+  const tqty = Number(t && t.qty) || 0;
   src.gate.forEach(entry => {
     const k = (typeof entry === "string") ? entry : (entry && entry.key);
-    const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
     const fromStock = (typeof entry === "string") ? 0 : (Number(entry && entry.stock) || 0);
+    const per = (typeof entry === "object" && entry && entry.per != null) ? Number(entry.per) : null;
     const g = map[k];
     if (!g) return;
-    const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
     const producedNow = Number(g.produced) || 0;
-    // Наличните от склад се броят за готови (не чакат рязане).
+    const p = String(k).split("¦");
+    if (per != null) {
+      // Нужни части общо = per × брой възли; налични = склад + произведени.
+      const totalParts = per * tqty;
+      const haveParts = fromStock + producedNow;
+      if (totalParts > 1e-9 && haveParts < totalParts - 1e-9) {
+        out.push({ code: p[0] || "", operation: p[1] || "", produced: haveParts, qty: totalParts });
+      }
+      return;
+    }
+    // Стар формат.
+    const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
+    const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
     if (target > 0 && producedNow < target) {
-      const p = String(k).split("¦");
       out.push({ code: p[0] || "", operation: p[1] || "", produced: producedNow + fromStock, qty: target + fromStock });
     }
   });
