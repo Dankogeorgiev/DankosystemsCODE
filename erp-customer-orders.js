@@ -282,6 +282,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
+      ${typeof erpAIStart === "function" ? '<button class="btn btn-small" id="erp-co-ai" title="Качи сканирана заявка (PDF/снимка) — Claude я разчита, ти потвърждаваш">🤖 Разчети заявка (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
     <table class="report-table erp-table">
@@ -305,6 +306,8 @@ async function erpRenderCustomerOrders() {
     </table>`;
 
   document.getElementById("erp-co-new").addEventListener("click", erpNewCO);
+  const aiBtn = document.getElementById("erp-co-ai");
+  if (aiBtn) aiBtn.addEventListener("click", erpAIStart);
   const sortSel = document.getElementById("erp-co-sort");
   if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpRenderCustomerOrders(); });
   const fStatus = document.getElementById("erp-co-fstatus");
@@ -528,8 +531,8 @@ async function erpRenderCOForm(o) {
 function erpCOLinesHtml(o) {
   return (o.lines || []).map((l, i) => `
     <tr>
-      <td data-label="Код">${escapeHtml(l.code || "")}</td>
-      <td data-label="Продукт">${escapeHtml(l.name || "")}${(function () {
+      <td data-label="Код">${escapeHtml(l.code || "")}${l.clientCode ? `<div class="erp-co-ccode" title="Код на клиента">клиент: ${escapeHtml(l.clientCode)}</div>` : ""}</td>
+      <td data-label="Продукт">${escapeHtml(l.name || "")}${l.clientName && l.clientName !== l.name ? `<div class="erp-co-cname" title="Име при клиента">${escapeHtml(l.clientName)}</div>` : ""}${(function () {
         const del = Number(l.delivered) || 0; if (del <= 0) return "";
         const rem = Math.max(0, (erpToNum(l.qty) || 0) - del);
         return rem > 0
