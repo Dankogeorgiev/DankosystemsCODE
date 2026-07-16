@@ -463,6 +463,17 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
         <button class="btn btn-small" id="co-sale">🧾 Създай продажба</button>
       </div>
+
+      <h4 class="erp-group-head">Придружаващи документи</h4>
+      <div class="erp-co-actions">
+        <button class="btn btn-small" id="co-doc-goods">📦 Стокова разписка</button>
+        <button class="btn btn-small" id="co-doc-packing">📦 Packing List</button>
+        <button class="btn btn-small" id="co-doc-pallets">🧱 Палет опис</button>
+        <span class="spacer"></span>
+        <button class="btn btn-small" id="co-edit-transport">✎ Транспорт</button>
+        <button class="btn btn-small" id="co-edit-pallets">✎ Палети (${(o.pallets || []).length})</button>
+      </div>
+      <p class="hint">Същите документи като при фактурата — за да подготвиш стоката за клиента преди фактурата. (ЧМР се прави от фактурата, защото изисква номер на фактура.)</p>
       <div id="co-extra"></div>
     </div>`;
 
@@ -524,8 +535,33 @@ async function erpRenderCOForm(o) {
     if (typeof erpNewSaleFromOrder === "function") erpNewSaleFromOrder(o);
     else alert("Модул Продажби още не е зареден.");
   });
+  // Придружаващи документи — същите като при фактурата (без ЧМР).
+  const docObj = () => erpCODocAdapter(o);
+  const dg = document.getElementById("co-doc-goods");
+  if (dg) dg.addEventListener("click", () => { if (typeof erpInvPrintGoodsNote === "function") erpInvPrintGoodsNote(docObj()); else alert("Модул Фактуриране не е зареден."); });
+  const dp = document.getElementById("co-doc-packing");
+  if (dp) dp.addEventListener("click", () => { if (typeof erpInvPrintPacking === "function") erpInvPrintPacking(docObj()); });
+  const dl = document.getElementById("co-doc-pallets");
+  if (dl) dl.addEventListener("click", () => { if (typeof erpInvPrintPallets === "function") erpInvPrintPallets(docObj()); });
+  const et = document.getElementById("co-edit-transport");
+  if (et) et.addEventListener("click", () => { if (typeof erpInvTransportDialog === "function") erpInvTransportDialog(o, () => { erpSaveCO(o).catch(() => {}); }); });
+  const ep = document.getElementById("co-edit-pallets");
+  if (ep) ep.addEventListener("click", () => { if (typeof erpInvPalletsDialog === "function") erpInvPalletsDialog(o, () => { erpSaveCO(o).catch(() => {}); erpRenderCOForm(o); }); });
+
   erpCOWireLines(o);
   if (o.production) erpCOTracking(o);
+}
+
+// Адаптер: представя заявката като „документен" обект за общите печатни функции
+// от Фактуриране (стокова разписка / packing list / палет опис).
+function erpCODocAdapter(o) {
+  return {
+    __ref: "заявка № " + (o.ourNo || "—") + (o.clientNo ? " / клиентски № " + o.clientNo : ""),
+    issueDate: o.date || "", date: o.date || "",
+    client: { name: o.clientName || "", eik: "", vat: "", city: "", street: "", country: "", person: "" },
+    lines: (o.lines || []).map(l => ({ code: l.code, name: l.name, clientCode: l.clientCode, qty: l.qty, unit: l.unit || "бр.", productId: l.productId })),
+    transport: o.transport || {}, pallets: o.pallets || [],
+  };
 }
 
 function erpCOLinesHtml(o) {
