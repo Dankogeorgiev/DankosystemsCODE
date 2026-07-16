@@ -12,17 +12,84 @@ function erpIsTopProduct(p) {
   return !!(p && !(ERP.childIds && ERP.childIds.has(Number(p.id))));
 }
 
+let erpProdClient = "";   // филтър по клиент-собственик („" = всички, „__none" = без собственик)
+
+// Различните клиенти-собственици (за падащия филтър).
+function erpProdOwners() {
+  return [...new Set((ERP.products || []).map(p => (p.owner_client || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "bg"));
+}
+
+// Кой клиент е поръчвал/купувал даден продукт (от историята на заявките и
+// продажбите) → ERP._prodHist[productId] = [имена на клиенти]. Ползва се за
+// авто-попълване на собственика и за маркера „споделен / поръчван и от".
+async function erpLoadProdHist() {
+  const map = {};
+  const add = (pid, cn) => { pid = Number(pid); cn = (cn || "").trim(); if (!pid || !cn) return; (map[pid] = map[pid] || new Set()).add(cn); };
+  try { if (typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  ((typeof erpCOList !== "undefined" && erpCOList) || []).forEach(o => (o.lines || []).forEach(l => add(l.productId, o.clientName)));
+  try { if (typeof erpLoadSales === "function") await erpLoadSales(); } catch (e) {}
+  ((typeof erpSales !== "undefined" && erpSales) || []).forEach(s => (s.lines || []).forEach(l => { if ((l.itemKind || "product") === "product") add(l.refId, s.clientName); }));
+  ERP._prodHist = {}; Object.keys(map).forEach(k => { ERP._prodHist[k] = [...map[k]]; });
+  return ERP._prodHist;
+}
+
+// Клетка „Клиент" за списъка: показва собственика; ако няма — предложение от
+// историята (един клиент) или „споделен" (няколко). Собственикът е само етикет —
+// НЕ ограничава кой може да поръча продукта.
+function erpOwnerCell(p) {
+  const owner = (p.owner_client || "").trim();
+  const hist = (ERP._prodHist && ERP._prodHist[p.id]) || [];
+  if (owner) {
+    const others = hist.filter(c => c !== owner);
+    const extra = others.length ? ` <span class="erp-owner-extra" title="Поръчван и от: ${escapeAttr(others.join(", "))}">+${others.length}</span>` : "";
+    return `<b>${escapeHtml(owner)}</b>${extra}`;
+  }
+  if (hist.length === 1) return `<span class="erp-owner-sugg" title="Предложение от историята — потвърди с ✎">${escapeHtml(hist[0])} <span class="erp-muted">(?)</span></span>`;
+  if (hist.length > 1) return `<span class="erp-owner-shared" title="Поръчван от: ${escapeAttr(hist.join(", "))}">споделен (${hist.length})</span>`;
+  return `<span class="erp-muted">—</span>`;
+}
+
+// Авто-попълване на собственика от историята: продукт, поръчван от ТОЧНО един
+// клиент → собственик = той (само ако още няма собственик). Поръчван от няколко →
+// остава „споделен" (не гадаем). Продуктите се пипат само там, където е сигурно.
+async function erpFillProductClients() {
+  if (ERP.hasOwnerClient === false) { alert(`Полето „клиент-собственик" още не е налично в базата.\nПусни веднъж в Supabase (SQL Editor):\n\nalter table products add column if not exists owner_client text;`); return; }
+  await erpLoadProdHist();
+  const toSet = [];
+  (ERP.products || []).forEach(p => {
+    if ((p.owner_client || "").trim()) return;
+    const hist = ERP._prodHist[p.id] || [];
+    if (hist.length === 1) toSet.push({ id: p.id, client: hist[0] });
+  });
+  const shared = (ERP.products || []).filter(p => !(p.owner_client || "").trim() && (ERP._prodHist[p.id] || []).length > 1).length;
+  if (!toSet.length) { alert(`Няма какво да попълня автоматично.${shared ? "\n" + shared + " продукта са поръчвани от няколко клиента — остават споделени (задай собственик ръчно)." : ""}`); erpRenderProducts(); return; }
+  if (!confirm(`Ще задам клиент-собственик на ${toSet.length} продукта (поръчвани от точно ЕДИН клиент).\n${shared} продукта са поръчвани от няколко клиента — остават без собственик („споделени").\nВече зададените собственици не се пипат.\n\nПродължавам?`)) { erpRenderProducts(); return; }
+  let ok = 0;
+  for (const it of toSet) {
+    const { error } = await sb.from("products").update({ owner_client: it.client }).eq("id", it.id);
+    if (!error) { ok++; const p = ERP.prodById[it.id]; if (p) p.owner_client = it.client; }
+  }
+  alert(`Готово. Попълнени ${ok} от ${toSet.length}.` + (shared ? `\n${shared} „споделени" (няколко клиента) — задай ги ръчно при нужда.` : ""));
+  erpRenderProducts();
+}
+
 function erpRenderProducts() {
   const v = erpView();
+  // Историята на клиентите (за собственик/споделен) — зарежда се веднъж лениво.
+  if (ERP._prodHist === undefined) { ERP._prodHist = null; erpLoadProdHist().then(() => { if (ERP.tab === "products") erpRenderProducts(); }).catch(() => {}); }
   const q = erpProdSearch.trim().toLowerCase();
   let rows = ERP.products.slice();
   if (erpProdFilter === "top") rows = rows.filter(erpIsTopProduct);
   if (erpProdFilter === "article") rows = rows.filter(p => !p.is_semifinished);
   if (erpProdFilter === "semi") rows = rows.filter(p => p.is_semifinished);
+  if (erpProdClient === "__none") rows = rows.filter(p => !(p.owner_client || "").trim());
+  else if (erpProdClient) rows = rows.filter(p => (p.owner_client || "").trim() === erpProdClient);
   if (q) rows = rows.filter(p =>
     (p.code || "").toLowerCase().includes(q) ||
     (p.name || "").toLowerCase().includes(q) ||
-    (p.group_name || "").toLowerCase().includes(q));
+    (p.group_name || "").toLowerCase().includes(q) ||
+    (p.owner_client || "").toLowerCase().includes(q));
   rows.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
 
   v.innerHTML = `
@@ -34,26 +101,34 @@ function erpRenderProducts() {
         <option value="article" ${erpProdFilter === "article" ? "selected" : ""}>Само артикули</option>
         <option value="semi" ${erpProdFilter === "semi" ? "selected" : ""}>Само полуфабрикати</option>
       </select>
+      <select id="erp-prod-client" title="Филтър по клиент-собственик">
+        <option value="" ${erpProdClient === "" ? "selected" : ""}>Всички клиенти</option>
+        <option value="__none" ${erpProdClient === "__none" ? "selected" : ""}>— без собственик —</option>
+        ${erpProdOwners().map(c => `<option value="${escapeAttr(c)}" ${erpProdClient === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+      </select>
+      <button class="btn btn-small" id="erp-prod-fillclients" title="Задай клиент-собственик автоматично от историята на заявките/продажбите (само където е поръчван от точно един клиент)">👥 Попълни клиентите</button>
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} продукта</span>
       <button class="btn btn-primary" id="erp-prod-add">🛠 Създай технология</button>
     </div>
     <p class="erp-prod-legend"><span class="erp-legend-top">🧾 Оцветените са крайни продукти</span> — кодът, който реално вкарваме във фактурата (главното от сглобката). Неоцветените се влагат като детайл/възел в друга рецепта.</p>
+    ${ERP.hasOwnerClient === false ? `<p class="erp-warn" style="margin:4px 0">⚠ Колоната „клиент-собственик" липсва в базата. Пусни веднъж в Supabase: <code>alter table products add column if not exists owner_client text;</code></p>` : ""}
     <table class="report-table erp-table">
       <thead>
-        <tr><th>Код</th><th>Име</th><th>Тип</th><th>Група</th><th class="num cost-cell">Себестойност</th><th></th></tr>
+        <tr><th>Код</th><th>Име</th><th>Клиент</th><th>Тип</th><th>Група</th><th class="num cost-cell">Себестойност</th><th></th></tr>
       </thead>
       <tbody>
         ${rows.map(p => `
           <tr class="erp-clickable ${erpIsTopProduct(p) ? "erp-top-product" : ""} ${p.needs_recipe ? "erp-needs" : ""}" data-prod="${p.id}">
             <td data-label="Код">${erpIsTopProduct(p) ? '<span class="erp-top-flag" title="Краен продукт — този код влиза във фактурата">🧾</span> ' : ''}${escapeHtml(p.code || "—")}</td>
             <td data-label="Име">${escapeHtml(p.name || "")}</td>
+            <td data-label="Клиент" class="erp-owner-cell">${erpOwnerCell(p)}</td>
             <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
             <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
             <td class="num cost-cell" data-label="Себестойност">${p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur)}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип">✎</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
-          `<tr><td colspan="6" class="report-empty">Няма продукти. Импортирай рецепти от таба „Импорт".</td></tr>`}
+          `<tr><td colspan="7" class="report-empty">Няма продукти. Импортирай рецепти от таба „Импорт".</td></tr>`}
       </tbody>
     </table>`;
 
@@ -64,6 +139,10 @@ function erpRenderProducts() {
   document.getElementById("erp-prod-filter").addEventListener("change", e => {
     erpProdFilter = e.target.value; erpRenderProducts();
   });
+  const clientSel = document.getElementById("erp-prod-client");
+  if (clientSel) clientSel.addEventListener("change", e => { erpProdClient = e.target.value; erpRenderProducts(); });
+  const fillBtn = document.getElementById("erp-prod-fillclients");
+  if (fillBtn) fillBtn.addEventListener("click", erpFillProductClients);
   document.getElementById("erp-prod-add").addEventListener("click", erpNewProduct);
   v.querySelectorAll("[data-editp]").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpEditProduct(Number(b.dataset.editp)); }));
@@ -75,12 +154,20 @@ function erpRenderProducts() {
 
 // Редакция на продукт/детайл/възел: име, група, мярка, тип (кодът не се променя,
 // за да не се къса връзката с рецептите/задачите).
-function erpEditProduct(id) {
+async function erpEditProduct(id) {
   const p = ERP.prodById[id];
   if (!p) return;
+  let clients = [];
+  try { if (typeof erpLoadClients === "function") clients = await erpLoadClients(); } catch (e) {}
+  const hist = (ERP._prodHist && ERP._prodHist[id]) || [];
+  const histHint = hist.length ? `<span class="erp-muted" style="font-size:12px">Поръчван от: ${escapeHtml(hist.join(", "))}</span>` : "";
   const { wrap, close } = erpDialog(`
     <h3>Редакция на продукт <span class="erp-muted">${escapeHtml(p.code || "")}</span></h3>
     <label>Име<input type="text" id="ep-name" value="${escapeAttr(p.name || "")}" /></label>
+    <label>Клиент / собственик <span class="erp-muted">(по избор — само етикет, не ограничава поръчките)</span>
+      <input type="text" id="ep-client" list="ep-clients" value="${escapeAttr(p.owner_client || "")}" placeholder="за кой клиент е този продукт" />
+      <datalist id="ep-clients">${clients.map(c => `<option value="${escapeAttr(c.company || "")}"></option>`).join("")}</datalist>
+      ${histHint}</label>
     <label>Група<input type="text" id="ep-group" value="${escapeAttr(p.group_name || "")}" /></label>
     <label>Мярка<input type="text" id="ep-unit" value="${escapeAttr(p.unit || "бр.")}" /></label>
     <label>Тип
@@ -100,10 +187,14 @@ function erpEditProduct(id) {
       group_name: wrap.querySelector("#ep-group").value.trim() || null,
       unit: wrap.querySelector("#ep-unit").value.trim() || "бр.",
       is_semifinished: wrap.querySelector("#ep-type").value === "semi",
+      owner_client: wrap.querySelector("#ep-client").value.trim() || null,
     };
     status.textContent = "Записва…";
     const { error } = await sb.from("products").update(payload).eq("id", id);
-    if (error) { status.textContent = "⚠ " + error.message; return; }
+    if (error) {
+      status.textContent = "⚠ " + error.message + (/owner_client/.test(error.message || "") ? " · Пусни: alter table products add column if not exists owner_client text;" : "");
+      return;
+    }
     close();
     await erpReload();
   });

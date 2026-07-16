@@ -53,6 +53,10 @@ tr.erp-top-product:hover td { background: #d1fae5; }
 .erp-top-flag { font-size: 12px; }
 .erp-prod-legend { margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
 .erp-prod-legend .erp-legend-top { color: #065f46; font-weight: 700; background: #d1fae5; border-radius: 6px; padding: 1px 7px; }
+.erp-owner-cell { font-size: 13px; }
+.erp-owner-extra { font-size: 11px; font-weight: 700; color: #2563eb; background: #dbeafe; border-radius: 6px; padding: 0 5px; cursor: help; }
+.erp-owner-sugg { color: #92400e; font-style: italic; }
+.erp-owner-shared { font-size: 11px; font-weight: 700; color: #7c3aed; background: #ede9fe; border-radius: 6px; padding: 1px 7px; cursor: help; }
 .erp-scroll { overflow-x: auto; }
 .erp-group-head { margin: 14px 0 6px; font-size: 14px; color: var(--muted); font-weight: 700; }
 .erp-preview td, .erp-preview th { font-size: 12px; white-space: nowrap; }

@@ -199,6 +199,18 @@ async function erpLoadAll() {
     } catch (e) { /* складът за детайли още не е създаден — работим без нето */ }
     ERP.products.forEach(p => { p.stock = Number(ERP.prodStock[p.id]) || 0; });
 
+    // Клиент-собственик на продукта (по избор) — чете се от базовата таблица
+    // products (v_product_cost не го включва). Тихо, ако колоната още липсва.
+    ERP.hasOwnerClient = false;
+    try {
+      const oc = await erpSelectAll("products", "id,owner_client");
+      if (!oc.error) {
+        ERP.hasOwnerClient = true;
+        const m = {}; (oc.data || []).forEach(r => { m[r.id] = r.owner_client || ""; });
+        ERP.products.forEach(p => { p.owner_client = m[p.id] || ""; });
+      }
+    } catch (e) { /* колоната още липсва — работим без клиент-собственик */ }
+
     ERP.operations = ops.data || [];
     ERP.opById = {};
     ERP.operations.forEach(o => { ERP.opById[o.id] = o; });
