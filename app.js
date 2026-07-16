@@ -275,6 +275,52 @@ function newSamplesCount() {
   return (samples || []).filter(s => (s.type || "sample") === "sample" && !s.completed && !seen.has(s.id)).length;
 }
 
+/* ---------- Напомняне за срок за изпълнение (ден преди срока) ---------- */
+// Статус на срока на мостра: „overdue" (просрочена) / „today" (днес) /
+// „tomorrow" (утре — ден преди срока) / null (още има време или няма срок).
+function sampleDueInfo(s) {
+  if (!s || (s.type || "sample") !== "sample" || s.completed || !s.deadline) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(s.deadline); if (isNaN(d.getTime())) return null; d.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  if (days < 0) return { k: "overdue", days, label: "просрочена", icon: "🔴" };
+  if (days === 0) return { k: "today", days, label: "днес е срокът", icon: "⏰" };
+  if (days === 1) return { k: "tomorrow", days, label: "утре е срокът", icon: "⏰" };
+  return null;   // повече от ден напред — още не напомняме
+}
+// Мостри с наближаващ/изтекъл срок (за напомнянето) — само за админи.
+function dueSoonSamples() {
+  if (!(MY_ACCESS && MY_ACCESS.isAdmin)) return [];
+  return (samples || []).map(s => ({ s, due: sampleDueInfo(s) })).filter(x => x.due);
+}
+// Рисува лентата с напомняне над списъка (ден преди срока / днес / просрочени).
+function renderDueReminder() {
+  const host = document.getElementById("due-reminder");
+  if (!host) return;
+  const list = dueSoonSamples();
+  if (!list.length) { host.hidden = true; host.innerHTML = ""; return; }
+  const order = { overdue: 0, today: 1, tomorrow: 2 };
+  list.sort((a, b) => (order[a.due.k] - order[b.due.k]) || (new Date(a.s.deadline) - new Date(b.s.deadline)));
+  const rows = list.slice(0, 6).map(x => {
+    const s = x.s, due = x.due;
+    const name = escapeHtml(s.clientName || "(без клиент)");
+    const info = escapeHtml(firstLine(s.sampleInfo) || "");
+    return `<button type="button" class="due-item due-${due.k}" data-goto="${s.id}" title="Отвори мострата">
+        <span class="due-ic">${due.icon}</span>
+        <span class="due-txt"><b>${name}</b>${info ? " · " + info : ""}</span>
+        <span class="due-when">${due.label} (${formatDate(s.deadline)})</span>
+      </button>`;
+  }).join("");
+  const more = list.length > 6 ? `<div class="due-more">…и още ${list.length - 6}</div>` : "";
+  host.innerHTML = `<div class="due-head">⏰ Напомняне за срок за изпълнение — <b>${list.length}</b> ${list.length === 1 ? "мостра" : "мостри"}</div>${rows}${more}`;
+  host.hidden = false;
+  host.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => {
+    const id = Number(b.dataset.goto);
+    const tf = document.getElementById("type-filter"); if (tf) tf.value = "sample";
+    markSampleSeen(id); currentId = id; renderList(); renderForm();
+  }));
+}
+
 // Бутон(и) за добавяне в списъка според избрания тип.
 function renderListAddBtn(tf) {
   const host = document.getElementById("list-add");
@@ -316,6 +362,8 @@ function renderList() {
     if (s.completed) li.classList.add("completed");
     const isNew = (s.type || "sample") === "sample" && !s.completed && !seenSet.has(s.id);
     if (isNew) li.classList.add("s-unseen");
+    const due = sampleDueInfo(s);
+    if (due) li.classList.add("s-due-" + due.k);
     if (s.type === "claim") {
       const badge = s.completed ? `<span class="badge badge-done">Приключена</span>` : "";
       const subj = (s.items || []).map(it => it.description || it.name).filter(Boolean)[0] || "Без описание";
@@ -330,7 +378,7 @@ function renderList() {
       const badge = s.completed ? `<span class="badge badge-done">Завършена</span>` : "";
       const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
       li.innerHTML = `
-        <div class="s-type">${typeBadge(s)}${isNew ? ` <span class="s-new-flag">🆕 нова</span>` : ""}</div>
+        <div class="s-type">${typeBadge(s)}${isNew ? ` <span class="s-new-flag">🆕 нова</span>` : ""}${due ? ` <span class="s-due-flag s-due-flag-${due.k}">${due.icon} ${escapeHtml(due.label)}</span>` : ""}</div>
         <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
         <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание"}</div>
         <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
@@ -338,6 +386,7 @@ function renderList() {
     li.addEventListener("click", () => { markSampleSeen(s.id); currentId = s.id; renderList(); renderForm(); });
     ul.appendChild(li);
   });
+  renderDueReminder();
 }
 
 /* ---------- Форма ---------- */
@@ -973,6 +1022,9 @@ async function onSignedIn(s) {
   renderList();
   renderForm();
   applyAccess();
+  // Напомнянето за срок зависи от текущата дата — опресняваме периодично, за да
+  // светне „утре е срокът" и когато приложението е оставено отворено през нощта.
+  if (!window._dueReminderTimer) window._dueReminderTimer = setInterval(() => { try { renderDueReminder(); } catch (e) {} }, 15 * 60 * 1000);
   if (typeof ensureMessagesBadge === "function") ensureMessagesBadge();
   // Директен линк към цех: ?cex=Лазери → отваря направо този цех
   try {
