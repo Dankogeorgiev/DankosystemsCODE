@@ -196,7 +196,7 @@ function erpAIDraw() {
   const s = AI_STATE;
   const isPdf = (s.fileInfo.type || "").includes("pdf") || /\.pdf(\?|$)/i.test(s.fileInfo.url);
   const preview = isPdf
-    ? `<iframe src="${escapeAttr(s.fileInfo.url)}" class="ai-doc-frame" title="документ"></iframe>`
+    ? `<iframe src="${escapeAttr(s.fileInfo.url + "#navpanes=0&view=FitH")}" class="ai-doc-frame" title="документ"></iframe>`
     : `<img src="${escapeAttr(s.fileInfo.url)}" class="ai-doc-img" alt="документ" />`;
   const u = s.usage ? ` · токени: ${(s.usage.input_tokens || 0) + (s.usage.output_tokens || 0)}` : "";
   v.innerHTML = `
