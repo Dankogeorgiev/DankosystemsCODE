@@ -219,6 +219,7 @@ function erpAIDraw() {
           <label>Срок <input type="date" id="ai-due" value="${escapeAttr(s.parsed.due_date || "")}" /></label>
         </div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна (предложение) · <span class="ai-c-none">●</span> няма (избери ръчно). Всеки ред трябва да е вързан с наш продукт и с отметната ревизия.</p>
+        <label class="ai-allrev"><input type="checkbox" id="ai-allrev" /> ✓ Отметни всички ревизии наведнъж</label>
         <div id="ai-rows">${s.rows.map(erpAIRowHtml).join("")}</div>
         ${s.rows.length ? "" : `<div class="ai-diag"><p class="erp-warn">⚠ Claude не върна редове. Ето суровия отговор (за диагностика):</p><pre class="ai-diag-pre">${escapeHtml(JSON.stringify(s.parsed || {}, null, 2))}</pre><p class="erp-muted">Токени: ${s.usage ? JSON.stringify(s.usage) : "—"}</p></div>`}
         <p class="save-status" id="ai-confirm-status"></p>
@@ -236,6 +237,12 @@ function erpAIDraw() {
   document.getElementById("ai-orderno").addEventListener("input", e => s.parsed.order_no = e.target.value);
   document.getElementById("ai-date").addEventListener("input", e => s.parsed.order_date = e.target.value);
   document.getElementById("ai-due").addEventListener("input", e => s.parsed.due_date = e.target.value);
+  const allRev = document.getElementById("ai-allrev");
+  if (allRev) allRev.addEventListener("change", e => {
+    const on = e.target.checked;
+    AI_STATE.rows.forEach(r => { r.revOk = on; });
+    document.querySelectorAll("#ai-rows .ai-revchk").forEach(chk => { chk.checked = on; });
+  });
   erpAIWireRows();
 }
 
@@ -337,13 +344,21 @@ function erpAIPickProduct(r) {
 async function erpAIConfirm() {
   const s = AI_STATE;
   const st = document.getElementById("ai-confirm-status");
-  if (!s.rows.length) { st.textContent = "⚠ Няма редове."; return; }
+  const block = (msg, bad) => {
+    if (st) st.textContent = "⚠ " + msg;
+    if (bad && bad.length) {
+      const node = document.querySelector(`#ai-rows .ai-row[data-i="${bad[0].i}"]`);
+      if (node) { node.scrollIntoView({ behavior: "smooth", block: "center" }); node.classList.add("ai-row-bad"); setTimeout(() => { node.classList.remove("ai-row-bad"); }, 2600); }
+    }
+    alert("Не мога да създам заявката:\n\n" + msg);
+  };
+  if (!s.rows.length) { block("Няма редове."); return; }
   const noProd = s.rows.filter(r => !r.productId);
-  if (noProd.length) { st.textContent = `⚠ ${noProd.length} реда без наш продукт. Всеки ред трябва да е вързан.`; return; }
+  if (noProd.length) { block(`${noProd.length} реда без наш продукт. Всеки ред трябва да е вързан с продукт (натисни „🔎 Продукт" на червения ред).`, noProd); return; }
   const badQty = s.rows.filter(r => !(erpToNum(r.qty) > 0));
-  if (badQty.length) { st.textContent = `⚠ ${badQty.length} реда с количество ≤ 0.`; return; }
+  if (badQty.length) { block(`${badQty.length} реда с количество ≤ 0.`, badQty); return; }
   const noRev = s.rows.filter(r => !r.revOk);
-  if (noRev.length) { st.textContent = `⚠ ${noRev.length} реда без потвърдена ревизия на чертежа. Отметни „рев. ✓".`; return; }
+  if (noRev.length) { block(`${noRev.length} реда без потвърдена ревизия на чертежа. Отметни „рев. ✓" на всеки ред — или „Отметни всички ревизии" горе.`, noRev); return; }
 
   const btn = document.getElementById("ai-confirm");
   if (btn) { btn.disabled = true; btn.textContent = "Създавам…"; }
