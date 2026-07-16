@@ -687,7 +687,16 @@ async function erpFlowApply(meta, productLines) {
   const toInsert = [];
   for (const k of Object.keys(bySeries)) {
     const r = bySeries[k], src = r.data.source || {}, orders = src.orders || [];
-    if (!orders.length) { if (r.id) await sb.from("tasks").delete().eq("id", r.id); continue; }
+    if (!orders.length) {
+      if (r.id) {
+        await sb.from("tasks").delete().eq("id", r.id);
+        // Чистим и породените движения — иначе остават „фантомни" готови детайли/
+        // материали и повторното пускане ги удвоява (както в erpFlowRemoveOrder).
+        try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
+        try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
+      }
+      continue;
+    }
     // Серия (2+ поръчки) няма клиент/срок в колоните — показва „СЕРИЯ".
     r.data.client = orders.length >= 2 ? "" : (orders[0].client || "");
     r.data.due = orders.length >= 2 ? "" : (orders[0].due || "");
@@ -703,6 +712,19 @@ async function erpFlowApply(meta, productLines) {
   return { external: externalAll, seriesCount: myKeys.length, fromStock, missing: missingList, materialsShort, error: null };
 }
 
+// Освобождава резервираната от заявка наличност (кръстосано нетване), за да я
+// ползват другите заявки. Вика се при изтегляне И при приключване/продажба на
+// заявката — тогава наличността вече е реално изписана и резервацията трябва да
+// падне, иначе застоява и блокира нетването на бъдещи заявки.
+async function erpReleaseNetting(sampleId) {
+  const sid = String(sampleId);
+  try {
+    const { data: cfg } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (cfg && cfg.data && cfg.data.byOrder) || {};
+    if (byOrder[sid]) { delete byOrder[sid]; await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() }); }
+  } catch (e) {}
+}
+
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии
 // се трият; частично споделените се обновяват (количество/клиент/срок).
 async function erpFlowRemoveOrder(sampleId) {
@@ -710,13 +732,7 @@ async function erpFlowRemoveOrder(sampleId) {
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid);   // стари непоточни
   try { await sb.from("product_movements").delete().eq("ref", "order:" + sid); } catch (e) {}  // връщаме взетото от склад
   try { await sb.from("stock_movements").delete().eq("ref", "order:" + sid); } catch (e) {}    // връщаме вложените материали
-  // Освобождаваме резервираната от тази заявка наличност (кръстосано нетване),
-  // за да я ползват другите заявки.
-  try {
-    const { data: cfg } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
-    const byOrder = (cfg && cfg.data && cfg.data.byOrder) || {};
-    if (byOrder[sid]) { delete byOrder[sid]; await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() }); }
-  } catch (e) {}
+  await erpReleaseNetting(sid);
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};

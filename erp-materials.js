@@ -213,7 +213,8 @@ function erpMovementDialog(matId) {
     const price = priceEl ? (erpToNum(priceEl.value) || 0) : 0;
     if ((k === "входящ" || k === "начално") && price > 0) {
       const stock = Number(m.stock) || 0, avg = Number(m.avg_cost) || 0, addq = Math.abs(amount);
-      const newAvg = (k === "начално") ? price : ((stock + addq) > 0 ? (stock * avg + addq * price) / (stock + addq) : price);
+      const base = Math.max(0, stock);   // отрицателна наличност не тежи в средната цена
+      const newAvg = (k === "начално") ? price : ((base + addq) > 0 ? (base * avg + addq * price) / (base + addq) : price);
       try { await sb.from("materials").update({ avg_cost: newAvg }).eq("id", matId); } catch (e) {}
     }
     close();
@@ -427,7 +428,8 @@ function erpQuickIntake() {
       moves.push({ material_id: l.id, kind: "входящ", quantity: Math.abs(l.q), ref, note: null, created_by: by });
       if (l.price > 0) {
         const stock = stockById[l.id] || 0, avg = avgById[l.id] || 0;
-        const newAvg = (stock + l.q) > 0 ? (stock * avg + l.q * l.price) / (stock + l.q) : l.price;
+        const base = Math.max(0, stock);   // отрицателна наличност не тежи в средната цена
+        const newAvg = (base + l.q) > 0 ? (base * avg + l.q * l.price) / (base + l.q) : l.price;
         avgUpdates.push({ id: l.id, avg: newAvg });
       }
     });

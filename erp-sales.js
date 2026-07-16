@@ -500,6 +500,9 @@ async function erpMarkOrderDone(orderId, saleLines) {
       d.status = allDone ? "завършена" : "в производство";
       if (allDone) d.closedAt = new Date().toISOString(); else delete d.closedAt;
       await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", orderId);
+      // Приключена заявка → освобождаваме резервираната ѝ наличност (кръстосано
+      // нетване), за да не застоява и да блокира нетването на бъдещи заявки.
+      if (allDone && typeof erpReleaseNetting === "function") { try { await erpReleaseNetting(orderId); } catch (e) {} }
       if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) { it.status = d.status; it.lines = lines; } }
       if (allDone) return `\n\n✅ Заявка №${d.ourNo || ""} е доставена НАПЪЛНО и приключена.`;
       const rem = lines.filter(l => (Number(l.delivered) || 0) < (erpToNum(l.qty) || 0))
@@ -512,6 +515,7 @@ async function erpMarkOrderDone(orderId, saleLines) {
     if (sm && sm.data) {
       const d = sm.data.data || {}; d.completed = true;
       await sb.from("samples").update({ data: d, completed: true, updated_at: new Date().toISOString() }).eq("id", orderId);
+      if (typeof erpReleaseNetting === "function") { try { await erpReleaseNetting(orderId); } catch (e) {} }
       return `\n\n✅ Поръчката е отбелязана като завършена.`;
     }
   } catch (e) {}
