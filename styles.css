@@ -218,6 +218,12 @@ body {
 
 /* ---------- Вътрешни съобщения ---------- */
 .msg-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; border-radius: 10px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; text-align: center; vertical-align: middle; }
+
+/* Известие за нови мостри (badge на „+ Мостра" + маркер в списъка) */
+.sample-new-badge { animation: sampleBadgePulse 1.6s ease-in-out infinite; }
+@keyframes sampleBadgePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+.s-new-flag { display: inline-block; font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 0 6px; margin-left: 4px; vertical-align: middle; }
+#sample-list li.s-unseen { border-left: 3px solid #f59e0b; background: #fffbeb; }
 .t-q { white-space: nowrap; }
 .t-ask { background: #eef4ff; border-color: #cfe0ff; }
 .t-qview { background: #f1f5f9; }
