@@ -205,6 +205,7 @@ async function newSample(type = "sample") {
   if (error) { alert("Грешка при създаване: " + error.message); return; }
   const s = rowToSample(data);
   samples.unshift(s);
+  markSampleSeen(s.id);   // създателят вече я „вижда" — без известие за собствената
   currentId = s.id;
   renderList();
   renderForm();
@@ -244,16 +245,48 @@ function openTypeMenu(type) {
   renderForm();   // показва welcome, когато няма избран запис
 }
 
+/* ---------- Известие за нови мостри (badge на „+ Мостра", както при съобщения) ----------
+   Всеки админ вижда колко НОВИ мостри за правене има (създадени от някого и още
+   непрегледани от него). „Видяно" се пази локално по имейл — щом админът отвори
+   мострата от списъка, тя се маркира като видяна и badge-ът намалява. */
+function sampleSeenKey() { return "seenSamples:" + ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase(); }
+function loadSeenSamples() {
+  let rec = null;
+  try { rec = JSON.parse(localStorage.getItem(sampleSeenKey()) || "null"); } catch (e) {}
+  if (!rec || !Array.isArray(rec.ids)) {
+    // Първо зареждане за този потребител — приемаме всички налични мостри за
+    // „видени" (базова линия), за да не светне badge за старите записи.
+    const ids = (samples || []).filter(s => (s.type || "sample") === "sample").map(s => s.id);
+    rec = { ids };
+    try { localStorage.setItem(sampleSeenKey(), JSON.stringify(rec)); } catch (e) {}
+  }
+  return new Set(rec.ids);
+}
+function markSampleSeen(id) {
+  if (id == null) return;
+  const seen = loadSeenSamples();
+  if (seen.has(id)) return;
+  seen.add(id);
+  try { localStorage.setItem(sampleSeenKey(), JSON.stringify({ ids: [...seen] })); } catch (e) {}
+}
+function newSamplesCount() {
+  if (!(MY_ACCESS && MY_ACCESS.isAdmin)) return 0;
+  const seen = loadSeenSamples();
+  return (samples || []).filter(s => (s.type || "sample") === "sample" && !s.completed && !seen.has(s.id)).length;
+}
+
 // Бутон(и) за добавяне в списъка според избрания тип.
 function renderListAddBtn(tf) {
   const host = document.getElementById("list-add");
   if (!host) return;
-  const one = (label, t) => `<button class="btn btn-primary btn-block list-add-btn" data-add="${t}">+ ${label}</button>`;
+  const n = newSamplesCount();
+  const badge = n > 0 ? ` <span class="sample-new-badge msg-badge" title="Нови мостри за правене">${n}</span>` : "";
+  const one = (label, t) => `<button class="btn btn-primary btn-block list-add-btn" data-add="${t}">+ ${label}${t === "sample" ? badge : ""}</button>`;
   if (tf === "sample") host.innerHTML = one("Нова мостра", "sample");
   else if (tf === "order") host.innerHTML = one("Нова нестандартна поръчка", "order");
   else if (tf === "claim") host.innerHTML = one("Нова рекламация", "claim");
   else host.innerHTML = `<div class="list-add-row">
-      <button class="btn btn-small" data-add="sample">+ Мостра</button>
+      <button class="btn btn-small" data-add="sample">+ Мостра${badge}</button>
       <button class="btn btn-small" data-add="order">+ Поръчка</button>
       <button class="btn btn-small" data-add="claim">+ Рекламация</button></div>`;
   host.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => {
@@ -276,10 +309,13 @@ function renderList() {
 
   document.getElementById("empty-list").style.display = filtered.length ? "none" : "block";
 
+  const seenSet = loadSeenSamples();
   filtered.forEach(s => {
     const li = document.createElement("li");
     if (s.id === currentId) li.classList.add("active");
     if (s.completed) li.classList.add("completed");
+    const isNew = (s.type || "sample") === "sample" && !s.completed && !seenSet.has(s.id);
+    if (isNew) li.classList.add("s-unseen");
     if (s.type === "claim") {
       const badge = s.completed ? `<span class="badge badge-done">Приключена</span>` : "";
       const subj = (s.items || []).map(it => it.description || it.name).filter(Boolean)[0] || "Без описание";
@@ -294,12 +330,12 @@ function renderList() {
       const badge = s.completed ? `<span class="badge badge-done">Завършена</span>` : "";
       const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
       li.innerHTML = `
-        <div class="s-type">${typeBadge(s)}</div>
+        <div class="s-type">${typeBadge(s)}${isNew ? ` <span class="s-new-flag">🆕 нова</span>` : ""}</div>
         <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
         <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание"}</div>
         <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
     }
-    li.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
+    li.addEventListener("click", () => { markSampleSeen(s.id); currentId = s.id; renderList(); renderForm(); });
     ul.appendChild(li);
   });
 }
