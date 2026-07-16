@@ -18,6 +18,7 @@ let ROGOSH_LOADED = false;
 let rogWorker = "";     // избран служител (за цеховия вход — „кой си ти")
 let rogDate = "";
 let rogView = "entry";  // entry | summary
+let rogPeriod = "week"; // day | week | month (за обобщението)
 
 function rogToday() { return new Date().toISOString().slice(0, 10); }
 function rogKey(w, d) { return w + "|" + d; }
@@ -108,7 +109,7 @@ function rogRenderEntry(v) {
     <div class="rog-toolbar">
       ${workerCtrl}
       <label class="erp-inline">Дата <input type="date" id="rog-date" value="${escapeAttr(rogDate)}" /></label>
-      ${!isW ? `<button class="btn btn-small" id="rog-summary">📊 Обобщение за деня</button>` : ""}
+      ${!isW ? `<button class="btn btn-small" id="rog-summary">📊 Обобщение (седмица/месец)</button>` : ""}
     </div>
     <p class="hint">Запиши колко <b>сглоби днес</b> по всяка операция и избери <b>леви / десни / комплект</b>.</p>
     <div class="rog-rows">
@@ -163,37 +164,102 @@ function rogRenderEntry(v) {
   });
 }
 
-/* Обобщение за деня (само админ) — всички служители × операции. */
+/* ---------- Период (ден/седмица/месец) ---------- */
+function rogIso(d) { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
+function rogWeekNo(dateStr) {
+  const d = new Date(dateStr + "T00:00:00"); if (isNaN(d.getTime())) return "";
+  const t = new Date(d); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
+  const w1 = new Date(t.getFullYear(), 0, 4);
+  return 1 + Math.round(((t - w1) / 864e5 - 3 + ((w1.getDay() + 6) % 7)) / 7);
+}
+const ROG_MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+function rogPeriodRange(dateStr, period) {
+  const d = new Date((dateStr || rogToday()) + "T00:00:00");
+  if (period === "day") return { from: rogIso(d), to: rogIso(d), label: rogFmtDate(dateStr) };
+  if (period === "month") {
+    const first = new Date(d.getFullYear(), d.getMonth(), 1), last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return { from: rogIso(first), to: rogIso(last), label: ROG_MONTHS[d.getMonth()] + " " + d.getFullYear() };
+  }
+  // седмица (пн–нд)
+  const off = (d.getDay() + 6) % 7;
+  const mon = new Date(d); mon.setDate(d.getDate() - off);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  return { from: rogIso(mon), to: rogIso(sun), label: `седмица ${rogWeekNo(rogIso(mon))} · ${rogFmtDate(rogIso(mon))} – ${rogFmtDate(rogIso(sun))}` };
+}
+function rogShiftDate(dateStr, period, dir) {
+  const d = new Date((dateStr || rogToday()) + "T00:00:00");
+  if (period === "day") d.setDate(d.getDate() + dir);
+  else if (period === "week") d.setDate(d.getDate() + 7 * dir);
+  else d.setMonth(d.getMonth() + dir);
+  return rogIso(d);
+}
+// Сумиране за периода: по операция за всяка жена + по вид (Л/Д/К) + работни дни.
+function rogSummaryData(from, to) {
+  const opAgg = {}, vAgg = {};
+  ROGOSH_WORKERS.forEach(w => { opAgg[w] = {}; vAgg[w] = { "леви": 0, "десни": 0, "комплект": 0, total: 0, days: new Set() }; });
+  Object.values(ROGOSH.records || {}).forEach(r => {
+    if (!r || !r.date || r.date < from || r.date > to) return;
+    const w = r.worker; if (!opAgg[w]) return;
+    let any = false;
+    Object.entries(r.ops || {}).forEach(([op, c]) => {
+      const obj = (typeof c === "object") ? c : { q: c, v: "комплект" };
+      const q = rogNum(obj.q); if (!q) return; any = true;
+      opAgg[w][op] = (opAgg[w][op] || 0) + q;
+      const vv = obj.v || "комплект"; vAgg[w][vv] = (vAgg[w][vv] || 0) + q; vAgg[w].total += q;
+    });
+    if (any) vAgg[w].days.add(r.date);
+  });
+  return { opAgg, vAgg };
+}
+
+/* Обобщение (само админ) — ден / седмица / месец: общо за всяка жена + за всички. */
 function rogRenderSummary(v) {
-  const recs = ROGOSH_WORKERS.map(w => ROGOSH.records[rogKey(w, rogDate)] || { worker: w, ops: {} });
-  const cell = (r, op) => rogCell(r, op);                          // { q, v }
-  const opTotal = op => recs.reduce((s, r) => s + rogNum(cell(r, op).q), 0);
-  const workerTotal = r => ROGOSH_OPS.reduce((s, op) => s + rogNum(cell(r, op).q), 0);
-  const grand = ROGOSH_OPS.reduce((s, op) => s + opTotal(op), 0);
-  const cellTxt = (r, op) => { const c = cell(r, op); const q = rogNum(c.q); return q ? `${q} <span class="rog-vtag">${rogVShort(c.v)}</span>` : "—"; };
+  const range = rogPeriodRange(rogDate, rogPeriod);
+  const { opAgg, vAgg } = rogSummaryData(range.from, range.to);
+  const opTotal = op => ROGOSH_WORKERS.reduce((s, w) => s + (opAgg[w][op] || 0), 0);
+  const grand = ROGOSH_WORKERS.reduce((s, w) => s + vAgg[w].total, 0);
+  const pBtn = (key, label) => `<button class="btn btn-small ${rogPeriod === key ? "btn-primary" : ""}" data-period="${key}">${label}</button>`;
+
+  const cards = ROGOSH_WORKERS.map(w => {
+    const a = vAgg[w];
+    return `<div class="rog-card">
+      <div class="rog-card-name">${escapeHtml(w)}</div>
+      <div class="rog-card-tot">${a.total || 0}</div>
+      <div class="rog-card-sub">Л ${a["леви"] || 0} · Д ${a["десни"] || 0} · К ${a["комплект"] || 0}</div>
+      <div class="rog-card-days">${a.days.size} ${a.days.size === 1 ? "работен ден" : "работни дни"}</div>
+    </div>`;
+  }).join("") + `<div class="rog-card rog-card-grand"><div class="rog-card-name">ВСИЧКИ</div><div class="rog-card-tot">${grand || 0}</div><div class="rog-card-sub">общо за периода</div></div>`;
 
   v.innerHTML = `
     <div class="rog-toolbar">
       <button class="btn btn-small" id="rog-back">← Отчет</button>
-      <label class="erp-inline">Дата <input type="date" id="rog-date2" value="${escapeAttr(rogDate)}" /></label>
-      <span class="rog-who">📊 ${rogFmtDate(rogDate)} <span class="hint">(Л=леви · Д=десни · К=комплект)</span></span>
+      <span class="rog-period-btns">${pBtn("day", "Ден")}${pBtn("week", "Седмица")}${pBtn("month", "Месец")}</span>
+      <button class="btn btn-small" id="rog-prev">‹</button>
+      <input type="date" id="rog-date2" value="${escapeAttr(rogDate)}" />
+      <button class="btn btn-small" id="rog-next">›</button>
+      <span class="rog-who">📊 <b>${escapeHtml(range.label)}</b></span>
     </div>
+    <div class="rog-cards">${cards}</div>
+    <h4 class="erp-group-head">Разбивка по операции</h4>
     <div class="rog-table-wrap"><table class="report-table rog-sum-table">
       <thead><tr><th>Операция</th>${ROGOSH_WORKERS.map(w => `<th class="num">${escapeHtml(w.split(" ")[0])}</th>`).join("")}<th class="num">Общо</th></tr></thead>
       <tbody>
         ${ROGOSH_OPS.map(op => `<tr>
           <td>${escapeHtml(op)}</td>
-          ${recs.map(r => `<td class="num">${cellTxt(r, op)}</td>`).join("")}
+          ${ROGOSH_WORKERS.map(w => `<td class="num">${opAgg[w][op] || "—"}</td>`).join("")}
           <td class="num"><b>${opTotal(op) || "—"}</b></td>
         </tr>`).join("")}
       </tbody>
       <tfoot><tr class="rog-total">
-        <td>ОБЩО</td>${recs.map(r => `<td class="num"><b>${workerTotal(r) || "—"}</b></td>`).join("")}<td class="num"><b>${grand || "—"}</b></td>
+        <td>ОБЩО</td>${ROGOSH_WORKERS.map(w => `<td class="num"><b>${vAgg[w].total || "—"}</b></td>`).join("")}<td class="num"><b>${grand || "—"}</b></td>
       </tr></tfoot>
     </table></div>`;
   v.querySelector("#rog-back").addEventListener("click", () => { rogView = "entry"; rogRender(); });
+  v.querySelectorAll("[data-period]").forEach(b => b.addEventListener("click", () => { rogPeriod = b.dataset.period; rogRender(); }));
   const d2 = v.querySelector("#rog-date2");
   if (d2) d2.addEventListener("change", () => { rogDate = d2.value || rogToday(); rogRender(); });
+  const prev = v.querySelector("#rog-prev"); if (prev) prev.addEventListener("click", () => { rogDate = rogShiftDate(rogDate, rogPeriod, -1); rogRender(); });
+  const next = v.querySelector("#rog-next"); if (next) next.addEventListener("click", () => { rogDate = rogShiftDate(rogDate, rogPeriod, 1); rogRender(); });
 }
 
 /* ---------- Инициализация ---------- */
