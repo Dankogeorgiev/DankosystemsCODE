@@ -415,3 +415,12 @@ tr.erp-top-product:hover td { background: #d1fae5; }
 .erp-tab[data-tab="partners"], .erp-tab[data-tab="import"], .erp-tab[data-tab="archive"] { border-bottom-color: #cbd5e1; }
 .erp-tab[data-tab="partners"]:hover, .erp-tab[data-tab="import"]:hover, .erp-tab[data-tab="archive"]:hover { background: #f8fafc; color: #334155; border-color: #64748b; }
 .erp-tab[data-tab="partners"].active, .erp-tab[data-tab="import"].active, .erp-tab[data-tab="archive"].active { background: #475569; border-color: #475569; color: #fff; box-shadow: 0 2px 8px rgba(71,85,105,.28); }
+
+/* ---------- AI документ: pan/zoom четец ---------- */
+.ai-doc-controls { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.ai-doc-viewport { height: 78vh; overflow: hidden; position: relative; background: #f1f5f9; border: 1px solid #d7dde5; border-radius: 8px; cursor: grab; }
+.ai-doc-viewport.grabbing { cursor: grabbing; }
+.ai-doc-stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+.ai-doc-content { display: block; pointer-events: none; background: #fff; box-shadow: 0 1px 8px rgba(0,0,0,.18); }
+iframe.ai-doc-content { border: 0; width: 800px; height: 1120px; }
+img.ai-doc-content { max-width: none; }
