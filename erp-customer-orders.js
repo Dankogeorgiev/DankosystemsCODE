@@ -123,6 +123,62 @@ async function erpSaveCO(o) {
   }
 }
 
+/* ---------- Файл на заявката (сканирана заявка/PDF/снимка) ---------- */
+// Списъкът с прикачени файлове в формата (с връзка за отваряне и бутон за махане).
+function erpCOFilesHtml(o) {
+  const files = (o && o.files) || [];
+  if (!files.length) return `<p class="erp-muted" style="margin:0 0 6px">Няма прикачен файл. Прикачи сканираната заявка (PDF/снимка).</p>`;
+  return `<ul class="co-file-ul">${files.map((f, i) => `
+    <li><a href="${escapeAttr(f.url || "#")}" target="_blank" rel="noopener">📄 ${escapeHtml(f.name || "файл")}</a>
+      <button type="button" class="btn btn-small btn-danger co-file-rm" data-cofrm="${i}" title="Махни файла">×</button></li>`).join("")}</ul>`;
+}
+
+// Клетка за списъка: 📎 връзка към прикачения файл (или „—").
+function erpCOFileCell(o) {
+  const files = (o && o.files) || [];
+  if (!files.length) return "—";
+  const f = files[0];
+  return `<a href="${escapeAttr(f.url || "#")}" target="_blank" rel="noopener" class="co-file-link" title="Отвори прикачения файл на заявката">📎${files.length > 1 ? " " + files.length : ""}</a>`;
+}
+
+// Качва файл(ове) към заявката. За нова заявка първо я записваме (за да има id).
+async function erpCOAttachFiles(o, fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const st = document.getElementById("co-file-status");
+  if (!o.id) {
+    if (st) st.textContent = "Записвам заявката…";
+    try { await erpSaveCO(o); } catch (e) { alert("Първо запази заявката (грешка: " + (e.message || e) + ")."); if (st) st.textContent = ""; return; }
+  }
+  o.files = o.files || [];
+  for (const file of files) {
+    if (st) st.textContent = "Качвам „" + file.name + "“…";
+    const path = `orders/${o.id}/${Date.now()}-${safeName(file.name)}`;
+    const { error } = await sb.storage.from(BUCKET).upload(path, file);
+    if (error) { alert("Грешка при качване на „" + file.name + "“: " + error.message); continue; }
+    const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+    o.files.push({ name: file.name, type: file.type, path, url: data.publicUrl });
+  }
+  try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис на заявката: " + (e.message || e)); }
+  try { await erpLoadCustomerOrders(); } catch (e) {}
+  if (st) st.textContent = "";
+  const list = document.getElementById("co-files-list");
+  if (list) list.innerHTML = erpCOFilesHtml(o);
+  const inp = document.getElementById("co-file-input"); if (inp) inp.value = "";
+}
+
+// Маха прикачен файл (от склада за файлове и от заявката).
+async function erpCORemoveFile(o, i) {
+  const f = (o.files || [])[i]; if (!f) return;
+  if (!confirm(`Да махна ли файла „${f.name || ""}"?`)) return;
+  if (f.path) { try { await sb.storage.from(BUCKET).remove([f.path]); } catch (e) {} }
+  o.files.splice(i, 1);
+  try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); }
+  try { await erpLoadCustomerOrders(); } catch (e) {}
+  const list = document.getElementById("co-files-list");
+  if (list) list.innerHTML = erpCOFilesHtml(o);
+}
+
 /* ---------- Списък ---------- */
 async function erpRenderCustomerOrders() {
   const v = erpView();
@@ -159,7 +215,7 @@ async function erpRenderCustomerOrders() {
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
     <table class="report-table erp-table">
-      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th></th></tr></thead>
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th>Файл</th><th></th></tr></thead>
       <tbody>
         ${rows.map(o => `
           <tr class="erp-clickable" data-id="${o.id}">
@@ -171,9 +227,10 @@ async function erpRenderCustomerOrders() {
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
             <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
             <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
+            <td data-label="Файл">${erpCOFileCell(o)}</td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`).join("") ||
-          `<tr><td colspan="9" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
+          `<tr><td colspan="10" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
       </tbody>
     </table>`;
 
@@ -205,13 +262,14 @@ async function erpRenderCustomerOrders() {
         <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
         <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
         <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
+        <td data-label="Файл">${erpCOFileCell(o)}</td>
         <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-      </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма съвпадения.</td></tr>`;
+      </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
-    tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
+    tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
-  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
+  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
 }
 
 /* ---------- 📚 Архив (изпълнени заявки) ----------
@@ -307,6 +365,13 @@ async function erpRenderCOForm(o) {
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
 
+      <h4 class="erp-group-head">📎 Файл на заявката</h4>
+      <div class="erp-co-files">
+        <div id="co-files-list">${erpCOFilesHtml(o)}</div>
+        <label class="btn btn-small co-attach-btn">⬆ Прикачи файл<input type="file" id="co-file-input" multiple hidden /></label>
+        <span class="erp-muted" id="co-file-status"></span>
+      </div>
+
       <h4 class="erp-group-head">Продукти в заявката</h4>
       <table class="report-table erp-table" id="co-lines">
         <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num sell-cell">Прод. цена (€)</th><th class="num sell-cell">Сума</th><th></th></tr></thead>
@@ -344,6 +409,13 @@ async function erpRenderCOForm(o) {
   document.getElementById("co-save").addEventListener("click", () => erpCOSaveClick(o));
   const delBtn = document.getElementById("co-del");
   if (delBtn) delBtn.addEventListener("click", () => erpCODelete(o));
+  const fileInput = document.getElementById("co-file-input");
+  if (fileInput) fileInput.addEventListener("change", e => erpCOAttachFiles(o, e.target.files));
+  const filesList = document.getElementById("co-files-list");
+  if (filesList) filesList.addEventListener("click", e => {
+    const rm = e.target.closest("[data-cofrm]");
+    if (rm) { e.preventDefault(); erpCORemoveFile(o, Number(rm.dataset.cofrm)); }
+  });
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
   document.getElementById("co-materials").addEventListener("click", () => erpCOMaterials(o));
   const coTest = document.getElementById("co-test");
