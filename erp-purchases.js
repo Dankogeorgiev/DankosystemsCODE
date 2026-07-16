@@ -219,7 +219,8 @@ async function erpPostPurchase(o) {
     moves.push({ material_id: l.materialId, kind: "входящ", quantity: qty, ref, created_by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || null });
     if (price > 0) {
       const stock = stockById[l.materialId] || 0, avg = avgById[l.materialId] || 0;
-      const newAvg = (stock + qty) > 0 ? (stock * avg + qty * price) / (stock + qty) : price;
+      const base = Math.max(0, stock);   // отрицателна наличност не тежи в средната цена
+      const newAvg = (base + qty) > 0 ? (base * avg + qty * price) / (base + qty) : price;
       avgById[l.materialId] = newAvg;
       avgUpdates.push({ id: l.materialId, avg: newAvg });
     }

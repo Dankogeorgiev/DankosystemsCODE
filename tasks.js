@@ -1123,8 +1123,8 @@ async function logProduction(t, qtyVal, extra, opts) {
     } else if (!t.source.toStock) {
       const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
       if (q > 0 && pr + add > q) {
-        const extra = (pr + add) - q;
-        if (!silent && !confirm(`Записваш ${extra} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
+        const over = (pr + add) - q;
+        if (!silent && !confirm(`Записваш ${over} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
       }
     }
   }
