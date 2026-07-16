@@ -238,6 +238,8 @@ async function dsResetTestMovements() {
     // 3) Поточни задачи по цеховете.
     const { error: tErr } = await sb.from("tasks").delete().eq("data->source->>flow", "true");
     if (tErr) throw new Error("поточни задачи: " + tErr.message);
+    // 3б) Резервациите за кръстосано нетване (flow_netting) — вече няма пуснати заявки.
+    try { await sb.from("app_config").delete().eq("id", "flow_netting"); } catch (e) {}
     // 4) Флаг „в производство“ по заявките — за да станат отново чакащи.
     for (const tbl of ["samples", "customer_orders"]) {
       let rows = [];
