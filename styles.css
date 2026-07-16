@@ -1290,3 +1290,16 @@ tr.times-click:hover td { background: #ecfdf5; }
 .m-chip.m-prog { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
 .m-chip.m-wait { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
 .m-chip.m-wait:hover { background: #e5e7eb; }
+
+/* ---------- РОГОШ: обобщение по период (карти) ---------- */
+.rog-period-btns { display: inline-flex; gap: 4px; }
+.rog-cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 6px; }
+.rog-card { flex: 1 1 160px; min-width: 150px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #fff; text-align: center; }
+.rog-card-name { font-size: 12px; color: #475569; font-weight: 600; }
+.rog-card-tot { font-size: 30px; font-weight: 800; color: #0f766e; line-height: 1.1; margin: 4px 0; }
+.rog-card-sub { font-size: 12px; color: #64748b; }
+.rog-card-days { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+.rog-card-grand { background: #0f766e; border-color: #0f766e; }
+.rog-card-grand .rog-card-name, .rog-card-grand .rog-card-sub { color: #d1fae5; }
+.rog-card-grand .rog-card-tot { color: #fff; }
+#rog-date2 { padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 6px; }
