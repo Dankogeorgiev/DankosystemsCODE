@@ -380,6 +380,7 @@ function erpFlowSteps(s, opts) {
     // Върхът (depth 0) НЕ се нетва само при „производство ЗА склад" (noNetTop).
     // При ПОРЪЧКА върхът се нетва като всичко друго — използваме готовата наличност.
     let make = mult;
+    let usedStock = 0;                       // колко от този детайл идват от готова наличност
     if (stock && !(depth === 0 && noNetTop)) {
       const have = Math.max(0, Number(stock[pid]) || 0);
       const use = Math.min(have, mult);
@@ -387,6 +388,7 @@ function erpFlowSteps(s, opts) {
         stock[pid] = have - use;
         if (consumed) consumed[pid] = (consumed[pid] || 0) + use;
         make = mult - use;
+        usedStock = use;
       }
     }
     if (make <= 0) return { hasOps: false, make: 0, outKeys: [] };   // целият детайл е от склада
@@ -429,13 +431,19 @@ function erpFlowSteps(s, opts) {
       const mats = Object.keys(nodeMats).map(mid => ({ mid: Number(mid), per: nodeMats[mid] }));
       nodes.push({ pid, key, product: p.name || "", code: p.code || "", ops, isTop: depth === 0, mats, make });
       // Първата операция на този възел чака директните му части (с нужните бройки).
+      // Носим и „stock" = колко от частта идват от готова наличност — за да може
+      // сглобяването да тръгне веднага за наличните, без да чака рязането им.
       if (childOutKeys.length) {
-        const byKey = {};
-        childOutKeys.forEach(o => { byKey[o.key] = (byKey[o.key] || 0) + (Number(o.need) || 0); });
-        nodeGate[key] = Object.keys(byKey).map(k => ({ key: k, need: byKey[k] }));
+        const byKey = {}, byStock = {};
+        childOutKeys.forEach(o => {
+          byKey[o.key] = (byKey[o.key] || 0) + (Number(o.need) || 0);
+          byStock[o.key] = (byStock[o.key] || 0) + (Number(o.stock) || 0);
+        });
+        nodeGate[key] = Object.keys(byKey).map(k => ({ key: k, need: byKey[k], stock: byStock[k] || 0 }));
       }
-      // Изходът на този възел за родителя = последната му операция; нужното = make.
-      return { hasOps: true, make, outKeys: [{ key: key + "¦" + ops[ops.length - 1].operation + sfx, need: make }] };
+      // Изходът на този възел за родителя = последната му операция; нужното = make,
+      // а stock = колко от този възел са от готова наличност.
+      return { hasOps: true, make, outKeys: [{ key: key + "¦" + ops[ops.length - 1].operation + sfx, need: make, stock: usedStock }] };
     }
     // Възел без свои операции: изходите му са изходите на децата (pass-through).
     return { hasOps: childHasOps, make, outKeys: childOutKeys };
@@ -729,6 +737,10 @@ function erpFlowAvailable(t, map) {
     src.gate.forEach(entry => {
       const k = (typeof entry === "string") ? entry : (entry && entry.key);
       const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
+      // fromStock = колко от тази част са ПОКРИТИ ОТ ГОТОВА НАЛИЧНОСТ (нетнати при
+      // пускането). Те са налични веднага и не чакат рязане — иначе сглобяването
+      // на наличните бройки блокира заради частта, която тепърва се произвежда.
+      const fromStock = (typeof entry === "string") ? 0 : (Number(entry && entry.stock) || 0);
       const g = map[k];
       if (!g) return;                        // няма серия (изцяло от склад) → не ограничава
       const produced = Number(g.produced) || 0;
@@ -737,11 +749,12 @@ function erpFlowAvailable(t, map) {
         if (produced < (Number(g.qty) || 0)) gateLimit = 0;
         return;
       }
-      // need = брой на частта за ЦЯЛОТО количество на този възел; qty = броят
-      // родители на тази операция → per = части за 1 родител. Колко родители
-      // покриват наличните части = произведени / per.
-      const per = qty > 0 ? need / qty : need;
-      const covers = per > 0 ? Math.floor(produced / per) : (produced >= need ? qty : 0);
+      // Всички нужни части = произвеждани (need) + от склад (fromStock).
+      // per = части за 1 родител; налични сега = от склад + вече произведени.
+      const total = need + fromStock;
+      const per = qty > 0 ? total / qty : total;
+      const have = fromStock + produced;
+      const covers = per > 0 ? Math.floor(have / per) : (have >= total ? qty : 0);
       gateLimit = Math.min(gateLimit, covers);
     });
   }
@@ -769,12 +782,15 @@ function erpFlowGatePending(t, map) {
   src.gate.forEach(entry => {
     const k = (typeof entry === "string") ? entry : (entry && entry.key);
     const need = (typeof entry === "string") ? null : (Number(entry && entry.need) || 0);
+    const fromStock = (typeof entry === "string") ? 0 : (Number(entry && entry.stock) || 0);
     const g = map[k];
     if (!g) return;
     const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
-    if (target > 0 && (Number(g.produced) || 0) < target) {
+    const producedNow = Number(g.produced) || 0;
+    // Наличните от склад се броят за готови (не чакат рязане).
+    if (target > 0 && producedNow < target) {
       const p = String(k).split("¦");
-      out.push({ code: p[0] || "", operation: p[1] || "", produced: Number(g.produced) || 0, qty: target });
+      out.push({ code: p[0] || "", operation: p[1] || "", produced: producedNow + fromStock, qty: target + fromStock });
     }
   });
   return out;
