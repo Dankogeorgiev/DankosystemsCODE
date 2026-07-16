@@ -123,6 +123,76 @@ async function erpSaveCO(o) {
   }
 }
 
+/* ---------- Печат на заявка ---------- */
+function erpPrintCO(o) {
+  // Цените се крият за „само производство" достъп (както в списъка).
+  const showPrices = !(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production);
+  const s = (typeof ERP_SELLER !== "undefined" && ERP_SELLER) || {};
+  const total = (o.lines || []).reduce((sum, l) => sum + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+  const rows = (o.lines || []).map((l, i) => {
+    const del = Number(l.delivered) || 0;
+    const rem = Math.max(0, (erpToNum(l.qty) || 0) - del);
+    const delNote = del > 0 ? `<br><span class="muted">доставени ${erpNum(del)}${rem > 0 ? ", остават " + erpNum(rem) : " (напълно)"}</span>` : "";
+    return `<tr>
+      <td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td>
+      <td>${escapeHtml(l.name || "")}${delNote}</td>
+      <td class="r">${erpNum(l.qty)}</td>
+      ${showPrices ? `<td class="r">${erpEur((erpToNum(l.unitPrice) || 0))}</td><td class="r">${erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>` : ""}
+    </tr>`;
+  }).join("") || `<tr><td colspan="${showPrices ? 6 : 4}" class="c muted">— няма продукти —</td></tr>`;
+
+  const sellerLines = [
+    s.eik ? "ЕИК: " + escapeHtml(s.eik) : "",
+    s.vat ? "ДДС №: " + escapeHtml(s.vat) : "",
+    (s.city || s.address) ? escapeHtml([s.city, s.address].filter(Boolean).join(", ")) : "",
+    s.mol ? "МОЛ: " + escapeHtml(s.mol) : "",
+  ].filter(Boolean).join("<br>");
+
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Заявка ${escapeHtml(o.ourNo || "")}</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 22px}
+    .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:12px}
+    .head h1{font-size:22px;margin:0;color:#0f766e;letter-spacing:1px}
+    .meta{text-align:right;font-size:12px;color:#333}
+    .parties{display:flex;gap:16px;margin-bottom:14px}
+    .party{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px}
+    .party h3{margin:0 0 4px;font-size:12px;color:#0f766e}
+    table.items{width:100%;border-collapse:collapse;margin-bottom:8px}
+    table.items th,table.items td{border:1px solid #cbd5e1;padding:5px 7px;font-size:11.5px;text-align:left;vertical-align:top}
+    table.items th{background:#ecfdf5;color:#065f46}
+    td.r{text-align:right}td.c{text-align:center}.muted{color:#777}
+    .sum{width:280px;margin-left:auto;border-collapse:collapse}
+    .sum td{padding:4px 8px;font-size:13px}.sum tr.g td{border-top:2px solid #0f766e;font-size:14px}
+    .foot{display:flex;justify-content:space-between;margin-top:26px;font-size:11px;color:#444}
+    .foot div{flex:1;border-top:1px solid #333;padding-top:4px;margin:0 12px;text-align:center}
+    .pay{margin:6px 0 12px;font-size:12px}
+    @media print{body{margin:8mm}.noprint{display:none}}
+    .noprint{text-align:center;margin:14px 0}
+    .btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
+  </style></head><body>
+    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат</button></div>
+    <div class="head">
+      <div><h1>ЗАЯВКА</h1><div>№ <b>${escapeHtml(o.ourNo || "____")}</b>${o.clientNo ? ` · клиентски № <b>${escapeHtml(o.clientNo)}</b>` : ""}</div></div>
+      <div class="meta">Дата: <b>${escapeHtml(o.date || "")}</b><br>Срок за изпълнение: <b>${escapeHtml(o.deadline || "—")}</b><br>Статус: <b>${escapeHtml(o.status || "нова")}</b></div>
+    </div>
+    <div class="parties">
+      <div class="party"><h3>Доставчик</h3><b>${escapeHtml(s.name || "")}</b>${sellerLines ? "<br>" + sellerLines : ""}</div>
+      <div class="party"><h3>Клиент</h3><b>${escapeHtml(o.clientName || "—")}</b></div>
+    </div>
+    <table class="items">
+      <thead><tr><th>№</th><th>Код</th><th>Продукт</th><th>Бройка</th>${showPrices ? "<th>Ед. цена</th><th>Сума</th>" : ""}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${showPrices ? `<table class="sum"><tr class="g"><td><b>Обща стойност</b></td><td class="r"><b>${erpEur(total)}</b></td></tr></table>` : ""}
+    ${o.note ? `<div class="pay">Забележка: ${escapeHtml(o.note)}</div>` : ""}
+    <div class="foot"><div>Съставил</div><div>Приел</div></div>
+  </body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за този сайт и опитай пак."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
 /* ---------- Файл на заявката (сканирана заявка/PDF/снимка) ---------- */
 // Списъкът с прикачени файлове в формата (с връзка за отваряне и бутон за махане).
 function erpCOFilesHtml(o) {
@@ -343,6 +413,7 @@ async function erpRenderCOForm(o) {
     <div class="erp-toolbar">
       <button class="btn btn-small" id="co-back">← Назад към заявките</button>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="co-print">🖨 Печат</button>
       ${canDelete ? '<button class="btn btn-small btn-danger" id="co-del">🗑 Изтрий заявката</button>' : ""}
       <button class="btn btn-small btn-primary" id="co-save">💾 Запази</button>
     </div>
@@ -407,6 +478,8 @@ async function erpRenderCOForm(o) {
 
   document.getElementById("co-back").addEventListener("click", erpRenderCustomerOrders);
   document.getElementById("co-save").addEventListener("click", () => erpCOSaveClick(o));
+  const printBtn = document.getElementById("co-print");
+  if (printBtn) printBtn.addEventListener("click", () => erpPrintCO(o));
   const delBtn = document.getElementById("co-del");
   if (delBtn) delBtn.addEventListener("click", () => erpCODelete(o));
   const fileInput = document.getElementById("co-file-input");
