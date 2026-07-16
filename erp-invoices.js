@@ -122,6 +122,33 @@ function erpInvMoney(n, cur) {
 }
 function erpInvCur(o) { return o.currency || "EUR"; }
 
+/* ---------- Тегло от рецептата (кг) ---------- */
+// Тегло на 1 БРОЙ продукт: разбива рецептата до материали и сумира
+// (материал в кг → 1; иначе от ръчно въведеното тегло на мярката).
+function erpProductWeightKg(pid) {
+  if (!pid || typeof ERP === "undefined" || !ERP.linesByProduct) return 0;
+  let kg = 0;
+  const rec = (id, mult, anc) => {
+    (ERP.linesByProduct[id] || []).forEach(l => {
+      const q = mult * (Number(l.quantity) || 1);
+      if (l.material_id) {
+        const m = ERP.matById[l.material_id];
+        const f = m ? (typeof erpMatKgPerUnit === "function" ? erpMatKgPerUnit(m) : null) : null;
+        if (f) kg += q * f;
+      } else if (l.child_product_id && !anc.has(l.child_product_id)) {
+        rec(l.child_product_id, q, new Set([...anc, l.child_product_id]));
+      }
+    });
+  };
+  rec(pid, 1, new Set([pid]));
+  return kg;
+}
+// Тегло на цял ред (кг) = бройка × тегло на 1 продукт (0, ако редът не е продукт с рецепта).
+function erpInvLineKg(l) {
+  const w = erpProductWeightKg(l && (l.productId || l.refId));
+  return w > 0 ? Math.round((erpToNum(l.qty) || 0) * w * 1000) / 1000 : 0;
+}
+
 /* ---------- Списък ---------- */
 async function erpRenderInvoices() {
   const v = erpView();
@@ -589,7 +616,7 @@ function erpInvPalletsDialog(o) {
     <div id="pal-list">${render()}</div>
     <div class="erp-dialog-actions" style="justify-content:flex-start">
       <button class="btn btn-small" id="pal-add">+ Палет</button>
-      <button class="btn btn-small" id="pal-fill" title="По един палет на ред от фактурата">↻ Попълни от редовете</button>
+      <button class="btn btn-small" id="pal-fill" title="По един палет на ред; килограмите се смятат от рецептата (може да се коригират ръчно)">↻ Попълни от редовете (+ кг от рецепта)</button>
       <span class="spacer" style="flex:1"></span>
       <button class="btn" id="pal-cancel">Затвори</button>
       <button class="btn btn-primary" id="pal-save">Запази</button>
@@ -609,7 +636,7 @@ function erpInvPalletsDialog(o) {
   wire();
   wrap.querySelector("#pal-add").addEventListener("click", () => { readBack(); o.pallets.push({ no: String(o.pallets.length + 1), desc: "", qty: "", weightKg: "" }); redraw(); });
   wrap.querySelector("#pal-fill").addEventListener("click", () => {
-    o.pallets = (o.lines || []).map((l, i) => ({ no: String(i + 1), desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: erpToNum(l.qty) || "", weightKg: "" }));
+    o.pallets = (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: String(i + 1), desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: erpToNum(l.qty) || "", weightKg: kg > 0 ? kg : "" }; });
     redraw();
   });
   wrap.querySelector("#pal-cancel").addEventListener("click", () => { readBack(); close(); erpInvForm(o); });
@@ -656,7 +683,7 @@ function erpInvPrintGoodsNote(o) {
 
 /* ---------- Packing List (EN) ---------- */
 function erpInvPrintPacking(o) {
-  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => ({ no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: "" }));
+  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: kg > 0 ? kg : "" }; });
   const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
   const tr = o.transport || {};
@@ -672,7 +699,7 @@ function erpInvPrintPacking(o) {
 
 /* ---------- Палет опис (BG+EN) ---------- */
 function erpInvPrintPallets(o) {
-  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => ({ no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: "" }));
+  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: kg > 0 ? kg : "" }; });
   const totQ = pal.reduce((s, p) => s + (erpToNum(p.qty) || 0), 0);
   const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
