@@ -181,6 +181,7 @@ function erpNewSaleFromOrder(order) {
       // Готовото изделие е в Склад детайли (заприходено при производството) —
       // изписва се оттам, а НЕ по рецепта (иначе двойно броене на суровините).
       itemKind: "product", writeoffKind: "detail", refId: l.productId, code: l.code || "", name, ourName: l.ourName || l.name || "",
+      clientCode: l.clientCode || "", clientName: l.clientName || "",
       unit: "бр.", qty: remaining, unitPrice: orderPrice > 0 ? orderPrice : (plePrice > 0 ? plePrice : ""),
     };
   }).filter(l => (erpToNum(l.qty) || 0) > 0);
@@ -307,8 +308,8 @@ function erpSaLinesHtml(o, locked) {
              <option value="detail" ${l.writeoffKind === "detail" ? "selected" : ""}>🏭 готов детайл</option>
              <option value="recipe" ${l.writeoffKind !== "detail" ? "selected" : ""}>📦 по рецепта</option>
            </select>`}</td>
-      <td data-label="Код">${escapeHtml(l.code || "")}</td>
-      <td data-label="Наименование">${locked ? escapeHtml(l.name || "") : `<input type="text" class="sa-name" data-i="${i}" value="${escapeAttr(l.name || "")}" style="width:100%;min-width:150px" title="Име за фактурата (напр. името при клиента)" />`}</td>
+      <td data-label="Код">${escapeHtml(l.code || "")}${l.clientCode ? `<div class="erp-co-ccode" title="Код на клиента">клиент: ${escapeHtml(l.clientCode)}</div>` : ""}</td>
+      <td data-label="Наименование">${locked ? escapeHtml(l.name || "") : `<input type="text" class="sa-name" data-i="${i}" value="${escapeAttr(l.name || "")}" style="width:100%;min-width:150px" title="Име за фактурата (напр. името при клиента)" />`}${l.clientName && l.clientName !== l.name ? `<div class="erp-co-cname" title="Име при клиента">${escapeHtml(l.clientName)}</div>` : ""}</td>
       <td class="num" data-label="Кол.">${locked ? erpNum(l.qty) : `<input type="number" class="sa-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
       <td data-label="Мярка">${escapeHtml(l.unit || "")}</td>
       <td class="num" data-label="Ед. цена">${locked ? erpSaleMoney(l.unitPrice, cur) : `<input type="number" class="sa-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:100px" placeholder="0.00" />`}</td>
@@ -526,7 +527,7 @@ async function erpMarkOrderDone(orderId, saleLines) {
 function erpPrintSale(o) {
   const cur = erpSaleCur(o); const t = erpSaleTotals(o);
   const rows = (o.lines || []).map((l, i) => `
-    <tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}</td>
+    <tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}${l.clientCode ? `<br><small style="color:#555">клиент: ${escapeHtml(l.clientCode)}</small>` : ""}</td><td>${escapeHtml(l.name || "")}${l.clientName && l.clientName !== l.name ? `<br><small style="color:#555">${escapeHtml(l.clientName)}</small>` : ""}</td>
       <td class="r">${erpNum(l.qty)}</td><td>${escapeHtml(l.unit || "")}</td>
       <td class="r">${erpSaleMoney(l.unitPrice, cur)}</td>
       <td class="r">${erpSaleMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), cur)}</td></tr>`).join("")
