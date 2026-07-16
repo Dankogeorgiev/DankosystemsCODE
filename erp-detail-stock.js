@@ -37,14 +37,23 @@ function dsHasDrawing(p) {
 // показваме полуфабрикатите + всичко, което участва в рецепта на друг продукт.
 function dsIsDetail(p) {
   if (p.is_semifinished) return true;
+  // Ползван като част/възел в ничия рецепта → надежден сигнал, че е детайл
+  // (независимо дали импортът го е сложил като „артикул").
+  if (ERP.childIds && ERP.childIds.has(Number(p.id))) return true;
   const g = (p.group_name || "").toLowerCase();
   if (g.includes("детайл") || g.includes("възл") || g.includes("полуфабрикат") || g.includes("заготов")) return true;
   return false;
 }
-// В списъка показваме и всичко, което реално има наличност/движения (готова
-// продукция от заявки), за да не „изчезва", ако още не е класифицирано.
+// Има ли продуктът собствена рецепта (може да се произведе → готовото влиза тук).
+function dsIsProducible(p) {
+  const ls = ERP.linesByProduct && ERP.linesByProduct[p.id];
+  return !!(ls && ls.length);
+}
+// В списъка показваме: детайли/възли + всичко ПРОИЗВОДИМО (има рецепта — при
+// готовност влиза в Склад детайли) + всичко с реална наличност/движения. Така
+// краен продукт с рецепта (напр. 103435) също се вижда като позиция.
 function dsShowInStock(p) {
-  return dsIsDetail(p) || (Number(p.stock) || 0) !== 0;
+  return dsIsDetail(p) || dsIsProducible(p) || (Number(p.stock) || 0) !== 0;
 }
 
 // Опреснява наличностите на продуктите от v_product_stock (готовото, заприходено
