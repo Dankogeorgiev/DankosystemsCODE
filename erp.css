@@ -386,3 +386,32 @@ tr.erp-top-product:hover td { background: #d1fae5; }
 .inv-pal-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .inv-pal-row input { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; }
 .inv-pal-row .pal-desc { flex: 1; }
+
+/* ---------- Фина цветова система на ЕРП табовете (по функция) ---------- */
+.erp-tab { border-bottom: 2px solid #e2e8f0; transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease; }
+.erp-tab.active { box-shadow: 0 2px 8px rgba(15,118,110,.28); }
+
+/* Заявки / клиенти / ценови листи — синьо */
+.erp-tab[data-tab="customer"], .erp-tab[data-tab="pricelists"] { border-bottom-color: #bfdbfe; }
+.erp-tab[data-tab="customer"]:hover, .erp-tab[data-tab="pricelists"]:hover { background: #eff6ff; color: #1d4ed8; border-color: #1d4ed8; }
+.erp-tab[data-tab="customer"].active, .erp-tab[data-tab="pricelists"].active { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,.30); }
+
+/* Склад / материали / покупки — кехлибар */
+.erp-tab[data-tab="materials"], .erp-tab[data-tab="detailstock"], .erp-tab[data-tab="purchases"] { border-bottom-color: #fde68a; }
+.erp-tab[data-tab="materials"]:hover, .erp-tab[data-tab="detailstock"]:hover, .erp-tab[data-tab="purchases"]:hover { background: #fffbeb; color: #b45309; border-color: #d97706; }
+.erp-tab[data-tab="materials"].active, .erp-tab[data-tab="detailstock"].active, .erp-tab[data-tab="purchases"].active { background: #d97706; border-color: #d97706; color: #fff; box-shadow: 0 2px 8px rgba(217,119,6,.30); }
+
+/* Пари: продажби / фактуриране — тюркоаз */
+.erp-tab[data-tab="sales"], .erp-tab[data-tab="invoices"] { border-bottom-color: #99f6e4; }
+.erp-tab[data-tab="sales"]:hover, .erp-tab[data-tab="invoices"]:hover { background: #f0fdfa; color: #0f766e; border-color: #0f766e; }
+.erp-tab[data-tab="sales"].active, .erp-tab[data-tab="invoices"].active { background: #0f766e; border-color: #0f766e; color: #fff; }
+
+/* Продукти / рецепти / нужди / операции — лилаво */
+.erp-tab[data-tab="products"], .erp-tab[data-tab="needs"], .erp-tab[data-tab="requirements"], .erp-tab[data-tab="operations"] { border-bottom-color: #ddd6fe; }
+.erp-tab[data-tab="products"]:hover, .erp-tab[data-tab="needs"]:hover, .erp-tab[data-tab="requirements"]:hover, .erp-tab[data-tab="operations"]:hover { background: #f5f3ff; color: #6d28d9; border-color: #7c3aed; }
+.erp-tab[data-tab="products"].active, .erp-tab[data-tab="needs"].active, .erp-tab[data-tab="requirements"].active, .erp-tab[data-tab="operations"].active { background: #7c3aed; border-color: #7c3aed; color: #fff; box-shadow: 0 2px 8px rgba(124,58,237,.30); }
+
+/* Директория / архив / импорт — сиво-синьо */
+.erp-tab[data-tab="partners"], .erp-tab[data-tab="import"], .erp-tab[data-tab="archive"] { border-bottom-color: #cbd5e1; }
+.erp-tab[data-tab="partners"]:hover, .erp-tab[data-tab="import"]:hover, .erp-tab[data-tab="archive"]:hover { background: #f8fafc; color: #334155; border-color: #64748b; }
+.erp-tab[data-tab="partners"].active, .erp-tab[data-tab="import"].active, .erp-tab[data-tab="archive"].active { background: #475569; border-color: #475569; color: #fff; box-shadow: 0 2px 8px rgba(71,85,105,.28); }
