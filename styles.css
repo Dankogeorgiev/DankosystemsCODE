@@ -224,6 +224,25 @@ body {
 @keyframes sampleBadgePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
 .s-new-flag { display: inline-block; font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 0 6px; margin-left: 4px; vertical-align: middle; }
 #sample-list li.s-unseen { border-left: 3px solid #f59e0b; background: #fffbeb; }
+
+/* Напомняне за срок за изпълнение */
+.due-reminder { margin: 6px 0 4px; border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+.due-reminder .due-head { font-size: 12px; font-weight: 700; color: #92400e; }
+.due-reminder .due-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 1px solid transparent; border-radius: 8px; padding: 5px 8px; background: #fff; cursor: pointer; font: inherit; }
+.due-reminder .due-item:hover { border-color: #f59e0b; }
+.due-reminder .due-ic { font-size: 15px; }
+.due-reminder .due-txt { flex: 1; font-size: 12px; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.due-reminder .due-when { font-size: 11px; font-weight: 700; white-space: nowrap; }
+.due-reminder .due-item.due-tomorrow .due-when { color: #b45309; }
+.due-reminder .due-item.due-today .due-when { color: #c2410c; }
+.due-reminder .due-item.due-overdue .due-when { color: #b91c1c; }
+.due-reminder .due-more { font-size: 11px; color: #92400e; }
+.s-due-flag { display: inline-block; font-size: 10px; font-weight: 700; border-radius: 8px; padding: 0 6px; margin-left: 4px; vertical-align: middle; }
+.s-due-flag-tomorrow { color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; }
+.s-due-flag-today { color: #c2410c; background: #ffedd5; border: 1px solid #fdba74; }
+.s-due-flag-overdue { color: #b91c1c; background: #fee2e2; border: 1px solid #fca5a5; }
+#sample-list li.s-due-today, #sample-list li.s-due-overdue { border-left: 3px solid #ef4444; }
+#sample-list li.s-due-tomorrow { border-left: 3px solid #f59e0b; }
 .t-q { white-space: nowrap; }
 .t-ask { background: #eef4ff; border-color: #cfe0ff; }
 .t-qview { background: #f1f5f9; }
