@@ -195,9 +195,18 @@ function erpAIDraw() {
   const v = erpView();
   const s = AI_STATE;
   const isPdf = (s.fileInfo.type || "").includes("pdf") || /\.pdf(\?|$)/i.test(s.fileInfo.url);
-  const preview = isPdf
-    ? `<iframe src="${escapeAttr(s.fileInfo.url + "#navpanes=0&view=FitH")}" class="ai-doc-frame" title="документ"></iframe>`
-    : `<img src="${escapeAttr(s.fileInfo.url)}" class="ai-doc-img" alt="документ" />`;
+  const content = isPdf
+    ? `<iframe src="${escapeAttr(s.fileInfo.url + "#navpanes=0&toolbar=0&view=Fit")}" class="ai-doc-content" title="документ"></iframe>`
+    : `<img src="${escapeAttr(s.fileInfo.url)}" class="ai-doc-content" alt="документ" />`;
+  const preview = `
+    <div class="ai-doc-controls">
+      <button type="button" class="btn btn-small" id="ai-zout" title="намали">−</button>
+      <button type="button" class="btn btn-small" id="ai-zin" title="увеличи">＋</button>
+      <button type="button" class="btn btn-small" id="ai-zfit" title="побери целия документ">⤢ Побери</button>
+      <a class="btn btn-small" href="${escapeAttr(s.fileInfo.url)}" target="_blank" rel="noopener" title="отвори едро в нов таб">⛶ Нов таб</a>
+      <span class="erp-muted">✋ хвани и влачи</span>
+    </div>
+    <div class="ai-doc-viewport" id="ai-vp"><div class="ai-doc-stage" id="ai-stage">${content}</div></div>`;
   const u = s.usage ? ` · токени: ${(s.usage.input_tokens || 0) + (s.usage.output_tokens || 0)}` : "";
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -237,6 +246,7 @@ function erpAIDraw() {
   document.getElementById("ai-orderno").addEventListener("input", e => s.parsed.order_no = e.target.value);
   document.getElementById("ai-date").addEventListener("input", e => s.parsed.order_date = e.target.value);
   document.getElementById("ai-due").addEventListener("input", e => s.parsed.due_date = e.target.value);
+  erpAISetupViewer();
   const allRev = document.getElementById("ai-allrev");
   if (allRev) allRev.addEventListener("change", e => {
     const on = e.target.checked;
@@ -244,6 +254,39 @@ function erpAIDraw() {
     document.querySelectorAll("#ai-rows .ai-revchk").forEach(chk => { chk.checked = on; });
   });
   erpAIWireRows();
+}
+
+// Малък pan/zoom четец за документа: хващаш и влачиш, колелце/бутони за мащаб.
+function erpAISetupViewer() {
+  const vp = document.getElementById("ai-vp"), stage = document.getElementById("ai-stage");
+  if (!vp || !stage) return;
+  const content = stage.querySelector(".ai-doc-content");
+  let scale = 1, tx = 0, ty = 0;
+  const apply = () => { stage.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  const baseSize = () => {
+    if (content && content.tagName === "IMG" && content.naturalWidth) return { w: content.naturalWidth, h: content.naturalHeight };
+    return { w: content ? (content.offsetWidth || 800) : 800, h: content ? (content.offsetHeight || 1120) : 1120 };
+  };
+  const fit = () => {
+    const b = baseSize(), vw = vp.clientWidth, vh = vp.clientHeight;
+    if (!b.w || !b.h) { scale = 1; tx = 0; ty = 0; return apply(); }
+    scale = Math.min(vw / b.w, vh / b.h) * 0.98;
+    tx = (vw - b.w * scale) / 2; ty = Math.max(0, (vh - b.h * scale) / 2); apply();
+  };
+  const zoomAt = (f, cx, cy) => { tx = cx - (cx - tx) * f; ty = cy - (cy - ty) * f; scale = Math.max(0.1, Math.min(8, scale * f)); apply(); };
+  let drag = null;
+  const end = () => { if (drag) { drag = null; vp.classList.remove("grabbing"); } };
+  vp.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, tx, ty }; vp.classList.add("grabbing"); e.preventDefault(); });
+  vp.addEventListener("mousemove", e => { if (!drag) return; tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); apply(); });
+  vp.addEventListener("mouseup", end);
+  vp.addEventListener("mouseleave", end);
+  vp.addEventListener("wheel", e => { e.preventDefault(); const r = vp.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+  const zin = document.getElementById("ai-zin"), zout = document.getElementById("ai-zout"), zfit = document.getElementById("ai-zfit");
+  if (zin) zin.addEventListener("click", () => zoomAt(1.25, vp.clientWidth / 2, vp.clientHeight / 2));
+  if (zout) zout.addEventListener("click", () => zoomAt(1 / 1.25, vp.clientWidth / 2, vp.clientHeight / 2));
+  if (zfit) zfit.addEventListener("click", fit);
+  if (content && content.tagName === "IMG") { if (content.complete && content.naturalWidth) fit(); else content.addEventListener("load", fit); }
+  else { fit(); setTimeout(fit, 350); }
 }
 
 function erpAIProdLabel(pid) {
