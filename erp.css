@@ -45,6 +45,14 @@
 .erp-below td { border-bottom-color: #fed7aa; }
 .erp-needs td { color: #9a3412; }
 .erp-clickable { cursor: pointer; }
+
+/* Краен продукт (кодът, който влиза във фактурата) — открояваме го в списъка */
+tr.erp-top-product td { background: #ecfdf5; }
+tr.erp-top-product td:first-child { border-left: 3px solid #10b981; font-weight: 700; color: #065f46; }
+tr.erp-top-product:hover td { background: #d1fae5; }
+.erp-top-flag { font-size: 12px; }
+.erp-prod-legend { margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
+.erp-prod-legend .erp-legend-top { color: #065f46; font-weight: 700; background: #d1fae5; border-radius: 6px; padding: 1px 7px; }
 .erp-scroll { overflow-x: auto; }
 .erp-group-head { margin: 14px 0 6px; font-size: 14px; color: var(--muted); font-weight: 700; }
 .erp-preview td, .erp-preview th { font-size: 12px; white-space: nowrap; }

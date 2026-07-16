@@ -206,9 +206,11 @@ async function erpLoadAll() {
     ERP.lines = lines.data || [];
     ERP.linesByProduct = {};
     ERP.opUsage = {};
+    ERP.childIds = new Set();   // всички product_id, ползвани като вложен детайл/възел
     ERP.lines.forEach(l => {
       (ERP.linesByProduct[l.product_id] = ERP.linesByProduct[l.product_id] || []).push(l);
       if (l.operation_id) ERP.opUsage[l.operation_id] = (ERP.opUsage[l.operation_id] || 0) + 1;
+      if (l.child_product_id) ERP.childIds.add(Number(l.child_product_id));
     });
     Object.values(ERP.linesByProduct).forEach(arr =>
       arr.sort((a, b) => (a.position || 0) - (b.position || 0)));
