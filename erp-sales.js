@@ -212,6 +212,7 @@ async function erpRenderSaleForm(o) {
       <button class="btn btn-small" id="sa-back">← Назад към продажбите</button>
       <span class="spacer"></span>
       <button class="btn btn-small" id="sa-print">🖨 Печат</button>
+      ${typeof erpInvFromSale === "function" ? '<button class="btn btn-small" id="sa-invoice" title="Създава фактура от тази продажба (документът; складът остава от продажбата)">📄 Създай фактура</button>' : ""}
       ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span> <button class="btn btn-small btn-danger" id="sa-unpost" title="Връща движенията в склада, за да осчетоводиш продажбата пак">↩ Отмени осчетоводяване</button>'
         : '<button class="btn btn-small" id="sa-save">💾 Запази</button><button class="btn btn-small btn-primary" id="sa-post">📤 Осчетоводи (изпиши от склада)</button>'}
     </div>
@@ -276,6 +277,8 @@ async function erpRenderSaleForm(o) {
   }
   document.getElementById("sa-back").addEventListener("click", erpRenderSales);
   document.getElementById("sa-print").addEventListener("click", () => erpPrintSale(o));
+  const invBtn = document.getElementById("sa-invoice");
+  if (invBtn) invBtn.addEventListener("click", () => { if (typeof erpInvFromSale === "function") erpInvFromSale(o); });
   const upBtn = document.getElementById("sa-unpost");
   if (upBtn) upBtn.addEventListener("click", () => erpUnpostSale(o));
   erpSaWireLines(o, locked);
