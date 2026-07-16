@@ -516,6 +516,26 @@ async function erpFlowApply(meta, productLines) {
     }
   }
 
+  // 0б) КРЪСТОСАНО нетване между заявки: една и съща наличност НЕ бива да се
+  //     приспада на всяка заявка поотделно. Пазим колко е нетнала всяка заявка
+  //     (по детайл) в app_config → flow_netting и намаляваме avail с вече заетото
+  //     от ДРУГИТЕ заявки. Иначе 3 заявки за 500 при 100 налични биха пуснали
+  //     1200 вместо 1400 (нетват едни и същи 100 три пъти).
+  let flowNet = {};
+  if (stockOn) {
+    try {
+      const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+      flowNet = (data && data.data && data.data.byOrder) || {};
+    } catch (e) { flowNet = {}; }
+    const reserved = {};
+    Object.keys(flowNet).forEach(oid => {
+      if (String(oid) === sid) return;                       // нашата стара резервация не се брои срещу нас
+      const perPid = flowNet[oid] || {};
+      Object.keys(perPid).forEach(pid => { reserved[pid] = (reserved[pid] || 0) + (Number(perPid[pid]) || 0); });
+    });
+    Object.keys(reserved).forEach(pid => { avail[pid] = Math.max(0, (Number(avail[pid]) || 0) - reserved[pid]); });
+  }
+
   // 1) Нови приноси на тази поръчка, групирани по серия (код+операция).
   //    При обхождането приспадаме от avail (мутира се) и записваме взетото от склад.
   const mine = {};                 // seriesKey -> { qty, st }
@@ -545,6 +565,15 @@ async function erpFlowApply(meta, productLines) {
       cur.qty += st.qty;
     });
   });
+  // Запазваме нетването на ТАЗИ заявка (по детайл) в app_config → flow_netting,
+  // за да не се приспада същата наличност пак от следваща заявка (кръстосано
+  // нетване). Освобождава се при „Изтегли от производство" (erpFlowRemoveOrder).
+  if (stockOn) {
+    const mineNet = {};
+    Object.keys(consumed).forEach(pid => { const u = Number(consumed[pid]) || 0; if (u > 0) mineNet[pid] = u; });
+    if (Object.keys(mineNet).length) flowNet[sid] = mineNet; else delete flowNet[sid];
+    try { await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder: flowNet }, updated_at: new Date().toISOString() }); } catch (e) {}
+  }
   const myKeys = Object.keys(mine);
   const missingList = Object.values(missingMap);
 
@@ -681,6 +710,13 @@ async function erpFlowRemoveOrder(sampleId) {
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid);   // стари непоточни
   try { await sb.from("product_movements").delete().eq("ref", "order:" + sid); } catch (e) {}  // връщаме взетото от склад
   try { await sb.from("stock_movements").delete().eq("ref", "order:" + sid); } catch (e) {}    // връщаме вложените материали
+  // Освобождаваме резервираната от тази заявка наличност (кръстосано нетване),
+  // за да я ползват другите заявки.
+  try {
+    const { data: cfg } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (cfg && cfg.data && cfg.data.byOrder) || {};
+    if (byOrder[sid]) { delete byOrder[sid]; await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() }); }
+  } catch (e) {}
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};
