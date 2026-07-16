@@ -220,6 +220,7 @@ function erpAIDraw() {
         </div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна (предложение) · <span class="ai-c-none">●</span> няма (избери ръчно). Всеки ред трябва да е вързан с наш продукт и с отметната ревизия.</p>
         <div id="ai-rows">${s.rows.map(erpAIRowHtml).join("")}</div>
+        ${s.rows.length ? "" : `<div class="ai-diag"><p class="erp-warn">⚠ Claude не върна редове. Ето суровия отговор (за диагностика):</p><pre class="ai-diag-pre">${escapeHtml(JSON.stringify(s.parsed || {}, null, 2))}</pre><p class="erp-muted">Токени: ${s.usage ? JSON.stringify(s.usage) : "—"}</p></div>`}
         <p class="save-status" id="ai-confirm-status"></p>
       </div>
     </div>`;
