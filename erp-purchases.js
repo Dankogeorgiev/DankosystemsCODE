@@ -95,6 +95,7 @@ async function erpRenderPurchases() {
       <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код…" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
+      ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
     ${erpPuFolder === "payable" && payableAll.length ? `<p class="hint">За плащане общо: <b>${erpPuMoney(payableSum, "BGN")}</b> · подредени по най-близък срок.</p>` : ""}
@@ -121,6 +122,8 @@ async function erpRenderPurchases() {
   if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpRenderPurchases(); });
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
+  const aiBtn = document.getElementById("pu-ai");
+  if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
   v.querySelectorAll("[data-pay]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); const o = erpPurchases.find(x => String(x.id) === b.dataset.pay); if (o) erpPuMarkPaid(o); }));
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
