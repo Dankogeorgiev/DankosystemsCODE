@@ -576,7 +576,7 @@ function erpInvFromSale(sale) {
 }
 
 /* ---------- Етап 3: данни за транспорт / палети ---------- */
-function erpInvTransportDialog(o) {
+function erpInvTransportDialog(o, onDone) {
   const tr = o.transport = o.transport || {};
   const f = (id, label, val, ph) => `<label>${label} <input type="text" id="tr-${id}" value="${escapeAttr(val || "")}" ${ph ? `placeholder="${escapeAttr(ph)}"` : ""} /></label>`;
   const { wrap, close } = erpDialog(`
@@ -598,11 +598,13 @@ function erpInvTransportDialog(o) {
     const g = id => (wrap.querySelector("#tr-" + id).value || "").trim();
     o.transport = { carrier: g("carrier"), vehicleReg: g("vehicle"), driver: g("driver"), loadPlace: g("loadPlace"), unloadPlace: g("unloadPlace"), loadDate: g("loadDate"), incoterms: g("incoterms"), totalPackages: g("packages"), totalWeightKg: g("weight") };
     close();
+    if (typeof onDone === "function") onDone();
   });
 }
 
-function erpInvPalletsDialog(o) {
+function erpInvPalletsDialog(o, onDone) {
   o.pallets = o.pallets || [];
+  const finish = () => (typeof onDone === "function" ? onDone() : erpInvForm(o));
   const render = () => `${(o.pallets || []).map((p, i) => `
     <div class="inv-pal-row" data-i="${i}">
       <input type="text" class="pal-no" data-i="${i}" value="${escapeAttr(p.no || String(i + 1))}" placeholder="№" style="width:50px" />
@@ -639,8 +641,8 @@ function erpInvPalletsDialog(o) {
     o.pallets = (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: String(i + 1), desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: erpToNum(l.qty) || "", weightKg: kg > 0 ? kg : "" }; });
     redraw();
   });
-  wrap.querySelector("#pal-cancel").addEventListener("click", () => { readBack(); close(); erpInvForm(o); });
-  wrap.querySelector("#pal-save").addEventListener("click", () => { readBack(); close(); erpInvForm(o); });
+  wrap.querySelector("#pal-cancel").addEventListener("click", () => { readBack(); close(); finish(); });
+  wrap.querySelector("#pal-save").addEventListener("click", () => { readBack(); close(); finish(); });
 }
 
 /* ---------- Печат: общ прозорец ---------- */
@@ -673,7 +675,7 @@ function invDocRef(o) { return (o.docNo ? "фактура № " + o.docNo : "ч�
 function erpInvPrintGoodsNote(o) {
   const rows = (o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}</td><td class="r">${erpNum(l.qty)}</td><td>${escapeHtml(l.unit || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="c muted">—</td></tr>`;
   const body = `
-    <div class="head"><div><h1>СТОКОВА РАЗПИСКА</h1><div>към ${escapeHtml(invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || "")}</b></div></div>
+    <div class="head"><div><h1>СТОКОВА РАЗПИСКА</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || o.date || "")}</b></div></div>
     <div class="parties"><div class="party"><h3>Получател</h3>${invClientBlock(o)}</div><div class="party"><h3>Предал (Доставчик)</h3>${invSellerBlock()}</div></div>
     <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th>Кол.</th><th>МЕ</th></tr></thead><tbody>${rows}</tbody></table>
     ${o.transport && o.transport.totalPackages ? `<div class="kv">Брой пакети/палети: <b>${escapeHtml(o.transport.totalPackages)}</b> · Бруто тегло: <b>${escapeHtml(o.transport.totalWeightKg || "")} кг</b></div>` : ""}
@@ -688,7 +690,7 @@ function erpInvPrintPacking(o) {
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
   const tr = o.transport || {};
   const body = `
-    <div class="head"><div><h1>PACKING LIST</h1><div>ref. ${escapeHtml(invDocRef(o))}</div></div><div style="text-align:right">Date: <b>${escapeHtml(o.issueDate || "")}</b></div></div>
+    <div class="head"><div><h1>PACKING LIST</h1><div>ref. ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Date: <b>${escapeHtml(o.issueDate || o.date || "")}</b></div></div>
     <div class="parties"><div class="party"><h3>Consignee</h3>${invClientBlock(o)}</div><div class="party"><h3>Shipper</h3>${invSellerBlock()}</div></div>
     <table><thead><tr><th>Pallet/Pkg</th><th>Contents</th><th>Qty</th><th>Weight (kg)</th></tr></thead><tbody>${rows}</tbody>
       <tfoot><tr><td colspan="3" class="r"><b>Total gross weight</b></td><td class="r"><b>${erpNum(totW || tr.totalWeightKg || 0)}</b></td></tr></tfoot></table>
@@ -704,7 +706,7 @@ function erpInvPrintPallets(o) {
   const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
   const body = `
-    <div class="head"><div><h1>ПАЛЕТ ОПИС / PALLET LIST</h1><div>към ${escapeHtml(invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || "")}</b></div></div>
+    <div class="head"><div><h1>ПАЛЕТ ОПИС / PALLET LIST</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || o.date || "")}</b></div></div>
     <div class="parties"><div class="party"><h3>Получател / Consignee</h3>${invClientBlock(o)}</div><div class="party"><h3>Доставчик / Shipper</h3>${invSellerBlock()}</div></div>
     <table><thead><tr><th>Палет №</th><th>Съдържание / Contents</th><th>Кол. / Qty</th><th>Тегло / Weight (kg)</th></tr></thead><tbody>${rows}</tbody>
       <tfoot><tr><td class="r"><b>Общо / Total</b></td><td></td><td class="r"><b>${erpNum(totQ)}</b></td><td class="r"><b>${erpNum(totW)}</b></td></tr></tfoot></table>
