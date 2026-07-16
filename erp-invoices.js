@@ -275,6 +275,18 @@ async function erpInvForm(o) {
       ${locked ? "" : '<div class="erp-co-actions"><button class="btn btn-small" id="inv-add-prod">+ Продукт</button><button class="btn btn-small" id="inv-add-free">+ Свободен ред</button></div>'}
       <div class="erp-sale-totals" id="inv-totals"></div>
       <label class="erp-co-note">Забележка <textarea id="inv-note" rows="2" ${locked ? "disabled" : ""}>${escapeHtml(o.note || "")}</textarea></label>
+
+      <h4 class="erp-group-head">Придружаващи документи</h4>
+      <div class="erp-co-actions">
+        <button class="btn btn-small" id="inv-doc-goods">📦 Стокова разписка</button>
+        <button class="btn btn-small" id="inv-doc-packing">📦 Packing List</button>
+        <button class="btn btn-small" id="inv-doc-cmr">🚚 ЧМР (CMR)</button>
+        <button class="btn btn-small" id="inv-doc-pallets">🧱 Палет опис</button>
+        <span class="spacer"></span>
+        <button class="btn btn-small" id="inv-edit-transport" ${locked ? "disabled" : ""}>✎ Транспорт</button>
+        <button class="btn btn-small" id="inv-edit-pallets" ${locked ? "disabled" : ""}>✎ Палети (${(o.pallets || []).length})</button>
+      </div>
+      <p class="hint">Стоковата разписка е за БГ доставки; Packing List + ЧМР — за износ; Палет описът — за всички. „Транспорт" и „Палети" попълват данните за тези документи.</p>
     </div>`;
 
   const bindClient = () => {
@@ -308,6 +320,12 @@ async function erpInvForm(o) {
   const iss = document.getElementById("inv-issue"); if (iss) iss.addEventListener("click", () => erpInvIssue(o));
   const ap = document.getElementById("inv-add-prod"); if (ap) ap.addEventListener("click", () => erpInvAddProduct(o));
   const af = document.getElementById("inv-add-free"); if (af) af.addEventListener("click", () => { o.lines.push({ code: "", name: "", clientCode: "", unit: "бр.", qty: 1, unitPrice: "" }); erpInvLinesRefresh(o); });
+  const dg = document.getElementById("inv-doc-goods"); if (dg) dg.addEventListener("click", () => erpInvPrintGoodsNote(o));
+  const dp = document.getElementById("inv-doc-packing"); if (dp) dp.addEventListener("click", () => erpInvPrintPacking(o));
+  const dc = document.getElementById("inv-doc-cmr"); if (dc) dc.addEventListener("click", () => erpInvPrintCMR(o));
+  const dl = document.getElementById("inv-doc-pallets"); if (dl) dl.addEventListener("click", () => erpInvPrintPallets(o));
+  const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o));
+  const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o));
   erpInvWireLines(o, locked);
   erpInvTotalsBox(o);
 }
@@ -504,4 +522,185 @@ function erpInvPrint(o) {
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
+}
+
+/* ---------- Етап 2: фактура от продажба ---------- */
+function erpInvFromSale(sale) {
+  const today = new Date().toISOString().slice(0, 10);
+  const country = (sale.clientCountry || "").trim();
+  const isExport = !!country && !/^(bg|бг|българия|bulgaria)$/i.test(country);
+  const lines = (sale.lines || []).map(l => ({
+    productId: l.refId || l.productId, code: l.code || "", name: l.name || "", clientCode: l.clientCode || "",
+    unit: l.unit || "бр.", qty: erpToNum(l.qty) || 0, unitPrice: erpToNum(l.unitPrice) || "",
+  })).filter(l => (erpToNum(l.qty) || 0) > 0);
+  if (!lines.length) { alert("Продажбата няма редове с количество."); return; }
+  erpInvForm({
+    kind: "invoice", seriesKey: isExport ? "2" : "1",
+    issueDate: today, taxDate: sale.taxDate || today,
+    orderRef: sale.note || "",
+    client: { name: sale.clientName || "", eik: "", vat: sale.clientVat || "", city: sale.clientCity || "", street: sale.clientStreet || "", country: country || "България", person: "" },
+    clientId: sale.clientId || null,
+    currency: sale.currency || "EUR", vatRate: sale.vatRate != null ? sale.vatRate : 20, vatBasis: "",
+    paymentMethod: sale.paymentMethod || "по банка", note: "",
+    refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
+    saleId: sale.id, compiledBy: (ERP_SELLER && ERP_SELLER.mol) || "",
+    transport: {}, pallets: [],
+  });
+}
+
+/* ---------- Етап 3: данни за транспорт / палети ---------- */
+function erpInvTransportDialog(o) {
+  const tr = o.transport = o.transport || {};
+  const f = (id, label, val, ph) => `<label>${label} <input type="text" id="tr-${id}" value="${escapeAttr(val || "")}" ${ph ? `placeholder="${escapeAttr(ph)}"` : ""} /></label>`;
+  const { wrap, close } = erpDialog(`
+    <h3>Данни за транспорт (ЧМР / Packing List)</h3>
+    <div class="inv-tr-grid">
+      ${f("carrier", "Превозвач", tr.carrier)}
+      ${f("vehicle", "Рег. № на МПС", tr.vehicleReg)}
+      ${f("driver", "Шофьор", tr.driver)}
+      ${f("loadPlace", "Място на товарене", tr.loadPlace, "град, държава")}
+      ${f("unloadPlace", "Място на разтоварване", tr.unloadPlace, "град, държава")}
+      ${f("loadDate", "Дата на товарене", tr.loadDate)}
+      ${f("incoterms", "Условие на доставка (Incoterms)", tr.incoterms, "напр. FCA Пловдив")}
+      ${f("packages", "Брой пакети/палети", tr.totalPackages)}
+      ${f("weight", "Общо бруто тегло (кг)", tr.totalWeightKg)}
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="tr-cancel">Отказ</button><button class="btn btn-primary" id="tr-save">Запази</button></div>`);
+  wrap.querySelector("#tr-cancel").addEventListener("click", close);
+  wrap.querySelector("#tr-save").addEventListener("click", () => {
+    const g = id => (wrap.querySelector("#tr-" + id).value || "").trim();
+    o.transport = { carrier: g("carrier"), vehicleReg: g("vehicle"), driver: g("driver"), loadPlace: g("loadPlace"), unloadPlace: g("unloadPlace"), loadDate: g("loadDate"), incoterms: g("incoterms"), totalPackages: g("packages"), totalWeightKg: g("weight") };
+    close();
+  });
+}
+
+function erpInvPalletsDialog(o) {
+  o.pallets = o.pallets || [];
+  const render = () => `${(o.pallets || []).map((p, i) => `
+    <div class="inv-pal-row" data-i="${i}">
+      <input type="text" class="pal-no" data-i="${i}" value="${escapeAttr(p.no || String(i + 1))}" placeholder="№" style="width:50px" />
+      <input type="text" class="pal-desc" data-i="${i}" value="${escapeAttr(p.desc || "")}" placeholder="съдържание (код/наименование)" />
+      <input type="number" class="pal-qty" data-i="${i}" value="${escapeAttr(String(p.qty || ""))}" placeholder="бр." style="width:80px" />
+      <input type="number" class="pal-w" data-i="${i}" value="${escapeAttr(String(p.weightKg || ""))}" placeholder="кг" style="width:80px" />
+      <button type="button" class="btn btn-small btn-danger pal-rm" data-i="${i}">×</button>
+    </div>`).join("") || `<p class="report-empty">Няма палети. Добави или „Попълни от редовете".</p>`}`;
+  const { wrap, close } = erpDialog(`
+    <h3>Палети (за Палет опис / Packing List)</h3>
+    <div id="pal-list">${render()}</div>
+    <div class="erp-dialog-actions" style="justify-content:flex-start">
+      <button class="btn btn-small" id="pal-add">+ Палет</button>
+      <button class="btn btn-small" id="pal-fill" title="По един палет на ред от фактурата">↻ Попълни от редовете</button>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn" id="pal-cancel">Затвори</button>
+      <button class="btn btn-primary" id="pal-save">Запази</button>
+    </div>`);
+  const listEl = wrap.querySelector("#pal-list");
+  const readBack = () => {
+    listEl.querySelectorAll(".inv-pal-row").forEach(row => {
+      const i = Number(row.dataset.i); const p = o.pallets[i]; if (!p) return;
+      p.no = row.querySelector(".pal-no").value; p.desc = row.querySelector(".pal-desc").value;
+      p.qty = erpToNum(row.querySelector(".pal-qty").value); p.weightKg = erpToNum(row.querySelector(".pal-w").value);
+    });
+  };
+  const redraw = () => { listEl.innerHTML = render(); wire(); };
+  const wire = () => {
+    listEl.querySelectorAll(".pal-rm").forEach(b => b.addEventListener("click", () => { readBack(); o.pallets.splice(Number(b.dataset.i), 1); redraw(); }));
+  };
+  wire();
+  wrap.querySelector("#pal-add").addEventListener("click", () => { readBack(); o.pallets.push({ no: String(o.pallets.length + 1), desc: "", qty: "", weightKg: "" }); redraw(); });
+  wrap.querySelector("#pal-fill").addEventListener("click", () => {
+    o.pallets = (o.lines || []).map((l, i) => ({ no: String(i + 1), desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: erpToNum(l.qty) || "", weightKg: "" }));
+    redraw();
+  });
+  wrap.querySelector("#pal-cancel").addEventListener("click", () => { readBack(); close(); erpInvForm(o); });
+  wrap.querySelector("#pal-save").addEventListener("click", () => { readBack(); close(); erpInvForm(o); });
+}
+
+/* ---------- Печат: общ прозорец ---------- */
+function invPrintWindow(titleText, bodyHtml, lang) {
+  const css = `*{box-sizing:border-box}body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 22px}
+    h1{font-size:20px;color:#0f766e;margin:0 0 2px;letter-spacing:1px}
+    .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:12px}
+    .parties{display:flex;gap:16px;margin-bottom:14px}.party{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px}.party h3{margin:0 0 4px;font-size:12px;color:#0f766e}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px}th,td{border:1px solid #cbd5e1;padding:5px 7px;font-size:11.5px;text-align:left}th{background:#ecfdf5;color:#065f46}
+    td.r{text-align:right}td.c{text-align:center}.muted{color:#777}.kv{margin:2px 0}
+    .foot{display:flex;justify-content:space-between;margin-top:26px;font-size:11px}.foot div{flex:1;border-top:1px solid #333;padding-top:4px;margin:0 12px;text-align:center}
+    .cmr{border:1px solid #333}.cmr td{vertical-align:top;height:auto}.cmr .lbl{font-size:9px;color:#555;display:block}
+    @media print{body{margin:8mm}.noprint{display:none}}.noprint{text-align:center;margin:14px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(`<!doctype html><html lang="${lang || "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(titleText)}</title><style>${css}</style></head><body><div class="noprint"><button class="btnp" onclick="window.print()">🖨</button></div>${bodyHtml}</body></html>`);
+  w.document.close(); w.focus();
+}
+function invSellerBlock() {
+  const s = ERP_SELLER || {};
+  return `<b>${escapeHtml(s.name || "")}</b><br>ЕИК ${escapeHtml(s.eik || "")} · ДДС ${escapeHtml(s.vat || "")}<br>${escapeHtml([s.address, s.city].filter(Boolean).join(", "))}`;
+}
+function invClientBlock(o) {
+  const c = o.client || {};
+  return `<b>${escapeHtml(c.name || "")}</b><br>${c.eik ? "ЕИК " + escapeHtml(c.eik) + " · " : ""}${c.vat ? "ДДС " + escapeHtml(c.vat) : ""}<br>${escapeHtml([c.street, c.city, c.country].filter(Boolean).join(", "))}`;
+}
+function invDocRef(o) { return (o.docNo ? "фактура № " + o.docNo : "чернова") + (o.issueDate ? " / " + o.issueDate : ""); }
+
+/* ---------- Стокова разписка (БГ) ---------- */
+function erpInvPrintGoodsNote(o) {
+  const rows = (o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}</td><td class="r">${erpNum(l.qty)}</td><td>${escapeHtml(l.unit || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="c muted">—</td></tr>`;
+  const body = `
+    <div class="head"><div><h1>СТОКОВА РАЗПИСКА</h1><div>към ${escapeHtml(invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || "")}</b></div></div>
+    <div class="parties"><div class="party"><h3>Получател</h3>${invClientBlock(o)}</div><div class="party"><h3>Предал (Доставчик)</h3>${invSellerBlock()}</div></div>
+    <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th>Кол.</th><th>МЕ</th></tr></thead><tbody>${rows}</tbody></table>
+    ${o.transport && o.transport.totalPackages ? `<div class="kv">Брой пакети/палети: <b>${escapeHtml(o.transport.totalPackages)}</b> · Бруто тегло: <b>${escapeHtml(o.transport.totalWeightKg || "")} кг</b></div>` : ""}
+    <div class="foot"><div>Предал</div><div>Приел</div></div>`;
+  invPrintWindow("Стокова разписка", body, "bg");
+}
+
+/* ---------- Packing List (EN) ---------- */
+function erpInvPrintPacking(o) {
+  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => ({ no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: "" }));
+  const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
+  const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
+  const tr = o.transport || {};
+  const body = `
+    <div class="head"><div><h1>PACKING LIST</h1><div>ref. ${escapeHtml(invDocRef(o))}</div></div><div style="text-align:right">Date: <b>${escapeHtml(o.issueDate || "")}</b></div></div>
+    <div class="parties"><div class="party"><h3>Consignee</h3>${invClientBlock(o)}</div><div class="party"><h3>Shipper</h3>${invSellerBlock()}</div></div>
+    <table><thead><tr><th>Pallet/Pkg</th><th>Contents</th><th>Qty</th><th>Weight (kg)</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="3" class="r"><b>Total gross weight</b></td><td class="r"><b>${erpNum(totW || tr.totalWeightKg || 0)}</b></td></tr></tfoot></table>
+    ${tr.incoterms ? `<div class="kv">Incoterms: <b>${escapeHtml(tr.incoterms)}</b></div>` : ""}
+    <div class="foot"><div>Prepared by</div><div>Received by</div></div>`;
+  invPrintWindow("Packing List", body, "en");
+}
+
+/* ---------- Палет опис (BG+EN) ---------- */
+function erpInvPrintPallets(o) {
+  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => ({ no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: "" }));
+  const totQ = pal.reduce((s, p) => s + (erpToNum(p.qty) || 0), 0);
+  const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
+  const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
+  const body = `
+    <div class="head"><div><h1>ПАЛЕТ ОПИС / PALLET LIST</h1><div>към ${escapeHtml(invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || "")}</b></div></div>
+    <div class="parties"><div class="party"><h3>Получател / Consignee</h3>${invClientBlock(o)}</div><div class="party"><h3>Доставчик / Shipper</h3>${invSellerBlock()}</div></div>
+    <table><thead><tr><th>Палет №</th><th>Съдържание / Contents</th><th>Кол. / Qty</th><th>Тегло / Weight (kg)</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td class="r"><b>Общо / Total</b></td><td></td><td class="r"><b>${erpNum(totQ)}</b></td><td class="r"><b>${erpNum(totW)}</b></td></tr></tfoot></table>
+    <div class="foot"><div>Съставил / Prepared</div><div>Получил / Received</div></div>`;
+  invPrintWindow("Палет опис", body, "bg");
+}
+
+/* ---------- ЧМР / CMR (опростен международен формуляр) ---------- */
+function erpInvPrintCMR(o) {
+  const s = ERP_SELLER || {}; const c = o.client || {}; const tr = o.transport || {};
+  const goods = (o.lines || []).map(l => `${erpNum(l.qty)} ${escapeHtml(l.unit || "")} · ${escapeHtml((l.code ? l.code + " " : "") + (l.name || ""))}`).join("<br>") || "—";
+  const cell = (label, val) => `<td><span class="lbl">${label}</span>${val || ""}</td>`;
+  const body = `
+    <div class="head"><div><h1>ЧМР · CMR</h1><div class="muted">Международна товарителница / International consignment note</div></div><div style="text-align:right">${escapeHtml(invDocRef(o))}</div></div>
+    <table class="cmr">
+      <tr>${cell("1 Изпращач / Sender", invSellerBlock())}${cell("2 Получател / Consignee", invClientBlock(o))}</tr>
+      <tr>${cell("3 Място на разтоварване / Place of delivery", escapeHtml(tr.unloadPlace || [c.city, c.country].filter(Boolean).join(", ")))}${cell("4 Място и дата на товарене / Place & date of taking over", escapeHtml([tr.loadPlace || s.city, tr.loadDate].filter(Boolean).join(" · ")))}</tr>
+      <tr>${cell("5 Приложени документи / Documents attached", escapeHtml(invDocRef(o)) + (tr.incoterms ? " · " + escapeHtml(tr.incoterms) : ""))}</tr>
+      <tr>${cell("6-9 Маркировка, брой, вид, стока / Marks, packages, nature of goods", goods)}</tr>
+      <tr>${cell("11 Бруто тегло / Gross weight (kg)", escapeHtml(tr.totalWeightKg || ""))}${cell("Брой пакети / Packages", escapeHtml(tr.totalPackages || ""))}</tr>
+      <tr>${cell("16 Превозвач / Carrier", escapeHtml(tr.carrier || ""))}${cell("МПС / Vehicle · Шофьор / Driver", escapeHtml([tr.vehicleReg, tr.driver].filter(Boolean).join(" · ")))}</tr>
+      <tr>${cell("22 Изпращач (подпис) / Sender", "")}${cell("23 Превозвач (подпис) / Carrier", "")}</tr>
+      <tr>${cell("24 Получена стока / Goods received — подпис, дата", "")}<td></td></tr>
+    </table>`;
+  invPrintWindow("ЧМР / CMR", body, "bg");
 }

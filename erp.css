@@ -380,3 +380,9 @@ tr.erp-top-product:hover td { background: #d1fae5; }
 .erp-co-status.s-чернова { background: #f1f5f9; color: #475569; }
 .erp-co-status.s-платена { background: #ccfbf1; color: #0f766e; }
 .erp-co-status.s-сторнирана { background: #fee2e2; color: #991b1b; }
+.inv-tr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.inv-tr-grid label { display: flex; flex-direction: column; font-size: 11px; color: #64748b; gap: 3px; }
+.inv-tr-grid input { padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 6px; }
+.inv-pal-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.inv-pal-row input { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; }
+.inv-pal-row .pal-desc { flex: 1; }
