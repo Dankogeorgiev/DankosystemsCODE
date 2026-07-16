@@ -239,7 +239,7 @@ async function erpLoadAll() {
 function erpSetTab(tab) {
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
-      && ["sales", "pricelists", "purchases", "finance"].includes(tab)) tab = "customer";
+      && ["sales", "pricelists", "purchases", "finance", "invoices"].includes(tab)) tab = "customer";
   ERP.tab = tab;
   document.querySelectorAll(".erp-tab").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === tab));
@@ -255,6 +255,7 @@ function erpSetTab(tab) {
     case "archive":      erpRenderArchive(); break;
     case "pricelists":   erpRenderPriceLists(); break;
     case "sales":        erpRenderSales(); break;
+    case "invoices":     erpRenderInvoices(); break;
     case "finance":
       if (typeof financeAllowed === "function" && !financeAllowed()) {
         erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>Модул „Финанси" е достъпен само за оторизирани потребители.</p></div>`;
