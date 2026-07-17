@@ -424,3 +424,11 @@ tr.erp-top-product:hover td { background: #d1fae5; }
 .ai-doc-content { display: block; pointer-events: none; background: #fff; box-shadow: 0 1px 8px rgba(0,0,0,.18); }
 iframe.ai-doc-content { border: 0; width: 800px; height: 1120px; }
 img.ai-doc-content { max-width: none; }
+
+/* ---------- Шаблони за рецепти ---------- */
+.tpl-item { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid #eef2f6; }
+.tpl-item-main { flex: 1; }
+.tpl-item-act { display: flex; gap: 5px; }
+.tpl-prow, .tpl-lrow { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
+.tpl-prow input, .tpl-lrow input { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; }
+.tpl-lref { flex: 1; font-size: 12.5px; }

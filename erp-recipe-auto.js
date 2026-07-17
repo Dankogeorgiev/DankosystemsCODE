@@ -279,3 +279,188 @@ async function erpRecipeAIConfirm() {
     alert(`Добавени ${rows.length} реда. Сега добави операциите (лазер/заваряване/боя) и провери количествата.`);
   } catch (e) { st.textContent = "⚠ Грешка: " + (e.message || e); if (btn) { btn.disabled = false; btn.textContent = "✓ Добави свързаните към рецептата"; } }
 }
+
+/* ---------- 2) Шаблони по семейство (параметрични) ----------
+   Шаблон = многократна рецепта, чиито количества може да са формули с параметри
+   (напр. дължина). Пази се в app_config id="recipe_templates":
+     { list: [ { id, name, params:[{key,label}], lines:[{type,refId,code,name,unit,qty}] } ] }
+   qty е текст: число ("4") или формула ("duljina*2+3"). */
+let RA_TEMPLATES = null;
+
+async function raLoadTemplates() {
+  if (RA_TEMPLATES) return RA_TEMPLATES;
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "recipe_templates").maybeSingle(); RA_TEMPLATES = (data && data.data && data.data.list) || []; }
+  catch (e) { RA_TEMPLATES = []; }
+  return RA_TEMPLATES;
+}
+async function raSaveTemplates() {
+  const { error } = await sb.from("app_config").upsert({ id: "recipe_templates", data: { list: RA_TEMPLATES || [] }, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на шаблона: " + error.message); return false; }
+  return true;
+}
+function raNewId() { let m = 0; (RA_TEMPLATES || []).forEach(t => { const n = Number(t.id) || 0; if (n > m) m = n; }); return m + 1; }
+
+// Безопасно пресмятане на формула с параметри (само числа/оператори остават).
+function raEvalFormula(expr, params) {
+  if (expr == null || expr === "") return 0;
+  let s = String(expr).trim();
+  if (/^-?\d*\.?\d+$/.test(s)) return parseFloat(s);
+  s = s.replace(/,/g, ".");
+  Object.keys(params || {}).sort((a, b) => b.length - a.length).forEach(k => {
+    s = s.replace(new RegExp("\\b" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "g"), "(" + (Number(params[k]) || 0) + ")");
+  });
+  if (!/^[0-9+\-*/(). ]+$/.test(s)) return NaN;
+  try { const val = Function('"use strict";return (' + s + ")")(); return (typeof val === "number" && isFinite(val)) ? val : NaN; } catch (e) { return NaN; }
+}
+function raRefLabel(l) {
+  if (l.type === "material") return "🧱 " + (l.code || "") + " " + (l.name || "");
+  if (l.type === "operation") return "⚙️ " + (l.code || "") + " " + (l.name || "");
+  return "🔩 " + (l.code || "") + " " + (l.name || "");
+}
+
+/* Комбиниран избор: материал / операция / възел → cb({type,refId,code,name,unit}) */
+function raPickRef(cb) {
+  const { wrap, close } = erpDialog(`
+    <h3>Избери съставка</h3>
+    <div class="pr-row" style="margin-bottom:6px"><button class="btn btn-small btn-primary" id="rp-m">🧱 Материал</button><button class="btn btn-small" id="rp-o">⚙️ Операция</button><button class="btn btn-small" id="rp-c">🔩 Възел</button></div>
+    <input type="search" id="rp-q" placeholder="търси…" />
+    <div id="rp-list" class="erp-lp-list"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="rp-cancel">Затвори</button></div>`);
+  let mode = "material";
+  const listEl = wrap.querySelector("#rp-list");
+  const src = () => mode === "material" ? (ERP.materials || []) : mode === "operation" ? (ERP.operations || []) : (ERP.products || []);
+  const render = q => {
+    q = (q || "").toLowerCase().trim();
+    let list = src().slice();
+    if (q) list = list.filter(x => ((x.code || "") + " " + (x.name || "")).toLowerCase().includes(q));
+    list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    listEl.innerHTML = list.slice(0, 80).map(x => `<button type="button" class="erp-lp-item" data-id="${x.id}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml(x.name || "")}</button>`).join("") || `<p class="report-empty">Няма.</p>`;
+    listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
+      const x = (mode === "material" ? ERP.matById : mode === "operation" ? ERP.opById : ERP.prodById)[Number(b.dataset.id)];
+      cb({ type: mode, refId: x.id, code: x.code, name: x.name, unit: x.unit || "бр." });
+      close();
+    }));
+  };
+  const setMode = m => { mode = m; ["m", "o", "c"].forEach(k => wrap.querySelector("#rp-" + k).classList.remove("btn-primary")); wrap.querySelector("#rp-" + (m === "material" ? "m" : m === "operation" ? "o" : "c")).classList.add("btn-primary"); render(wrap.querySelector("#rp-q").value); };
+  wrap.querySelector("#rp-m").addEventListener("click", () => setMode("material"));
+  wrap.querySelector("#rp-o").addEventListener("click", () => setMode("operation"));
+  wrap.querySelector("#rp-c").addEventListener("click", () => setMode("child"));
+  render(""); wrap.querySelector("#rp-q").addEventListener("input", e => render(e.target.value));
+  wrap.querySelector("#rp-cancel").addEventListener("click", close);
+}
+
+/* Мениджър на шаблони (от рецептата) */
+async function erpRecipeTemplates(productId) {
+  await raLoadTemplates();
+  const { wrap, close } = erpDialog(`
+    <h3>🧩 Шаблони за рецепти</h3>
+    <div class="pr-row" style="margin-bottom:8px">
+      <button class="btn btn-small" id="tpl-new">+ Нов празен шаблон</button>
+      <button class="btn btn-small" id="tpl-fromcur">💾 Запази текущата рецепта като шаблон</button>
+    </div>
+    <div id="tpl-list" style="max-height:56vh;overflow:auto"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="tpl-close">Затвори</button></div>`);
+  const listEl = wrap.querySelector("#tpl-list");
+  const draw = () => {
+    listEl.innerHTML = (RA_TEMPLATES || []).length ? (RA_TEMPLATES.map(t => `
+      <div class="tpl-item">
+        <div class="tpl-item-main"><b>${escapeHtml(t.name || "шаблон")}</b> <span class="erp-muted">${(t.lines || []).length} реда · ${(t.params || []).length} параметъра</span></div>
+        <div class="tpl-item-act"><button class="btn btn-small btn-primary" data-apply="${t.id}">Приложи</button><button class="btn btn-small" data-edit="${t.id}">✎</button><button class="btn btn-small btn-danger" data-del="${t.id}">🗑</button></div>
+      </div>`).join("")) : `<p class="report-empty">Още няма шаблони. Създай нов или запази текуща рецепта.</p>`;
+    listEl.querySelectorAll("[data-apply]").forEach(b => b.addEventListener("click", () => { close(); erpApplyTemplate(productId, RA_TEMPLATES.find(t => String(t.id) === b.dataset.apply)); }));
+    listEl.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => { close(); erpEditTemplate(productId, RA_TEMPLATES.find(t => String(t.id) === b.dataset.edit)); }));
+    listEl.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => { if (!confirm("Да изтрия ли шаблона?")) return; RA_TEMPLATES = RA_TEMPLATES.filter(t => String(t.id) !== b.dataset.del); await raSaveTemplates(); draw(); }));
+  };
+  draw();
+  wrap.querySelector("#tpl-close").addEventListener("click", close);
+  wrap.querySelector("#tpl-new").addEventListener("click", () => { close(); erpEditTemplate(productId, { id: raNewId(), name: "", params: [], lines: [] }); });
+  wrap.querySelector("#tpl-fromcur").addEventListener("click", async () => {
+    const cur = (ERP.linesByProduct[productId] || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+    if (!cur.length) { alert("Текущата рецепта е празна."); return; }
+    const name = prompt("Име на шаблона:", (ERP.prodById[productId] || {}).name || "");
+    if (!name) return;
+    const lines = cur.map(l => {
+      if (l.material_id) { const m = ERP.matById[l.material_id] || {}; return { type: "material", refId: l.material_id, code: m.code, name: m.name, unit: l.unit || m.unit || "бр.", qty: String(l.quantity != null ? l.quantity : 1) }; }
+      if (l.operation_id) { const o = ERP.opById[l.operation_id] || {}; return { type: "operation", refId: l.operation_id, code: o.code, name: o.name, unit: l.unit || "бр.", qty: String(l.quantity != null ? l.quantity : 1) }; }
+      const c = ERP.prodById[l.child_product_id] || {}; return { type: "child", refId: l.child_product_id, code: c.code, name: c.name, unit: l.unit || "бр.", qty: String(l.quantity != null ? l.quantity : 1) };
+    });
+    RA_TEMPLATES.push({ id: raNewId(), name: name.trim(), params: [], lines });
+    await raSaveTemplates(); close(); alert("Записано като шаблон. Отвори го (✎), за да направиш количествата параметрични.");
+  });
+}
+
+/* Редактор на шаблон */
+function erpEditTemplate(productId, tpl) {
+  tpl.params = tpl.params || []; tpl.lines = tpl.lines || [];
+  const { wrap, close } = erpDialog(`
+    <h3>Шаблон</h3>
+    <label>Име <input type="text" id="te-name" value="${escapeAttr(tpl.name || "")}" placeholder="напр. Тръба квадратна (параметрична)" /></label>
+    <h4 class="erp-group-head">Параметри <span class="erp-muted">(ключ без интервали, ползва се във формулите)</span></h4>
+    <div id="te-params"></div>
+    <button class="btn btn-small" id="te-addparam">+ Параметър</button>
+    <h4 class="erp-group-head">Редове <span class="erp-muted">(количество = число или формула с параметрите)</span></h4>
+    <div id="te-lines"></div>
+    <button class="btn btn-small" id="te-addline">+ Ред</button>
+    <div class="erp-dialog-actions"><button class="btn" id="te-cancel">Отказ</button><button class="btn btn-primary" id="te-save">Запази шаблона</button></div>`);
+  const pWrap = wrap.querySelector("#te-params"), lWrap = wrap.querySelector("#te-lines");
+  const drawParams = () => {
+    pWrap.innerHTML = tpl.params.map((p, i) => `<div class="tpl-prow"><input type="text" class="te-pkey" data-i="${i}" value="${escapeAttr(p.key || "")}" placeholder="ключ (напр. duljina)" style="width:150px" /><input type="text" class="te-plabel" data-i="${i}" value="${escapeAttr(p.label || "")}" placeholder="описание" /><button class="btn btn-small btn-danger te-prm" data-i="${i}">×</button></div>`).join("");
+    pWrap.querySelectorAll(".te-pkey").forEach(el => el.addEventListener("input", () => tpl.params[Number(el.dataset.i)].key = el.value.trim()));
+    pWrap.querySelectorAll(".te-plabel").forEach(el => el.addEventListener("input", () => tpl.params[Number(el.dataset.i)].label = el.value));
+    pWrap.querySelectorAll(".te-prm").forEach(b => b.addEventListener("click", () => { tpl.params.splice(Number(b.dataset.i), 1); drawParams(); }));
+  };
+  const drawLines = () => {
+    lWrap.innerHTML = tpl.lines.map((l, i) => `<div class="tpl-lrow"><span class="tpl-lref">${escapeHtml(raRefLabel(l))}</span><input type="text" class="te-lqty" data-i="${i}" value="${escapeAttr(String(l.qty != null ? l.qty : ""))}" placeholder="кол. / формула" style="width:140px" /><button class="btn btn-small btn-danger te-lrm" data-i="${i}">×</button></div>`).join("") || `<p class="report-empty">Няма редове.</p>`;
+    lWrap.querySelectorAll(".te-lqty").forEach(el => el.addEventListener("input", () => tpl.lines[Number(el.dataset.i)].qty = el.value));
+    lWrap.querySelectorAll(".te-lrm").forEach(b => b.addEventListener("click", () => { tpl.lines.splice(Number(b.dataset.i), 1); drawLines(); }));
+  };
+  drawParams(); drawLines();
+  wrap.querySelector("#te-addparam").addEventListener("click", () => { tpl.params.push({ key: "", label: "" }); drawParams(); });
+  wrap.querySelector("#te-addline").addEventListener("click", () => raPickRef(ref => { tpl.lines.push({ ...ref, qty: "1" }); drawLines(); }));
+  wrap.querySelector("#te-cancel").addEventListener("click", close);
+  wrap.querySelector("#te-save").addEventListener("click", async () => {
+    tpl.name = wrap.querySelector("#te-name").value.trim() || tpl.name || "шаблон";
+    await raLoadTemplates();
+    const idx = RA_TEMPLATES.findIndex(t => String(t.id) === String(tpl.id));
+    if (idx >= 0) RA_TEMPLATES[idx] = tpl; else RA_TEMPLATES.push(tpl);
+    if (await raSaveTemplates()) { close(); erpRecipeTemplates(productId); }
+  });
+}
+
+/* Прилагане на шаблон: въвеждаш параметрите → преглед → добавя в рецептата */
+function erpApplyTemplate(productId, tpl) {
+  if (!tpl) return;
+  const { wrap, close } = erpDialog(`
+    <h3>Приложи „${escapeHtml(tpl.name || "шаблон")}"</h3>
+    ${(tpl.params || []).length ? `<h4 class="erp-group-head">Параметри</h4><div id="ap-params">${tpl.params.map(p => `<label class="erp-inline">${escapeHtml(p.label || p.key)} <input type="number" step="any" class="ap-p" data-key="${escapeAttr(p.key)}" value="" placeholder="${escapeAttr(p.key)}" /></label>`).join("")}</div>` : `<p class="hint">Този шаблон няма параметри — количествата са фиксирани.</p>`}
+    <div id="ap-preview" style="margin-top:8px"></div>
+    <label class="erp-inline"><input type="checkbox" id="ap-replace" /> Замести текущата рецепта</label>
+    <div class="erp-dialog-actions"><button class="btn" id="ap-cancel">Отказ</button><button class="btn btn-primary" id="ap-apply">Добави в рецептата</button></div>`);
+  const readParams = () => { const pr = {}; wrap.querySelectorAll(".ap-p").forEach(el => pr[el.dataset.key] = Number(el.value) || 0); return pr; };
+  const compute = () => (tpl.lines || []).map(l => ({ l, q: raEvalFormula(l.qty, readParams()) }));
+  const preview = () => {
+    const rows = compute();
+    wrap.querySelector("#ap-preview").innerHTML = `<table class="report-table erp-table"><thead><tr><th>Съставка</th><th class="num">Количество</th></tr></thead><tbody>${rows.map(r => `<tr><td>${escapeHtml(raRefLabel(r.l))}</td><td class="num">${isNaN(r.q) ? '<span class="erp-warn">формула?</span>' : (Math.round(r.q * 1000) / 1000)}</td></tr>`).join("")}</tbody></table>`;
+  };
+  preview(); wrap.querySelectorAll(".ap-p").forEach(el => el.addEventListener("input", preview));
+  wrap.querySelector("#ap-cancel").addEventListener("click", close);
+  wrap.querySelector("#ap-apply").addEventListener("click", async () => {
+    const rows = compute().filter(r => !isNaN(r.q) && r.q > 0);
+    if (!rows.length) { alert("Няма валидни редове (провери формулите/параметрите)."); return; }
+    const replace = wrap.querySelector("#ap-replace").checked;
+    try {
+      if (replace) { const del = await sb.from("recipe_lines").delete().eq("product_id", productId); if (del.error) throw del.error; }
+      const start = replace ? 0 : raRecipeLineCount(productId);
+      const ins = await sb.from("recipe_lines").insert(rows.map((r, i) => ({
+        product_id: productId, position: start + i, quantity: r.q, unit: r.l.unit || "бр.",
+        material_id: r.l.type === "material" ? r.l.refId : null,
+        operation_id: r.l.type === "operation" ? r.l.refId : null,
+        child_product_id: r.l.type === "child" ? (Number(r.l.refId) === Number(productId) ? null : r.l.refId) : null,
+      })));
+      if (ins.error) throw ins.error;
+      try { const p = ERP.prodById[productId]; if (p && p.needs_recipe) await sb.from("products").update({ needs_recipe: false }).eq("id", productId); } catch (e) {}
+      close(); await erpReloadRecipe(productId);
+      alert(`Готово! Добавени ${rows.length} реда от шаблона.`);
+    } catch (e) { alert("Грешка: " + (e.message || e)); }
+  });
+}
