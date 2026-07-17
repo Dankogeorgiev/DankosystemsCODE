@@ -204,6 +204,9 @@ let tasksLoaded = false;
 let tasksSubscribed = false;
 
 function amWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
+// Цеховете на текущия служител (един или няколко).
+function myWorkshops() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && Array.isArray(MY_ACCESS.workshops) && MY_ACCESS.workshops.length) ? MY_ACCESS.workshops : (MY_ACCESS && MY_ACCESS.workshop ? [MY_ACCESS.workshop] : []); }
+function amMultiWorkshop() { return myWorkshops().length > 1; }
 // Ръчно въведена задача (не е пусната от системата по поток). Системните задачи
 // имат source.flow; ръчните (стар импорт / ръчно) нямат.
 function isManualTask(t) { return !(t && t.source && t.source.flow); }
@@ -552,7 +555,7 @@ function applyTasksAccess() {
   document.getElementById("task-search").style.display = "";   // търсачката е достъпна за всички
   document.getElementById("worker-bar").style.display = w ? "none" : "";
   document.querySelector(".tasks-head h2").textContent = w
-    ? "🏭 " + (MY_ACCESS.workshop || "Цех") : "🏭 Производство по цехове";
+    ? "🏭 " + (amMultiWorkshop() ? "Моите цехове" : (MY_ACCESS.workshop || "Цех")) : "🏭 Производство по цехове";
 }
 
 function renderIdentityPicker() {
@@ -561,7 +564,7 @@ function renderIdentityPicker() {
   document.getElementById("tasks-empty").hidden = true;
   const box = document.getElementById("identity-picker");
   box.hidden = false;
-  const names = WORKERS[MY_ACCESS.workshop] || [];
+  const names = amMultiWorkshop() ? [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))] : (WORKERS[MY_ACCESS.workshop] || []);
   box.innerHTML = `<h3>Кой си ти?</h3>
     <div class="identity-list">${names.map(n =>
       `<button class="identity-btn" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml((n.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(n)}</button>`
@@ -593,6 +596,14 @@ function currentWorkshop() {
 function renderWorkshopSelect() {
   const sel = document.getElementById("task-workshop");
   if (amWorker()) {
+    const mine = myWorkshops();
+    if (mine.length > 1) {
+      const cur = sel.value;
+      sel.innerHTML = `<option value="__mine">Моите цехове</option>` + mine.map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
+      sel.value = (cur && [...sel.options].some(o => o.value === cur)) ? cur : "__mine";
+      sel.disabled = false;
+      return;
+    }
     sel.innerHTML = `<option>${escapeHtml(MY_ACCESS.workshop)}</option>`;
     sel.value = MY_ACCESS.workshop;
     sel.disabled = true;
@@ -608,7 +619,9 @@ function renderWorkerFilter() {
   const sel = document.getElementById("task-worker-filter");
   const cur = sel.value;
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())]
+    : ws === "__mine" ? [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))]
+    : (WORKERS[ws] || []);
   sel.innerHTML = `<option value="">Всички служители</option>` +
     names.map(n => `<option>${escapeHtml(n)}</option>`).join("");
   sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
@@ -619,7 +632,9 @@ function renderWorkerBar() {
   const bar = document.getElementById("worker-bar");
   if (!bar) return;
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())]
+    : ws === "__mine" ? [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))]
+    : (WORKERS[ws] || []);
   const active = document.getElementById("task-worker-filter").value;
   if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>`; return; }
   bar.innerHTML = `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
@@ -696,7 +711,8 @@ function renderTasks() {
   TASKS.forEach(tk => { const s = tk.source; if (s && s.flow && s.seriesKey && !seriesInfo[s.seriesKey]) seriesInfo[s.seriesKey] = { workshop: tk.workshop || "", operation: tk.operation || "", product: tk.product || "", code: tk.code || "" }; });
   let rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
-    if (ws !== "__all" && t.workshop !== ws) return false;
+    if (ws === "__mine") { if (!myWorkshops().includes(t.workshop)) return false; }
+    else if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) {
       // моите + незаетите задачи; чуждите се скриват (виждам я, ако съм сред отговорниците)
       const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false;
@@ -939,7 +955,8 @@ function exportWorkshopTasksExcel() {
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
   let rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;
-    if (ws !== "__all" && t.workshop !== ws) return false;
+    if (ws === "__mine") { if (!myWorkshops().includes(t.workshop)) return false; }
+    else if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) { const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false; }
     else if (worker && !taskHasWorker(t, worker)) return false;
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
