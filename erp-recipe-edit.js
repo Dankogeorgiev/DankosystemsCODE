@@ -10,13 +10,18 @@ async function erpReloadRecipe(productId) {
 }
 
 /* ---------- 🛠 Създай технология (нов продукт + рецепта) ---------- */
-function erpNewProduct() {
+async function erpNewProduct() {
+  let clients = [];
+  try { if (typeof erpLoadClients === "function") clients = await erpLoadClients(); } catch (e) {}
   const { wrap, close } = erpDialog(`
     <h3>🛠 Създай технология</h3>
     <p class="hint">Създай нов продукт, после му състави технологията (операции с цех, материали и възли).
       Щом сложиш операции с цех, технологията работи като всички останали — може да се пуска в производство.</p>
     <label>Код <span class="erp-muted">(предложен пореден)</span><input type="text" id="np-code" value="${escapeAttr(erpNextCode())}" placeholder="код" /></label>
     <label>Име<input type="text" id="np-name" placeholder="Наименование на изделието/детайла" /></label>
+    <label>Клиент / собственик <span class="erp-muted">(по избор — етикет, не ограничава поръчките)</span>
+      <input type="text" id="np-client" list="np-clients" placeholder="за кой клиент е този продукт" />
+      <datalist id="np-clients">${clients.map(c => `<option value="${escapeAttr(c.company || "")}"></option>`).join("")}</datalist></label>
     <label>Тип
       <select id="np-type">
         <option value="art">Артикул (готово изделие)</option>
@@ -42,11 +47,15 @@ function erpNewProduct() {
       unit: wrap.querySelector("#np-unit").value.trim() || "бр.",
       needs_recipe: false,
     };
+    if (typeof ERP !== "undefined" && ERP.hasOwnerClient !== false) {
+      payload.owner_client = wrap.querySelector("#np-client").value.trim() || null;
+    }
     wrap.querySelector("#np-status").textContent = "Създава…";
     const { data, error } = await sb.from("products").insert(payload).select("id").single();
     if (error) {
       wrap.querySelector("#np-status").textContent = /duplicate|unique/i.test(error.message)
-        ? "⚠ Вече има продукт с този код." : "⚠ " + error.message;
+        ? "⚠ Вече има продукт с този код."
+        : "⚠ " + error.message + (/owner_client/.test(error.message || "") ? " · Пусни: alter table products add column if not exists owner_client text;" : "");
       return;
     }
     close();
