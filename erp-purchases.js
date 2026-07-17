@@ -145,6 +145,7 @@ async function erpPuMarkPaid(o) {
   if (d === null) return;
   o.paid = true; o.paidDate = (d || today).trim();
   try { await erpSavePurchase(o); await erpLoadPurchases(); } catch (e) { alert("Грешка: " + (e.message || e)); return; }
+  try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}
   erpRenderPurchases();
 }
 
@@ -324,7 +325,11 @@ async function erpPuSaveClick(o) {
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
   // Каса или „веднага" (Банка, срок 0) → директно платена, с дата на фактурата.
   if (!o.paid && (o.paymentMethod === "Каса" || !(Number(o.termDays) > 0))) { o.paid = true; if (!o.paidDate) o.paidDate = o.date || new Date().toISOString().slice(0, 10); }
-  try { await erpSavePurchase(o); await erpLoadPurchases(); if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = "💾 Запази"; btn.disabled = false; } }, 1400); } }
+  try {
+    await erpSavePurchase(o); await erpLoadPurchases();
+    try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
+    if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = "💾 Запази"; btn.disabled = false; } }, 1400); }
+  }
   catch (e) { if (btn) { btn.disabled = false; btn.textContent = "💾 Запази"; } alert("Грешка при запис: " + (e.message || e)); }
 }
 

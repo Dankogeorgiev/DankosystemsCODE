@@ -190,6 +190,39 @@ async function erpPayImport(file) {
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 
+/* ---------- Връзка с Покупки: покупка Банка+срок → задължение ---------- */
+// Извиква се при запис/плащане на покупка. Ако е Банка + срок>0 + неплатена →
+// създава/обновява задължение (свързано по srcPurchaseId). Иначе го маха или
+// маркира като платено. Сумите се водят в EUR (BGN се превръща).
+async function erpPaySyncFromPurchase(o) {
+  if (!o || !o.id) return;
+  await erpPayLoad();
+  const rate = (o.currency === "BGN") ? 1.95583 : 1;
+  const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { base: 0, total: 0 };
+  const qualifies = o.paymentMethod === "Банка" && Number(o.termDays) > 0 && !o.paid;
+  const idx = (PAYABLES || []).findIndex(p => p.srcPurchaseId === o.id);
+  if (qualifies) {
+    const fields = {
+      dueDate: o.dueDate || (typeof erpPuDueDate === "function" ? erpPuDueDate(o) : ""),
+      termDays: Number(o.termDays) || 0,
+      invoiceNo: o.invoiceNo || "",
+      docDate: o.date || "",
+      supplier: o.supplierName || "",
+      article: (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 2).join(", ") || o.note || "",
+      amount: Math.round((t.base / rate) * 100) / 100,
+      amountVat: Math.round((t.total / rate) * 100) / 100,
+      currency: "EUR", payMethod: "Банка", srcPurchaseId: o.id,
+    };
+    if (idx >= 0) { if (PAYABLES[idx].paid) return; Object.assign(PAYABLES[idx], fields); }
+    else PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", forToday: false, ...fields });
+    await erpPaySave();
+  } else if (idx >= 0 && !PAYABLES[idx].paid) {
+    if (o.paid) { PAYABLES[idx].paid = true; PAYABLES[idx].paidDate = o.paidDate || payToday(); PAYABLES[idx].forToday = false; }
+    else PAYABLES.splice(idx, 1);   // Каса/веднага → не е задължение
+    await erpPaySave();
+  }
+}
+
 /* ---------- Печат на списък за плащане (за Крис) ---------- */
 function erpPayPrint(items) {
   const tot = items.reduce((s, p) => s + payNum(p.amountVat), 0);
