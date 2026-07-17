@@ -432,3 +432,12 @@ img.ai-doc-content { max-width: none; }
 .tpl-prow, .tpl-lrow { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
 .tpl-prow input, .tpl-lrow input { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; }
 .tpl-lref { flex: 1; font-size: 12.5px; }
+
+/* ---------- Меню „Бързо съставяне" ---------- */
+.ra-menu { display: flex; flex-direction: column; gap: 8px; }
+.ra-menu-btn { display: flex; align-items: center; gap: 12px; text-align: left; padding: 12px 14px; border: 1px solid #d7dde5; border-radius: 10px; background: #fff; cursor: pointer; transition: background .12s, border-color .12s; }
+.ra-menu-btn:hover { background: #f0fdfa; border-color: #0f766e; }
+.ra-menu-btn .ram-ic { font-size: 26px; }
+.ra-menu-btn .ram-tx { display: flex; flex-direction: column; gap: 2px; }
+.ra-menu-btn .ram-tx b { font-size: 14px; color: #0f766e; }
+.ra-menu-btn .ram-tx small { color: #64748b; font-size: 12px; }

@@ -464,3 +464,20 @@ function erpApplyTemplate(productId, tpl) {
     } catch (e) { alert("Грешка: " + (e.message || e)); }
   });
 }
+
+/* ---------- Меню „Бързо съставяне" (събира трите инструмента) ---------- */
+function erpRecipeAutoMenu(productId) {
+  const { wrap, close } = erpDialog(`
+    <h3>🪄 Бързо съставяне на рецепта</h3>
+    <p class="hint" style="margin:0 0 10px">Три начина да съставиш технологията по-бързо. Всичко се преглежда, преди да влезе.</p>
+    <div class="ra-menu">
+      <button type="button" class="ra-menu-btn" id="ram-copy"><span class="ram-ic">📋</span><span class="ram-tx"><b>Копирай от подобен</b><small>Взима готова рецепта на близък продукт → донагласяш количествата.</small></span></button>
+      <button type="button" class="ra-menu-btn" id="ram-ai"><span class="ram-ic">🤖</span><span class="ram-tx"><b>От чертеж (AI)</b><small>Claude чете чертежа и вади частите → свързваш ги с наши материали/възли.</small></span></button>
+      <button type="button" class="ra-menu-btn" id="ram-tpl"><span class="ram-ic">🧩</span><span class="ram-tx"><b>Шаблони</b><small>Параметрични шаблони по семейство — количества по формула (напр. дължина).</small></span></button>
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="ram-cancel">Затвори</button></div>`);
+  wrap.querySelector("#ram-copy").addEventListener("click", () => { close(); erpCopyRecipeFrom(productId); });
+  wrap.querySelector("#ram-ai").addEventListener("click", () => { close(); erpRecipeAIStart(productId); });
+  wrap.querySelector("#ram-tpl").addEventListener("click", () => { close(); erpRecipeTemplates(productId); });
+  wrap.querySelector("#ram-cancel").addEventListener("click", close);
+}
