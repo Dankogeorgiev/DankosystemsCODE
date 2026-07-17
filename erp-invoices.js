@@ -673,12 +673,18 @@ function invDocRef(o) { return (o.docNo ? "фактура № " + o.docNo : "ч�
 
 /* ---------- Стокова разписка (БГ) ---------- */
 function erpInvPrintGoodsNote(o) {
-  const rows = (o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}</td><td class="r">${erpNum(l.qty)}</td><td>${escapeHtml(l.unit || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="c muted">—</td></tr>`;
+  let totKg = 0;
+  const rows = (o.lines || []).map((l, i) => {
+    const kg = erpInvLineKg(l); totKg += kg || 0;
+    return `<tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}</td><td class="r">${erpNum(l.qty)}</td><td>${escapeHtml(l.unit || "")}</td><td class="r">${kg ? erpNum(kg) : ""}</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="c muted">—</td></tr>`;
+  const grossKg = (o.transport && erpToNum(o.transport.totalWeightKg) > 0) ? erpToNum(o.transport.totalWeightKg) : totKg;
   const body = `
     <div class="head"><div><h1>СТОКОВА РАЗПИСКА</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || o.date || "")}</b></div></div>
     <div class="parties"><div class="party"><h3>Получател</h3>${invClientBlock(o)}</div><div class="party"><h3>Предал (Доставчик)</h3>${invSellerBlock()}</div></div>
-    <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th>Кол.</th><th>МЕ</th></tr></thead><tbody>${rows}</tbody></table>
-    ${o.transport && o.transport.totalPackages ? `<div class="kv">Брой пакети/палети: <b>${escapeHtml(o.transport.totalPackages)}</b> · Бруто тегло: <b>${escapeHtml(o.transport.totalWeightKg || "")} кг</b></div>` : ""}
+    <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th>Кол.</th><th>МЕ</th><th>Тегло (кг)</th></tr></thead><tbody>${rows}</tbody>
+      ${grossKg ? `<tfoot><tr><td colspan="5" class="r"><b>Общо тегло</b></td><td class="r"><b>${erpNum(grossKg)} кг</b></td></tr></tfoot>` : ""}</table>
+    ${o.transport && o.transport.totalPackages ? `<div class="kv">Брой пакети/палети: <b>${escapeHtml(o.transport.totalPackages)}</b></div>` : ""}
     <div class="foot"><div>Предал</div><div>Приел</div></div>`;
   invPrintWindow("Стокова разписка", body, "bg");
 }
@@ -717,6 +723,8 @@ function erpInvPrintPallets(o) {
 /* ---------- ЧМР / CMR (опростен международен формуляр) ---------- */
 function erpInvPrintCMR(o) {
   const s = ERP_SELLER || {}; const c = o.client || {}; const tr = o.transport || {};
+  const recipeKg = (o.lines || []).reduce((sum, l) => sum + (erpInvLineKg(l) || 0), 0);
+  const grossKg = erpToNum(tr.totalWeightKg) > 0 ? erpToNum(tr.totalWeightKg) : recipeKg;
   const goods = (o.lines || []).map(l => `${erpNum(l.qty)} ${escapeHtml(l.unit || "")} · ${escapeHtml((l.code ? l.code + " " : "") + (l.name || ""))}`).join("<br>") || "—";
   const cell = (label, val) => `<td><span class="lbl">${label}</span>${val || ""}</td>`;
   const body = `
@@ -726,7 +734,7 @@ function erpInvPrintCMR(o) {
       <tr>${cell("3 Място на разтоварване / Place of delivery", escapeHtml(tr.unloadPlace || [c.city, c.country].filter(Boolean).join(", ")))}${cell("4 Място и дата на товарене / Place & date of taking over", escapeHtml([tr.loadPlace || s.city, tr.loadDate].filter(Boolean).join(" · ")))}</tr>
       <tr>${cell("5 Приложени документи / Documents attached", escapeHtml(invDocRef(o)) + (tr.incoterms ? " · " + escapeHtml(tr.incoterms) : ""))}</tr>
       <tr>${cell("6-9 Маркировка, брой, вид, стока / Marks, packages, nature of goods", goods)}</tr>
-      <tr>${cell("11 Бруто тегло / Gross weight (kg)", escapeHtml(tr.totalWeightKg || ""))}${cell("Брой пакети / Packages", escapeHtml(tr.totalPackages || ""))}</tr>
+      <tr>${cell("11 Бруто тегло / Gross weight (kg)", grossKg ? erpNum(grossKg) : "")}${cell("Брой пакети / Packages", escapeHtml(tr.totalPackages || ""))}</tr>
       <tr>${cell("16 Превозвач / Carrier", escapeHtml(tr.carrier || ""))}${cell("МПС / Vehicle · Шофьор / Driver", escapeHtml([tr.vehicleReg, tr.driver].filter(Boolean).join(" · ")))}</tr>
       <tr>${cell("22 Изпращач (подпис) / Sender", "")}${cell("23 Превозвач (подпис) / Carrier", "")}</tr>
       <tr>${cell("24 Получена стока / Goods received — подпис, дата", "")}<td></td></tr>
