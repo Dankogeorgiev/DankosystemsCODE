@@ -36,6 +36,14 @@ const EMAIL_TO_WORKSHOP = {
 function workshopFromEmail(e) {
   return EMAIL_TO_WORKSHOP[(e.split("@")[0] || "").toLowerCase()] || "";
 }
+// Профили с достъп до НЯКОЛКО цеха (виждат задачите на всичките).
+const EMAIL_TO_WORKSHOPS = {
+  rqz: ["Разкрой тръби", "Заготовки", "Заваръчно"],
+};
+function workshopsFromEmail(e) {
+  const arr = EMAIL_TO_WORKSHOPS[(e.split("@")[0] || "").toLowerCase()];
+  return Array.isArray(arr) && arr.length ? arr : null;
+}
 async function loadAccess(email) {
   let cfg = {};
   try {
@@ -51,11 +59,14 @@ async function loadAccess(email) {
     } else if (r.role === "production" || r.production === true) {
       MY_ACCESS = { isAdmin: true, email: e, production: true };             // цялото производство, без финансите
     } else {
-      MY_ACCESS = { isAdmin: false, workshop: r.workshop, email: e };        // цехов достъп
+      const ws = Array.isArray(r.workshops) && r.workshops.length ? r.workshops : null;
+      MY_ACCESS = { isAdmin: false, workshop: ws ? ws[0] : r.workshop, workshops: ws || undefined, email: e };   // цехов достъп (един или няколко цеха)
     }
   } else if (e.endsWith("@danko.local")) {
-    // Всеки вътрешен @danko.local акаунт е цехов (не админ).
-    MY_ACCESS = { isAdmin: false, workshop: workshopFromEmail(e), email: e };
+    // Всеки вътрешен @danko.local акаунт е цехов (не админ). Някои виждат няколко цеха.
+    const multi = workshopsFromEmail(e);
+    if (multi) MY_ACCESS = { isAdmin: false, workshop: multi[0], workshops: multi, email: e };
+    else MY_ACCESS = { isAdmin: false, workshop: workshopFromEmail(e), email: e };
   } else {
     MY_ACCESS = { isAdmin: true, email: e };
   }
