@@ -48,7 +48,8 @@ async function erpInvLoadSeries() {
   return erpInvSeries;
 }
 async function erpInvSaveSeries() {
-  await sb.from("app_config").upsert({ id: "invoice_series", data: { series: erpInvSeries }, updated_at: new Date().toISOString() });
+  const { error } = await sb.from("app_config").upsert({ id: "invoice_series", data: { series: erpInvSeries }, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на сериите: " + error.message + (/row-level security|violates/i.test(error.message || "") ? "\n\nПусни веднъж app-config-rls-fix.sql в Supabase." : "")); throw error; }
 }
 
 /* ---------- Числа с думи (Словом) ---------- */
