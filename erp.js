@@ -239,7 +239,7 @@ async function erpLoadAll() {
 function erpSetTab(tab) {
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
-      && ["sales", "pricelists", "purchases", "finance", "invoices"].includes(tab)) tab = "customer";
+      && ["sales", "pricelists", "purchases", "finance", "invoices", "payables"].includes(tab)) tab = "customer";
   ERP.tab = tab;
   document.querySelectorAll(".erp-tab").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === tab));
@@ -262,6 +262,7 @@ function erpSetTab(tab) {
       } else erpRenderFinance();
       break;
     case "purchases":    erpRenderPurchases(); break;
+    case "payables":     erpRenderPayables(); break;
     case "partners":     erpRenderPartners(); break;
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
