@@ -112,6 +112,8 @@ async function openNit() {
   const isW = nitIsWorker();
   const lo = document.getElementById("nit-logout"); if (lo) lo.hidden = !isW;
   const cl = document.getElementById("nit-close"); if (cl) cl.hidden = isW;
+  const h = document.querySelector("#nit-modal .mini-head h3");
+  if (h) h.textContent = isW ? "🔩 ЗАНИТВАНЕ — дневен запис" : "🔩 ЗАНИТВАНЕ — сглобяване (отчет)";
   if (!NIT_LOADED) { await nitLoad(); NIT_LOADED = true; }
   if (!nitDate) nitDate = nitToday();
   nitRender();
