@@ -7,7 +7,7 @@ let erpMatOnlyBelow = false;
 
 // Мярката вече е в килограми? (кг, kg, килограм…)
 function erpUnitIsKg(unit) {
-  const u = String(unit || "").trim().toLowerCase();
+  const u = String(unit || "").trim().toLowerCase().replace(/[.\s]+$/, "");   // маха „кг." → „кг"
   return u === "кг" || u === "kg" || u === "килограм" || u === "килограми" || u === "kilogram";
 }
 // Тегло на 1 мярка в кг: за материал в кг → 1; иначе от ръчно въведеното (app_config).
