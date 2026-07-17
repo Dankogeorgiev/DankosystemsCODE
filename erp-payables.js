@@ -48,10 +48,16 @@ async function erpRenderPayables() {
 
   let rows;
   if (payFilter === "paid") rows = (PAYABLES || []).filter(p => p.paid);
+  else if (payFilter === "today") rows = unpaid.filter(p => p.forToday);
   else if (payFilter === "week") rows = weekItems;
   else if (payFilter === "month") rows = monthItems;
   else rows = unpaid;
-  rows = rows.slice().sort((a, b) => String(a.paid ? (b.paidDate || "") : (a.dueDate || "9999")).localeCompare(a.paid ? (a.paidDate || "") : (b.dueDate || "9999")));
+  rows = rows.slice().sort((a, b) => {
+    if (payFilter === "paid") return String(b.paidDate || "").localeCompare(a.paidDate || "");
+    const af = a.forToday ? 0 : 1, bf = b.forToday ? 0 : 1;   // „за днес" отгоре
+    if (af !== bf) return af - bf;
+    return String(a.dueDate || "9999").localeCompare(b.dueDate || "9999");
+  });
 
   const card = (label, arr, hl) => `<div class="pay-card ${hl || ""}"><div class="pay-card-l">${label}</div><div class="pay-card-v">${payMoney(sum(arr))} EUR</div><div class="pay-card-n">${arr.length} фактури</div></div>`;
   const tab = (key, label) => `<button class="btn btn-small ${payFilter === key ? "btn-primary" : ""}" data-pf="${key}">${label}</button>`;
@@ -60,6 +66,7 @@ async function erpRenderPayables() {
   v.innerHTML = `
     <div class="erp-toolbar">
       ${tab("all", "⏳ Всички за плащане")}
+      ${tab("today", `☀ За днес (${unpaid.filter(p => p.forToday).length})`)}
       ${tab("week", "📅 Тази седмица")}
       ${tab("month", "📅 До края на месеца")}
       ${tab("paid", "✓ Платени (архив)")}
@@ -81,7 +88,7 @@ async function erpRenderPayables() {
         const dl = payDaysLeft(p.dueDate);
         const overdue = !p.paid && dl != null && dl < 0;
         const soon = !p.paid && dl != null && dl >= 0 && dl <= 3;
-        return `<tr class="${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}" data-id="${p.id}">
+        return `<tr class="${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}${p.forToday ? " pay-today" : ""}" data-id="${p.id}">
           ${payFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="pay-sel" data-id="${p.id}" ${paySelected.has(p.id) ? "checked" : ""} /></td>`}
           <td><b>${payFmt(p.dueDate)}</b></td>
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
@@ -94,7 +101,7 @@ async function erpRenderPayables() {
           <td>${escapeHtml(p.payMethod || "Банка")}</td>
           ${payFilter === "paid"
             ? `<td>${payFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
-            : `<td class="erp-row-actions"><button class="btn btn-small btn-primary" data-paid="${p.id}">✓ Платено</button></td>`}
+            : `<td class="erp-row-actions"><button class="btn btn-small ${p.forToday ? "pay-today-on" : ""}" data-today="${p.id}" title="Маркирай за плащане ДНЕС (за Крис)">☀ За днес${p.forToday ? " ✓" : ""}</button></td>`}
         </tr>`; }).join("") || `<tr><td colspan="12" class="report-empty">${payFilter === "paid" ? "Няма платени фактури." : "Няма задължения. Импортирай от GenCloud."}</td></tr>`}
       </tbody>
     </table></div>
@@ -103,7 +110,7 @@ async function erpRenderPayables() {
   v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { payFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
-  v.querySelectorAll("[data-paid]").forEach(b => b.addEventListener("click", () => erpPayMarkPaid([Number(b.dataset.paid)])));
+  v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpPayUnpay(Number(b.dataset.unpay))));
   erpPayBar();
 }
@@ -130,13 +137,19 @@ async function erpPayMarkPaid(ids) {
   const d = prompt(`Дата на плащане за ${ids.length} фактур${ids.length === 1 ? "а" : "и"} (ГГГГ-ММ-ДД):`, today);
   if (d === null) return;
   const date = (d || today).trim();
-  (PAYABLES || []).forEach(p => { if (ids.includes(p.id)) { p.paid = true; p.paidDate = date; } });
+  (PAYABLES || []).forEach(p => { if (ids.includes(p.id)) { p.paid = true; p.paidDate = date; p.forToday = false; } });
   paySelected.clear();
   if (await erpPaySave()) erpRenderPayables();
 }
 async function erpPayUnpay(id) {
   const p = (PAYABLES || []).find(x => x.id === id); if (!p) return;
   p.paid = false; p.paidDate = "";
+  if (await erpPaySave()) erpRenderPayables();
+}
+// „За днес" — флаг за Крис (кои да плати днес). Не е плащане.
+async function erpPayToggleToday(id) {
+  const p = (PAYABLES || []).find(x => x.id === id); if (!p) return;
+  p.forToday = !p.forToday;
   if (await erpPaySave()) erpRenderPayables();
 }
 
