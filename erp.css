@@ -441,3 +441,23 @@ img.ai-doc-content { max-width: none; }
 .ra-menu-btn .ram-tx { display: flex; flex-direction: column; gap: 2px; }
 .ra-menu-btn .ram-tx b { font-size: 14px; color: #0f766e; }
 .ra-menu-btn .ram-tx small { color: #64748b; font-size: 12px; }
+
+/* ---------- Задължения (за плащане) ---------- */
+.pay-cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 10px; }
+.pay-card { flex: 1 1 200px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; background: #fff; }
+.pay-card-l { font-size: 12px; color: #64748b; }
+.pay-card-v { font-size: 22px; font-weight: 800; color: #0f172a; }
+.pay-card-n { font-size: 11px; color: #94a3b8; }
+.pay-card-week { border-color: #fca5a5; background: #fef2f2; }
+.pay-card-week .pay-card-v { color: #b91c1c; }
+.pay-card-total { border-color: #0f766e; background: #f0fdfa; }
+.pay-card-total .pay-card-v { color: #0f766e; }
+.pay-scroll { overflow-x: auto; }
+.pay-table th, .pay-table td { white-space: nowrap; }
+.pay-table td:nth-child(7), .pay-table th:nth-child(7) { white-space: normal; min-width: 140px; }
+.pay-chk { width: 30px; text-align: center; }
+.pay-table tr.pay-overdue { background: #fef2f2; }
+.pay-table tr.pay-soon { background: #fffbeb; }
+.pay-neg { color: #dc2626; font-weight: 700; }
+.pay-paybar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 8px; background: #ecfdf5; border: 1px solid #99f6e4; border-radius: 10px; }
+.pay-sel-info { font-size: 14px; color: #0f172a; }
