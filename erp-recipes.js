@@ -37,6 +37,7 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
       ${typeof erpCopyRecipeFrom === "function" ? '<button class="btn btn-small" id="erp-rl-copy" title="Копирай рецептата на подобен продукт и донагласи">📋 Копирай от…</button>' : ""}
       ${typeof erpRecipeAIStart === "function" ? '<button class="btn btn-small" id="erp-rl-ai" title="AI чернова от чертеж">🤖 От чертеж (AI)</button>' : ""}
+      ${typeof erpRecipeTemplates === "function" ? '<button class="btn btn-small" id="erp-rl-tpl" title="Параметрични шаблони по семейство">🧩 Шаблони</button>' : ""}
       <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
       ${readyBadge}
       <span class="spacer"></span>
@@ -72,6 +73,8 @@ function erpRenderRecipe(productId) {
   if (copyBtn) copyBtn.addEventListener("click", () => erpCopyRecipeFrom(productId));
   const aiBtn = document.getElementById("erp-rl-ai");
   if (aiBtn) aiBtn.addEventListener("click", () => erpRecipeAIStart(productId));
+  const tplBtn = document.getElementById("erp-rl-tpl");
+  if (tplBtn) tplBtn.addEventListener("click", () => erpRecipeTemplates(productId));
   const fixBtn = document.getElementById("erp-rl-fix");
   if (fixBtn) fixBtn.addEventListener("click", () => { if (typeof erpFixRecipeOrder === "function") erpFixRecipeOrder(productId); });
   const add2 = document.getElementById("erp-rl-add2");
