@@ -539,6 +539,9 @@ function applyTasksAccess() {
   // „ЦЕХ РОГОШ" (сериен монтаж — отчет) — за админи (служителите му влизат директно).
   const rg = document.getElementById("tasks-rogosh");
   if (rg) rg.hidden = !!w;
+  // „ЗАНИТВАНЕ" (сглобяване — отчет) — за админи (служителите му влизат директно).
+  const nt = document.getElementById("tasks-nit");
+  if (nt) nt.hidden = !!w;
   // „Excel (за печат)“ — скрит за заваръчния служител (профил zavarka@danko.local)
   const ex = document.getElementById("btn-export-tasks");
   if (ex) { const em = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();

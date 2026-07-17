@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=276" />
+  <link rel="stylesheet" href="styles.css?v=277" />
   <link rel="stylesheet" href="erp.css?v=253" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 347</p>
+      <p class="login-version">версия 348</p>
     </form>
   </div>
 
@@ -384,6 +384,7 @@
           <button id="tasks-welding-roboti" class="btn btn-paint" hidden onclick="location.href='zavarka-roboti/'">🤖 Заваръчно роботи</button>
           <button id="tasks-welding-rachno" class="btn btn-paint" hidden onclick="location.href='zavarka-rachno/'">✋ Заваръчно ръчно</button>
           <button id="tasks-rogosh" class="btn btn-paint" hidden>🔧 ЦЕХ РОГОШ</button>
+          <button id="tasks-nit" class="btn btn-paint" hidden>🔩 ЗАНИТВАНЕ</button>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -471,6 +472,20 @@
         </span>
       </div>
       <div id="rogosh-view"></div>
+    </div>
+  </div>
+
+  <!-- Модал: ЗАНИТВАНЕ (сглобяване — дневен отчет по механизми) -->
+  <div id="nit-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>🔩 ЗАНИТВАНЕ — сглобяване (дневен отчет)</h3>
+        <span>
+          <button id="nit-logout" class="btn btn-small btn-danger" hidden>Изход</button>
+          <button id="nit-close" class="btn btn-small">Затвори</button>
+        </span>
+      </div>
+      <div id="nit-view"></div>
     </div>
   </div>
 
@@ -576,8 +591,8 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
-  <script src="app.js?v=239"></script>
-  <script src="tasks.js?v=271"></script>
+  <script src="app.js?v=240"></script>
+  <script src="tasks.js?v=272"></script>
   <script src="master-report.js?v=2"></script>
   <script src="prod-report.js?v=164"></script>
   <script src="times-report.js?v=168"></script>
@@ -585,6 +600,7 @@
   <script src="board.js?v=242"></script>
   <script src="loading-plan.js?v=4"></script>
   <script src="rogosh.js?v=200"></script>
+  <script src="nit.js?v=1"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
   <script src="erp.js?v=237"></script>

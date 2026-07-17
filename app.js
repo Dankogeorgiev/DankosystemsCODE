@@ -30,7 +30,7 @@ const pending = new Map(); // id -> sample (изчакват запис)
 /* ---------- Достъп (роли) ---------- */
 const EMAIL_TO_WORKSHOP = {
   laseri: "Лазери", cnc: "CNC цех", presi: "Преси", abkant: "Абкант",
-  zavarka: "Заваръчно", zanitvane: "Занитване", boyadjiino: "Бояджийно",
+  zavarka: "Заваръчно", zanitvane: "Занитване", nit: "Занитване", boyadjiino: "Бояджийно",
   rogosh: "ЦЕХ РОГОШ",
 };
 function workshopFromEmail(e) {
@@ -109,6 +109,7 @@ function applyAccess() {
   document.querySelector(".layout").style.display = "none";
   // ЦЕХ РОГОШ е сериен монтаж — само дневен отчет (без списък със задачи).
   if (MY_ACCESS.workshop === "ЦЕХ РОГОШ" && typeof openRogosh === "function") { openRogosh(); return; }
+  if (MY_ACCESS.workshop === "Занитване" && typeof openNit === "function") { openNit(); return; }
   if (typeof openTasks === "function") openTasks();
 }
 
