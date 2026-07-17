@@ -76,55 +76,40 @@ async function erpRenderPurchases() {
   const q = (erpPuQuery || "").toLowerCase().trim();
   const matchQ = o => !q || (`${o.invoiceNo || ""} ${o.supplierName || ""}`.toLowerCase().includes(q) ||
     (o.lines || []).some(l => `${l.code || ""} ${l.article || ""} ${l.groupName || ""} ${l.name || ""}`.toLowerCase().includes(q)));
-  const payableAll = (erpPurchases || []).filter(erpPuIsPayable);
-  let rows = (erpPurchases || []).filter(o => {
-    if (erpPuFolder === "payable" && !erpPuIsPayable(o)) return false;
-    if (erpPuFolder === "paid" && erpPuIsPayable(o)) return false;
-    return matchQ(o);
-  });
-  if (erpPuFolder === "payable") rows.sort((a, b) => String(erpPuDueDate(a) || "9999").localeCompare(String(erpPuDueDate(b) || "9999")));
-  else rows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-  const today = new Date().toISOString().slice(0, 10);
-  const payableSum = payableAll.reduce((s, o) => s + erpPuTotals(o).total, 0);
-  const tab = (key, label) => `<button class="btn btn-small ${erpPuFolder === key ? "btn-primary" : ""}" data-folder="${key}">${label}</button>`;
+  const rows = (erpPurchases || []).filter(matchQ).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   v.innerHTML = `
     <div class="erp-toolbar">
-      ${tab("payable", `⏳ За плащане (${payableAll.length})`)}
-      ${tab("paid", "✓ Платени / архив")}
-      ${tab("all", "Всички")}
+      <span class="erp-count">${rows.length} фактури</span>
       <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код…" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
-    ${erpPuFolder === "payable" && payableAll.length ? `<p class="hint">За плащане общо: <b>${erpPuMoney(payableSum, "BGN")}</b> · подредени по най-близък срок.</p>` : ""}
+    <p class="hint">Тук се въвеждат входящите фактури (класификация, склад). Плащането им се води в таб <b>💳 Задължения</b> (банковите с отложен срок отиват там автоматично).</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Дата</th><th>№ Фактура</th><th>Доставчик</th><th>Класификация</th><th class="num">Сума (с ДДС)</th><th>Плащане</th><th>${erpPuFolder === "paid" ? "Платена на" : "Срок"}</th><th></th></tr></thead>
+      <thead><tr><th>Дата</th><th>№ Фактура</th><th>Доставчик</th><th>Класификация</th><th class="num">Сума (с ДДС)</th><th>Плащане</th><th>Статус</th><th></th></tr></thead>
       <tbody>${rows.map(o => {
-        const t = erpPuTotals(o); const due = erpPuDueDate(o);
-        const overdue = erpPuIsPayable(o) && due && due < today;
+        const t = erpPuTotals(o);
         const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
-        return `<tr class="erp-clickable ${overdue ? "erp-below" : ""}" data-id="${o.id}">
+        return `<tr class="erp-clickable" data-id="${o.id}">
           <td data-label="Дата">${escapeHtml(o.date || "")}</td>
           <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
           <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
-          <td data-label="Класификация">${escapeHtml(cls || "—")}${o.posted ? ' <span class="erp-co-status" style="background:#dcfce7;color:#166534">заприх.</span>' : ""}</td>
+          <td data-label="Класификация">${escapeHtml(cls || "—")}</td>
           <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
           <td data-label="Плащане">${escapeHtml(o.paymentMethod || "—")}${o.paymentMethod === "Банка" && Number(o.termDays) ? " · " + o.termDays + " дни" : ""}</td>
-          <td data-label="Срок">${erpPuFolder === "paid" ? escapeHtml(o.paidDate || o.date || "") : (due ? `${escapeHtml(due)}${overdue ? " ⚠" : ""}` : (o.paid ? "платена" : "—"))}</td>
-          <td class="erp-row-actions">${erpPuIsPayable(o) ? `<button class="btn btn-small btn-primary" data-pay="${o.id}" title="Отбележи като платена">💵 Плати</button> ` : ""}<button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-        </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">${erpPuFolder === "payable" ? "Няма фактури за плащане. 🎉" : "Няма фактури."}</td></tr>`}
+          <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'}</td>
+          <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+        </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма фактури. Натисни „+ Нова фактура".</td></tr>`}
       </tbody>
     </table>`;
-  v.querySelectorAll("[data-folder]").forEach(b => b.addEventListener("click", () => { erpPuFolder = b.dataset.folder; erpRenderPurchases(); }));
   const qEl = document.getElementById("pu-q");
   if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpRenderPurchases(); });
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
-  v.querySelectorAll("[data-pay]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); const o = erpPurchases.find(x => String(x.id) === b.dataset.pay); if (o) erpPuMarkPaid(o); }));
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
 }
@@ -160,9 +145,8 @@ async function erpRenderPurchaseForm(o) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад</button>
-      <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${o.paid ? " · ✓ платена " + escapeHtml(o.paidDate || "") : (erpPuIsPayable(o) ? " · ⏳ за плащане" : "")}</span>
+      <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${o.paymentMethod === "Банка" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}</span>
       <span class="spacer"></span>
-      ${erpPuIsPayable(o) ? '<button class="btn btn-small btn-primary" id="pu-pay">💵 Плати</button>' : ""}
       <button class="btn btn-small" id="pu-save">💾 Запази</button>
       ${locked ? '<span class="erp-count">✓ Заприходена</span>' : '<button class="btn btn-small" id="pu-post" title="Само материалните редове вдигат склад + средна цена">📥 Заприходи материалите</button>'}
     </div>
@@ -209,7 +193,6 @@ async function erpRenderPurchaseForm(o) {
   document.getElementById("pu-vat").addEventListener("change", e => { o.vatRate = Number(e.target.value); erpPuTotalsBox(o); });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
-  const payBtn = document.getElementById("pu-pay"); if (payBtn) payBtn.addEventListener("click", async () => { await erpPuMarkPaid(o); erpRenderPurchaseForm(o); });
   const postBtn = document.getElementById("pu-post"); if (postBtn) postBtn.addEventListener("click", () => erpPostPurchase(o));
   document.getElementById("pu-add-mat").addEventListener("click", () => erpPuAddMaterial(o));
   document.getElementById("pu-add-exp").addEventListener("click", () => { o.lines.push({ groupName: "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
