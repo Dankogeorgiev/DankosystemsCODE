@@ -434,7 +434,7 @@ async function erpPuImport(file) {
 
     // Дедуп срещу вече въведените (№ + доставчик).
     const existing = new Set((erpPurchases || []).map(p => `${(p.invoiceNo || "").trim()}|${(p.supplierName || "").trim()}`));
-    let added = 0, skipped = 0, toPay = 0;
+    let added = 0, skipped = 0;
     for (const g of groups.values()) {
       if (existing.has(`${g.invoiceNo}|${g.supplier}`)) { skipped++; continue; }
       const rate = g.net > 0 ? g.vat / g.net * 100 : 20;
@@ -448,16 +448,17 @@ async function erpPuImport(file) {
         paid: false, paidDate: "", paidMethod: "", imported: true,
       };
       erpPuApplyPay(o);
+      // NB: импортираните разходи са само регистър/архив — НЕ ги пращаме в „Задължения"
+      // (те вече са отразени там през отделния GenCloud импорт на задълженията).
       try {
         await erpSavePurchase(o);
-        if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o);
         existing.add(`${g.invoiceNo}|${g.supplier}`);
-        added++; if (o.payStatus === "deferred") toPay++;
+        added++;
       } catch (e) { /* пропусни проблемния запис */ }
     }
     await erpLoadPurchases();
     erpRenderPurchases();
-    alert(`Импорт готов: ${added} нови фактури${skipped ? `, ${skipped} пропуснати (вече въведени)` : ""}.` + (toPay ? `\n${toPay} с отложено плащане → отидоха в „Задължения".` : ""));
+    alert(`Импорт готов: ${added} нови фактури${skipped ? `, ${skipped} пропуснати (вече въведени)` : ""}.\nСлужат само за регистър/архив — не се дублират в „Задължения".`);
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 
