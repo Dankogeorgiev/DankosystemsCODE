@@ -464,3 +464,13 @@ img.ai-doc-content { max-width: none; }
 .pay-table tr.pay-today { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
 .pay-table tr.pay-today td { border-bottom-color: #c7d2fe; }
 .btn.pay-today-on { background: #6366f1; color: #fff; border-color: #6366f1; }
+
+/* ---------- Отворени раздели (табове като на документи) ---------- */
+.erp-open-tabs { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; padding: 6px 10px 0; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; }
+.erp-otab { display: inline-flex; align-items: center; gap: 6px; max-width: 230px; padding: 7px 8px 7px 12px; background: #e2e8f0; border: 1px solid #cbd5e1; border-bottom: none; border-radius: 9px 9px 0 0; cursor: pointer; font-size: 13px; color: #334155; position: relative; top: 1px; }
+.erp-otab:hover { background: #eef2f6; }
+.erp-otab.active { background: #fff; color: #0f766e; font-weight: 700; border-color: #0f766e; box-shadow: inset 0 -3px 0 #0f766e; }
+.erp-otab-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.erp-otab-x { border: none; background: transparent; color: #94a3b8; font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; line-height: 1; }
+.erp-otab-x:hover { background: #fee2e2; color: #dc2626; }
+.erp-empty-tabs { padding: 34px 20px; text-align: center; color: #64748b; font-size: 15px; }

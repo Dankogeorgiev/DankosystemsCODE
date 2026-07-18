@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=279" />
-  <link rel="stylesheet" href="erp.css?v=255" />
+  <link rel="stylesheet" href="styles.css?v=280" />
+  <link rel="stylesheet" href="erp.css?v=256" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,22 +29,9 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 361</p>
+      <p class="login-version">версия 362</p>
     </form>
   </div>
-
-  <nav id="topnav" class="topnav app-chrome" hidden aria-label="Бърза навигация">
-    <span class="topnav-label">🗔 Отвори в нов таб:</span>
-    <button class="topnav-btn" data-open="erp:customer">📋 Заявки</button>
-    <button class="topnav-btn" data-open="erp:purchases" data-prod="1">🛒 Покупки</button>
-    <button class="topnav-btn" data-open="erp:payables" data-prod="1">💳 Задължения</button>
-    <button class="topnav-btn" data-open="erp:sales" data-prod="1">🧾 Продажби</button>
-    <button class="topnav-btn" data-open="erp:invoices" data-prod="1">📄 Фактуриране</button>
-    <button class="topnav-btn" data-open="erp:materials">🧱 Материали</button>
-    <button class="topnav-btn" data-open="erp:products">📦 Продукти</button>
-    <button class="topnav-btn" data-open="erp:archive">📚 Архив</button>
-    <button class="topnav-btn" data-open="finance" data-fin="1">💰 Финанси</button>
-  </nav>
 
   <header class="app-header app-chrome" hidden>
     <div class="header-zone header-left">
@@ -596,6 +583,7 @@
         <button class="btn btn-small erp-tab" data-tab="partners">👥 Клиенти/Доставчици</button>
         <button class="btn btn-small erp-tab" data-tab="import">⤓ Импорт (xlsx)</button>
       </div>
+      <div id="erp-open-tabs" class="erp-open-tabs" hidden></div>
       <div id="erp-view"></div>
     </div>
   </div>
@@ -605,7 +593,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
-  <script src="app.js?v=242"></script>
+  <script src="app.js?v=243"></script>
   <script src="tasks.js?v=273"></script>
   <script src="master-report.js?v=2"></script>
   <script src="prod-report.js?v=164"></script>
@@ -617,7 +605,7 @@
   <script src="nit.js?v=2"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
-  <script src="erp.js?v=264"></script>
+  <script src="erp.js?v=265"></script>
   <script src="erp-import.js?v=161"></script>
   <script src="erp-materials.js?v=241"></script>
   <script src="erp-products.js?v=239"></script>
