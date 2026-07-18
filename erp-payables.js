@@ -73,6 +73,7 @@ async function erpRenderPayables() {
       <span class="spacer"></span>
       <label class="btn btn-small co-attach-btn">⤓ Импорт (GenCloud)<input type="file" id="pay-file" accept=".xlsx,.xls" hidden /></label>
       ${(PAYABLES || []).some(p => !p.srcPurchaseId) ? '<button class="btn btn-small btn-danger" id="pay-clear-import" title="Изтрий импортираните задължения (тези от въведена фактура-разход остават)">🗑 Изтегли импорта</button>' : ""}
+      ${(PAYABLES || []).length ? '<button class="btn btn-small btn-danger" id="pay-clear-all" title="Изтрий ВСИЧКИ задължения (пълно изчистване)">🗑 Изчисти всичко</button>' : ""}
     </div>
     <div class="pay-cards">
       ${card("📅 Тази седмица", weekItems, "pay-card-week")}
@@ -111,6 +112,7 @@ async function erpRenderPayables() {
   v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { payFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);
+  const ca = document.getElementById("pay-clear-all"); if (ca) ca.addEventListener("click", erpPayClearAll);
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
   v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpPayUnpay(Number(b.dataset.unpay))));
@@ -202,6 +204,17 @@ async function erpPayClearImport() {
   PAYABLES = (PAYABLES || []).filter(p => p.srcPurchaseId);
   paySelected.clear();
   if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert("Готово. Можеш да импортираш наново."); }
+}
+
+// Пълно изчистване — трие ВСИЧКИ задължения (включително архива с платените).
+async function erpPayClearAll() {
+  await erpPayLoad();
+  const n = (PAYABLES || []).length;
+  if (!n) { alert("Задълженията вече са празни."); return; }
+  if (!confirm(`Да изтрия ли ВСИЧКИ ${n} задължения (включително архива с платените)?\nТова не може да се върне.`)) return;
+  PAYABLES = [];
+  paySelected.clear();
+  if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert("Готово. Задълженията са изчистени."); }
 }
 
 /* ---------- Връзка с Покупки: покупка Банка+срок → задължение ---------- */
