@@ -478,3 +478,11 @@ img.ai-doc-content { max-width: none; }
 /* Всеки отворен раздел живее в собствен pane; показва се само активният. */
 .erp-pane { display: none; }
 .erp-pane.active { display: block; }
+
+/* ---------- Вземания: групиран изглед (клиент болд + фактури) ---------- */
+.recv-table .recv-client-row td { background: #fffbeb; border-top: 2px solid #f59e0b; font-size: 14px; }
+.recv-table .recv-client-row td b { color: #92400e; }
+.recv-table .recv-inv-row td { background: #fff; }
+.recv-table .recv-inv-row.pay-overdue td { background: #fef2f2; }
+.recv-table .recv-inv-row.pay-soon td { background: #fffbeb; }
+.recv-table .pay-neg { color: #dc2626; }

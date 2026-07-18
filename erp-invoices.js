@@ -213,7 +213,7 @@ function erpNewInvoice(kind) {
     kind, seriesKey: kind === "proforma" ? "1" : "1",
     issueDate: today, taxDate: today, orderRef: "",
     client: { name: "", eik: "", vat: "", city: "", street: "", country: "България", person: "" }, clientId: null,
-    currency: "EUR", vatRate: 20, vatBasis: "", paymentMethod: "по банка", note: "",
+    currency: "EUR", vatRate: 20, vatBasis: "", paymentMethod: "по банка", termDays: 0, dueDate: "", note: "",
     refInvoice: null, refReason: "", lines: [], status: "чернова", posted: false,
     compiledBy: (ERP_SELLER && ERP_SELLER.mol) || "",
   });
@@ -273,6 +273,8 @@ async function erpInvForm(o) {
         <label>Дата на данъчно събитие <input type="date" id="inv-taxdate" value="${escapeAttr(o.taxDate || "")}" ${locked ? "disabled" : ""} /></label>
         <label>№/дата на поръчка <input type="text" id="inv-orderref" value="${escapeAttr(o.orderRef || "")}" ${locked ? "disabled" : ""} placeholder="реф. към заявката" /></label>
         <label>Начин на плащане <input type="text" id="inv-pay" value="${escapeAttr(o.paymentMethod || "")}" ${locked ? "disabled" : ""} /></label>
+        <label>Разсрочено — срок (дни) <input type="number" id="inv-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" ${locked ? "disabled" : ""} placeholder="0 = веднага" /></label>
+        <label>Падеж (дата за плащане) <input type="date" id="inv-due" value="${escapeAttr(o.dueDate || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Валута <select id="inv-cur" ${locked ? "disabled" : ""}>${["EUR", "BGN"].map(c => `<option ${c === cur ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         <label>ДДС ставка % <select id="inv-vat" ${locked ? "disabled" : ""}>${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
       </div>
@@ -329,6 +331,8 @@ async function erpInvForm(o) {
   g("inv-taxdate", e => o.taxDate = e.target.value);
   g("inv-orderref", e => o.orderRef = e.target.value);
   g("inv-pay", e => o.paymentMethod = e.target.value);
+  g("inv-term", e => { o.termDays = Number(e.target.value) || 0; if (Number(o.termDays) > 0 && !o.dueDate && o.issueDate) { const el = document.getElementById("inv-due"); const d = new Date(o.issueDate + "T00:00:00"); if (!isNaN(d.getTime())) { d.setDate(d.getDate() + o.termDays); if (el) el.value = d.toISOString().slice(0, 10); o.dueDate = el ? el.value : o.dueDate; } } });
+  g("inv-due", e => o.dueDate = e.target.value);
   g("inv-cur", e => { o.currency = e.target.value; erpInvTotalsBox(o); });
   g("inv-vat", e => { o.vatRate = Number(e.target.value); erpInvForm(o); });
   g("inv-vatbasis", e => o.vatBasis = e.target.value);
@@ -455,6 +459,8 @@ async function erpInvIssue(o) {
     ser.next = Math.floor(Number(ser.next) || 0) + 1;
     await erpInvSaveSeries();
     await erpLoadInvoices();
+    // Издадената фактура става вземане от клиента (проформата не влиза).
+    try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
     erpInvForm(JSON.parse(JSON.stringify((erpInvoices || []).find(x => x.id === o.id) || o)));
   } catch (e) {
     o.posted = false; o.status = "чернова"; o.docNo = null;
@@ -474,12 +480,12 @@ function erpInvPrint(o) {
   const L = en ? {
     orig: "ORIGINAL", no: "No", date: "Date", order: "Order No/date", recipient: "Recipient", supplier: "Supplier",
     eik: "UIC", vat: "VAT No", nn: "No", name: "Description", code: "Code", qty: "Qty/UoM", price: "Unit price", amount: "Amount",
-    words: "In words", pay: "Payment", base: "Tax base", vatL: "VAT", total: "Total", compiled: "Issued by", received: "Received by",
+    words: "In words", pay: "Payment", due: "Due date", base: "Tax base", vatL: "VAT", total: "Total", compiled: "Issued by", received: "Received by",
     ref: "To invoice No/date", reason: "Reason",
   } : {
     orig: "ОРИГИНАЛ", no: "№", date: "Дата", order: "Номер и дата на поръчка", recipient: "Получател", supplier: "Доставчик",
     eik: "ЕИК", vat: "ДДС №", nn: "№", name: "Наименование на стоките и услугите", code: "Код", qty: "Кол./МЕ", price: "Ед. цена", amount: "Стойност",
-    words: "Словом", pay: "Начин на плащане", base: "Данъчна основа", vatL: "ДДС", total: "Обща стойност", compiled: "Съставил", received: "Получил",
+    words: "Словом", pay: "Начин на плащане", due: "Падеж", base: "Данъчна основа", vatL: "ДДС", total: "Обща стойност", compiled: "Съставил", received: "Получил",
     ref: "Към фактура №/дата", reason: "Основание",
   };
   const rows = (o.lines || []).map((l, i) => `
@@ -543,7 +549,7 @@ function erpInvPrint(o) {
       <tr class="g"><td><b>${L.total}</b></td><td class="r"><b>${erpInvMoney(t.total, cur)}</b></td></tr>
       ${bgn}
     </table>
-    <div class="pay">${L.pay}: <b>${escapeHtml(o.paymentMethod || "")}</b></div>
+    <div class="pay">${L.pay}: <b>${escapeHtml(o.paymentMethod || "")}</b>${(o.dueDate || Number(o.termDays) > 0) ? ` · ${L.due}: <b>${escapeHtml(o.dueDate || "")}</b>${Number(o.termDays) > 0 ? ` (${o.termDays} ${en ? "days" : "дни"})` : ""}` : ""}</div>
     ${o.note ? `<div class="pay">${escapeHtml(o.note)}</div>` : ""}
     <div class="foot"><div>${L.compiled}${o.compiledBy ? ": " + escapeHtml(o.compiledBy) : ""}</div><div>${L.received}</div></div>
   </body></html>`;
@@ -569,7 +575,7 @@ function erpInvFromSale(sale) {
     client: { name: sale.clientName || "", eik: "", vat: sale.clientVat || "", city: sale.clientCity || "", street: sale.clientStreet || "", country: country || "България", person: "" },
     clientId: sale.clientId || null,
     currency: sale.currency || "EUR", vatRate: sale.vatRate != null ? sale.vatRate : 20, vatBasis: "",
-    paymentMethod: sale.paymentMethod || "по банка", note: "",
+    paymentMethod: sale.paymentMethod || "по банка", termDays: sale.termDays || 0, dueDate: sale.dueDate || "", note: "",
     refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
     saleId: sale.id, compiledBy: (ERP_SELLER && ERP_SELLER.mol) || "",
     transport: {}, pallets: [],
