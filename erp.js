@@ -237,12 +237,17 @@ async function erpLoadAll() {
 
 /* ---------- Табове ---------- */
 function erpSetTab(tab) {
+  if (!tab) tab = "materials";
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
       && ["sales", "pricelists", "purchases", "finance", "invoices", "payables"].includes(tab)) tab = "customer";
   ERP.tab = tab;
+  // „Отворени раздели" (като табове на документи) — добавяме отворения, ако още го няма.
+  ERP.openTabs = ERP.openTabs || [];
+  if (!ERP.openTabs.includes(tab)) ERP.openTabs.push(tab);
   document.querySelectorAll(".erp-tab").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === tab));
+  erpRenderOpenTabs();
   switch (tab) {
     case "materials":    erpRenderMaterials(); break;
     case "missmat":      erpRenderMissingMaterials(); break;
@@ -267,6 +272,45 @@ function erpSetTab(tab) {
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
   }
+}
+
+/* ---------- Отворени раздели (табове като на документи) ----------
+   Всеки отворен модул стои като таб горе с ✕. Клик върху таб → превключва;
+   ✕ → затваря. Всичко в един прозорец, без нови прозорци на браузъра. */
+function erpTabLabel(tab) {
+  const b = document.querySelector('.erp-tab[data-tab="' + tab + '"]');
+  return b ? b.textContent.trim() : tab;
+}
+function erpRenderOpenTabs() {
+  const strip = document.getElementById("erp-open-tabs"); if (!strip) return;
+  const list = ERP.openTabs || [];
+  if (list.length < 1) { strip.hidden = true; strip.innerHTML = ""; return; }
+  strip.hidden = false;
+  strip.innerHTML = list.map(t => {
+    const active = t === ERP.tab;
+    return `<span class="erp-otab${active ? " active" : ""}" data-goto="${escapeAttr(t)}" title="${escapeAttr(erpTabLabel(t))}">
+      <span class="erp-otab-lbl">${escapeHtml(erpTabLabel(t))}</span>
+      <button class="erp-otab-x" data-close="${escapeAttr(t)}" title="Затвори раздела" aria-label="Затвори">✕</button></span>`;
+  }).join("");
+  strip.querySelectorAll(".erp-otab").forEach(el => el.addEventListener("click", e => {
+    if (e.target.closest(".erp-otab-x")) return;   // ✕ се обработва отделно
+    erpSetTab(el.dataset.goto);
+  }));
+  strip.querySelectorAll(".erp-otab-x").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpCloseTab(b.dataset.close); }));
+}
+function erpCloseTab(tab) {
+  ERP.openTabs = (ERP.openTabs || []).filter(t => t !== tab);
+  if (ERP.tab === tab) {
+    const next = ERP.openTabs[ERP.openTabs.length - 1];
+    if (next) { erpSetTab(next); return; }
+    // Няма повече отворени раздели.
+    ERP.tab = null;
+    document.querySelectorAll(".erp-tab").forEach(b => b.classList.remove("active"));
+    erpRenderOpenTabs();
+    erpView().innerHTML = `<p class="erp-empty-tabs">Няма отворени раздели. Избери от лентата с бутони горе, за да отвориш раздел.</p>`;
+    return;
+  }
+  erpRenderOpenTabs();
 }
 
 /* ---------- Инициализация ---------- */
