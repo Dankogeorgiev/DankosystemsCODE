@@ -48,14 +48,51 @@ function erpPuAddDays(dateStr, days) {
 }
 function erpPuCur(o) { return o.currency || "BGN"; }
 function erpPuMoney(n, cur) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (cur || "BGN"); }
-// Дата за плащане: ръчно зададена или авто (дата + срок), само за Банка+срок.
+
+/* Статус на плащане (4 избора):
+   deferred — Отложено по банка (разсрочено) → неплатена, отива в „Задължения";
+   cash — Платена в брой; card — Платена с кредитна карта; bank — Платена по банка.
+   Каноничните полета (paymentMethod/termDays/paid) се държат в синхрон, за да работят
+   склад, дата за плащане и връзката към „Задължения" без промяна. */
+const PU_PAY_OPTS = [
+  { k: "deferred", label: "Отложено по банка (разсрочено)" },
+  { k: "cash", label: "Платена — в брой" },
+  { k: "card", label: "Платена — с кредитна карта" },
+  { k: "bank", label: "Платена — по банка" },
+];
+function erpPuPayStatus(o) {
+  if (o.payStatus) return o.payStatus;
+  if (o.paid) return o.paymentMethod === "Каса" ? "cash" : "bank";
+  if (o.paymentMethod === "Банка" && Number(o.termDays) > 0) return "deferred";
+  return "bank";
+}
+// Прилага каноничните полета според избрания статус.
+function erpPuApplyPay(o) {
+  const st = erpPuPayStatus(o); o.payStatus = st;
+  const today = new Date().toISOString().slice(0, 10);
+  if (st === "deferred") {
+    o.paymentMethod = "Банка"; o.paid = false; o.paidDate = ""; o.paidMethod = "";
+    o.termDays = Number(o.termDays) || 0;
+  } else {
+    o.paid = true; o.termDays = 0; o.dueDate = "";
+    o.paymentMethod = st === "cash" ? "Каса" : "Банка";
+    o.paidMethod = st === "cash" ? "В брой" : st === "card" ? "Кредитна карта" : "Банка";
+    if (!o.paidDate) o.paidDate = o.date || today;
+  }
+}
+function erpPuPayLabel(o) {
+  const st = erpPuPayStatus(o);
+  if (st === "deferred") return "Отложено · банка" + (Number(o.termDays) ? " · " + o.termDays + " дни" : "");
+  return "Платена · " + (st === "cash" ? "в брой" : st === "card" ? "карта" : "банка");
+}
+// Дата за плащане: ръчно зададена или авто (дата + срок), само за отложено плащане.
 function erpPuDueDate(o) {
   if (o.dueDate) return o.dueDate;
-  if (o.paymentMethod === "Банка" && Number(o.termDays) > 0) return erpPuAddDays(o.date, o.termDays);
+  if (erpPuPayStatus(o) === "deferred" && Number(o.termDays) > 0) return erpPuAddDays(o.date, o.termDays);
   return "";
 }
-// „За плащане" = Банка, срок>0, още неплатена.
-function erpPuIsPayable(o) { return !o.paid && o.paymentMethod === "Банка" && Number(o.termDays) > 0; }
+// „За плащане" = отложено, срок>0, още неплатена.
+function erpPuIsPayable(o) { return !o.paid && erpPuPayStatus(o) === "deferred" && Number(o.termDays) > 0; }
 function erpPuStatus(o) { return o.paid ? "платена" : (erpPuIsPayable(o) ? "за плащане" : "платена"); }
 function erpPuTotals(o) {
   const base = (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
@@ -83,6 +120,7 @@ async function erpRenderPurchases() {
       <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код…" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
+      <label class="btn btn-small co-attach-btn" title="Импорт на разходи от GenCloud (xlsx) — сумите се вкарват положителни">⤓ Импорт (GenCloud)<input type="file" id="pu-import" accept=".xlsx,.xls" hidden /></label>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
@@ -98,7 +136,7 @@ async function erpRenderPurchases() {
           <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
           <td data-label="Класификация">${escapeHtml(cls || "—")}</td>
           <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
-          <td data-label="Плащане">${escapeHtml(o.paymentMethod || "—")}${o.paymentMethod === "Банка" && Number(o.termDays) ? " · " + o.termDays + " дни" : ""}</td>
+          <td data-label="Плащане">${escapeHtml(erpPuPayLabel(o))}</td>
           <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'}</td>
           <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
         </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма фактури. Натисни „+ Нова фактура".</td></tr>`}
@@ -110,13 +148,15 @@ async function erpRenderPurchases() {
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
+  const impEl = document.getElementById("pu-import");
+  if (impEl) impEl.addEventListener("change", e => { erpPuImport(e.target.files[0]); e.target.value = ""; });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
 }
 
 function erpNewPurchase() {
   const today = new Date().toISOString().slice(0, 10);
-  erpRenderPurchaseForm({ type: "фактура", supplierName: "", supplierId: null, invoiceNo: "", date: today, paymentMethod: "Банка", termDays: 0, dueDate: "", paid: false, paidDate: "", currency: "BGN", vatRate: 20, note: "", files: [], posted: false, lines: [] });
+  erpRenderPurchaseForm({ type: "фактура", supplierName: "", supplierId: null, invoiceNo: "", date: today, payStatus: "deferred", paymentMethod: "Банка", termDays: 0, dueDate: "", paid: false, paidDate: "", paidMethod: "", currency: "BGN", vatRate: 20, note: "", files: [], posted: false, lines: [] });
 }
 function erpOpenPurchase(id) {
   const o = (erpPurchases || []).find(x => String(x.id) === String(id));
@@ -142,10 +182,11 @@ async function erpRenderPurchaseForm(o) {
   const groups = [...new Set((erpPurchases || []).flatMap(p => (p.lines || []).map(l => l.groupName)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
   const articles = [...new Set((erpPurchases || []).flatMap(p => (p.lines || []).map(l => l.article)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
   const due = erpPuDueDate(o);
+  const st = erpPuPayStatus(o);
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад</button>
-      <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${o.paymentMethod === "Банка" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}</span>
+      <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-save">💾 Запази</button>
       ${locked ? '<span class="erp-count">✓ Заприходена</span>' : '<button class="btn btn-small" id="pu-post" title="Само материалните редове вдигат склад + средна цена">📥 Заприходи материалите</button>'}
@@ -156,9 +197,10 @@ async function erpRenderPurchaseForm(o) {
           <datalist id="pu-suppliers">${suppliers.map(s => `<option value="${escapeAttr(s.name)}"></option>`).join("")}</datalist></label>
         <label>№ Фактура <input type="text" id="pu-invoice" value="${escapeAttr(o.invoiceNo || "")}" /></label>
         <label>Дата <input type="date" id="pu-date" value="${escapeAttr(o.date || "")}" /></label>
-        <label>Начин на плащане <select id="pu-method"><option ${o.paymentMethod === "Банка" ? "selected" : ""}>Банка</option><option ${o.paymentMethod === "Каса" ? "selected" : ""}>Каса</option></select></label>
-        <label id="pu-term-wrap" ${o.paymentMethod === "Каса" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pu-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" placeholder="0 = веднага" /></label>
-        <label id="pu-due-wrap" ${o.paymentMethod === "Каса" ? 'style="display:none"' : ""}>Дата за плащане <input type="date" id="pu-due" value="${escapeAttr(due)}" /></label>
+        <label>Плащане <select id="pu-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${st === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
+        <label id="pu-term-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pu-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" placeholder="напр. 30" /></label>
+        <label id="pu-due-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Дата за плащане <input type="date" id="pu-due" value="${escapeAttr(due)}" /></label>
+        <label id="pu-paid-wrap" ${st === "deferred" ? 'style="display:none"' : ""}>Платена на <input type="date" id="pu-paiddate" value="${escapeAttr(o.paidDate || "")}" /></label>
         <label>Валута <select id="pu-cur"><option ${erpPuCur(o) === "BGN" ? "selected" : ""}>BGN</option><option ${erpPuCur(o) === "EUR" ? "selected" : ""}>EUR</option></select></label>
         <label>ДДС ставка % <select id="pu-vat">${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
       </div>
@@ -187,8 +229,9 @@ async function erpRenderPurchaseForm(o) {
   const bind = (id, k, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("input", () => { o[k] = el.value; if (fn) fn(); }); };
   bind("pu-invoice", "invoiceNo"); bind("pu-date", "date", () => erpPuSyncDue(o)); bind("pu-note", "note");
   bind("pu-term", "termDays", () => erpPuSyncDue(o)); bind("pu-due", "dueDate");
+  const pd = document.getElementById("pu-paiddate"); if (pd) pd.addEventListener("input", () => o.paidDate = pd.value);
   document.getElementById("pu-supplier").addEventListener("input", e => { o.supplierName = e.target.value; const m = suppliers.find(s => s.name === e.target.value); o.supplierId = m ? m.id : null; });
-  document.getElementById("pu-method").addEventListener("change", e => { o.paymentMethod = e.target.value; erpRenderPurchaseForm(o); });
+  document.getElementById("pu-pay").addEventListener("change", e => { o.payStatus = e.target.value; erpPuApplyPay(o); erpRenderPurchaseForm(o); });
   document.getElementById("pu-cur").addEventListener("change", e => { o.currency = e.target.value; erpPuTotalsBox(o); });
   document.getElementById("pu-vat").addEventListener("change", e => { o.vatRate = Number(e.target.value); erpPuTotalsBox(o); });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
@@ -306,14 +349,116 @@ async function erpPuRemoveFile(o, i) {
 async function erpPuSaveClick(o) {
   const btn = document.getElementById("pu-save");
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
-  // Каса или „веднага" (Банка, срок 0) → директно платена, с дата на фактурата.
-  if (!o.paid && (o.paymentMethod === "Каса" || !(Number(o.termDays) > 0))) { o.paid = true; if (!o.paidDate) o.paidDate = o.date || new Date().toISOString().slice(0, 10); }
+  erpPuApplyPay(o);   // синхронизира paid/срок/дата според избрания статус на плащане
   try {
     await erpSavePurchase(o); await erpLoadPurchases();
     try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
     if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = "💾 Запази"; btn.disabled = false; } }, 1400); }
   }
   catch (e) { if (btn) { btn.disabled = false; btn.textContent = "💾 Запази"; } alert("Грешка при запис: " + (e.message || e)); }
+}
+
+/* ---------- Импорт на разходи от GenCloud (xlsx) ----------
+   Сумите в експорта са отрицателни (разход) → вкарват се положителни.
+   Колони: №: · Дата · Артикул · Партньор · Кол. · Кр.цена · Кр.цена (мярка=валута) ·
+   Кр.цена с ДДС · ДДС сума · Плащане (веднага / N дни / дата на падеж).
+   Редовете се групират в една фактура по № + партньор + дата; всеки ред → клас. ред.
+   „Плащане" определя статуса: веднага/в брой → платена; N дни/дата → отложено → Задължения. */
+function puXlsNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
+function puXlsAbs(v) { return Math.abs(puXlsNum(v)); }
+function puXlsDate(v) {
+  if (v == null || v === "") return "";
+  if (typeof v === "number" && typeof XLSX !== "undefined" && XLSX.SSF) {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (d && d.y) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/); if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+  return "";
+}
+// Разчита колоната „Плащане": веднага/в брой/карта → платена; N дни или дата → отложено.
+function puParsePay(s, docDate) {
+  s = String(s || "").trim().toLowerCase();
+  if (!s || /веднага|в\s*брой|кеш|платен|плати\s*се/.test(s)) {
+    if (/брой|кеш/.test(s)) return { payStatus: "cash", termDays: 0, dueDate: "" };
+    if (/карт/.test(s)) return { payStatus: "card", termDays: 0, dueDate: "" };
+    return { payStatus: "bank", termDays: 0, dueDate: "" };
+  }
+  let m = s.match(/(\d+)\s*дн/); if (m) return { payStatus: "deferred", termDays: Number(m[1]), dueDate: "" };
+  const due = puXlsDate(s);
+  if (due) { const t = docDate ? Math.round((new Date(due + "T00:00:00") - new Date(docDate + "T00:00:00")) / 864e5) : 0; return { payStatus: "deferred", termDays: t > 0 ? t : 0, dueDate: due }; }
+  m = s.match(/^\d+$/); if (m) return { payStatus: "deferred", termDays: Number(s), dueDate: "" };
+  return { payStatus: "deferred", termDays: 0, dueDate: "" };
+}
+async function erpPuImport(file) {
+  if (!file) return;
+  if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (!raw.length) { alert("Файлът е празен."); return; }
+    const pick = (row, ...names) => { for (const n of names) { for (const k of Object.keys(row)) { if (String(k).trim().toLowerCase() === n.toLowerCase()) return row[k]; } } return ""; };
+    await erpLoadPurchases();
+
+    // Групиране по фактура: № + партньор + дата.
+    const groups = new Map();
+    raw.forEach(r => {
+      const invoiceNo = String(pick(r, "№:", "№", "No", "Номер") || "").trim();
+      const supplier = String(pick(r, "Партньор", "Доставчик", "Контрагент") || "").trim();
+      const date = puXlsDate(pick(r, "Дата", "Дата на док.", "Дата на документ"));
+      if (!invoiceNo && !supplier) return;
+      const key = invoiceNo + "|" + supplier + "|" + date;
+      if (!groups.has(key)) groups.set(key, {
+        invoiceNo, supplier, date,
+        pay: String(pick(r, "Плащане") || "").trim(),
+        currency: String(pick(r, "Кр.цена (мярка)", "Валута") || "").trim().toUpperCase() || "EUR",
+        note: String(pick(r, "Бележка към док.", "Бележка") || "").trim(),
+        net: 0, vat: 0, lines: [],
+      });
+      const g = groups.get(key);
+      if (!g.pay) g.pay = String(pick(r, "Плащане") || "").trim();
+      const qty = puXlsNum(pick(r, "Кол.", "Количество")) || 1;
+      const rowNet = puXlsAbs(pick(r, "Кр.цена"));
+      const rowVat = puXlsAbs(pick(r, "ДДС сума"));
+      g.net += rowNet; g.vat += rowVat;
+      g.lines.push({
+        groupName: "", code: "",
+        article: String(pick(r, "Артикул", "Описание") || "").trim() || "разход",
+        qty, unit: "бр.", unitPrice: qty ? Math.round((rowNet / qty) * 100) / 100 : rowNet,
+      });
+    });
+    if (!groups.size) { alert("Не намерих редове с фактура/партньор в файла."); return; }
+
+    // Дедуп срещу вече въведените (№ + доставчик).
+    const existing = new Set((erpPurchases || []).map(p => `${(p.invoiceNo || "").trim()}|${(p.supplierName || "").trim()}`));
+    let added = 0, skipped = 0, toPay = 0;
+    for (const g of groups.values()) {
+      if (existing.has(`${g.invoiceNo}|${g.supplier}`)) { skipped++; continue; }
+      const rate = g.net > 0 ? g.vat / g.net * 100 : 20;
+      const vatRate = [20, 9, 0].reduce((b, r) => Math.abs(r - rate) < Math.abs(b - rate) ? r : b, 20);
+      const pp = puParsePay(g.pay, g.date);
+      const o = {
+        type: "фактура", supplierName: g.supplier, supplierId: null, invoiceNo: g.invoiceNo,
+        date: g.date, currency: g.currency === "BGN" ? "BGN" : "EUR", vatRate,
+        note: g.note, files: [], posted: false, lines: g.lines,
+        payStatus: pp.payStatus, termDays: pp.termDays, dueDate: pp.dueDate,
+        paid: false, paidDate: "", paidMethod: "", imported: true,
+      };
+      erpPuApplyPay(o);
+      try {
+        await erpSavePurchase(o);
+        if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o);
+        existing.add(`${g.invoiceNo}|${g.supplier}`);
+        added++; if (o.payStatus === "deferred") toPay++;
+      } catch (e) { /* пропусни проблемния запис */ }
+    }
+    await erpLoadPurchases();
+    erpRenderPurchases();
+    alert(`Импорт готов: ${added} нови фактури${skipped ? `, ${skipped} пропуснати (вече въведени)` : ""}.` + (toPay ? `\n${toPay} с отложено плащане → отидоха в „Задължения".` : ""));
+  } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 
 /* ---------- История на цените по код ---------- */
