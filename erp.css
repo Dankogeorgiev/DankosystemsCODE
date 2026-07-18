@@ -474,3 +474,7 @@ img.ai-doc-content { max-width: none; }
 .erp-otab-x { border: none; background: transparent; color: #94a3b8; font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; line-height: 1; }
 .erp-otab-x:hover { background: #fee2e2; color: #dc2626; }
 .erp-empty-tabs { padding: 34px 20px; text-align: center; color: #64748b; font-size: 15px; }
+
+/* Всеки отворен раздел живее в собствен pane; показва се само активният. */
+.erp-pane { display: none; }
+.erp-pane.active { display: block; }

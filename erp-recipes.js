@@ -59,7 +59,7 @@ function erpRenderRecipe(productId) {
     </div>
     <div id="erp-prod-drawings" class="erp-prod-drawings"></div>`;
 
-  document.getElementById("erp-recipe-back").addEventListener("click", () => erpSetTab("products"));
+  document.getElementById("erp-recipe-back").addEventListener("click", () => erpSetTab("products", true));
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
   const testBtn = document.getElementById("erp-recipe-test");
