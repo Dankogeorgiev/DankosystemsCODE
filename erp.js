@@ -70,7 +70,15 @@ async function erpSelectAll(table, cols, eqCol, eqVal) {
   return { data: out, error: null };
 }
 
-function erpView() { return document.getElementById("erp-view"); }
+// Връща контейнера на АКТИВНИЯ раздел (всеки отворен таб живее в собствен „pane",
+// който само се показва/скрива — така състоянието (форми, филтри) се пази при
+// превключване). Преди да има активен pane връща самия #erp-view (напр. „Зареждане…").
+function erpView() {
+  const host = document.getElementById("erp-view");
+  if (!host) return host;
+  if (ERP.tab) { const p = host.querySelector('.erp-pane[data-pane="' + ERP.tab + '"]'); if (p) return p; }
+  return host;
+}
 function erpAmWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
 
 /* ---------- Отваряне / затваряне ---------- */
@@ -98,10 +106,12 @@ async function erpEnsureLoaded() {
   if (!ERP.loaded) { await erpLoadAll(); ERP.loaded = true; }
 }
 
-// Презарежда данните от базата и пре-рендира текущия таб.
+// Презарежда данните от базата и пре-рендира текущия таб. Останалите отворени
+// раздели се маркират за опресняване при следващо показване (да не са със стари данни).
 async function erpReload() {
   await erpLoadAll();
-  erpSetTab(ERP.tab);
+  document.querySelectorAll("#erp-view .erp-pane").forEach(p => { if (p.dataset.pane !== ERP.tab) p.dataset.stale = "1"; });
+  erpSetTab(ERP.tab, true);
   // Ако Цеховете са отворени (в друг таб на приложението), опресни ги — така
   // индикаторът „⏳ чака материал" се маха ВЕДНАГА след заприходяване на
   // материал, без да е нужно повторно отваряне на Цеховете. Наличностите на
@@ -235,8 +245,29 @@ async function erpLoadAll() {
   }
 }
 
-/* ---------- Табове ---------- */
-function erpSetTab(tab) {
+/* ---------- Табове ----------
+   Всеки отворен раздел живее в собствен „pane" вътре в #erp-view. Превключването
+   само показва/скрива pane-а → състоянието (форми, филтри, скрол) се пази.
+   erpSetTab(tab, force): рисува pane-а, само ако е нов, ако е поискано изрично
+   (force) или ако е маркиран за опресняване (data-stale след промяна в данните). */
+function erpEnsurePane(tab) {
+  const host = document.getElementById("erp-view");
+  let pane = host.querySelector('.erp-pane[data-pane="' + tab + '"]');
+  let created = false;
+  if (!pane) {
+    // Махни всичко, което не е pane (напр. текста „Зареждане…").
+    Array.from(host.childNodes).forEach(n => {
+      if (!(n.nodeType === 1 && n.classList && n.classList.contains("erp-pane"))) host.removeChild(n);
+    });
+    pane = document.createElement("div");
+    pane.className = "erp-pane";
+    pane.dataset.pane = tab;
+    host.appendChild(pane);
+    created = true;
+  }
+  return { pane, created };
+}
+function erpSetTab(tab, force) {
   if (!tab) tab = "materials";
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
@@ -247,7 +278,15 @@ function erpSetTab(tab) {
   if (!ERP.openTabs.includes(tab)) ERP.openTabs.push(tab);
   document.querySelectorAll(".erp-tab").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === tab));
+  const { pane, created } = erpEnsurePane(tab);
+  const stale = pane.dataset.stale === "1";
+  document.querySelectorAll("#erp-view .erp-pane").forEach(p =>
+    p.classList.toggle("active", p.dataset.pane === tab));
   erpRenderOpenTabs();
+  if (created || force || stale) { delete pane.dataset.stale; erpDispatchTab(tab); }
+}
+// Рисува съдържанието на раздела в активния pane (erpView()).
+function erpDispatchTab(tab) {
   switch (tab) {
     case "materials":    erpRenderMaterials(); break;
     case "missmat":      erpRenderMissingMaterials(); break;
@@ -300,6 +339,10 @@ function erpRenderOpenTabs() {
 }
 function erpCloseTab(tab) {
   ERP.openTabs = (ERP.openTabs || []).filter(t => t !== tab);
+  // Махни pane-а от паметта (със състоянието му) — затворен раздел се рисува наново.
+  const host = document.getElementById("erp-view");
+  const pane = host && host.querySelector('.erp-pane[data-pane="' + tab + '"]');
+  if (pane) pane.remove();
   if (ERP.tab === tab) {
     const next = ERP.openTabs[ERP.openTabs.length - 1];
     if (next) { erpSetTab(next); return; }
@@ -307,7 +350,7 @@ function erpCloseTab(tab) {
     ERP.tab = null;
     document.querySelectorAll(".erp-tab").forEach(b => b.classList.remove("active"));
     erpRenderOpenTabs();
-    erpView().innerHTML = `<p class="erp-empty-tabs">Няма отворени раздели. Избери от лентата с бутони горе, за да отвориш раздел.</p>`;
+    host.innerHTML = `<p class="erp-empty-tabs">Няма отворени раздели. Избери от лентата с бутони горе, за да отвориш раздел.</p>`;
     return;
   }
   erpRenderOpenTabs();
@@ -322,6 +365,10 @@ function erpInit() {
   const closeBtn = document.getElementById("erp-close");
   if (closeBtn) closeBtn.addEventListener("click", closeErp);
   document.querySelectorAll(".erp-tab").forEach(b =>
-    b.addEventListener("click", () => erpSetTab(b.dataset.tab)));
+    b.addEventListener("click", () => {
+      // Повторен клик върху вече активния модул = опресни го; иначе отвори/превключи (пази състоянието).
+      const t = b.dataset.tab;
+      erpSetTab(t, ERP.tab === t && (ERP.openTabs || []).includes(t));
+    }));
 }
 document.addEventListener("DOMContentLoaded", erpInit);
