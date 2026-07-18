@@ -101,7 +101,10 @@ function erpPuTotals(o) {
   return { base, vat, total: base + vat, rate };
 }
 
-/* ---------- Списък (папки + търсене) ---------- */
+/* ---------- Списък (папки + търсене) ----------
+   Зарежда от базата само при вход в таба; търсенето филтрира В ПАМЕТТА (обновява
+   само тялото на таблицата) — без нова заявка към Supabase и без трепване/загуба
+   на фокус при всеки натиснат клавиш. */
 async function erpRenderPurchases() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
@@ -110,13 +113,9 @@ async function erpRenderPurchases() {
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя покупките</h3><p>${escapeHtml(e.message || String(e))}</p><p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица purchases) в Supabase.</p></div>`;
     return;
   }
-  const q = (erpPuQuery || "").toLowerCase().trim();
-  const matchQ = o => !q || (`${o.invoiceNo || ""} ${o.supplierName || ""}`.toLowerCase().includes(q) ||
-    (o.lines || []).some(l => `${l.code || ""} ${l.article || ""} ${l.groupName || ""} ${l.name || ""}`.toLowerCase().includes(q)));
-  const rows = (erpPurchases || []).filter(matchQ).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">${rows.length} фактури</span>
+      <span class="erp-count" id="pu-count"></span>
       <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код…" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
@@ -128,23 +127,10 @@ async function erpRenderPurchases() {
     <p class="hint">Тук се въвеждат входящите фактури (класификация, склад). Плащането им се води в таб <b>💳 Задължения</b> (банковите с отложен срок отиват там автоматично).</p>
     <table class="report-table erp-table">
       <thead><tr><th>Дата</th><th>№ Фактура</th><th>Доставчик</th><th>Класификация</th><th class="num">Сума (с ДДС)</th><th>Плащане</th><th>Статус</th><th></th></tr></thead>
-      <tbody>${rows.map(o => {
-        const t = erpPuTotals(o);
-        const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
-        return `<tr class="erp-clickable" data-id="${o.id}">
-          <td data-label="Дата">${escapeHtml(o.date || "")}</td>
-          <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
-          <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
-          <td data-label="Класификация">${escapeHtml(cls || "—")}</td>
-          <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
-          <td data-label="Плащане">${escapeHtml(erpPuPayLabel(o))}</td>
-          <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'}</td>
-          <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-        </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма фактури. Натисни „+ Нова фактура".</td></tr>`}
-      </tbody>
+      <tbody id="pu-tbody"></tbody>
     </table>`;
   const qEl = document.getElementById("pu-q");
-  if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpRenderPurchases(); });
+  if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpPuFillRows(); });
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
   const aiBtn = document.getElementById("pu-ai");
@@ -153,8 +139,31 @@ async function erpRenderPurchases() {
   if (impEl) impEl.addEventListener("change", e => { erpPuImport(e.target.files[0]); e.target.value = ""; });
   const clrEl = document.getElementById("pu-clear-import");
   if (clrEl) clrEl.addEventListener("click", erpPuClearImport);
-  v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
-  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
+  erpPuFillRows();
+}
+// Пълни само тялото на таблицата от паметта (за търсене — без заявка към базата).
+function erpPuFillRows() {
+  const tb = document.getElementById("pu-tbody"); if (!tb) return;
+  const q = (erpPuQuery || "").toLowerCase().trim();
+  const matchQ = o => !q || (`${o.invoiceNo || ""} ${o.supplierName || ""}`.toLowerCase().includes(q) ||
+    (o.lines || []).some(l => `${l.code || ""} ${l.article || ""} ${l.groupName || ""} ${l.name || ""}`.toLowerCase().includes(q)));
+  const rows = (erpPurchases || []).filter(matchQ).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const cnt = document.getElementById("pu-count"); if (cnt) cnt.textContent = rows.length + " фактури";
+  tb.innerHTML = rows.map(o => {
+    const t = erpPuTotals(o);
+    const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
+    return `<tr class="erp-clickable" data-id="${o.id}">
+      <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
+      <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
+      <td data-label="Класификация">${escapeHtml(cls || "—")}</td>
+      <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
+      <td data-label="Плащане">${escapeHtml(erpPuPayLabel(o))}</td>
+      <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'}</td>
+      <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+    </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма фактури. Натисни „+ Нова фактура".</td></tr>`;
+  tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
+  tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
 }
 
 function erpNewPurchase() {
