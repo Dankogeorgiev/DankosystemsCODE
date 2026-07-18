@@ -199,7 +199,10 @@ async function erpPaySyncFromPurchase(o) {
   await erpPayLoad();
   const rate = (o.currency === "BGN") ? 1.95583 : 1;
   const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { base: 0, total: 0 };
-  const qualifies = o.paymentMethod === "Банка" && Number(o.termDays) > 0 && !o.paid;
+  // Отложено (разсрочено) плащане, още неплатено → задължение. Ново поле payStatus
+  // има приоритет; старите записи падат към paymentMethod/termDays.
+  const qualifies = !o.paid && (o.payStatus === "deferred" ||
+    (!o.payStatus && o.paymentMethod === "Банка" && Number(o.termDays) > 0));
   const idx = (PAYABLES || []).findIndex(p => p.srcPurchaseId === o.id);
   if (qualifies) {
     const fields = {
