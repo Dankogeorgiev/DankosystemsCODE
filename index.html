@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=278" />
+  <link rel="stylesheet" href="styles.css?v=279" />
   <link rel="stylesheet" href="erp.css?v=255" />
 </head>
 <body>
@@ -29,9 +29,22 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 359</p>
+      <p class="login-version">версия 360</p>
     </form>
   </div>
+
+  <nav id="topnav" class="topnav app-chrome" hidden aria-label="Бърза навигация">
+    <span class="topnav-label">🗔 Отвори в нов таб:</span>
+    <button class="topnav-btn" data-open="erp:customer">📋 Заявки</button>
+    <button class="topnav-btn" data-open="erp:purchases" data-prod="1">🛒 Покупки</button>
+    <button class="topnav-btn" data-open="erp:payables" data-prod="1">💳 Задължения</button>
+    <button class="topnav-btn" data-open="erp:sales" data-prod="1">🧾 Продажби</button>
+    <button class="topnav-btn" data-open="erp:invoices" data-prod="1">📄 Фактуриране</button>
+    <button class="topnav-btn" data-open="erp:materials">🧱 Материали</button>
+    <button class="topnav-btn" data-open="erp:products">📦 Продукти</button>
+    <button class="topnav-btn" data-open="erp:archive">📚 Архив</button>
+    <button class="topnav-btn" data-open="finance" data-fin="1">💰 Финанси</button>
+  </nav>
 
   <header class="app-header app-chrome" hidden>
     <div class="header-zone header-left">
@@ -592,7 +605,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
-  <script src="app.js?v=241"></script>
+  <script src="app.js?v=242"></script>
   <script src="tasks.js?v=273"></script>
   <script src="master-report.js?v=2"></script>
   <script src="prod-report.js?v=164"></script>
@@ -624,9 +637,9 @@
   <script src="erp-ai-orders.js?v=5"></script>
   <script src="erp-pricelists.js?v=225"></script>
   <script src="erp-partners.js?v=161"></script>
-  <script src="erp-purchases.js?v=240"></script>
+  <script src="erp-purchases.js?v=241"></script>
   <script src="erp-ai-purchases.js?v=1"></script>
-  <script src="erp-payables.js?v=4"></script>
+  <script src="erp-payables.js?v=5"></script>
   <script src="erp-sales.js?v=237"></script>
   <script src="erp-invoices.js?v=6"></script>
   <script src="erp-email.js?v=233"></script>

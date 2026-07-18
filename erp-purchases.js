@@ -121,6 +121,7 @@ async function erpRenderPurchases() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
       <label class="btn btn-small co-attach-btn" title="Импорт на разходи от GenCloud (xlsx) — сумите се вкарват положителни">⤓ Импорт (GenCloud)<input type="file" id="pu-import" accept=".xlsx,.xls" hidden /></label>
+      ${(erpPurchases || []).some(p => p.imported) ? '<button class="btn btn-small btn-danger" id="pu-clear-import" title="Изтрий всички импортирани фактури (ръчно въведените остават)">🗑 Изтегли импорта</button>' : ""}
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
@@ -150,6 +151,8 @@ async function erpRenderPurchases() {
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
   const impEl = document.getElementById("pu-import");
   if (impEl) impEl.addEventListener("change", e => { erpPuImport(e.target.files[0]); e.target.value = ""; });
+  const clrEl = document.getElementById("pu-clear-import");
+  if (clrEl) clrEl.addEventListener("click", erpPuClearImport);
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
 }
@@ -460,6 +463,19 @@ async function erpPuImport(file) {
     erpRenderPurchases();
     alert(`Импорт готов: ${added} нови фактури${skipped ? `, ${skipped} пропуснати (вече въведени)` : ""}.\nСлужат само за регистър/архив — не се дублират в „Задължения".`);
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}
+// Изтегля (изтрива) всички импортирани фактури — ръчно въведените остават.
+async function erpPuClearImport() {
+  const imp = (erpPurchases || []).filter(p => p.imported);
+  if (!imp.length) { alert("Няма импортирани фактури за изтегляне."); return; }
+  if (!confirm(`Да изтегля (изтрия) ли ${imp.length} импортирани фактури?\nРъчно въведените остават непокътнати.`)) return;
+  let del = 0;
+  for (const p of imp) {
+    try { const { error } = await sb.from("purchases").delete().eq("id", p.id); if (!error) del++; } catch (e) {}
+  }
+  await erpLoadPurchases();
+  erpRenderPurchases();
+  alert(`Изтеглени ${del} импортирани фактури. Можеш да импортираш наново.`);
 }
 
 /* ---------- История на цените по код ---------- */

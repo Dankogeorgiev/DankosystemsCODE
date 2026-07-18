@@ -72,6 +72,7 @@ async function erpRenderPayables() {
       ${tab("paid", "✓ Платени (архив)")}
       <span class="spacer"></span>
       <label class="btn btn-small co-attach-btn">⤓ Импорт (GenCloud)<input type="file" id="pay-file" accept=".xlsx,.xls" hidden /></label>
+      ${(PAYABLES || []).some(p => !p.srcPurchaseId) ? '<button class="btn btn-small btn-danger" id="pay-clear-import" title="Изтрий импортираните задължения (тези от въведена фактура-разход остават)">🗑 Изтегли импорта</button>' : ""}
     </div>
     <div class="pay-cards">
       ${card("📅 Тази седмица", weekItems, "pay-card-week")}
@@ -109,6 +110,7 @@ async function erpRenderPayables() {
 
   v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { payFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
+  const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
   v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpPayUnpay(Number(b.dataset.unpay))));
@@ -184,10 +186,22 @@ async function erpPayImport(file) {
       // Дедуп по № + доставчик; обновяваме неплатените, добавяме новите.
       const ex = (PAYABLES || []).find(p => !p.paid && String(p.invoiceNo) === invoiceNo && (p.supplier || "") === supplier);
       if (ex) { Object.assign(ex, rec); updated++; }
-      else { PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", ...rec }); added++; }
+      else { PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", imported: true, ...rec }); added++; }
     });
     if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert(`Импорт готов: ${added} нови, ${updated} обновени.`); }
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}
+
+// Изтегля (изтрива) импортираните от GenCloud задължения. Тези, дошли автоматично
+// от въведена фактура-разход (имат srcPurchaseId), остават непокътнати.
+async function erpPayClearImport() {
+  await erpPayLoad();
+  const imported = (PAYABLES || []).filter(p => !p.srcPurchaseId);
+  if (!imported.length) { alert("Няма импортирани задължения за изтегляне."); return; }
+  if (!confirm(`Да изтегля (изтрия) ли ${imported.length} импортирани задължения?\nТези, дошли от въведена фактура-разход, остават.`)) return;
+  PAYABLES = (PAYABLES || []).filter(p => p.srcPurchaseId);
+  paySelected.clear();
+  if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert("Готово. Можеш да импортираш наново."); }
 }
 
 /* ---------- Връзка с Покупки: покупка Банка+срок → задължение ---------- */
