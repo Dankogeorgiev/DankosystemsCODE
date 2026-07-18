@@ -59,6 +59,33 @@ body {
 }
 
 /* Header */
+/* Лента за навигация (отваряне на модули в отделни табове) */
+.topnav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 14px;
+  background: linear-gradient(90deg, #0f766e, #115e59);
+  border-bottom: 1px solid #0b4f49;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+}
+.topnav-label { color: #d1fae5; font-size: 12px; font-weight: 700; margin-right: 4px; white-space: nowrap; }
+.topnav-btn {
+  border: 1px solid rgba(255, 255, 255, .28);
+  background: rgba(255, 255, 255, .10);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, transform .06s;
+}
+.topnav-btn:hover { background: rgba(255, 255, 255, .22); }
+.topnav-btn:active { transform: translateY(1px); }
+
 .app-header {
   display: flex;
   justify-content: space-between;

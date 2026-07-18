@@ -98,6 +98,7 @@ function pulseAllowed() {
 }
 
 function applyAccess() {
+  topnavApply();
   const fin = document.getElementById("btn-finance");
   if (fin) fin.style.display = financeAllowed() ? "" : "none";
   const pulse = document.getElementById("btn-pulse");
@@ -122,6 +123,51 @@ function applyAccess() {
   if (MY_ACCESS.workshop === "ЦЕХ РОГОШ" && typeof openRogosh === "function") { openRogosh(); return; }
   if (MY_ACCESS.workshop === "Занитване" && typeof openNit === "function") { openNit(); return; }
   if (typeof openTasks === "function") openTasks();
+}
+
+/* ---------- Лента за навигация (модули в отделни табове) ----------
+   Всеки бутон отваря модула в НОВ таб на браузъра (?open=…), така че могат да
+   стоят няколко модула отворени наведнъж. Сесията се пази от Supabase, затова
+   новият таб влиза автоматично и routeOpenModule го отваря на правилния таб. */
+function topnavOpen(key) {
+  try { window.open(location.pathname + "?open=" + encodeURIComponent(key), "_blank"); }
+  catch (e) { /* тихо */ }
+}
+function topnavInit() {
+  document.querySelectorAll("#topnav .topnav-btn").forEach(b =>
+    b.addEventListener("click", () => topnavOpen(b.dataset.open)));
+}
+// Показва лентата само за офиса; крие финансовите модули при производствен достъп.
+function topnavApply() {
+  const nav = document.getElementById("topnav"); if (!nav) return;
+  const office = !!(MY_ACCESS && MY_ACCESS.isAdmin);
+  nav.style.display = office ? "" : "none";
+  const prod = !!(MY_ACCESS && MY_ACCESS.production);
+  const finOk = (typeof financeAllowed !== "function") || financeAllowed();
+  nav.querySelectorAll(".topnav-btn").forEach(b => {
+    let show = true;
+    if (b.dataset.prod && prod) show = false;
+    if (b.dataset.fin && !finOk) show = false;
+    b.style.display = show ? "" : "none";
+  });
+}
+// Отваря зададения през ?open= модул (ЕРП таб или Финанси) след вход.
+function routeOpenModule() {
+  try {
+    const p = new URLSearchParams(location.search).get("open");
+    if (!p || !(MY_ACCESS && MY_ACCESS.isAdmin)) return;
+    if (p === "finance") {
+      if (typeof financeAllowed === "function" && !financeAllowed()) return;
+      if (typeof ERP !== "undefined") ERP.tab = "finance";
+      if (typeof openErp === "function") openErp();
+      return;
+    }
+    if (p.indexOf("erp:") === 0) {
+      const tab = p.slice(4) || "customer";
+      if (typeof ERP !== "undefined") ERP.tab = tab;
+      if (typeof openErp === "function") openErp();
+    }
+  } catch (e) { /* тихо */ }
 }
 
 function getCurrent() { return samples.find(s => s.id === currentId); }
@@ -1043,6 +1089,7 @@ async function onSignedIn(s) {
     const cex = new URLSearchParams(location.search).get("cex");
     if (cex && typeof openWorkshopDirect === "function") openWorkshopDirect(cex);
   } catch (e) {}
+  routeOpenModule();   // ?open=erp:payables и т.н. → отваря модула в този таб
 }
 
 function onSignedOut() {
@@ -1170,6 +1217,7 @@ async function init() {
   }
 
   sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  topnavInit();
 
   const { data: { session: s } } = await sb.auth.getSession();
   if (s) await onSignedIn(s); else showLogin();
