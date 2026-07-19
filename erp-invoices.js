@@ -207,6 +207,7 @@ async function erpRenderInvoices() {
       <label class="erp-inline">Статус
         <select id="inv-fstatus"><option value="">Всички</option>${["чернова", "издадена", "платена", "сторнирана"].map(s => `<option ${s === erpInvStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <span class="spacer"></span>
+      ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
       <button class="btn btn-small btn-primary" id="inv-new-invoice">+ Фактура</button>
@@ -235,6 +236,7 @@ async function erpRenderInvoices() {
   document.getElementById("inv-fkind").addEventListener("change", e => { erpInvKindFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-fstatus").addEventListener("change", e => { erpInvStatusFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-series").addEventListener("click", erpInvSeriesDialog);
+  const mt = document.getElementById("inv-mail-test"); if (mt) mt.addEventListener("click", erpMailDiag);
   document.getElementById("inv-new-proforma").addEventListener("click", () => erpNewInvoice("proforma"));
   document.getElementById("inv-new-invoice").addEventListener("click", () => erpNewInvoice("invoice"));
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenInvoice(Number(b.dataset.open)); }));
@@ -298,6 +300,7 @@ async function erpInvForm(o) {
       <span class="erp-count">${escapeHtml(k.label || o.kind)}${o.docNo ? " № " + escapeHtml(o.docNo) : " (чернова)"}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
+      ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
       ${locked ? '<span class="erp-count">✓ Издадена — само преглед</span>'
         : '<button class="btn btn-small" id="inv-save">💾 Запази</button><button class="btn btn-small btn-primary" id="inv-issue">📤 Издай (вземи номер)</button>'}
     </div>
@@ -386,6 +389,7 @@ async function erpInvForm(o) {
   g("inv-ccountry", e => o.client.country = e.target.value);
   g("inv-note", e => o.note = e.target.value);
   const pr = document.getElementById("inv-print"); if (pr) pr.addEventListener("click", () => erpInvPrint(o));
+  const ml = document.getElementById("inv-mail"); if (ml) ml.addEventListener("click", () => erpMailInvoice(o));
   const sv = document.getElementById("inv-save"); if (sv) sv.addEventListener("click", () => erpInvSaveClick(o));
   const iss = document.getElementById("inv-issue"); if (iss) iss.addEventListener("click", () => erpInvIssue(o));
   const ap = document.getElementById("inv-add-prod"); if (ap) ap.addEventListener("click", () => erpInvAddProduct(o));
@@ -500,6 +504,8 @@ async function erpInvIssue(o) {
     // Издадената фактура става вземане от клиента (проформата не влиза).
     try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
     erpInvForm(JSON.parse(JSON.stringify((erpInvoices || []).find(x => x.id === o.id) || o)));
+    // Автоматично предлага изпращане на фактурата по имейл (готово писмо, 1 клик).
+    try { if (typeof erpMailInvoice === "function") erpMailInvoice(o); } catch (e) {}
   } catch (e) {
     o.posted = false; o.status = "чернова"; o.docNo = null;
     if (btn) { btn.disabled = false; btn.textContent = "📤 Издай (вземи номер)"; }
