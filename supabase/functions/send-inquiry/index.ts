@@ -48,8 +48,15 @@ Deno.serve(async (req) => {
     return json({ error: "Сървърът не е настроен (липсва BREVO_API_KEY или FROM_EMAIL)." }, 500);
   }
 
-  // Получателите са в BCC (скрити един от друг); видим получател е самата поща.
-  const body: any = {
+  // direct=true → получателите са видими в "To" (лични писма: фактура, заявка).
+  // Иначе (масово запитване) са в BCC, скрити един от друг.
+  const direct = !!payload.direct;
+  const body: any = direct ? {
+    sender: { email: fromEmail, name: fromName },
+    to: to.map((e) => ({ email: e })),
+    subject,
+    textContent: text || "Съобщение от Данко Системс",
+  } : {
     sender: { email: fromEmail, name: fromName },
     to: [{ email: fromEmail, name: fromName }],
     bcc: to.map((e) => ({ email: e })),

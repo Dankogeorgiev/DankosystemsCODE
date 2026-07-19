@@ -535,7 +535,11 @@ async function erpRenderCOForm(o) {
   const wBtn = document.getElementById("co-withdraw");
   if (wBtn) wBtn.addEventListener("click", () => erpCOWithdraw(o));
   const emBtn = document.getElementById("co-email");
-  if (emBtn) emBtn.addEventListener("click", () => { if (typeof erpEmailOrderReady === "function") erpEmailOrderReady(o); });
+  if (emBtn) emBtn.addEventListener("click", () => {
+    // Ново: автоматично изпращане през Brevo (готова / срок); старото Gmail compose е резерва.
+    if (typeof erpMailOrderDialog === "function") erpMailOrderDialog(o);
+    else if (typeof erpEmailOrderReady === "function") erpEmailOrderReady(o);
+  });
   const saleBtn = document.getElementById("co-sale");
   if (saleBtn) saleBtn.addEventListener("click", () => {
     if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
