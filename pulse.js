@@ -19,18 +19,26 @@ async function renderPulse() {
   if (!v) return;
   v.innerHTML = `<p class="erp-loading">Зареждане на пулса…</p>`;
   const today = pulseToday();
-  let orders = [], tasks = [], lowMat = [], sales = [];
+  let orders = [], tasks = [], lowMat = [], sales = [], invoices = [], purchases = [], recvList = [], payList = [];
   try {
-    const [co, tk, mat, sl] = await Promise.all([
+    const [co, tk, mat, sl, inv, pu, cfg] = await Promise.all([
       erpSelectAll("customer_orders", "data"),
       erpSelectAll("tasks", "data,done"),
       erpSelectAll("v_material_stock", "code,name,stock,min_stock,below_min", "below_min", true),
       erpSelectAll("sales", "data").catch(() => ({ data: [] })),
+      erpSelectAll("invoices", "data,posted,kind").catch(() => ({ data: [] })),
+      erpSelectAll("purchases", "data").catch(() => ({ data: [] })),
+      sb.from("app_config").select("id,data").in("id", ["receivables", "payables"]).then(r => r).catch(() => ({ data: [] })),
     ]);
     orders = (co.data || []).map(r => r.data || {});
     tasks = tk.data || [];
     lowMat = mat.data || [];
     sales = (sl && sl.data || []).map(r => r.data || {});
+    invoices = (inv && inv.data || []).map(r => ({ posted: r.posted, kind: r.kind, ...(r.data || {}) }));
+    purchases = (pu && pu.data || []).map(r => r.data || {});
+    const cfgRows = (cfg && cfg.data) || [];
+    recvList = ((cfgRows.find(r => r.id === "receivables") || {}).data || {}).list || [];
+    payList = ((cfgRows.find(r => r.id === "payables") || {}).data || {}).list || [];
   } catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
@@ -78,10 +86,38 @@ async function renderPulse() {
     ? Object.entries(salesByCur).map(([c, n]) => money(n, c)).join(" · ")
     : "0 €";
 
+  // Финанси: приходи (издадени фактури този месец), разходи (покупки този месец),
+  // вземания от клиенти и задължения към доставчици. Всичко в EUR (BGN → /1.95583).
+  const toEur = (n, cur) => cur === "BGN" ? n / 1.95583 : n;
+  let invMonth = 0;
+  invoices.forEach(o => {
+    if (!o.posted || o.kind === "proforma") return;
+    if (String(o.issueDate || "").slice(0, 7) !== month) return;
+    const sign = o.kind === "credit" ? -1 : 1;
+    invMonth += sign * toEur(lineNet(o.lines), o.currency || "EUR");
+  });
+  let purchMonth = 0;
+  purchases.forEach(o => {
+    if (String(o.date || "").slice(0, 7) !== month) return;
+    purchMonth += toEur(lineNet(o.lines), o.currency || "BGN");
+  });
+  const recvUnpaid = recvList.filter(p => !p.paid);
+  const recvSum = recvUnpaid.reduce((s, p) => s + (num(p.amount) || 0), 0);
+  const recvOver = recvUnpaid.filter(p => p.dueDate && p.dueDate < today)
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  const recvOverSum = recvOver.reduce((s, p) => s + (num(p.amount) || 0), 0);
+  const payUnpaid = payList.filter(p => !p.paid);
+  const paySum = payUnpaid.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
+
   const card = (label, value, cls) => `<div class="pulse-card ${cls || ""}"><div class="pulse-val">${value}</div><div class="pulse-lbl">${label}</div></div>`;
 
   v.innerHTML = `
     <div class="pulse-cards">
+      ${card("фактурирано месец (без ДДС)", money(invMonth, "EUR"), "money")}
+      ${card("разходи месец (без ДДС)", money(purchMonth, "EUR"), "money")}
+      ${card("вземания от клиенти (с ДДС)", money(recvSum, "EUR"), recvOver.length ? "warn" : "money")}
+      ${card("от тях просрочени", money(recvOverSum, "EUR") + " · " + recvOver.length + " бр.", recvOver.length ? "danger" : "")}
+      ${card("задължения (с ДДС)", money(paySum, "EUR"), "")}
       ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money")}
       ${card("продажби месец (без ДДС)", salesMonthStr, "money")}
       ${card("произведено днес (бр.)", erpNum(todayQty), "ok")}
@@ -98,6 +134,12 @@ async function renderPulse() {
         ${wipRows.length
           ? `<table class="report-table"><tbody>${wipRows.map(([w, n]) => `<tr><td>${escapeHtml(w)}</td><td class="num"><b>${n}</b> задачи</td></tr>`).join("")}</tbody></table>`
           : `<p class="erp-muted">Няма незавършени задачи.</p>`}
+      </div>
+      <div class="pulse-panel">
+        <h4>💵 Просрочени вземания (${recvOver.length})</h4>
+        ${recvOver.length
+          ? `<table class="report-table"><thead><tr><th>Клиент</th><th>Фактура</th><th>Падеж</th><th class="num">EUR</th></tr></thead><tbody>${recvOver.slice(0, 15).map(p => `<tr><td>${escapeHtml(p.client || "")}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td class="pulse-danger">${escapeHtml(p.dueDate || "")}</td><td class="num">${money(num(p.amount) || 0, "EUR")}</td></tr>`).join("")}</tbody></table>${recvOver.length > 15 ? `<p class="erp-muted">…и още ${recvOver.length - 15}</p>` : ""}`
+          : `<p class="erp-muted">Няма просрочени вземания. 🎉</p>`}
       </div>
       <div class="pulse-panel">
         <h4>⏰ Закъснели заявки (${overdue.length})</h4>
