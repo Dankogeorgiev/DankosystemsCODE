@@ -1,31 +1,60 @@
-# Автоматично изпращане на запитвания по имейл (Brevo)
+# 📧 Настройка на автоматичните имейли (Brevo) — чеклист
 
-Запитванията се изпращат от **zapitvane@dankosystems.com** чрез услугата
-**Brevo** (HTTP API). Ключът се пази като secret в Supabase, не в кода.
+**Подател: `dankosystems@gmail.com`** (системният адрес на Данко Системс).
 
-## 1. Регистрация в Brevo
-- Влез в https://www.brevo.com → безплатна регистрация.
+> ⚠ Старата инструкция ползваше `zapitvane@dankosystems.com` — вероятно затова
+> предишният опит не тръгна (подателят не е бил потвърден в Brevo).
+> Сега подателят е Gmail адресът, който със сигурност можеш да потвърдиш.
 
-## 2. Потвърди подателя
-- Brevo → **Senders, Domains & Dedicated IPs → Senders → Add a sender**
-- Име: `Данко Системс`, имейл: `zapitvane@dankosystems.com`
-- Brevo праща писмо за потвърждение на тази поща → отвори го и потвърди.
+Кодът е готов и качен (версия 368+). Остава само тази еднократна настройка (~10 мин).
 
-## 3. Вземи API ключ
-- Brevo → **SMTP & API → API Keys → Generate a new API key** → копирай го.
+## А. Brevo (https://www.brevo.com)
 
-## 4. Задай тайните ключове в Supabase
-Edge Functions → Secrets (https://supabase.com/dashboard/project/hwbblteomrrahfrsyuow/functions/secrets):
+1. Влез в акаунта (или направи нов, безплатен — 300 мейла/ден).
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender**
+   → Име: `Данко Системс`, имейл: `dankosystems@gmail.com`
+   → отвори Gmail пощата и потвърди с кода/линка. Трябва да пише **Verified**.
+3. **SMTP & API → API Keys → Generate a new API key**
+   → копирай ключа (показва се само веднъж).
 
-| Key | Value |
-|---|---|
-| `BREVO_API_KEY` | (ключът от стъпка 3) |
-| `FROM_EMAIL` | `zapitvane@dankosystems.com` |
-| `FROM_NAME` | `Данко Системс` |
+## Б. Supabase (https://supabase.com/dashboard/project/hwbblteomrrahfrsyuow)
 
-## 5. Деплой на функцията
-- Замени кода на `send-inquiry` с този от `supabase/functions/send-inquiry/index.ts` и Deploy.
+4. **Edge Functions → Secrets** — добави/поправи:
 
-## (по желание, за перфектна доставимост)
-- Brevo → Domains → автентикирай `dankosystems.com` (добавяш няколко DNS записа).
-  Не е задължително за старт, но премахва риска от спам.
+   | Key | Value |
+   |---|---|
+   | `BREVO_API_KEY` | ключът от стъпка 3 |
+   | `FROM_EMAIL` | `dankosystems@gmail.com` |
+   | `FROM_NAME` | `Данко Системс` |
+   | `OFFICE_EMAIL` (по избор) | до кого да идва сутрешният отчет; няколко адреса през запетая. Ако липсва → FROM_EMAIL |
+
+5. **Деплой на 2 функции** (Edge Functions → via Editor; файлът е `index.ts`;
+   **Verify JWT = OFF** — както при parse-document):
+   - `send-inquiry` — кодът от `supabase/functions/send-inquiry/index.ts` (**ОБНОВЕН — вземи новия!**)
+   - `daily-mail` — кодът от `supabase/functions/daily-mail/index.ts` (нова)
+
+6. **SQL Editor** → пусни файла `cron-setup.sql` от repo-то
+   (включва сутрешния график 07:30; вътре има и ред за ръчен тест веднага).
+
+## В. Проверка
+
+7. Влез в СИСТЕМАТА → ЕРП → **Фактуриране → „✉ Тест имейл"** → Изпрати тест.
+   - ✓ Изпратено → всичко работи. Провери пощата (и Spam).
+   - ✗ Грешка → червеното каре казва точно коя стъпка е пропусната.
+
+## Какво тръгва след настройката
+
+- **Фактура → клиента**: след „Издай" излиза готово писмо (имейл от партньорите,
+  фактурата като таблица, падеж, IBAN) — 1 клик „Изпрати". Има и ръчен бутон.
+- **Заявка → клиента**: „📅 Кога ще е готова (срок)" / „✅ Готова е" — праща директно.
+- **Сутрешен отчет (07:30, 100% автоматично)**: просрочени вземания + задължения
+  с падеж до 3 дни + „За днес". Не праща, ако няма нищо за докладване.
+- **Запитвания от Контакти** — както досега, но вече с работеща настройка.
+
+## Бележки
+
+- Писмата излизат „от" dankosystems@gmail.com през Brevo. Първите може да
+  попадат в Spam при някои получатели — нормално в началото.
+- Ако някой ден имаш достъп до DNS на dankosystems.com: Brevo → Domains →
+  автентикация (SPF/DKIM) за 100% доставимост.
+- Лимит на безплатния Brevo: 300 мейла/ден — предостатъчно.
