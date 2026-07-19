@@ -486,3 +486,10 @@ img.ai-doc-content { max-width: none; }
 .recv-table .recv-inv-row.pay-overdue td { background: #fef2f2; }
 .recv-table .recv-inv-row.pay-soon td { background: #fffbeb; }
 .recv-table .pay-neg { color: #dc2626; }
+
+/* Широк диалог (Опаковки) + обобщение */
+.erp-dialog-box.erp-dialog-wide { width: min(780px, 96vw); }
+.erp-dialog-wide .erp-co-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+@media (max-width: 640px) { .erp-dialog-wide .erp-co-grid { grid-template-columns: 1fr; } }
+.pack-preview { margin-top: 12px; padding: 10px 12px; background: #ecfdf5; border: 1px solid #99f6e4; border-radius: 10px; font-size: 14px; color: #065f46; }
+.pack-preview b { color: #0f766e; }
