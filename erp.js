@@ -236,6 +236,10 @@ async function erpLoadAll() {
     });
     Object.values(ERP.linesByProduct).forEach(arr =>
       arr.sort((a, b) => (a.position || 0) - (b.position || 0)));
+
+    // Опаковки — зареждат се тук, за да са налични за придружаващите документи
+    // (Packing List/Стокова разписка/Палет опис), дори табът „Опаковки" да не е отварян.
+    try { if (typeof erpPackLoad === "function") await erpPackLoad(); } catch (e) { /* тихо */ }
   } catch (e) {
     const msg = (e && e.message) || String(e);
     erpView().innerHTML =
@@ -290,6 +294,7 @@ function erpDispatchTab(tab) {
   switch (tab) {
     case "materials":    erpRenderMaterials(); break;
     case "missmat":      erpRenderMissingMaterials(); break;
+    case "packaging":    erpRenderPackaging(); break;
     case "detailstock":  erpRenderDetailStock(); break;
     case "products":     erpRenderProducts(); break;
     case "needs":        erpRenderNeeds(); break;

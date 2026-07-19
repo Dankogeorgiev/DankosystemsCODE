@@ -150,6 +150,44 @@ function erpInvLineKg(l) {
   return w > 0 ? Math.round((erpToNum(l.qty) || 0) * w * 1000) / 1000 : 0;
 }
 
+/* ---------- Придружаващи документи: черпят от „Опаковки" (наш код + клиент) ----------
+   Ако има опаковка за реда → теглото е кг/брой × бройка и се смятат кашони/палети;
+   иначе се пада към теглото от рецептата (erpInvLineKg). */
+function erpDocPackFind(o, l) {
+  return (typeof erpPackFind === "function") ? erpPackFind(l && l.code, o && o.client && o.client.name) : null;
+}
+function erpDocLineKg(o, l) {
+  const sp = erpDocPackFind(o, l);
+  if (sp && Number(sp.kgPerPiece) > 0) return Math.round((erpToNum(l.qty) || 0) * Number(sp.kgPerPiece) * 1000) / 1000;
+  return erpInvLineKg(l);
+}
+// Пресмята кашони/палети за ред по опаковката (или null, ако няма опаковка).
+function erpDocPackCalc(o, l) {
+  const sp = erpDocPackFind(o, l); if (!sp) return null;
+  const qty = erpToNum(l.qty) || 0;
+  const kgP = Number(sp.kgPerPiece) || 0, kgB = Number(sp.kgPerBox) || 0, bpp = Number(sp.boxesPerPallet) || 0;
+  const perBox = (kgP > 0 && kgB > 0) ? Math.max(1, Math.round(kgB / kgP)) : 0;
+  const boxes = perBox > 0 ? Math.ceil(qty / perBox) : 0;
+  const pallets = (boxes > 0 && bpp > 0) ? Math.ceil(boxes / bpp) : 0;
+  return { sp, qty, perBox, boxes, pallets, accessories: sp.accessories || "" };
+}
+// Ред-по-ред данни за палет/опаковъчните документи (описанието включва кашони/палети/аксесоари).
+function erpDocAutoRows(o) {
+  return (o.lines || []).map((l, i) => {
+    const kg = erpDocLineKg(o, l);
+    const c = erpDocPackCalc(o, l);
+    let desc = ((l.code ? l.code + " " : "") + (l.name || "")).trim();
+    if (c) {
+      const bits = [];
+      if (c.boxes) bits.push(c.boxes + " каш.");
+      if (c.pallets) bits.push(c.pallets + " пал.");
+      if (c.accessories) bits.push(c.accessories);
+      if (bits.length) desc += " · " + bits.join(" · ");
+    }
+    return { no: i + 1, desc, qty: l.qty, weightKg: kg > 0 ? kg : "" };
+  });
+}
+
 /* ---------- Списък ---------- */
 async function erpRenderInvoices() {
   const v = erpView();
@@ -645,7 +683,7 @@ function erpInvPalletsDialog(o, onDone) {
   wire();
   wrap.querySelector("#pal-add").addEventListener("click", () => { readBack(); o.pallets.push({ no: String(o.pallets.length + 1), desc: "", qty: "", weightKg: "" }); redraw(); });
   wrap.querySelector("#pal-fill").addEventListener("click", () => {
-    o.pallets = (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: String(i + 1), desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: erpToNum(l.qty) || "", weightKg: kg > 0 ? kg : "" }; });
+    o.pallets = erpDocAutoRows(o).map((p, i) => ({ no: String(i + 1), desc: p.desc, qty: erpToNum(p.qty) || "", weightKg: p.weightKg }));
     redraw();
   });
   wrap.querySelector("#pal-cancel").addEventListener("click", () => { readBack(); close(); finish(); });
@@ -682,7 +720,7 @@ function invDocRef(o) { return (o.docNo ? "фактура № " + o.docNo : "ч�
 function erpInvPrintGoodsNote(o) {
   let totKg = 0;
   const rows = (o.lines || []).map((l, i) => {
-    const kg = erpInvLineKg(l); totKg += kg || 0;
+    const kg = erpDocLineKg(o, l); totKg += kg || 0;
     return `<tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}</td><td class="r">${erpNum(l.qty)}</td><td>${escapeHtml(l.unit || "")}</td><td class="r">${kg ? erpNum(kg) : ""}</td></tr>`;
   }).join("") || `<tr><td colspan="6" class="c muted">—</td></tr>`;
   const grossKg = (o.transport && erpToNum(o.transport.totalWeightKg) > 0) ? erpToNum(o.transport.totalWeightKg) : totKg;
@@ -698,7 +736,7 @@ function erpInvPrintGoodsNote(o) {
 
 /* ---------- Packing List (EN) ---------- */
 function erpInvPrintPacking(o) {
-  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: kg > 0 ? kg : "" }; });
+  const pal = (o.pallets && o.pallets.length) ? o.pallets : erpDocAutoRows(o);
   const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
   const tr = o.transport || {};
@@ -714,7 +752,7 @@ function erpInvPrintPacking(o) {
 
 /* ---------- Палет опис (BG+EN) ---------- */
 function erpInvPrintPallets(o) {
-  const pal = (o.pallets && o.pallets.length) ? o.pallets : (o.lines || []).map((l, i) => { const kg = erpInvLineKg(l); return { no: i + 1, desc: ((l.code ? l.code + " " : "") + (l.name || "")).trim(), qty: l.qty, weightKg: kg > 0 ? kg : "" }; });
+  const pal = (o.pallets && o.pallets.length) ? o.pallets : erpDocAutoRows(o);
   const totQ = pal.reduce((s, p) => s + (erpToNum(p.qty) || 0), 0);
   const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
@@ -730,7 +768,7 @@ function erpInvPrintPallets(o) {
 /* ---------- ЧМР / CMR (опростен международен формуляр) ---------- */
 function erpInvPrintCMR(o) {
   const s = ERP_SELLER || {}; const c = o.client || {}; const tr = o.transport || {};
-  const recipeKg = (o.lines || []).reduce((sum, l) => sum + (erpInvLineKg(l) || 0), 0);
+  const recipeKg = (o.lines || []).reduce((sum, l) => sum + (erpDocLineKg(o, l) || 0), 0);
   const grossKg = erpToNum(tr.totalWeightKg) > 0 ? erpToNum(tr.totalWeightKg) : recipeKg;
   const goods = (o.lines || []).map(l => `${erpNum(l.qty)} ${escapeHtml(l.unit || "")} · ${escapeHtml((l.code ? l.code + " " : "") + (l.name || ""))}`).join("<br>") || "—";
   const cell = (label, val) => `<td><span class="lbl">${label}</span>${val || ""}</td>`;
