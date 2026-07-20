@@ -7,6 +7,7 @@
 
 let PAYABLES = null;
 let pybFilter = "all";           // all | week | month | paid
+let pybQuery = "";               // 🔎 търсене (доставчик / № / артикул)
 let paySelected = new Set();     // избрани id за „плащане днес"
 
 function payNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
@@ -52,6 +53,9 @@ async function erpRenderPayables() {
   else if (pybFilter === "week") rows = weekItems;
   else if (pybFilter === "month") rows = monthItems;
   else rows = unpaid;
+  // 🔎 Търсене (в паметта): доставчик / № фактура / артикул. Картите горе остават общи.
+  const pq = (pybQuery || "").toLowerCase().trim();
+  if (pq) rows = rows.filter(p => `${p.supplier || ""} ${p.invoiceNo || ""} ${p.article || ""}`.toLowerCase().includes(pq));
   rows = rows.slice().sort((a, b) => {
     if (pybFilter === "paid") return String(b.paidDate || "").localeCompare(a.paidDate || "");
     const af = a.forToday ? 0 : 1, bf = b.forToday ? 0 : 1;   // „за днес" отгоре
@@ -70,6 +74,7 @@ async function erpRenderPayables() {
       ${tab("week", "📅 Тази седмица")}
       ${tab("month", "📅 До края на месеца")}
       ${tab("paid", "✓ Платени (архив)")}
+      <input type="search" id="pyb-q" placeholder="🔎 доставчик / № / артикул…" value="${escapeAttr(pybQuery)}" style="min-width:190px" autocomplete="off" />
       <span class="spacer"></span>
       <label class="btn btn-small co-attach-btn">⤓ Импорт (GenCloud)<input type="file" id="pay-file" accept=".xlsx,.xls" hidden /></label>
       ${(PAYABLES || []).some(p => !p.srcPurchaseId) ? '<button class="btn btn-small btn-danger" id="pay-clear-import" title="Изтрий импортираните задължения (тези от въведена фактура-разход остават)">🗑 Изтегли импорта</button>' : ""}
@@ -110,6 +115,13 @@ async function erpRenderPayables() {
     ${pybFilter !== "paid" ? `<div class="pay-paybar" id="pay-paybar"></div>` : ""}`;
 
   v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { pybFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
+  const pqEl = document.getElementById("pyb-q");
+  if (pqEl) pqEl.addEventListener("input", e => {
+    pybQuery = e.target.value;
+    erpRenderPayables();
+    const el = document.getElementById("pyb-q");
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);
   const ca = document.getElementById("pay-clear-all"); if (ca) ca.addEventListener("click", erpPayClearAll);
