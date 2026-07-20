@@ -540,3 +540,7 @@ img.ai-doc-content { max-width: none; }
 .pu-learn-chip { background: #fff; border-color: #c4b5fd; }
 .pu-learn-chip:hover { background: #ede9fe; }
 .pack-nocode { color: #b45309; background: #fef3c7; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+
+/* Статус „частично завършена" — лилав, за да не се бърка със „завършена" (зелено).
+   Стои след правилото за „завършена", за да има превес при съвпадение на класове. */
+.erp-co-status[class*="частично"] { background: #ede9fe; color: #6d28d9; }
