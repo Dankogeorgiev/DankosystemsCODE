@@ -28,6 +28,14 @@ async function openLaserFill() {
   const isAdmin = !(typeof amWorker === "function" && amWorker());
   const meWorker = (typeof MY_WORKER !== "undefined" && MY_WORKER) || "";
   const NEW_ROWS = 10;
+  // Служителите на Лазерите — от настройката на цеха; резерва: тримата по подразбиране.
+  const LASER_WORKERS = ((typeof WORKERS !== "undefined" && WORKERS && WORKERS["Лазери"]) || []).length
+    ? WORKERS["Лазери"].slice()
+    : ["Костадин Алвантов", "Димитър", "Кръстьо"];
+  const workerSel = (cls, i, val) => `<select class="${cls}" data-i="${i}" style="width:150px">
+    <option value="">— избери —</option>
+    ${LASER_WORKERS.map(n => `<option ${n === val ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}
+  </select>`;
 
   const pending = (LFILL || []).filter(r => r.status !== "заприходен").sort((a, b) => String(b.date || "").localeCompare(a.date || ""));
   const posted = (LFILL || []).filter(r => r.status === "заприходен").sort((a, b) => String(b.postedAt || "").localeCompare(a.postedAt || "")).slice(0, 30);
@@ -50,16 +58,19 @@ async function openLaserFill() {
     <td><input type="text" class="lfn-thick" data-i="${i}" style="width:70px" placeholder="напр. 3" /></td>
     <td><input type="text" class="lfn-name" data-i="${i}" style="min-width:150px;width:100%" placeholder="наименование / мостра / за нас" /></td>
     <td><input type="number" class="lfn-qty" data-i="${i}" min="0" step="1" style="width:65px" placeholder="бр." /></td>
-    <td><input type="text" class="lfn-worker" data-i="${i}" value="${escapeAttr(meWorker)}" style="width:110px" placeholder="име" /></td>
+    <td>${workerSel("lfn-worker", i, meWorker)}</td>
     <td></td></tr>`;
 
   const { wrap, close } = erpDialog(`
     <h3>🔥 ПЪЛНЕЖ — единични бройки от листовете (мостри / рязано за нас)</h3>
-    <p class="hint" style="margin:0 0 8px">Попълни каквото знаеш — кодът може да остане празен, офисът ще го сложи. Всяка бройка после се заприходява като готов детайл.</p>
-    <div style="max-height:62vh;overflow:auto">
-    ${pending.length ? `<h4 class="erp-group-head">⏳ Чакащи (${pending.length})</h4>
-      <table class="report-table erp-table"><thead><tr><th>Дата</th><th>Код</th><th>Дебелина</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
-      <tbody id="lf-pending">${pending.map(pendRow).join("")}</tbody></table>` : ""}
+    <p class="hint" style="margin:0 0 8px">${isAdmin
+      ? "Сложи КОД на чакащия ред и натисни 📥 Заприходи — бройката влиза в Склад Детайли, а ламарината се изписва от Материали."
+      : "Попълни каквото знаеш — кодът може да остане празен, офисът ще го сложи. Всяка бройка после се заприходява като готов детайл."}</p>
+    <div class="lf-scroll">
+    <h4 class="erp-group-head">⏳ Чакащи заприходяване (${pending.length})</h4>
+    ${pending.length ? `<table class="report-table erp-table"><thead><tr><th>Дата</th><th>Код</th><th>Дебелина</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
+      <tbody id="lf-pending">${pending.map(pendRow).join("")}</tbody></table>`
+      : `<p class="hint">Няма чакащи редове. ${isAdmin ? "Когато лазерджиите запишат пълнеж, редовете излизат тук — слагаш код и заприходяваш." : "Попълни долу и натисни Запази."}</p>`}
     <h4 class="erp-group-head">➕ Нови редове</h4>
     <table class="report-table erp-table"><thead><tr><th>Дата</th><th>Код</th><th>Дебелина м-л</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
       <tbody id="lf-new"></tbody></table>
@@ -69,7 +80,7 @@ async function openLaserFill() {
     </div>
     <datalist id="lf-codes">${(typeof ERP !== "undefined" && ERP.products ? ERP.products : []).slice(0, 4000).map(p => `<option value="${escapeAttr(p.code || "")}">${escapeAttr(p.name || "")}</option>`).join("")}</datalist>
     <div class="erp-dialog-actions"><button class="btn" id="lf-close">Затвори</button><button class="btn btn-primary" id="lf-save">💾 Запази новите редове</button></div>`);
-  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-full");
 
   const newBody = wrap.querySelector("#lf-new");
   let rowCount = 0;

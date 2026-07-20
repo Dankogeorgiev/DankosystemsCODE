@@ -544,3 +544,8 @@ img.ai-doc-content { max-width: none; }
 /* Статус „частично завършена" — лилав, за да не се бърка със „завършена" (зелено).
    Стои след правилото за „завършена", за да има превес при съвпадение на класове. */
 .erp-co-status[class*="частично"] { background: #ede9fe; color: #6d28d9; }
+
+/* ПЪЛНЕЖ — на цял екран */
+.erp-dialog-box.erp-dialog-full { width: 98vw; max-width: 98vw; height: 96vh; max-height: 96vh; display: flex; flex-direction: column; border-radius: 12px; }
+.erp-dialog-full .lf-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.erp-dialog-full .erp-dialog-actions { flex: 0 0 auto; }
