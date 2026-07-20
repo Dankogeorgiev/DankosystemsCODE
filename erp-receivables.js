@@ -11,6 +11,7 @@
 const RECV_EUR_BGN = 1.95583;
 let RECEIVABLES = null;
 let recvFilter = "all";            // all | week | month | overdue | paid
+let recvQuery = "";                // 🔎 търсене (клиент / № фактура)
 let recvSelected = new Set();      // избрани id за отбелязване платени
 
 function recvNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
@@ -57,6 +58,9 @@ async function erpRenderReceivables() {
   else if (recvFilter === "month") rows = monthItems;
   else if (recvFilter === "overdue") rows = overdueItems;
   else rows = unpaid;
+  // 🔎 Търсене (в паметта): клиент / № фактура. Картите горе остават общи.
+  const rq = (recvQuery || "").toLowerCase().trim();
+  if (rq) rows = rows.filter(p => `${p.client || ""} ${p.invoiceNo || ""}`.toLowerCase().includes(rq));
 
   // Групиране по клиент (болд сбор + фактурите под него).
   const groups = {};
@@ -106,6 +110,7 @@ async function erpRenderReceivables() {
       ${tab("month", "📅 До края на месеца")}
       ${tab("overdue", `⚠ Просрочени (${overdueItems.length})`)}
       ${tab("paid", "✓ Платени (архив)")}
+      <input type="search" id="recv-q" placeholder="🔎 клиент / № фактура…" value="${escapeAttr(recvQuery)}" style="min-width:180px" autocomplete="off" />
       <span class="spacer"></span>
       <label class="btn btn-small co-attach-btn">⤓ Импорт (GenCloud)<input type="file" id="recv-file" accept=".xlsx,.xls" hidden /></label>
       ${(RECEIVABLES || []).some(p => p.imported) ? '<button class="btn btn-small btn-danger" id="recv-clear-import" title="Изтрий импортираните вземания (тези от издадена фактура остават)">🗑 Изтегли импорта</button>' : ""}
@@ -128,6 +133,13 @@ async function erpRenderReceivables() {
     ${recvFilter !== "paid" ? `<div class="pay-paybar" id="recv-paybar"></div>` : ""}`;
 
   v.querySelectorAll("[data-rf]").forEach(b => b.addEventListener("click", () => { recvFilter = b.dataset.rf; recvSelected.clear(); erpRenderReceivables(); }));
+  const rqEl = document.getElementById("recv-q");
+  if (rqEl) rqEl.addEventListener("input", e => {
+    recvQuery = e.target.value;
+    erpRenderReceivables();
+    const el = document.getElementById("recv-q");
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
   const fi = document.getElementById("recv-file"); if (fi) fi.addEventListener("change", e => erpRecvImport(e.target.files[0]));
   const ci = document.getElementById("recv-clear-import"); if (ci) ci.addEventListener("click", erpRecvClearImport);
   const ca = document.getElementById("recv-clear-all"); if (ca) ca.addEventListener("click", erpRecvClearAll);

@@ -24,6 +24,7 @@ const ERP_SELLER = {
 };
 
 let erpSales = null;
+let erpSaQuery = "";   // 🔎 търсене в списъка (в паметта)
 
 async function erpLoadSales() {
   const { data, error } = await sb.from("sales").select("*").order("updated_at", { ascending: false });
@@ -124,34 +125,45 @@ async function erpRenderSales() {
       `<p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица sales) в Supabase.</p></div>`;
     return;
   }
-  const rows = erpSales;
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">${rows.length} продажби</span>
+      <span class="erp-count" id="sa-count"></span>
+      <input type="search" id="sa-q" placeholder="🔎 № / клиент / код / продукт…" value="${escapeAttr(erpSaQuery || "")}" style="min-width:220px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="erp-sa-new">+ Нова продажба</button>
     </div>
     <table class="report-table erp-table">
       <thead><tr><th>№ Продажба</th><th>Дата</th><th>Клиент</th><th class="num">Редове</th><th class="num">Сума</th><th>Статус</th><th></th></tr></thead>
-      <tbody>
-        ${rows.map(o => {
-          const t = erpSaleTotals(o);
-          return `
-          <tr class="erp-clickable" data-id="${o.id}">
-            <td data-label="№ Продажба"><b>${escapeHtml(o.saleNo || "—")}</b></td>
-            <td data-label="Дата">${escapeHtml(o.date || "")}</td>
-            <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-            <td class="num" data-label="Редове">${(o.lines || []).length}</td>
-            <td class="num" data-label="Сума">${erpSaleMoney(t.total, erpSaleCur(o))}</td>
-            <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">осчетоводена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">чернова</span>'}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-          </tr>`; }).join("") ||
-          `<tr><td colspan="7" class="report-empty">Още няма продажби. Натисни „+ Нова продажба".</td></tr>`}
-      </tbody>
+      <tbody id="sa-tbody"></tbody>
     </table>`;
   document.getElementById("erp-sa-new").addEventListener("click", erpNewSale);
-  v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenSale(b.dataset.open); }));
-  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenSale(tr.dataset.id)));
+  const qEl = document.getElementById("sa-q");
+  if (qEl) qEl.addEventListener("input", e => { erpSaQuery = e.target.value; erpSaFillRows(); });
+  erpSaFillRows();
+}
+// Търсенето филтрира В ПАМЕТТА (само тялото на таблицата) — без нова заявка към базата.
+function erpSaFillRows() {
+  const tb = document.getElementById("sa-tbody"); if (!tb) return;
+  const q = (erpSaQuery || "").toLowerCase().trim();
+  const rows = (erpSales || []).filter(o => !q ||
+    (`${o.saleNo || ""} ${o.clientName || ""} ${o.date || ""}`.toLowerCase().includes(q) ||
+     (o.lines || []).some(l => `${l.code || ""} ${l.name || ""} ${l.clientCode || ""}`.toLowerCase().includes(q))));
+  const cnt = document.getElementById("sa-count"); if (cnt) cnt.textContent = rows.length + " продажби";
+  tb.innerHTML = rows.map(o => {
+    const t = erpSaleTotals(o);
+    return `
+    <tr class="erp-clickable" data-id="${o.id}">
+      <td data-label="№ Продажба"><b>${escapeHtml(o.saleNo || "—")}</b></td>
+      <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+      <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
+      <td class="num" data-label="Редове">${(o.lines || []).length}</td>
+      <td class="num" data-label="Сума">${erpSaleMoney(t.total, erpSaleCur(o))}</td>
+      <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">осчетоводена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">чернова</span>'}</td>
+      <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+    </tr>`; }).join("") ||
+    `<tr><td colspan="7" class="report-empty">${q ? "Няма продажби за това търсене." : "Още няма продажби. Натисни бутона + Нова продажба."}</td></tr>`;
+  tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenSale(b.dataset.open); }));
+  tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenSale(tr.dataset.id)));
 }
 
 function erpNewSale() {
