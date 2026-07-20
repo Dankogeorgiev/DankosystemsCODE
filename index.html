@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=281" />
-  <link rel="stylesheet" href="erp.css?v=259" />
+  <link rel="stylesheet" href="erp.css?v=260" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 370</p>
+      <p class="login-version">версия 371</p>
     </form>
   </div>
 
@@ -385,6 +385,7 @@
           <button id="tasks-welding-rachno" class="btn btn-paint" hidden onclick="location.href='zavarka-rachno/'">✋ Заваръчно ръчно</button>
           <button id="tasks-rogosh" class="btn btn-paint" hidden>🔧 ЦЕХ РОГОШ</button>
           <button id="tasks-nit" class="btn btn-paint" hidden>🔩 ЗАНИТВАНЕ</button>
+          <button id="tasks-leave" class="btn btn-leave">🏖 Поискай отпуск</button>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -467,6 +468,7 @@
       <div class="mini-head">
         <h3>🔧 ЦЕХ РОГОШ — сериен монтаж (дневен отчет)</h3>
         <span>
+          <button id="rogosh-leave" class="btn btn-small btn-leave">🏖 Поискай отпуск</button>
           <button id="rogosh-logout" class="btn btn-small btn-danger" hidden>Изход</button>
           <button id="rogosh-close" class="btn btn-small">Затвори</button>
         </span>
@@ -481,6 +483,7 @@
       <div class="mini-head">
         <h3>🔩 ЗАНИТВАНЕ — сглобяване (дневен запис)</h3>
         <span>
+          <button id="nit-leave" class="btn btn-small btn-leave">🏖 Поискай отпуск</button>
           <button id="nit-logout" class="btn btn-small btn-danger" hidden>Изход</button>
           <button id="nit-close" class="btn btn-small">Затвори</button>
         </span>
@@ -641,7 +644,8 @@
   <script src="erp-costing.js?v=177"></script>
   <script src="erp-payroll.js?v=220"></script>
   <script src="erp-erptable.js?v=177"></script>
-  <script src="erp-finance.js?v=176"></script>
+  <script src="erp-finance.js?v=177"></script>
+  <script src="erp-leaves.js?v=1"></script>
   <script src="nav-back.js?v=163"></script>
   <script src="assistant.js?v=179"></script>
   <script src="pulse.js?v=210"></script>
