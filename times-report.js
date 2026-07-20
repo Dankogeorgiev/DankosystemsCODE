@@ -7,7 +7,7 @@
    - експорт в Excel (CSV) и PDF.
    Ползва collectTimeRows/fmtSecDur/fmtLogDate/logNotes от tasks.js. */
 
-let timesRpt = { workshop: "", operation: "", machine: "", worker: "", client: "", orderNo: "", from: "", to: "" };
+let timesRpt = { workshop: "", operation: "", machine: "", worker: "", client: "", orderNo: "", code: "", from: "", to: "" };
 let timesShowDetail = false;   // подробните записи са скрити, докато не се поиска изрично
 let timesTrendMode = "week";   // тенденция по седмица / по месец
 let timesAnalysisMode = "detail";   // анализ по детайл (продукт) / по операция
@@ -38,6 +38,11 @@ function timesRptRows() {
     // Заявка: едно вписване може да носи няколко номера (споделена серия) —
     // съвпадение, ако търсеният номер е сред тях.
     if (f.orderNo && !String(r.orderNo || "").split(",").map(s => s.trim()).includes(f.orderNo)) return false;
+    // 🔎 Търсене по НАШИЯ код на изделието (или име на продукта).
+    if (f.code) {
+      const q = f.code.toLowerCase().trim();
+      if (!(`${r.code || ""} ${r.product || ""}`.toLowerCase().includes(q))) return false;
+    }
     const d = (r.date || "").slice(0, 10);
     if (f.from && d < f.from) return false;
     if (f.to && d > f.to) return false;
@@ -172,11 +177,11 @@ function renderTimesReport() {
   const byShop = timesGroupBy(rows, "workshop");
   const trend = timesTrend(rows, timesTrendMode);
   const detailed = rows.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const hasFilter = !!(f.worker || f.workshop || f.operation || f.machine || f.client || f.orderNo);
+  const hasFilter = !!(f.worker || f.workshop || f.operation || f.machine || f.client || f.orderNo || f.code);
   const showDetail = hasFilter || timesShowDetail;
 
   const emptyRow = n => `<tr><td colspan="${n}" class="report-empty">Няма данни за този филтър.</td></tr>`;
-  const flabel = [f.worker, f.workshop, f.operation, f.machine, f.client, f.orderNo ? "заявка №" + f.orderNo : ""].filter(Boolean).join(" · ");
+  const flabel = [f.worker, f.workshop, f.operation, f.machine, f.client, f.orderNo ? "заявка №" + f.orderNo : "", f.code ? "код " + f.code : ""].filter(Boolean).join(" · ");
 
   v.innerHTML = `
     <div class="workers-head"><h3>📋 ОТЧЕТИ — какво е направено и за колко време</h3>
@@ -188,6 +193,7 @@ function renderTimesReport() {
       ${sel("tr-m", f.machine, uniq("machine"), "Машина")}
       ${sel("tr-cl", f.client, uniq("client"), "🤝 Клиент")}
       ${sel("tr-ord", f.orderNo, uniqOrders(), "📋 Заявка №")}
+      <label>🔎 Код <input type="search" id="tr-code" value="${escapeAttr(f.code)}" placeholder="напр. 30245" style="min-width:130px" autocomplete="off" /></label>
       <label>От <input type="date" id="tr-from" value="${escapeAttr(f.from)}" /></label>
       <label>До <input type="date" id="tr-to" value="${escapeAttr(f.to)}" /></label>
       ${hasFilter ? `<button id="tr-clear" class="btn btn-small">✕ Изчисти филтъра</button>` : ""}
@@ -295,13 +301,21 @@ function renderTimesReport() {
   v.querySelector("#tr-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
   const bind = (id, key) => { const el = v.querySelector("#" + id); if (el) el.addEventListener("change", e => { timesRpt[key] = e.target.value; renderTimesReport(); }); };
   bind("tr-ws", "workshop"); bind("tr-op", "operation"); bind("tr-m", "machine"); bind("tr-w", "worker"); bind("tr-cl", "client"); bind("tr-ord", "orderNo"); bind("tr-from", "from"); bind("tr-to", "to");
+  // Търсене по код — на живо; след пре-рендера връщаме фокуса в полето.
+  const codeEl = v.querySelector("#tr-code");
+  if (codeEl) codeEl.addEventListener("input", e => {
+    timesRpt.code = e.target.value;
+    renderTimesReport();
+    const el = document.getElementById("tr-code");
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
   v.querySelectorAll(".times-click").forEach(tr => tr.addEventListener("click", () => {
     if (tr.dataset.w != null) timesRpt.worker = tr.dataset.w;
     if (tr.dataset.shop != null) timesRpt.workshop = tr.dataset.shop;
     renderTimesReport();
   }));
   const clr = v.querySelector("#tr-clear");
-  if (clr) clr.addEventListener("click", () => { timesRpt.worker = timesRpt.workshop = timesRpt.operation = timesRpt.machine = timesRpt.client = timesRpt.orderNo = ""; timesShowDetail = false; renderTimesReport(); });
+  if (clr) clr.addEventListener("click", () => { timesRpt.worker = timesRpt.workshop = timesRpt.operation = timesRpt.machine = timesRpt.client = timesRpt.orderNo = timesRpt.code = ""; timesShowDetail = false; renderTimesReport(); });
   const sd = v.querySelector("#tr-showdetail");
   if (sd) sd.addEventListener("click", () => { timesShowDetail = true; renderTimesReport(); });
   const hd = v.querySelector("#tr-hidedetail");
