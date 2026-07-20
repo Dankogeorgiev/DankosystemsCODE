@@ -10,6 +10,7 @@
 
 let LEAVES = null;
 let leaveCalMonth = null;   // "YYYY-MM" на показвания месец в календара
+let leaveView = "requests"; // requests | balance (Оставащи отпуски)
 
 async function leavesLoad() {
   try { const { data } = await sb.from("app_config").select("data").eq("id", "leaves").maybeSingle(); LEAVES = (data && data.data && data.data.list) || []; }
@@ -137,6 +138,7 @@ function leavePrint(r) {
 
 /* ---------- Офис изглед (Финанси → Отпуски) ---------- */
 async function erpRenderLeaves(v) {
+  if (leaveView === "balance") { await erpRenderLeaveBalance(v); return; }
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await leavesLoad();
   if (!leaveCalMonth) leaveCalMonth = new Date().toISOString().slice(0, 7);
@@ -160,6 +162,7 @@ async function erpRenderLeaves(v) {
     <div class="erp-toolbar">
       <span class="erp-count">🏖 Отпуски — ${pending.length} чакащи · ${approved.length} одобрени</span>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="lv-balance">📊 Оставащи отпуски</button>
       <button class="btn btn-small" id="lv-new-approved">+ Вкарай одобрен отпуск</button>
       <button class="btn btn-small btn-primary" id="lv-new-req">🏖 Нова молба</button>
     </div>
@@ -180,6 +183,7 @@ async function erpRenderLeaves(v) {
 
   document.getElementById("lv-new-req").addEventListener("click", () => leaveRequestDialog({}));
   document.getElementById("lv-new-approved").addEventListener("click", () => leaveRequestDialog({ adminEntry: true }));
+  document.getElementById("lv-balance").addEventListener("click", () => { leaveView = "balance"; erpRenderLeaves(v); });
   v.querySelectorAll("[data-approve]").forEach(b => b.addEventListener("click", async () => {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.approve)); if (!l) return;
     l.status = "одобрена"; l.approvedAt = new Date().toISOString().slice(0, 10);
@@ -258,3 +262,149 @@ function leavesInit() {
   });
 }
 document.addEventListener("DOMContentLoaded", leavesInit);
+
+/* ================== ОСТАВАЩИ ОТПУСКИ (баланс по служител) ==================
+   Като файла „ОТПУСКИ 2026": Име · Остатък от 2025 · Платен отпуск (дни) ·
+   ползвани по месеци · ОСТАТЪК. Ползваните дни се събират от 2 източника:
+   1) ръчно/импортирани от файла (редактируеми клетки по месец);
+   2) АВТОМАТИЧНО от одобрените молби в системата (зелено „+n", не се пипа).
+   Остатък = Остатък 2025 + Платен отпуск − (ръчни + автоматични).
+   Пази се в app_config id="leave_balance": { year, list:[{id,name,carry,entitle,months[12]}] }. */
+
+let LEAVE_BAL = null;
+let leaveBalSaveT = null;
+const LEAVE_BAL_YEAR = 2026;
+
+async function leaveBalLoad() {
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "leave_balance").maybeSingle(); LEAVE_BAL = (data && data.data) || { year: LEAVE_BAL_YEAR, list: [] }; }
+  catch (e) { LEAVE_BAL = { year: LEAVE_BAL_YEAR, list: [] }; }
+  if (!Array.isArray(LEAVE_BAL.list)) LEAVE_BAL.list = [];
+}
+async function leaveBalSave() {
+  const { error } = await sb.from("app_config").upsert({ id: "leave_balance", data: LEAVE_BAL, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис: " + error.message); return false; }
+  return true;
+}
+function leaveBalSaveSoon(cb) { clearTimeout(leaveBalSaveT); leaveBalSaveT = setTimeout(async () => { await leaveBalSave(); if (cb) cb(); }, 600); }
+function leaveBalNextId() { let m = 0; (LEAVE_BAL.list || []).forEach(p => { if ((Number(p.id) || 0) > m) m = Number(p.id); }); return m + 1; }
+function lbNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isNaN(n) ? 0 : n; }
+
+// Автоматично ползвани РАБОТНИ дни по месеци от ОДОБРЕНИТЕ молби (за годината).
+function leaveAutoMonths(name, year) {
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const n1 = norm(name);
+  const match = l => {
+    const n2 = norm(l.name); if (!n1 || !n2) return false;
+    if (n1 === n2) return true;
+    const a = n1.split(" "), b = n2.split(" ");
+    return a.length > 1 && b.length > 1 && a[0] === b[0] && a[a.length - 1] === b[b.length - 1];
+  };
+  const out = Array(12).fill(0);
+  (LEAVES || []).filter(l => l.status === "одобрена" && match(l)).forEach(l => {
+    if (!l.from || !l.to) return;
+    const a = new Date(l.from + "T00:00:00"), b = new Date(l.to + "T00:00:00");
+    if (isNaN(a) || isNaN(b)) return;
+    for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
+      if (d.getFullYear() !== year) continue;
+      const w = d.getDay(); if (w === 0 || w === 6) continue;
+      out[d.getMonth()]++;
+    }
+  });
+  return out;
+}
+
+async function erpRenderLeaveBalance(v) {
+  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  await leavesLoad(); await leaveBalLoad();
+  const MON = ["Яну", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"];
+  const rows = (LEAVE_BAL.list || []).slice().sort((a, b) => String(a.name || "").localeCompare(b.name || "", "bg"));
+  const html = rows.map(p => {
+    const auto = leaveAutoMonths(p.name, LEAVE_BAL_YEAR);
+    const man = Array.isArray(p.months) ? p.months : Array(12).fill(0);
+    const used = man.reduce((s, x) => s + lbNum(x), 0) + auto.reduce((s, x) => s + x, 0);
+    const left = lbNum(p.carry) + lbNum(p.entitle) - used;
+    return `<tr data-id="${p.id}">
+      <td class="lb-name"><b>${escapeHtml(p.name || "")}</b></td>
+      <td class="num"><input type="number" class="lb-in lb-carry" data-id="${p.id}" value="${escapeAttr(String(p.carry ?? 0))}" /></td>
+      <td class="num"><input type="number" class="lb-in lb-ent" data-id="${p.id}" value="${escapeAttr(String(p.entitle ?? 20))}" /></td>
+      ${MON.map((mn, i) => `<td class="num lb-mcell">
+        <input type="number" class="lb-in lb-m" data-id="${p.id}" data-m="${i}" value="${escapeAttr(String(man[i] || ""))}" placeholder="·" />
+        ${auto[i] ? `<span class="lb-auto" title="+${auto[i]} дни от одобрени молби в системата (автоматично)">+${auto[i]}</span>` : ""}
+      </td>`).join("")}
+      <td class="num"><b>${used}</b></td>
+      <td class="num"><b class="${left < 0 ? "lb-neg" : "lb-pos"}">${Math.round(left * 10) / 10}</b></td>
+      <td class="erp-row-actions"><button class="btn btn-small btn-danger" data-lbdel="${p.id}" title="Махни служителя">×</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="18" class="report-empty">Няма служители. Импортирай файла или добави ръчно.</td></tr>`;
+
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">📊 Оставащи отпуски ${LEAVE_BAL_YEAR} — ${rows.length} служители</span>
+      <span class="spacer"></span>
+      <label class="btn btn-small co-attach-btn" title="Импорт от файла ОТПУСКИ (лист ${LEAVE_BAL_YEAR}): име, остатък, платен отпуск, ползвани по месеци">⤓ Импорт (xlsx)<input type="file" id="lb-file" accept=".xlsx,.xls" hidden /></label>
+      <button class="btn btn-small" id="lb-add">+ Добави служител</button>
+      <button class="btn btn-small" id="lb-back">← Молби и календар</button>
+    </div>
+    <p class="hint">Клетките се пишат направо в таблицата (запазва се само). Зелените <b>+n</b> са дни от <b>одобрени молби в системата</b> — приспадат се автоматично и не се пипат. ОСТАТЪК = Остатък 2025 + Платен отпуск − всички ползвани.</p>
+    <div class="pay-scroll"><table class="report-table erp-table lb-table">
+      <thead><tr><th>Име, Презиме, Фамилия</th><th>Ост. 2025</th><th>Плат. отпуск</th>
+        ${MON.map(m => `<th class="num">${m}</th>`).join("")}<th>Ползв.</th><th>ОСТАТЪК</th><th></th></tr></thead>
+      <tbody id="lb-body">${html}</tbody>
+    </table></div>`;
+
+  const rerender = () => erpRenderLeaveBalance(v);
+  document.getElementById("lb-back").addEventListener("click", () => { leaveView = "requests"; if (typeof erpRenderFinance === "function") erpRenderFinance(); });
+  document.getElementById("lb-add").addEventListener("click", async () => {
+    const name = prompt("Трите имена на служителя:"); if (!name || !name.trim()) return;
+    const ent = prompt("Платен отпуск за годината (дни):", "20"); if (ent === null) return;
+    LEAVE_BAL.list.push({ id: leaveBalNextId(), name: name.trim(), carry: 0, entitle: lbNum(ent) || 20, months: Array(12).fill(0) });
+    if (await leaveBalSave()) rerender();
+  });
+  const fi = document.getElementById("lb-file"); if (fi) fi.addEventListener("change", e => leaveBalImport(e.target.files[0], rerender));
+  v.querySelectorAll("[data-lbdel]").forEach(b => b.addEventListener("click", async () => {
+    const p = LEAVE_BAL.list.find(x => x.id === Number(b.dataset.lbdel)); if (!p) return;
+    if (!confirm(`Да махна ли ${p.name} от таблицата?`)) return;
+    LEAVE_BAL.list = LEAVE_BAL.list.filter(x => x.id !== p.id);
+    if (await leaveBalSave()) rerender();
+  }));
+  // Инлайн редакция: пише се направо, пази се автоматично (и опреснява остатъка).
+  v.querySelectorAll(".lb-in").forEach(inp => inp.addEventListener("change", () => {
+    const p = LEAVE_BAL.list.find(x => x.id === Number(inp.dataset.id)); if (!p) return;
+    if (inp.classList.contains("lb-carry")) p.carry = lbNum(inp.value);
+    else if (inp.classList.contains("lb-ent")) p.entitle = lbNum(inp.value);
+    else { p.months = Array.isArray(p.months) ? p.months : Array(12).fill(0); p.months[Number(inp.dataset.m)] = lbNum(inp.value); }
+    leaveBalSaveSoon(rerender);
+  }));
+}
+
+// Импорт от файла ОТПУСКИ — лист „2026": A=име, B=остатък 2025, C=платен отпуск,
+// после 12 двойки ПО/НО (взимаме само ПО — платения). Дедуп по име (обновява).
+async function leaveBalImport(file, done) {
+  if (!file) return;
+  if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const wsName = wb.SheetNames.find(n => n.trim() === String(LEAVE_BAL_YEAR)) || wb.SheetNames[wb.SheetNames.length - 1];
+    const ws = wb.Sheets[wsName];
+    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    let added = 0, updated = 0;
+    raw.forEach(r => {
+      const name = String(r[0] || "").trim();
+      // Прескачаме заглавия/празни: името трябва да е поне 2 думи с букви.
+      if (!name || name.split(/\s+/).length < 2 || /ОТПУСКИ|Име|дни/i.test(name)) return;
+      const carry = lbNum(r[1]);
+      const entitle = lbNum(r[2]);
+      if (!entitle && !carry) return;
+      const months = [];
+      for (let m = 0; m < 12; m++) months.push(lbNum(r[3 + m * 2]));   // само ПО (платен)
+      const ex = (LEAVE_BAL.list || []).find(p => norm(p.name) === norm(name));
+      if (ex) { ex.carry = carry; ex.entitle = entitle; ex.months = months; updated++; }
+      else { LEAVE_BAL.list.push({ id: leaveBalNextId(), name, carry, entitle, months }); added++; }
+    });
+    if (!added && !updated) { alert("Не намерих редове със служители в листа „" + wsName + "”."); return; }
+    LEAVE_BAL.year = LEAVE_BAL_YEAR;
+    if (await leaveBalSave()) { alert(`Импорт готов (лист ${wsName}): ${added} нови, ${updated} обновени.`); if (done) done(); }
+  } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}

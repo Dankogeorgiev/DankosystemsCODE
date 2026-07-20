@@ -523,3 +523,13 @@ img.ai-doc-content { max-width: none; }
   .lv-head { font-size: 0; }                          /* на телефон: само късото име */
   .lv-head .lv-head-s { display: inline; font-size: 10px; }
 }
+
+/* Оставащи отпуски (баланс) */
+.lb-table th, .lb-table td { padding: 4px 5px; font-size: 12.5px; }
+.lb-table .lb-name { white-space: nowrap; }
+.lb-in { width: 46px; padding: 3px 4px; border: 1px solid #e2e8f0; border-radius: 6px; font: inherit; text-align: right; }
+.lb-in.lb-carry, .lb-in.lb-ent { width: 56px; }
+.lb-mcell { white-space: nowrap; }
+.lb-auto { display: inline-block; background: #dcfce7; color: #166534; font-size: 10px; font-weight: 800; padding: 0 4px; border-radius: 999px; margin-left: 2px; }
+.lb-neg { color: #dc2626; }
+.lb-pos { color: #166534; }
