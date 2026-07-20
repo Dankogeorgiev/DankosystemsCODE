@@ -6,12 +6,12 @@
    Ползва ERP/erpView/erpDialog/escapeHtml, глобалния sb и XLSX (SheetJS). */
 
 let PAYABLES = null;
-let payFilter = "all";           // all | week | month | paid
+let pybFilter = "all";           // all | week | month | paid
 let paySelected = new Set();     // избрани id за „плащане днес"
 
 function payNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
-function payIso(d) { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
-function payToday() { return payIso(new Date()); }
+function pybIso(d) { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
+function payToday() { return pybIso(new Date()); }
 // „17-07-2026" или „2026-07-17" → ISO „2026-07-17"
 function payParseDate(s) {
   s = String(s || "").trim(); if (!s) return "";
@@ -19,10 +19,10 @@ function payParseDate(s) {
   m = s.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/); if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
   return "";
 }
-function payFmt(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ""); }
+function pybFmt(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ""); }
 function payMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function payEndOfWeek() { const d = new Date(); const off = (7 - d.getDay()) % 7; d.setDate(d.getDate() + off); return payIso(d); }   // идваща неделя
-function payEndOfMonth() { const d = new Date(); return payIso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+function payEndOfWeek() { const d = new Date(); const off = (7 - d.getDay()) % 7; d.setDate(d.getDate() + off); return pybIso(d); }   // идваща неделя
+function payEndOfMonth() { const d = new Date(); return pybIso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
 function payDaysLeft(due) { if (!due) return null; const a = new Date(due + "T00:00:00"), b = new Date(payToday() + "T00:00:00"); return Math.round((a - b) / 864e5); }
 
 async function erpPayLoad() {
@@ -47,20 +47,20 @@ async function erpRenderPayables() {
   const monthItems = unpaid.filter(p => p.dueDate && p.dueDate <= eom);
 
   let rows;
-  if (payFilter === "paid") rows = (PAYABLES || []).filter(p => p.paid);
-  else if (payFilter === "today") rows = unpaid.filter(p => p.forToday);
-  else if (payFilter === "week") rows = weekItems;
-  else if (payFilter === "month") rows = monthItems;
+  if (pybFilter === "paid") rows = (PAYABLES || []).filter(p => p.paid);
+  else if (pybFilter === "today") rows = unpaid.filter(p => p.forToday);
+  else if (pybFilter === "week") rows = weekItems;
+  else if (pybFilter === "month") rows = monthItems;
   else rows = unpaid;
   rows = rows.slice().sort((a, b) => {
-    if (payFilter === "paid") return String(b.paidDate || "").localeCompare(a.paidDate || "");
+    if (pybFilter === "paid") return String(b.paidDate || "").localeCompare(a.paidDate || "");
     const af = a.forToday ? 0 : 1, bf = b.forToday ? 0 : 1;   // „за днес" отгоре
     if (af !== bf) return af - bf;
     return String(a.dueDate || "9999").localeCompare(b.dueDate || "9999");
   });
 
   const card = (label, arr, hl) => `<div class="pay-card ${hl || ""}"><div class="pay-card-l">${label}</div><div class="pay-card-v">${payMoney(sum(arr))} EUR</div><div class="pay-card-n">${arr.length} фактури</div></div>`;
-  const tab = (key, label) => `<button class="btn btn-small ${payFilter === key ? "btn-primary" : ""}" data-pf="${key}">${label}</button>`;
+  const tab = (key, label) => `<button class="btn btn-small ${pybFilter === key ? "btn-primary" : ""}" data-pf="${key}">${label}</button>`;
   const today = payToday();
 
   v.innerHTML = `
@@ -82,34 +82,34 @@ async function erpRenderPayables() {
     </div>
     <div class="pay-scroll"><table class="report-table erp-table pay-table">
       <thead><tr>
-        ${payFilter === "paid" ? "" : '<th class="pay-chk"></th>'}
+        ${pybFilter === "paid" ? "" : '<th class="pay-chk"></th>'}
         <th>Падеж</th><th class="num">Дни</th><th>№ Фактура</th><th>Дата док.</th><th>Доставчик</th><th>Артикул</th>
-        <th class="num">Сума</th><th class="num">С ДДС</th><th>Плащане</th>${payFilter === "paid" ? "<th>Платена на</th>" : "<th></th>"}
+        <th class="num">Сума</th><th class="num">С ДДС</th><th>Плащане</th>${pybFilter === "paid" ? "<th>Платена на</th>" : "<th></th>"}
       </tr></thead>
       <tbody>${rows.map(p => {
         const dl = payDaysLeft(p.dueDate);
         const overdue = !p.paid && dl != null && dl < 0;
         const soon = !p.paid && dl != null && dl >= 0 && dl <= 3;
         return `<tr class="${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}${p.forToday ? " pay-today" : ""}" data-id="${p.id}">
-          ${payFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="pay-sel" data-id="${p.id}" ${paySelected.has(p.id) ? "checked" : ""} /></td>`}
-          <td><b>${payFmt(p.dueDate)}</b></td>
+          ${pybFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="pay-sel" data-id="${p.id}" ${paySelected.has(p.id) ? "checked" : ""} /></td>`}
+          <td><b>${pybFmt(p.dueDate)}</b></td>
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
           <td>${escapeHtml(p.invoiceNo || "")}</td>
-          <td>${payFmt(p.docDate)}</td>
+          <td>${pybFmt(p.docDate)}</td>
           <td>${escapeHtml(p.supplier || "")}</td>
           <td>${escapeHtml(p.article || "")}</td>
           <td class="num">${payMoney(p.amount)}</td>
           <td class="num"><b>${payMoney(p.amountVat)}</b></td>
           <td>${escapeHtml(p.payMethod || "Банка")}</td>
-          ${payFilter === "paid"
-            ? `<td>${payFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
+          ${pybFilter === "paid"
+            ? `<td>${pybFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
             : `<td class="erp-row-actions"><button class="btn btn-small ${p.forToday ? "pay-today-on" : ""}" data-today="${p.id}" title="Маркирай за плащане ДНЕС (за Крис)">☀ За днес${p.forToday ? " ✓" : ""}</button></td>`}
-        </tr>`; }).join("") || `<tr><td colspan="12" class="report-empty">${payFilter === "paid" ? "Няма платени фактури." : "Няма задължения. Импортирай от GenCloud."}</td></tr>`}
+        </tr>`; }).join("") || `<tr><td colspan="12" class="report-empty">${pybFilter === "paid" ? "Няма платени фактури." : "Няма задължения. Импортирай от GenCloud."}</td></tr>`}
       </tbody>
     </table></div>
-    ${payFilter !== "paid" ? `<div class="pay-paybar" id="pay-paybar"></div>` : ""}`;
+    ${pybFilter !== "paid" ? `<div class="pay-paybar" id="pay-paybar"></div>` : ""}`;
 
-  v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { payFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
+  v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { pybFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);
   const ca = document.getElementById("pay-clear-all"); if (ca) ca.addEventListener("click", erpPayClearAll);
@@ -190,7 +190,7 @@ async function erpPayImport(file) {
       if (ex) { Object.assign(ex, rec); updated++; }
       else { PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", imported: true, ...rec }); added++; }
     });
-    if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert(`Импорт готов: ${added} нови, ${updated} обновени.`); }
+    if (await erpPaySave()) { pybFilter = "all"; erpRenderPayables(); alert(`Импорт готов: ${added} нови, ${updated} обновени.`); }
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 
@@ -203,7 +203,7 @@ async function erpPayClearImport() {
   if (!confirm(`Да изтегля (изтрия) ли ${imported.length} импортирани задължения?\nТези, дошли от въведена фактура-разход, остават.`)) return;
   PAYABLES = (PAYABLES || []).filter(p => p.srcPurchaseId);
   paySelected.clear();
-  if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert("Готово. Можеш да импортираш наново."); }
+  if (await erpPaySave()) { pybFilter = "all"; erpRenderPayables(); alert("Готово. Можеш да импортираш наново."); }
 }
 
 // Пълно изчистване — трие ВСИЧКИ задължения (включително архива с платените).
@@ -214,7 +214,7 @@ async function erpPayClearAll() {
   if (!confirm(`Да изтрия ли ВСИЧКИ ${n} задължения (включително архива с платените)?\nТова не може да се върне.`)) return;
   PAYABLES = [];
   paySelected.clear();
-  if (await erpPaySave()) { payFilter = "all"; erpRenderPayables(); alert("Готово. Задълженията са изчистени."); }
+  if (await erpPaySave()) { pybFilter = "all"; erpRenderPayables(); alert("Готово. Задълженията са изчистени."); }
 }
 
 /* ---------- Връзка с Покупки: покупка Банка+срок → задължение ---------- */
@@ -256,14 +256,14 @@ async function erpPaySyncFromPurchase(o) {
 /* ---------- Печат на списък за плащане (за Крис) ---------- */
 function erpPayPrint(items) {
   const tot = items.reduce((s, p) => s + payNum(p.amountVat), 0);
-  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${escapeHtml(p.supplier || "")}</td><td>${payFmt(p.dueDate)}</td><td class="r">${payMoney(p.amountVat)}</td></tr>`).join("");
+  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${escapeHtml(p.supplier || "")}</td><td>${pybFmt(p.dueDate)}</td><td class="r">${payMoney(p.amountVat)}</td></tr>`).join("");
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>За плащане</title>
     <style>body{font-family:Arial,"DejaVu Sans",sans-serif;margin:18px;color:#111}h1{font-size:18px;color:#0f766e}
     table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;text-align:left}th{background:#ecfdf5}
     td.r{text-align:right}tfoot td{font-weight:bold;border-top:2px solid #0f766e}
     @media print{.noprint{display:none}}.noprint{margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer}</style></head><body>
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат</button></div>
-    <h1>Фактури за плащане — ${payFmt(payToday())}</h1>
+    <h1>Фактури за плащане — ${pybFmt(payToday())}</h1>
     <table><thead><tr><th>№</th><th>Фактура</th><th>Доставчик</th><th>Падеж</th><th>Сума с ДДС (EUR)</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr><td colspan="4" class="r">ОБЩО с ДДС</td><td class="r">${payMoney(tot)} EUR</td></tr></tfoot></table></body></html>`;
