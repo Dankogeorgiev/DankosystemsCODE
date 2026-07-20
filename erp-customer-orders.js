@@ -264,7 +264,7 @@ async function erpRenderCustomerOrders() {
     ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
     ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Стойност (голяма отгоре)"],
   ];
-  const statusOpts = ["нова", "в производство", "готова за продажба", "завършена"];
+  const statusOpts = ["нова", "в производство", "готова за продажба", "частично завършена", "завършена"];
   const clientOpts = [...new Set((erpCOList || []).map(o => o.clientName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -441,7 +441,7 @@ async function erpRenderCOForm(o) {
         <label>Срок <input type="date" id="co-deadline" value="${escapeAttr(o.deadline || "")}" /></label>
         <label>Статус
           <select id="co-status">
-            ${["нова", "в производство", "готова за продажба", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
+            ${["нова", "в производство", "готова за продажба", "частично завършена", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
           </select></label>
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
