@@ -285,10 +285,48 @@ async function erpInvSeriesDialog() {
   });
 }
 
+/* ---------- Самообучение: профил на клиента от издадените фактури ----------
+   Чете историята (последната издадена фактура на клиента) и вади навиците му:
+   срок на разсрочено плащане, начин на плащане, валута, ДДС, серия. Всяка нова
+   фактура автоматично „дообучава" — тя става последната в историята. */
+function erpInvClientProfile(name) {
+  const nm = String(name || "").trim().toLowerCase();
+  if (!nm) return null;
+  const mine = (erpInvoices || []).filter(x => x.posted && x.client && String(x.client.name || "").trim().toLowerCase() === nm)
+    .sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+  if (!mine.length) return null;
+  const last = mine[0];
+  return {
+    count: mine.length,
+    termDays: Number(last.termDays) || 0,
+    paymentMethod: last.paymentMethod || "",
+    currency: last.currency || "EUR",
+    vatRate: last.vatRate != null ? last.vatRate : 20,
+    seriesKey: last.seriesKey || "1",
+    vatBasis: last.vatBasis || "",
+  };
+}
+// Прилага навиците на клиента върху ЧЕРНОВА (не пипа издадени).
+function erpInvApplyClientProfile(o, prof) {
+  if (!prof || o.posted) return false;
+  o.termDays = prof.termDays;
+  if (Number(prof.termDays) > 0 && o.issueDate) {
+    const d = new Date(o.issueDate + "T00:00:00");
+    if (!isNaN(d.getTime())) { d.setDate(d.getDate() + Number(prof.termDays)); o.dueDate = d.toISOString().slice(0, 10); }
+  } else o.dueDate = "";
+  if (prof.paymentMethod) o.paymentMethod = prof.paymentMethod;
+  o.currency = prof.currency; o.vatRate = prof.vatRate; o.seriesKey = prof.seriesKey;
+  if (Number(prof.vatRate) === 0 && prof.vatBasis && !o.vatBasis) o.vatBasis = prof.vatBasis;
+  return true;
+}
+
 /* ---------- Форма ---------- */
 async function erpInvForm(o) {
   const v = erpView();
   await erpInvLoadSeries();
+  if (!erpInvoices) { try { await erpLoadInvoices(); } catch (e) {} }   // за профила на клиента (самообучение)
+  // Еднократно прилагане на клиентския профил (напр. фактура от продажба без свой срок).
+  if (o.__applyProfile && !o.posted) { erpInvApplyClientProfile(o, erpInvClientProfile(o.__applyProfile)); delete o.__applyProfile; }
   const clients = await erpLoadSaleClients();
   const locked = !!o.posted;
   const k = INV_KINDS[o.kind] || {};
@@ -362,7 +400,12 @@ async function erpInvForm(o) {
 
   const bindClient = () => {
     const m = clients.find(c => (c.name || "") === document.getElementById("inv-cname").value);
-    if (m) { o.client.name = m.name; o.client.eik = m.eik || o.client.eik; o.client.vat = m.vat || o.client.vat; o.client.city = m.city || o.client.city; o.client.street = m.street || o.client.street; o.client.country = m.country || o.client.country; o.clientId = m.id; erpInvForm(o); }
+    if (m) {
+      o.client.name = m.name; o.client.eik = m.eik || o.client.eik; o.client.vat = m.vat || o.client.vat; o.client.city = m.city || o.client.city; o.client.street = m.street || o.client.street; o.client.country = m.country || o.client.country; o.clientId = m.id;
+      // Самообучение: навиците на клиента от предишните му фактури (срок, плащане, валута, серия).
+      erpInvApplyClientProfile(o, erpInvClientProfile(m.name));
+      erpInvForm(o);
+    }
   };
   document.getElementById("inv-back").addEventListener("click", erpRenderInvoices);
   const g = (id, cb) => { const el = document.getElementById(id); if (el) el.addEventListener(locked ? "change" : "input", cb); };
@@ -623,6 +666,7 @@ function erpInvFromSale(sale) {
     refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
     saleId: sale.id, compiledBy: (ERP_SELLER && ERP_SELLER.mol) || "",
     transport: {}, pallets: [],
+    __applyProfile: (!sale.termDays && sale.clientName) ? sale.clientName : null,   // навици от историята
   });
 }
 
