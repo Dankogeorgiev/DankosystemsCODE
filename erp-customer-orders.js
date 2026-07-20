@@ -770,7 +770,9 @@ async function erpCOProduce(o) {
   // Първо запазваме, за да има № и id за връзката към задачите.
   try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
 
-  const lines = (o.lines || []).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
+  // Само продуктовите редове тръгват в производство (покупните материали за
+  // препродажба се изписват при продажбата, не се произвеждат).
+  const lines = (o.lines || []).filter(l => l.productId).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
   let totalSteps = 0, external = [];
   const missMap = {};
   lines.forEach(l => {
@@ -798,7 +800,7 @@ async function erpCOProduce(o) {
   msg += missTxt;
   msg += `\n\n📦 Материалите за производството ще се изпишат от склада.`;
   msg += `\n✅ Щом мине последната операция, готовото изделие влиза в Склад детайли (после се изписва с Продажба).`;
-  if (already) msg += `\n\n⚠ Вече има пуснато производство. Ще обновя дела на заявката.`;
+  if (already) msg += `\n\n♻ Вече има пуснато производство по тази заявка. НОВИТЕ редове/бройки ще се ДОБАВЯТ към него, а вече произведеното и отчетеното по цеховете СЕ ЗАПАЗВАТ (нищо не се пуска отначало).`;
   if (!confirm(msg)) return;
 
   const res = await erpFlowApply({
