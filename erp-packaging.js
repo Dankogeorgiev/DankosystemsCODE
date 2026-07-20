@@ -56,7 +56,7 @@ async function erpRenderPackaging() {
     <p class="hint">Как се опакова всяко изделие <b>за всеки клиент</b>. Оттук Придружаващите документи (Packing List, Стокова разписка, Палет опис) вземат теглото на брой, кашоните и палетите. Едно изделие може да има различна опаковка за различни клиенти.</p>
     <table class="report-table erp-table">
       <thead><tr>
-        <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид кашон</th>
+        <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид кашон</th><th>Размер кашон</th>
         <th class="num">кг/брой</th><th class="num">кг/кашон</th><th class="num">кашони/палет</th>
         <th>Аксесоари на палета</th><th></th>
       </tr></thead>
@@ -78,16 +78,17 @@ function erpPackFillRows() {
   const cnt = document.getElementById("pack-count"); if (cnt) cnt.textContent = rows.length + " опаковки";
   const n = v => (v === "" || v == null) ? "" : (typeof erpNum === "function" ? erpNum(v) : v);
   tb.innerHTML = rows.map(p => `<tr class="erp-clickable" data-id="${p.id}">
-    <td data-label="Наш код"><b>${escapeHtml(p.code || "")}</b></td>
+    <td data-label="Наш код">${p.code ? `<b>${escapeHtml(p.code)}</b>` : '<span class="pack-nocode" title="Записът чака да се попълни нашият код — дотогава не влиза в придружаващите документи">⚠ без код</span>'}</td>
     <td data-label="Клиент">${escapeHtml(p.clientName || "— (за всички)")}</td>
     <td data-label="Име по клиента">${escapeHtml(p.clientProductName || "")}</td>
     <td data-label="Вид кашон">${escapeHtml(p.boxType || "")}</td>
+    <td data-label="Размер кашон">${escapeHtml(p.boxSize || "")}</td>
     <td class="num" data-label="кг/брой">${n(p.kgPerPiece)}</td>
     <td class="num" data-label="кг/кашон">${n(p.kgPerBox)}</td>
     <td class="num" data-label="кашони/палет">${n(p.boxesPerPallet)}</td>
     <td data-label="Аксесоари">${escapeHtml(p.accessories || "")}</td>
     <td class="erp-row-actions"><button class="btn btn-small" data-edit="${p.id}">✎</button> <button class="btn btn-small btn-danger" data-del="${p.id}">×</button></td>
-  </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
+  </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
   tb.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackForm((PACKAGING || []).find(x => String(x.id) === String(b.dataset.edit))); }));
   tb.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackDelete(Number(b.dataset.del)); }));
   tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpPackForm((PACKAGING || []).find(x => String(x.id) === String(tr.dataset.id)))));
@@ -100,10 +101,11 @@ function erpPackForm(rec) {
   const { wrap, close } = erpDialog(`
     <h3>${isNew ? "Нова опаковка" : "Редакция на опаковка"}</h3>
     <div class="erp-co-grid">
-      <label>Наш код <input type="text" id="pk-code" list="pack-codes" value="${escapeAttr(r.code || "")}" placeholder="напр. 30..." /></label>
+      <label>Наш код (може празно — попълва се после) <input type="text" id="pk-code" list="pack-codes" value="${escapeAttr(r.code || "")}" placeholder="напр. 30..." /></label>
       <label>Клиент <input type="text" id="pk-client" list="pack-clients" value="${escapeAttr(r.clientName || "")}" placeholder="празно = за всички клиенти" /></label>
       <label>Име по клиента / № чертеж <input type="text" id="pk-cpname" value="${escapeAttr(r.clientProductName || "")}" placeholder="както клиента поръчва" /></label>
-      <label>Вид кашон <input type="text" id="pk-boxtype" value="${escapeAttr(r.boxType || "")}" placeholder="напр. 600×400×300, кафяв 5-слоен…" /></label>
+      <label>Вид кашон <input type="text" id="pk-boxtype" value="${escapeAttr(r.boxType || "")}" placeholder="напр. кафяв 5-слоен…" /></label>
+      <label>Размер кашон <input type="text" id="pk-boxsize" value="${escapeAttr(r.boxSize || "")}" placeholder="напр. 600×400×300" /></label>
       <label>Килограми за брой <input type="number" id="pk-kgp" step="any" min="0" value="${escapeAttr(String(r.kgPerPiece ?? ""))}" /></label>
       <label>Килограми за кашон <input type="number" id="pk-kgb" step="any" min="0" value="${escapeAttr(String(r.kgPerBox ?? ""))}" /></label>
       <label>Брой кашони на палет <input type="number" id="pk-bpp" step="any" min="0" value="${escapeAttr(String(r.boxesPerPallet ?? ""))}" /></label>
@@ -120,8 +122,10 @@ function erpPackForm(rec) {
     const kgP = packNum(g("pk-kgp")), kgB = packNum(g("pk-kgb")), bpp = packNum(g("pk-bpp"));
     const perBox = (kgP > 0 && kgB > 0) ? Math.max(1, Math.round(kgB / kgP)) : 0;
     const box = wrap.querySelector("#pk-preview"); if (!box) return;
-    if (!code) { box.innerHTML = `<span class="erp-muted">Въведи наш код, за да видиш обобщението.</span>`; return; }
-    box.innerHTML = `<b>${escapeHtml(code)}</b>${p ? " · " + escapeHtml(p.name || "") : ' · <span class="erp-muted">няма продукт с този код</span>'}`
+    const head = code
+      ? `<b>${escapeHtml(code)}</b>${p ? " · " + escapeHtml(p.name || "") : ' · <span class="erp-muted">няма продукт с този код</span>'}`
+      : `<span class="erp-muted">⚠ без наш код (ще се допълни после)</span>`;
+    box.innerHTML = head
       + (perBox ? ` · <b>${perBox} бр.</b> в кашон` : "")
       + (perBox && bpp ? ` · <b>${perBox * bpp} бр.</b> на палет (${bpp} кашона)` : "");
   };
@@ -131,15 +135,20 @@ function erpPackForm(rec) {
   wrap.querySelector("#pk-save").addEventListener("click", async () => {
     const g = id => (wrap.querySelector("#" + id).value || "").trim();
     const code = g("pk-code");
-    if (!code) { alert("Въведи наш код."); return; }
+    // Кодът НЕ е задължителен: някой попълва информацията, кодът се добавя после.
+    // Без код и без нищо друго обаче няма смисъл от запис.
+    if (!code && !g("pk-cpname") && !g("pk-client")) { alert("Попълни поне наш код, клиент или име по клиента."); return; }
     const rc = {
-      code, clientName: g("pk-client"), clientProductName: g("pk-cpname"), boxType: g("pk-boxtype"),
+      code, clientName: g("pk-client"), clientProductName: g("pk-cpname"),
+      boxType: g("pk-boxtype"), boxSize: g("pk-boxsize"),
       kgPerPiece: packNum(g("pk-kgp")), kgPerBox: packNum(g("pk-kgb")),
       boxesPerPallet: packNum(g("pk-bpp")), accessories: g("pk-acc"),
     };
     if (isNew) {
-      // Ако вече има запис за същия код+клиент — обновяваме го, вместо дубликат.
-      const ex = (PACKAGING || []).find(p => packNorm(p.code) === packNorm(rc.code) && packNorm(p.clientName) === packNorm(rc.clientName));
+      // Дедуп: по код+клиент (ако има код) или по име по клиента+клиент (ако няма).
+      const ex = (PACKAGING || []).find(p => code
+        ? (packNorm(p.code) === packNorm(rc.code) && packNorm(p.clientName) === packNorm(rc.clientName))
+        : (!packNorm(p.code) && packNorm(p.clientProductName) === packNorm(rc.clientProductName) && packNorm(p.clientName) === packNorm(rc.clientName) && packNorm(rc.clientProductName)));
       if (ex) Object.assign(ex, rc);
       else (PACKAGING = PACKAGING || []).push({ id: packNextId(), ...rc });
     } else {

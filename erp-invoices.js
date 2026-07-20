@@ -179,7 +179,7 @@ function erpDocAutoRows(o) {
     let desc = ((l.code ? l.code + " " : "") + (l.name || "")).trim();
     if (c) {
       const bits = [];
-      if (c.boxes) bits.push(c.boxes + " каш." + (c.sp.boxType ? " (" + c.sp.boxType + ")" : ""));
+      if (c.boxes) { const bx = [c.sp.boxType, c.sp.boxSize].filter(Boolean).join(", "); bits.push(c.boxes + " каш." + (bx ? " (" + bx + ")" : "")); }
       if (c.pallets) bits.push(c.pallets + " пал.");
       if (c.accessories) bits.push(c.accessories);
       if (bits.length) desc += " · " + bits.join(" · ");
