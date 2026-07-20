@@ -145,7 +145,13 @@ function erpProductWeightKg(pid) {
   return kg;
 }
 // Тегло на цял ред (кг) = бройка × тегло на 1 продукт (0, ако редът не е продукт с рецепта).
+// Покупен материал за препродажба: теглото идва от мерната единица на материала.
 function erpInvLineKg(l) {
+  if (l && l.materialId && typeof ERP !== "undefined" && ERP.matById) {
+    const m = ERP.matById[l.materialId];
+    const f = m && typeof erpMatKgPerUnit === "function" ? erpMatKgPerUnit(m) : null;
+    return f ? Math.round((erpToNum(l.qty) || 0) * f * 1000) / 1000 : 0;
+  }
   const w = erpProductWeightKg(l && (l.productId || l.refId));
   return w > 0 ? Math.round((erpToNum(l.qty) || 0) * w * 1000) / 1000 : 0;
 }

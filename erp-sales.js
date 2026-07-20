@@ -180,6 +180,13 @@ function erpNewSaleFromOrder(order) {
     // (erpFillClientPrices допълва от историята).
     const orderPrice = erpToNum(l.unitPrice) || 0;
     const plePrice = (ple && erpToNum(ple.price) > 0) ? erpToNum(ple.price) : 0;
+    // Покупен материал за препродажба (болтове и др.): изписва се от склад
+    // Материали при осчетоводяването, не влиза в производство.
+    if (l.materialId) return {
+      itemKind: "material", refId: l.materialId, code: l.code || "", name, ourName: l.ourName || l.name || "",
+      clientCode: l.clientCode || "", clientName: l.clientName || "",
+      unit: l.unit || "бр.", qty: remaining, unitPrice: orderPrice > 0 ? orderPrice : "",
+    };
     return {
       // Готовото изделие е в Склад детайли (заприходено при производството) —
       // изписва се оттам, а НЕ по рецепта (иначе двойно броене на суровините).
