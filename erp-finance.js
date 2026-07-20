@@ -41,14 +41,17 @@ async function erpRenderFinance() {
     <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button>
     <button class="btn btn-small ${erpFinView === "payroll" ? "btn-primary" : ""}" id="fin-nav-p">🧾 Заплати (седмично)</button>
     <button class="btn btn-small ${erpFinView === "leaves" ? "btn-primary" : ""}" id="fin-nav-l">🏖 Отпуски</button>
-    <button class="btn btn-small ${erpFinView === "erptable" ? "btn-primary" : ""}" id="fin-nav-e">📈 Таблица ЕРП</button></div>`;
+    <button class="btn btn-small ${erpFinView === "erptable" ? "btn-primary" : ""}" id="fin-nav-e">📈 Таблица ЕРП</button>
+    <button class="btn btn-small ${erpFinView === "vat" ? "btn-primary" : ""}" id="fin-nav-v">💶 ДДС за възстановяване</button></div>`;
   v.innerHTML = nav + `<div id="fin-body"><p class="erp-loading">Зареждане…</p></div>`;
   v.querySelector("#fin-nav-m").addEventListener("click", () => { erpFinView = "margin"; erpRenderFinance(); });
   v.querySelector("#fin-nav-r").addEventListener("click", () => { erpFinView = "rates"; erpRenderFinance(); });
   v.querySelector("#fin-nav-p").addEventListener("click", () => { erpFinView = "payroll"; erpRenderFinance(); });
   v.querySelector("#fin-nav-l").addEventListener("click", () => { erpFinView = "leaves"; erpRenderFinance(); });
   v.querySelector("#fin-nav-e").addEventListener("click", () => { erpFinView = "erptable"; erpRenderFinance(); });
+  v.querySelector("#fin-nav-v").addEventListener("click", () => { erpFinView = "vat"; erpRenderFinance(); });
   const body = v.querySelector("#fin-body");
+  if (erpFinView === "vat") { await erpRenderVat(body); return; }
   if (erpFinView === "leaves") {
     if (typeof erpRenderLeaves === "function") await erpRenderLeaves(body);
     else body.innerHTML = `<p class="erp-error">Модул „Отпуски" не е зареден.</p>`;
@@ -165,4 +168,80 @@ function erpFinExportCsv(list, calc) {
     headers: [{ label: "Наш №" }, { label: "Клиент" }, { label: "Дата" }, { label: "Приходи", num: true }, { label: "Себестойност", num: true }, { label: "Маржин", num: true }, { label: "Маржин %", num: true }],
     rows,
   }]);
+}
+
+/* ---------- ДДС за възстановяване / внасяне ----------
+   Резултат за месец = ДДС от ИЗДАДЕНИТЕ фактури (кредитните намаляват,
+   проформите не се броят) − ДДС от РАЗХОДИТЕ (Покупки).
+   Положително = ДДС за ВНАСЯНЕ; отрицателно = ДДС за ВЪЗСТАНОВЯВАНЕ.
+   Всичко в EUR (BGN се превръща по 1.95583). */
+function finVatMonth(ym) {
+  const RATE = 1.95583;
+  let sale = 0, saleCnt = 0;
+  (typeof erpInvoices !== "undefined" && erpInvoices || []).forEach(o => {
+    if (!o.posted || o.kind === "proforma") return;
+    if (String(o.issueDate || "").slice(0, 7) !== ym) return;
+    const t = erpInvTotals(o);
+    sale += (o.currency === "BGN") ? t.vat / RATE : t.vat;
+    saleCnt++;
+  });
+  let buy = 0, buyCnt = 0;
+  (typeof erpPurchases !== "undefined" && erpPurchases || []).forEach(o => {
+    if (String(o.date || "").slice(0, 7) !== ym) return;
+    const t = erpPuTotals(o);
+    buy += (erpPuCur(o) === "BGN") ? t.vat / RATE : t.vat;
+    buyCnt++;
+  });
+  return { sale, buy, result: sale - buy, saleCnt, buyCnt };
+}
+async function erpRenderVat(v) {
+  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  try {
+    if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+    if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases();
+  } catch (e) { v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя данните</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
+
+  const money = n => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " EUR";
+  const MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+  const now = new Date();
+  const ymOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const labelOf = ym => { const [y, m] = ym.split("-").map(Number); return MONTHS[m - 1] + " " + y; };
+  const cur = ymOf(now);
+  const prev = ymOf(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+
+  const bigCard = ym => {
+    const r = finVatMonth(ym);
+    const refundable = r.result < 0;
+    return `<div class="vat-card ${refundable ? "vat-refund" : "vat-due"}">
+      <div class="vat-month">${escapeHtml(labelOf(ym))}</div>
+      <div class="vat-verdict">${refundable ? "✅ ДДС за ВЪЗСТАНОВЯВАНЕ" : "📤 ДДС за ВНАСЯНЕ"}</div>
+      <div class="vat-amount">${money(Math.abs(r.result))}</div>
+      <div class="vat-break">
+        <span>ДДС продажби (${r.saleCnt} ф-ри): <b>${money(r.sale)}</b></span>
+        <span>− ДДС разходи (${r.buyCnt} ф-ри): <b>${money(r.buy)}</b></span>
+      </div>
+    </div>`;
+  };
+
+  // История: последните 6 месеца в таблица.
+  const rows = [];
+  for (let i = 0; i < 6; i++) {
+    const ym = ymOf(new Date(now.getFullYear(), now.getMonth() - i, 1));
+    rows.push({ ym, ...finVatMonth(ym) });
+  }
+
+  v.innerHTML = `
+    <div class="vat-cards">${bigCard(cur)}${bigCard(prev)}</div>
+    <p class="hint">Резултат = ДДС от <b>издадените фактури</b> (кредитните намаляват, проформите не влизат) − ДДС от <b>Разходите (Покупки)</b>. Всичко в EUR (BGN → /1.95583). Влизат само документите, въведени в системата.</p>
+    <h4 class="erp-group-head">Последни 6 месеца</h4>
+    <table class="report-table erp-table">
+      <thead><tr><th>Месец</th><th class="num">ДДС продажби</th><th class="num">ДДС разходи</th><th class="num">Резултат</th><th>Статус</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td><b>${escapeHtml(labelOf(r.ym))}</b></td>
+        <td class="num">${money(r.sale)}</td>
+        <td class="num">${money(r.buy)}</td>
+        <td class="num"><b class="${r.result < 0 ? "vat-green" : "vat-red"}">${money(r.result)}</b></td>
+        <td>${(r.saleCnt || r.buyCnt) ? (r.result < 0 ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">възстановяване</span>' : '<span class="erp-co-status" style="background:#fef3c7;color:#92400e">внасяне</span>') : '<span class="erp-muted">няма данни</span>'}</td>
+      </tr>`).join("")}</tbody>
+    </table>`;
 }

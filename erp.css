@@ -549,3 +549,17 @@ img.ai-doc-content { max-width: none; }
 .erp-dialog-box.erp-dialog-full { width: 98vw; max-width: 98vw; height: 96vh; max-height: 96vh; display: flex; flex-direction: column; border-radius: 12px; }
 .erp-dialog-full .lf-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .erp-dialog-full .erp-dialog-actions { flex: 0 0 auto; }
+
+/* ДДС за възстановяване / внасяне */
+.vat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.vat-card { border-radius: 14px; padding: 16px 18px; border: 2px solid; }
+.vat-card.vat-refund { background: #f0fdf4; border-color: #86efac; }
+.vat-card.vat-due { background: #fffbeb; border-color: #fcd34d; }
+.vat-month { font-size: 13px; font-weight: 700; color: #64748b; text-transform: capitalize; }
+.vat-verdict { font-size: 15px; font-weight: 800; margin-top: 4px; }
+.vat-refund .vat-verdict { color: #166534; }
+.vat-due .vat-verdict { color: #92400e; }
+.vat-amount { font-size: 30px; font-weight: 800; margin: 6px 0 8px; color: #0f172a; }
+.vat-break { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: #475569; }
+.vat-green { color: #166534; }
+.vat-red { color: #b45309; }
