@@ -40,13 +40,20 @@ async function erpRenderFinance() {
     <button class="btn btn-small ${erpFinView === "margin" ? "btn-primary" : ""}" id="fin-nav-m">📊 Маржин по поръчка</button>
     <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button>
     <button class="btn btn-small ${erpFinView === "payroll" ? "btn-primary" : ""}" id="fin-nav-p">🧾 Заплати (седмично)</button>
+    <button class="btn btn-small ${erpFinView === "leaves" ? "btn-primary" : ""}" id="fin-nav-l">🏖 Отпуски</button>
     <button class="btn btn-small ${erpFinView === "erptable" ? "btn-primary" : ""}" id="fin-nav-e">📈 Таблица ЕРП</button></div>`;
   v.innerHTML = nav + `<div id="fin-body"><p class="erp-loading">Зареждане…</p></div>`;
   v.querySelector("#fin-nav-m").addEventListener("click", () => { erpFinView = "margin"; erpRenderFinance(); });
   v.querySelector("#fin-nav-r").addEventListener("click", () => { erpFinView = "rates"; erpRenderFinance(); });
   v.querySelector("#fin-nav-p").addEventListener("click", () => { erpFinView = "payroll"; erpRenderFinance(); });
+  v.querySelector("#fin-nav-l").addEventListener("click", () => { erpFinView = "leaves"; erpRenderFinance(); });
   v.querySelector("#fin-nav-e").addEventListener("click", () => { erpFinView = "erptable"; erpRenderFinance(); });
   const body = v.querySelector("#fin-body");
+  if (erpFinView === "leaves") {
+    if (typeof erpRenderLeaves === "function") await erpRenderLeaves(body);
+    else body.innerHTML = `<p class="erp-error">Модул „Отпуски" не е зареден.</p>`;
+    return;
+  }
   if (erpFinView === "rates") {
     if (typeof erpRenderCostRates === "function") await erpRenderCostRates(body);
     else body.innerHTML = `<p class="erp-error">Модул „Разходи" не е зареден.</p>`;
