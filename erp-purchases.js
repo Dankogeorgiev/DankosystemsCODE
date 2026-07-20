@@ -232,6 +232,7 @@ async function erpRenderPurchaseForm(o) {
         <button class="btn btn-small" id="pu-add-mat">+ Материал (склад)</button>
         <button class="btn btn-small" id="pu-add-exp">+ Разход / услуга</button>
       </div>
+      ${erpPuProfileChipsHtml(o)}
       <datalist id="pu-groups">${groups.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
       <datalist id="pu-articles">${articles.map(a => `<option value="${escapeAttr(a)}"></option>`).join("")}</datalist>
       <div class="erp-sale-totals" id="pu-totals"></div>
@@ -243,6 +244,11 @@ async function erpRenderPurchaseForm(o) {
   bind("pu-term", "termDays", () => erpPuSyncDue(o)); bind("pu-due", "dueDate");
   const pd = document.getElementById("pu-paiddate"); if (pd) pd.addEventListener("input", () => o.paidDate = pd.value);
   document.getElementById("pu-supplier").addEventListener("input", e => { o.supplierName = e.target.value; const m = suppliers.find(s => s.name === e.target.value); o.supplierId = m ? m.id : null; });
+  // Самообучение: при избор на познат доставчик — попълва плащане/валута/ДДС от историята + показва честите артикули.
+  document.getElementById("pu-supplier").addEventListener("change", e => {
+    const prof = erpPuSupplierProfile(e.target.value);
+    if (prof && erpPuApplyProfile(o, prof)) erpRenderPurchaseForm(o);
+  });
   document.getElementById("pu-pay").addEventListener("change", e => { o.payStatus = e.target.value; erpPuApplyPay(o); erpRenderPurchaseForm(o); });
   document.getElementById("pu-cur").addEventListener("change", e => { o.currency = e.target.value; erpPuTotalsBox(o); });
   document.getElementById("pu-vat").addEventListener("change", e => { o.vatRate = Number(e.target.value); erpPuTotalsBox(o); });
@@ -254,6 +260,7 @@ async function erpRenderPurchaseForm(o) {
   const fi = document.getElementById("pu-file-input"); if (fi) fi.addEventListener("change", e => erpPuAttachFiles(o, e.target.files));
   const fl = document.getElementById("pu-files-list"); if (fl) fl.addEventListener("click", e => { const rm = e.target.closest("[data-pufrm]"); if (rm) { e.preventDefault(); erpPuRemoveFile(o, Number(rm.dataset.pufrm)); } });
   erpPuWireLines(o, locked);
+  erpPuWireProfileChips(o);
   erpPuTotalsBox(o);
 }
 function erpPuSyncDue(o) {
@@ -300,6 +307,60 @@ function erpPuTotalsBox(o) {
     <tr><td>Данъчна основа</td><td class="num">${erpPuMoney(t.base, cur)}</td></tr>
     <tr><td>ДДС ${t.rate}%</td><td class="num">${erpPuMoney(t.vat, cur)}</td></tr>
     <tr class="grand"><td><b>Общо с ДДС</b></td><td class="num"><b>${erpPuMoney(t.total, cur)}${eur}</b></td></tr></table>`;
+}
+
+/* ---------- Самообучение от историята ----------
+   Системата чете вече въведените покупки на доставчика и вади „профил":
+   как обичайно се плаща (отложено/в брой/карта, колко дни), валута, ДДС и
+   кои артикули купуваме най-често от него (с последна цена). Няма отделна
+   база — всяка нова фактура автоматично „дообучава", защото влиза в историята. */
+function erpPuSupplierProfile(name) {
+  const nm = String(name || "").trim().toLowerCase();
+  if (!nm) return null;
+  const mine = (erpPurchases || []).filter(p => String(p.supplierName || "").trim().toLowerCase() === nm)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  if (!mine.length) return null;
+  const last = mine[0];
+  // Най-чести артикули (с последната им цена и класификация).
+  const arts = {};
+  mine.forEach(p => (p.lines || []).forEach(l => {
+    const key = (l.article || l.name || "").trim(); if (!key) return;
+    const a = arts[key] || (arts[key] = { article: key, group: l.groupName || "", unit: l.unit || "бр.", code: l.code || "", materialId: l.materialId || null, price: 0, n: 0, lastDate: "" });
+    a.n++;
+    if (String(p.date || "") >= a.lastDate) { a.lastDate = p.date || ""; if (erpToNum(l.unitPrice)) a.price = erpToNum(l.unitPrice); if (l.groupName) a.group = l.groupName; }
+  }));
+  const topArticles = Object.values(arts).sort((a, b) => b.n - a.n).slice(0, 8);
+  return {
+    count: mine.length,
+    payStatus: erpPuPayStatus(last), termDays: Number(last.termDays) || 0,
+    currency: last.currency || "BGN", vatRate: last.vatRate != null ? last.vatRate : 20,
+    topArticles,
+  };
+}
+// Прилага профила върху НОВА фактура (не пипа отворена стара) и казва какво е попълнил.
+function erpPuApplyProfile(o, prof) {
+  if (!prof || o.id) return false;
+  o.payStatus = prof.payStatus; o.termDays = prof.termDays;
+  o.currency = prof.currency; o.vatRate = prof.vatRate;
+  erpPuApplyPay(o);
+  return true;
+}
+function erpPuProfileChipsHtml(o) {
+  const prof = erpPuSupplierProfile(o.supplierName);
+  if (!prof || !prof.topArticles.length) return "";
+  return `<div class="pu-learn" id="pu-learn-box">
+    <span class="pu-learn-lbl" title="От ${prof.count} предишни фактури на този доставчик">🧠 Често купуваме от ${escapeHtml(o.supplierName)}:</span>
+    ${prof.topArticles.map((a, i) => `<button type="button" class="btn btn-small pu-learn-chip" data-chip="${i}" title="${a.n}× досега${a.price ? " · последна цена " + erpNum(a.price) : ""}${a.group ? " · " + escapeAttr(a.group) : ""}">+ ${escapeHtml(a.article)}${a.price ? ` <span class="erp-muted">${erpNum(a.price)}</span>` : ""}</button>`).join("")}
+  </div>`;
+}
+function erpPuWireProfileChips(o) {
+  const box = document.getElementById("pu-learn-box"); if (!box) return;
+  const prof = erpPuSupplierProfile(o.supplierName); if (!prof) return;
+  box.querySelectorAll("[data-chip]").forEach(b => b.addEventListener("click", () => {
+    const a = prof.topArticles[Number(b.dataset.chip)]; if (!a) return;
+    o.lines.push({ materialId: a.materialId || undefined, groupName: a.group, article: a.article, name: a.article, code: a.code, qty: 1, unit: a.unit, unitPrice: a.price || "" });
+    erpPuRefreshFull(o);
+  }));
 }
 
 function erpPuAddMaterial(o) {
