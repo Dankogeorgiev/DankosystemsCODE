@@ -11,6 +11,14 @@ let prodRptMode = "day";     // day | week | month
 let prodRptDate = "";        // избрана дата (ISO); празно = днес
 let prodRptShop = "__all";   // __all | име на цех
 let prodRptWorker = "";      // филтър по служител (празно = всички)
+let prodRptQuery = "";       // 🔎 търсене по код / продукт / клиент / операция
+
+// Съвпада ли задачата с търсенето (най-вече по НАШИЯ код на изделието).
+function prodMatchQuery(t) {
+  const q = (prodRptQuery || "").toLowerCase().trim();
+  if (!q) return true;
+  return `${t.code || ""} ${t.product || ""} ${t.client || ""} ${t.operation || ""}`.toLowerCase().includes(q);
+}
 
 const PROD_MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
 
@@ -42,6 +50,7 @@ function prodAggregate(from, to, shop, worker) {
   let total = 0, entries = 0;
   (TASKS || []).forEach(t => {
     if (shop !== "__all" && t.workshop !== shop) return;
+    if (!prodMatchQuery(t)) return;
     (t.logs || []).forEach(l => {
       const d = (l.date || "").slice(0, 10);
       if (from && d < from) return;
@@ -77,6 +86,7 @@ function prodWorkerEntries(from, to, shop, worker) {
   const out = [];
   (TASKS || []).forEach(t => {
     if (shop !== "__all" && t.workshop !== shop) return;
+    if (!prodMatchQuery(t)) return;
     (t.logs || []).forEach(l => {
       const d = (l.date || "").slice(0, 10);
       if (from && d < from) return;
@@ -114,7 +124,9 @@ function renderProdReport() {
       </div>
       <div class="pr-row pr-shops"><span class="pr-lbl">Цех:</span>${shopChip("__all", "🏭 Общ отчет")}${shops.map(s => shopChip(s, s)).join("")}</div>
       <div class="pr-row"><span class="pr-lbl">Служител:</span>
-        <select id="pr-worker"><option value="">Всички</option>${workerNames.map(n => `<option ${n === prodRptWorker ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select></div>
+        <select id="pr-worker"><option value="">Всички</option>${workerNames.map(n => `<option ${n === prodRptWorker ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select>
+        <span class="pr-lbl" style="margin-left:12px">🔎</span>
+        <input type="search" id="pr-q" value="${escapeAttr(prodRptQuery)}" placeholder="търси по КОД / продукт / клиент…" style="min-width:220px" autocomplete="off" /></div>
     </div>
     <div id="pr-out"></div>
     <div id="painting-reports"></div>`;
@@ -124,6 +136,7 @@ function renderProdReport() {
   v.querySelectorAll("[data-shop]").forEach(b => b.addEventListener("click", () => { prodRptShop = b.dataset.shop; prodRptWorker = ""; renderProdReport(); }));
   v.querySelector("#pr-date").addEventListener("change", e => { prodRptDate = e.target.value || prodToday(); renderProdReport(); });
   v.querySelector("#pr-worker").addEventListener("change", e => { prodRptWorker = e.target.value; prodComputeAndRender(); });
+  v.querySelector("#pr-q").addEventListener("input", e => { prodRptQuery = e.target.value; prodComputeAndRender(); });
   v.querySelector("#pr-csv").addEventListener("click", prodExportCsv);
   v.querySelector("#pr-pdf").addEventListener("click", prodExportPdf);
   prodComputeAndRender();
@@ -137,7 +150,7 @@ function prodComputeAndRender() {
   if (!out) return;
   const scope = prodRptShop === "__all" ? "Всички цехове" : "Цех " + prodRptShop;
   const head = `<div class="pr-summary"><b>${escapeHtml(scope)}</b> · ${escapeHtml(label)} ·
-      Общо произведено: <b>${agg.total}</b> бр. <span class="muted">(${agg.entries} вписвания)</span>${prodRptWorker ? ` · служител: <b>${escapeHtml(prodRptWorker)}</b>` : ""}</div>`;
+      Общо произведено: <b>${agg.total}</b> бр. <span class="muted">(${agg.entries} вписвания)</span>${prodRptWorker ? ` · служител: <b>${escapeHtml(prodRptWorker)}</b>` : ""}${prodRptQuery ? ` · 🔎 <b>${escapeHtml(prodRptQuery)}</b>` : ""}</div>`;
 
   const multiDay = prodRptMode !== "day";
   let html = head;
@@ -159,11 +172,11 @@ function prodComputeAndRender() {
     <tbody>${wRows.map(([w, d]) => `<tr class="pr-clickable ${w === prodRptWorker ? "pr-sel" : ""}" data-worker="${escapeAttr(w)}" title="Виж какво е произвел"><td><b>${escapeHtml(w)}</b></td><td>${escapeHtml(d.shop)}</td><td class="num">${d.qty}</td><td class="num">${d.cnt}</td><td class="num">${prodPct(d.qty, agg.total)}%</td></tr>`).join("")
       || `<tr><td colspan="5" class="report-empty">Няма данни за периода.</td></tr>`}</tbody></table>`;
 
-  // По изделие
-  const iRows = Object.values(agg.byItem).sort((a, b) => b.qty - a.qty);
+  // По изделие (нашият КОД е първи и удебелен — по него се търси и ориентира)
+  const iRows = Object.values(agg.byItem).sort((a, b) => String(a.code || "я").localeCompare(String(b.code || "я")) || b.qty - a.qty);
   html += `<h4>По изделие</h4>
-    <table class="report-table pr-table"><thead><tr>${prodRptShop === "__all" ? "<th>Цех</th>" : ""}<th>Клиент</th><th>Продукт</th><th>Код</th><th>Операция</th><th class="num">Произведено</th></tr></thead>
-    <tbody>${iRows.map(r => `<tr>${prodRptShop === "__all" ? `<td>${escapeHtml(r.workshop)}</td>` : ""}<td>${r.client ? escapeHtml(r.client) : '<span class="serie">СЕРИЯ</span>'}</td><td>${escapeHtml(r.product) || "—"}</td><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.operation) || "—"}</td><td class="num">${r.qty}</td></tr>`).join("")
+    <table class="report-table pr-table"><thead><tr><th>Код</th><th>Продукт</th>${prodRptShop === "__all" ? "<th>Цех</th>" : ""}<th>Клиент</th><th>Операция</th><th class="num">Произведено</th></tr></thead>
+    <tbody>${iRows.map(r => `<tr><td class="pr-code">${r.code ? `<b>${escapeHtml(r.code)}</b>` : "—"}</td><td>${escapeHtml(r.product) || "—"}</td>${prodRptShop === "__all" ? `<td>${escapeHtml(r.workshop)}</td>` : ""}<td>${r.client ? escapeHtml(r.client) : '<span class="serie">СЕРИЯ</span>'}</td><td>${escapeHtml(r.operation) || "—"}</td><td class="num">${r.qty}</td></tr>`).join("")
       || `<tr><td colspan="${prodRptShop === "__all" ? 6 : 5}" class="report-empty">Няма данни за периода.</td></tr>`}</tbody></table>`;
 
   // По дни (само за седмица/месец)
@@ -181,11 +194,12 @@ function prodComputeAndRender() {
     const eTotal = entries.reduce((s, e) => s + e.qty, 0);
     html += `<div class="pr-row" style="margin:12px 0 0"><button class="btn btn-small" id="pr-all-workers">← Всички служители</button></div>
       <h4>🔍 Подробно — ${escapeHtml(prodRptWorker)} · ${eTotal} бр. (${entries.length} вписвания)</h4>
-      <table class="report-table pr-table"><thead><tr><th>Дата</th><th>Клиент</th><th>Продукт</th><th>Код</th><th>Операция</th><th>Цех</th><th class="num">Брой</th><th>Машина</th><th class="num">Време/бр.</th></tr></thead>
+      <table class="report-table pr-table"><thead><tr><th>Дата</th><th>Код</th><th>Продукт</th><th>Клиент</th><th>Операция</th><th>Цех</th><th class="num">Брой</th><th>Машина</th><th class="num">Време/бр.</th></tr></thead>
       <tbody>${entries.map(e => `<tr>
         <td>${escapeHtml(fmtLogDate(e.date))}</td>
+        <td class="pr-code">${e.code ? `<b>${escapeHtml(e.code)}</b>` : "—"}</td>
+        <td>${escapeHtml(e.product) || "—"}</td>
         <td>${e.client ? escapeHtml(e.client) : '<span class="serie">СЕРИЯ</span>'}</td>
-        <td>${escapeHtml(e.product) || "—"}</td><td>${escapeHtml(e.code)}</td>
         <td>${escapeHtml(e.operation) || "—"}</td><td>${escapeHtml(e.workshop)}</td>
         <td class="num">${e.qty}</td><td>${escapeHtml(e.machine) || "—"}</td><td class="num">${prodDur(e.perPiece)}</td>
       </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма вписвания за периода.</td></tr>`}</tbody></table>`;
@@ -213,9 +227,9 @@ function prodExportCsv() {
     rows: Object.entries(agg.byWorker).sort((a, b) => b[1].qty - a[1].qty).map(([w, d]) => [w, d.shop, d.qty, d.cnt, prodPct(d.qty, agg.total)]),
   });
   sections.push({
-    title: "Подробно (по продукт/операция)",
-    headers: [{ label: "Цех" }, { label: "Клиент" }, { label: "Продукт" }, { label: "Код" }, { label: "Операция" }, { label: "Произведено", num: true }],
-    rows: Object.values(agg.byItem).sort((a, b) => b.qty - a.qty).map(r => [r.workshop, r.client, r.product, r.code, r.operation, r.qty]),
+    title: "Подробно (по код/продукт/операция)",
+    headers: [{ label: "Код" }, { label: "Продукт" }, { label: "Цех" }, { label: "Клиент" }, { label: "Операция" }, { label: "Произведено", num: true }],
+    rows: Object.values(agg.byItem).sort((a, b) => String(a.code || "я").localeCompare(String(b.code || "я")) || b.qty - a.qty).map(r => [r.code, r.product, r.workshop, r.client, r.operation, r.qty]),
   });
   const title = `Производствен отчет · ${prodRptShop === "__all" ? "Всички цехове" : prodRptShop} · ${label}`;
   reportExportXls(`proizvodstven-otchet-${from}${from !== to ? "_" + to : ""}`, title, sections);
@@ -239,8 +253,8 @@ function prodExportPdf() {
     </tbody></table>`;
   const iSection = `
     <h3>По изделие</h3>
-    <table><thead><tr><th>Цех</th><th>Клиент</th><th>Продукт</th><th>Код</th><th>Операция</th><th class="r">Произведено</th></tr></thead><tbody>
-    ${Object.values(agg.byItem).sort((a, b) => b.qty - a.qty).map(r => `<tr><td>${esc(r.workshop)}</td><td>${esc(r.client) || "СЕРИЯ"}</td><td>${esc(r.product) || "—"}</td><td>${esc(r.code)}</td><td>${esc(r.operation) || "—"}</td><td class="r">${r.qty}</td></tr>`).join("") || `<tr><td colspan="6" class="c">няма данни</td></tr>`}
+    <table><thead><tr><th>Код</th><th>Продукт</th><th>Цех</th><th>Клиент</th><th>Операция</th><th class="r">Произведено</th></tr></thead><tbody>
+    ${Object.values(agg.byItem).sort((a, b) => String(a.code || "я").localeCompare(String(b.code || "я")) || b.qty - a.qty).map(r => `<tr><td><b>${esc(r.code) || "—"}</b></td><td>${esc(r.product) || "—"}</td><td>${esc(r.workshop)}</td><td>${esc(r.client) || "СЕРИЯ"}</td><td>${esc(r.operation) || "—"}</td><td class="r">${r.qty}</td></tr>`).join("") || `<tr><td colspan="6" class="c">няма данни</td></tr>`}
     </tbody></table>`;
   const dSection = prodRptMode !== "day" ? `
     <h3>По дни</h3>
@@ -263,7 +277,7 @@ function prodExportPdf() {
   </style></head><body>
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат / Запази като PDF</button></div>
     <div class="head"><h1>ПРОИЗВОДСТВЕН ОТЧЕТ</h1>
-      <div class="sub"><b>${esc(scope)}</b> · ${esc(label)} · Общо: <b>${agg.total}</b> бр. (${agg.entries} вписвания)${prodRptWorker ? " · служител: " + esc(prodRptWorker) : ""}</div></div>
+      <div class="sub"><b>${esc(scope)}</b> · ${esc(label)} · Общо: <b>${agg.total}</b> бр. (${agg.entries} вписвания)${prodRptWorker ? " · служител: " + esc(prodRptWorker) : ""}${prodRptQuery ? " · търсене: " + esc(prodRptQuery) : ""}</div></div>
     ${sSection}${wSection}${iSection}${dSection}
   </body></html>`;
   const w = window.open("", "_blank");
