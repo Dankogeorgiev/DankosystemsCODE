@@ -246,7 +246,7 @@ function leaveRenderCalendar(box, titleEl) {
     const ppl = onLeave(iso);
     cells += `<div class="lv-cell ${we ? "lv-we" : ""} ${iso === today ? "lv-today" : ""}">
       <div class="lv-day">${d} <span class="lv-day-dow">${DOW_S[(dow + 6) % 7]}</span>${iso === today ? '<span class="lv-today-lbl">днес</span>' : ""}</div>
-      ${ppl.map(l => `<div class="lv-chip ${l.status === "одобрена" ? "lv-ok" : "lv-pend"}" title="${escapeAttr(l.name + " · " + leaveFmt(l.from) + " – " + leaveFmt(l.to) + (l.status === "одобрена" ? " (одобрен)" : " (чака)"))}">${escapeHtml((l.name || "").split(" ")[0])}</div>`).join("")}
+      ${ppl.map(l => `<div class="lv-chip ${l.status === "одобрена" ? "lv-ok" : "lv-pend"}" title="${escapeAttr(l.name + " · " + leaveFmt(l.from) + " – " + leaveFmt(l.to) + (l.status === "одобрена" ? " (одобрен)" : " (чака)"))}">${escapeHtml(l.name || "")}</div>`).join("")}
     </div>`;
     col++;
   }
