@@ -1341,3 +1341,6 @@ tr.times-click:hover td { background: #ecfdf5; }
   .nit-mech-btn { min-height: 80px; font-size: 16px; padding: 12px 8px; }
   .rog-id-btn { min-width: 100%; }
 }
+
+/* Технологичен множител на операция (напр. 2 огъвки на брой) */
+.t-opsper { display: inline-block; background: #ede9fe; color: #6d28d9; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; white-space: nowrap; }

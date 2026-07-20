@@ -266,7 +266,7 @@ function openOrdersInProduction() {
       g.ops.sort((a, b) => ((a.source && a.source.step) || 0) - ((b.source && b.source.step) || 0));
       const stocked = (function () { const lt = g.ops.find(t => t.source && t.source.last); return lt ? (Number(lt.source.stocked) || 0) : 0; })();
       return `<div class="oip-detail"><div class="oip-detail-h">🔩 <b>${escapeHtml(g.code)}</b> ${escapeHtml(g.product)}${stocked > 0 ? ` <span class="ost-stocked">📥 в склада: ${stocked}</span>` : ""}</div>
-        <div class="oip-ops">${g.ops.map(t => { const s = opState(t); return `<span class="oip-op ${s.cls}">${s.ic} ${escapeHtml(t.operation || "")} ${Number(t.produced) || 0}/${Number(t.qty) || 0}${t.workshop ? " · " + escapeHtml(t.workshop) : ""}</span>`; }).join("")}</div></div>`;
+        <div class="oip-ops">${g.ops.map(t => { const s = opState(t); return `<span class="oip-op ${s.cls}">${s.ic} ${escapeHtml(t.operation || "")}${Number(t.opsPerUnit) > 1 ? " ×" + t.opsPerUnit + "/бр." : ""} ${Number(t.produced) || 0}/${Number(t.qty) || 0}${t.workshop ? " · " + escapeHtml(t.workshop) : ""}</span>`; }).join("")}</div></div>`;
     }).join("");
   };
 
@@ -865,7 +865,7 @@ function renderTasks() {
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
         : `<select class="t-thick"><option value="">—</option>${THICKNESS_OPTIONS.map(v => `<option ${t.thickness === v ? "selected" : ""}>${v}</option>`).join("")}</select>`}</td>
-      <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
+      <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}${Number(t.opsPerUnit) > 1 ? ` <span class="t-opsper" title="Операцията се прави ${t.opsPerUnit} пъти на всеки брой (напр. ${t.opsPerUnit} огъвки)">×${t.opsPerUnit}/бр.</span>` : ""}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>

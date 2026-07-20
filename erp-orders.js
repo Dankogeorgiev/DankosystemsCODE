@@ -169,9 +169,12 @@ function erpBuildChains(s) {
       if (l.operation_id) {
         const op = ERP.opById[l.operation_id] || {};
         const ws = (route(op).primary) || "";
-        const cnt = mult * (Number(l.quantity) || 1);
+        // Бройката за цеха = броят ДЕТАЙЛИ (mult). l.quantity (напр. 2 огъвки
+        // на 1 детайл) е технологичен множител за цена/време, НЕ за бройки —
+        // иначе абкантът вижда 20 бр. при 10 реални детайла.
+        const perUnit = Number(l.quantity) || 1;
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
-        steps.push({ product: p.name || "", code: p.code || "", operation: op.name || "", workshop: ws, qty: cnt });
+        steps.push({ product: p.name || "", code: p.code || "", operation: op.name || "", workshop: ws, qty: mult, opsPerUnit: perUnit });
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
         walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]), depth + 1);
       }
@@ -188,7 +191,7 @@ function erpBuildTasks(s) {
   const tasks = [];
   chains.forEach(c => c.steps.forEach(step => tasks.push({
     client: s.clientName || "", product: step.product, code: step.code,
-    operation: step.operation, workshop: step.workshop, qty: step.qty, produced: 0,
+    operation: step.operation, workshop: step.workshop, qty: step.qty, opsPerUnit: step.opsPerUnit || 1, produced: 0,
     due: s.deadline || "", thickness: "", files: [], logs: [],
     source: { kind: "order", sampleId: s.id, sampleType: s.type || "order" },
   })));
@@ -206,7 +209,7 @@ function erpSeqTask(step, i, meta) {
   return {
     client: meta.clientName || "", product: step.product || "", code: step.code || "",
     operation: step.operation || "", workshop: step.workshop || "",
-    qty: step.qty, produced: 0, due: meta.deadline || "", thickness: "", files: [], logs: [],
+    qty: step.qty, opsPerUnit: step.opsPerUnit || 1, produced: 0, due: meta.deadline || "", thickness: "", files: [], logs: [],
     source: src,
   };
 }
@@ -405,9 +408,11 @@ function erpFlowSteps(s, opts) {
         // Ръчно прехвърляне по детайл+операция (постоянно) — има превес над всичко.
         const dovr = (ERP.detailRouting || {})[erpDetailRouteKey(p.code, p.name, op.name)];
         if (dovr) ws = dovr;
-        const cnt = make * (Number(l.quantity) || 1);
+        // Бройка за цеха = брой ДЕТАЙЛИ (make); l.quantity (2 огъвки/брой) е
+        // само технологичен множител (цена/време), не умножава детайлите.
+        const perUnit = Number(l.quantity) || 1;
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
-        ops.push({ operation: op.name || "", workshop: ws, qty: cnt });
+        ops.push({ operation: op.name || "", workshop: ws, qty: make, opsPerUnit: perUnit });
       } else if (l.material_id) {
         const per = Number(l.quantity) || 1;
         materials[l.material_id] = (materials[l.material_id] || 0) + make * per;
@@ -484,6 +489,7 @@ function erpFlowSteps(s, opts) {
     n.ops.forEach((op, i) => {
       steps.push({
         product: n.product, code: n.code, operation: op.operation, workshop: op.workshop, qty: op.qty,
+        opsPerUnit: op.opsPerUnit || 1,
         seriesKey: n.key + "¦" + op.operation + sfx,
         prevKey: i > 0 ? (n.key + "¦" + n.ops[i - 1].operation + sfx) : null,
         gate: (i === gateIdx && gate && gate.length) ? gate.slice() : null,
@@ -653,7 +659,7 @@ async function erpFlowApply(meta, productLines) {
     if (!r) {
       r = { id: null, _new: true, data: {
         client: "", product: st.product, code: st.code, operation: st.operation, workshop: st.workshop,
-        qty: 0, produced: 0, due: "", thickness: "", files: [], logs: [],
+        qty: 0, opsPerUnit: st.opsPerUnit || 1, produced: 0, due: "", thickness: "", files: [], logs: [],
         source: {
           kind: "series", flow: true, seriesKey: k, prevKey: st.prevKey || null, gate: st.gate || null,
           consumes: st.consumes || null, materials: st.materials || null,
@@ -671,6 +677,7 @@ async function erpFlowApply(meta, productLines) {
     src.prevKey = st.prevKey || null;
     src.consumes = st.consumes || null;
     src.materials = st.materials || null;
+    r.data.opsPerUnit = st.opsPerUnit || 1;
     src.step = st.step;
     src.role = st.role || src.role || "part";
     src.last = !!st.last;
