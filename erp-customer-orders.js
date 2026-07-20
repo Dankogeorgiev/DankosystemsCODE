@@ -570,7 +570,7 @@ function erpCODocAdapter(o) {
     __ref: "заявка № " + (o.ourNo || "—") + (o.clientNo ? " / клиентски № " + o.clientNo : ""),
     issueDate: o.date || "", date: o.date || "",
     client: { name: o.clientName || "", eik: "", vat: "", city: "", street: "", country: "", person: "" },
-    lines: (o.lines || []).map(l => ({ code: l.code, name: l.name, clientCode: l.clientCode, qty: l.qty, unit: l.unit || "бр.", productId: l.productId })),
+    lines: (o.lines || []).map(l => ({ code: l.code, name: l.name, clientCode: l.clientCode, qty: l.qty, unit: l.unit || "бр.", productId: l.productId, materialId: l.materialId })),
     transport: o.transport || {}, pallets: o.pallets || [],
   };
 }
@@ -579,7 +579,7 @@ function erpCOLinesHtml(o) {
   return (o.lines || []).map((l, i) => `
     <tr>
       <td data-label="Код">${escapeHtml(l.code || "")}${l.clientCode ? `<div class="erp-co-ccode" title="Код на клиента">клиент: ${escapeHtml(l.clientCode)}</div>` : ""}</td>
-      <td data-label="Продукт">${escapeHtml(l.name || "")}${l.clientName && l.clientName !== l.name ? `<div class="erp-co-cname" title="Име при клиента">${escapeHtml(l.clientName)}</div>` : ""}${(function () {
+      <td data-label="Продукт">${escapeHtml(l.name || "")}${l.materialId ? ' <span class="erp-tag erp-tag-mat" title="Покупен материал за препродажба: не влиза в производство, изписва се от склад Материали при продажбата">🧱 материал</span>' : ""}${l.clientName && l.clientName !== l.name ? `<div class="erp-co-cname" title="Име при клиента">${escapeHtml(l.clientName)}</div>` : ""}${(function () {
         const del = Number(l.delivered) || 0; if (del <= 0) return "";
         const rem = Math.max(0, (erpToNum(l.qty) || 0) - del);
         return rem > 0
@@ -659,9 +659,10 @@ function erpCOFillPrices(o) {
 
 function erpCOAddProduct(o) {
   const { wrap, close } = erpDialog(`
-    <h3>Добави продукт</h3>
+    <h3>Добави продукт или покупен материал</h3>
     <input type="search" id="co-pp-q" placeholder="търси код или име…" />
     <div id="co-pp-list" class="erp-lp-list"></div>
+    <p class="hint" style="margin:6px 0 0">🧱 = покупен материал (препродажба): не влиза в производство, изписва се от склад Материали при продажбата. Цената я пишеш ти (продажната).</p>
     <div class="erp-dialog-actions"><button class="btn" id="co-pp-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#co-pp-list");
   const render = q => {
@@ -669,16 +670,28 @@ function erpCOAddProduct(o) {
     let list = ERP.products.filter(p => !p.is_semifinished || true);
     if (q) list = list.filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q));
     list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
-    listEl.innerHTML = list.slice(0, 80).map(p =>
+    // Материали за препродажба (болтове и др. покупни) — след продуктите.
+    let mats = (ERP.materials || []);
+    if (q) mats = mats.filter(m => ((m.code || "") + " " + (m.name || "")).toLowerCase().includes(q));
+    mats = mats.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    listEl.innerHTML = (list.slice(0, 60).map(p =>
       `<button type="button" class="erp-lp-item" data-id="${p.id}"><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} <span class="erp-muted">${p.is_semifinished ? "полуфабрикат" : "артикул"}</span></button>`).join("")
+      + mats.slice(0, 40).map(m =>
+      `<button type="button" class="erp-lp-item" data-mid="${m.id}">🧱 <b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">материал · ${escapeHtml(m.unit || "")}${m.avg_cost ? " · дост. " + erpEur(m.avg_cost) : ""}${m.stock != null ? " · нал. " + erpNum(m.stock) : ""}</span></button>`).join(""))
       || `<p class="report-empty">Няма съвпадения.</p>`;
-    listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
+    listEl.querySelectorAll(".erp-lp-item[data-id]").forEach(b => b.addEventListener("click", () => {
       const p = ERP.prodById[Number(b.dataset.id)];
       o.lines = o.lines || [];
       const last = erpCOClientPrice(o, p.id);   // авто-цена по клиент (листа → научено)
       const ple = (typeof erpPriceListEntry === "function") ? erpPriceListEntry(o.clientId, o.clientName, p.id) : null;
       const dispName = (ple && ple.cname) ? ple.cname : p.name;   // клиентско име, ако има в листата
       o.lines.push({ productId: p.id, code: p.code, name: dispName, ourName: p.name, qty: 1, unitPrice: last || "" });
+      close(); erpCORefreshLines(o);
+    }));
+    listEl.querySelectorAll(".erp-lp-item[data-mid]").forEach(b => b.addEventListener("click", () => {
+      const m = ERP.matById[Number(b.dataset.mid)];
+      o.lines = o.lines || [];
+      o.lines.push({ materialId: m.id, code: m.code, name: m.name, ourName: m.name, unit: m.unit || "бр.", qty: 1, unitPrice: "" });
       close(); erpCORefreshLines(o);
     }));
   };
