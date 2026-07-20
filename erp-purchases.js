@@ -201,7 +201,9 @@ async function erpRenderPurchaseForm(o) {
       <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-save">💾 Запази</button>
-      ${locked ? '<span class="erp-count">✓ Заприходена</span>' : '<button class="btn btn-small" id="pu-post" title="Само материалните редове вдигат склад + средна цена">📥 Заприходи материалите</button>'}
+      ${locked
+        ? '<span class="erp-count">✓ Заприходена</span> <button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
+        : '<button class="btn btn-small" id="pu-post" title="Само материалните редове вдигат склад + средна цена">📥 Заприходи материалите</button>'}
     </div>
     <div class="erp-co-form">
       <div class="erp-co-grid">
@@ -255,6 +257,7 @@ async function erpRenderPurchaseForm(o) {
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
   const postBtn = document.getElementById("pu-post"); if (postBtn) postBtn.addEventListener("click", () => erpPostPurchase(o));
+  const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
   document.getElementById("pu-add-mat").addEventListener("click", () => erpPuAddMaterial(o));
   document.getElementById("pu-add-exp").addEventListener("click", () => { o.lines.push({ groupName: "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
   const fi = document.getElementById("pu-file-input"); if (fi) fi.addEventListener("change", e => erpPuAttachFiles(o, e.target.files));
@@ -606,5 +609,51 @@ async function erpPostPurchase(o) {
   try { await erpSavePurchase(o); } catch {}
   await erpLoadAll(); await erpLoadPurchases();
   alert(`Готово! Заприходени ${moves.length} материала. Средните цени (EUR) са обновени.`);
+  erpRenderPurchaseForm(o);
+}
+
+/* ---------- Връщане за редакция (отзаприходяване) ----------
+   При грешка в заприходена фактура: маха складовите движения на тази фактура,
+   връща средните цени по обратната формула и отключва всичко за поправка.
+   После фактурата се заприходява наново с верните данни. */
+async function erpUnpostPurchase(o) {
+  if (!o.posted) return;
+  // Обръщането ползва ЗАПИСАНАТА версия (точно каквото е било заприходено),
+  // не евентуално току-що променените стойности на екрана.
+  const saved = (erpPurchases || []).find(x => String(x.id) === String(o.id)) || o;
+  const matLines = (saved.lines || []).filter(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
+  if (!confirm(`Да върна ли фактурата за редакция?\nСкладът ще се намали с ${matLines.length} заприходени материала и средните цени ще се върнат. След поправката я заприходи наново.`)) return;
+  const ref = `Фактура ${saved.invoiceNo || "—"} · ${saved.supplierName || ""}`.trim();
+  const [stk, mat] = await Promise.all([sb.from("v_material_stock").select("id,stock"), sb.from("materials").select("id,avg_cost")]);
+  if (stk.error || mat.error) { alert("Грешка: " + ((stk.error || mat.error).message)); return; }
+  const stockById = {}, avgById = {};
+  (stk.data || []).forEach(r => stockById[r.id] = Number(r.stock) || 0);
+  (mat.data || []).forEach(r => avgById[r.id] = Number(r.avg_cost) || 0);
+  const rate = erpPuCur(saved) === "BGN" ? PU_EUR_BGN : 1;
+
+  // Обратна средна цена: сваляме приноса на тази фактура (с включени предпазни граници).
+  for (const l of matLines) {
+    const qty = erpToNum(l.qty) || 0;
+    const priceEur = (erpToNum(l.unitPrice) || 0) / rate;
+    if (!(priceEur > 0)) continue;
+    const now = stockById[l.materialId] || 0, avg = avgById[l.materialId] || 0;
+    const base = now - qty;
+    if (base > 0) {
+      const rev = (now * avg - qty * priceEur) / base;
+      const newAvg = Math.max(0, Math.round(rev * 10000) / 10000);
+      const { error } = await sb.from("materials").update({ avg_cost: newAvg }).eq("id", l.materialId);
+      if (error) { alert("Грешка при връщане на цена: " + error.message); return; }
+      avgById[l.materialId] = newAvg;
+    }
+    stockById[l.materialId] = base;
+  }
+  // Махаме входящите движения на точно тази фактура (складът се преизчислява от изгледа).
+  const del = await sb.from("stock_movements").delete().eq("ref", ref).eq("kind", "входящ");
+  if (del.error) { alert("Грешка при движенията: " + del.error.message); return; }
+
+  o.posted = false; delete o.postedAt;
+  try { await erpSavePurchase(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
+  await erpLoadAll(); await erpLoadPurchases();
+  alert("Фактурата е върната за редакция. Поправи каквото трябва, запази и я заприходи наново.");
   erpRenderPurchaseForm(o);
 }
