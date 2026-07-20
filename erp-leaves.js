@@ -36,23 +36,25 @@ function leaveWorkDays(from, to) {
 function leaveRequestDialog(opts) {
   opts = opts || {};
   const admin = !!opts.adminEntry;   // ръчно вкарване на вече одобрен отпуск
+  const editRec = opts.edit || null; // редакция на съществуваща молба (преди печат)
   const ws = (typeof MY_ACCESS !== "undefined" && (MY_ACCESS.workshop || (MY_ACCESS.workshops || [])[0])) || "";
+  const V = (f, d) => escapeAttr(String((editRec && editRec[f] != null ? editRec[f] : d) || ""));
   const { wrap, close } = erpDialog(`
-    <h3>${admin ? "🏖 Вкарай одобрен отпуск" : "🏖 Молба за платен отпуск"}</h3>
-    <p class="hint" style="margin:0 0 8px">${admin ? "За отпуски, разрешени преди системата — влизат директно като одобрени." : "Попълни молбата — както на хартиената бланка. Ние ще я разгледаме и ще се свържем с теб."}</p>
-    <label>Трите имена <input type="text" id="lv-name" placeholder="Иван Иванов Иванов" /></label>
+    <h3>${editRec ? "✎ Поправка на молбата" : admin ? "🏖 Вкарай одобрен отпуск" : "🏖 Молба за платен отпуск"}</h3>
+    <p class="hint" style="margin:0 0 8px">${editRec ? "Допълни/поправи данните преди печата — служителят не винаги ги попълва всичките." : admin ? "За отпуски, разрешени преди системата — влизат директно като одобрени." : "Попълни молбата — както на хартиената бланка. Ние ще я разгледаме и ще се свържем с теб."}</p>
+    <label>Трите имена <input type="text" id="lv-name" value="${V("name")}" placeholder="Иван Иванов Иванов" /></label>
     <div class="erp-co-grid">
-      <label>ЕГН <input type="text" id="lv-egn" inputmode="numeric" maxlength="10" placeholder="(за молбата)" /></label>
-      <label>Длъжност <input type="text" id="lv-pos" placeholder="напр. оператор" /></label>
+      <label>ЕГН <input type="text" id="lv-egn" inputmode="numeric" maxlength="10" value="${V("egn")}" placeholder="(за молбата)" /></label>
+      <label>Длъжност <input type="text" id="lv-pos" value="${V("position")}" placeholder="напр. оператор" /></label>
     </div>
-    <label>Живущ в <input type="text" id="lv-addr" placeholder="гр./с. …, ул. …" /></label>
+    <label>Живущ в <input type="text" id="lv-addr" value="${V("address")}" placeholder="гр./с. …, ул. …" /></label>
     <div class="erp-co-grid">
-      <label>От дата <input type="date" id="lv-from" /></label>
-      <label>До дата (включително) <input type="date" id="lv-to" /></label>
+      <label>От дата <input type="date" id="lv-from" value="${V("from")}" /></label>
+      <label>До дата (включително) <input type="date" id="lv-to" value="${V("to")}" /></label>
     </div>
-    <label>Работни дни <input type="number" id="lv-days" min="1" step="1" placeholder="смята се само" /></label>
+    <label>Работни дни <input type="number" id="lv-days" min="1" step="1" value="${V("days")}" placeholder="смята се само" /></label>
     <p class="erp-muted" id="lv-calc" style="margin:4px 0 0"></p>
-    <div class="erp-dialog-actions"><button class="btn" id="lv-cancel">Отказ</button><button class="btn btn-primary" id="lv-send">${admin ? "💾 Запиши като одобрен" : "📨 Поискай отпуск"}</button></div>`);
+    <div class="erp-dialog-actions"><button class="btn" id="lv-cancel">Отказ</button><button class="btn btn-primary" id="lv-send">${editRec ? "💾 Запази поправките" : admin ? "💾 Запиши като одобрен" : "📨 Поискай отпуск"}</button></div>`);
   const calc = () => {
     const f = wrap.querySelector("#lv-from").value, t = wrap.querySelector("#lv-to").value;
     const wd = leaveWorkDays(f, t);
@@ -74,18 +76,23 @@ function leaveRequestDialog(opts) {
     if (!(days > 0)) { alert("Въведи брой работни дни."); return; }
     const btn = wrap.querySelector("#lv-send"); btn.disabled = true; btn.textContent = "Записвам…";
     await leavesLoad();
-    LEAVES.push({
-      id: leaveNextId(), name, egn: g("lv-egn"), address: g("lv-addr"), position: g("lv-pos"),
-      workshop: ws, from, to, days,
-      status: admin ? "одобрена" : "чакаща",
-      requestedAt: new Date().toISOString().slice(0, 10),
-      approvedAt: admin ? new Date().toISOString().slice(0, 10) : "",
-    });
+    if (editRec) {
+      const ex = (LEAVES || []).find(x => x.id === editRec.id);
+      if (ex) Object.assign(ex, { name, egn: g("lv-egn"), address: g("lv-addr"), position: g("lv-pos"), from, to, days });
+    } else {
+      LEAVES.push({
+        id: leaveNextId(), name, egn: g("lv-egn"), address: g("lv-addr"), position: g("lv-pos"),
+        workshop: ws, from, to, days,
+        status: admin ? "одобрена" : "чакаща",
+        requestedAt: new Date().toISOString().slice(0, 10),
+        approvedAt: admin ? new Date().toISOString().slice(0, 10) : "",
+      });
+    }
     if (await leavesSave()) {
       close();
-      if (admin) { if (typeof erpRenderFinance === "function") erpRenderFinance(); }
+      if (editRec || admin) { if (typeof erpRenderFinance === "function") erpRenderFinance(); }
       else alert("✅ Вашето искане е прието, ще се свържем с вас за потвърждение.");
-    } else { btn.disabled = false; btn.textContent = admin ? "💾 Запиши като одобрен" : "📨 Поискай отпуск"; }
+    } else { btn.disabled = false; btn.textContent = editRec ? "💾 Запази поправките" : admin ? "💾 Запиши като одобрен" : "📨 Поискай отпуск"; }
   });
 }
 
@@ -144,6 +151,7 @@ async function erpRenderLeaves(v) {
     <td data-label="Подадена">${leaveFmt(l.requestedAt)}</td>
     <td class="erp-row-actions">
       ${isPending ? `<button class="btn btn-small btn-primary" data-approve="${l.id}">✓ Одобрявам</button>` : ""}
+      <button class="btn btn-small" data-edit="${l.id}" title="Поправи/допълни молбата (напр. ЕГН, адрес) преди печата">✎ Поправи</button>
       <button class="btn btn-small" data-print="${l.id}" title="Принтирай молбата по бланката">🖨</button>
       <button class="btn btn-small btn-danger" data-del="${l.id}" title="Изтрий">×</button>
     </td></tr>`;
@@ -180,6 +188,9 @@ async function erpRenderLeaves(v) {
   v.querySelectorAll("[data-print]").forEach(b => b.addEventListener("click", () => {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.print)); if (l) leavePrint(l);
   }));
+  v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => {
+    const l = (LEAVES || []).find(x => x.id === Number(b.dataset.edit)); if (l) leaveRequestDialog({ edit: l });
+  }));
   v.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.del)); if (!l) return;
     if (!confirm(`Да изтрия ли отпуска на ${l.name} (${leaveFmt(l.from)} – ${leaveFmt(l.to)})?`)) return;
@@ -196,7 +207,15 @@ function leaveShiftMonth(ym, d) {
   const dt = new Date(y, m - 1 + d, 1);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
-// Месечен календар: във всяка клетка — кой е в отпуск този ден.
+// ISO номер на седмицата (европейски стандарт — седмицата започва в понеделник).
+function leaveWeekNo(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - day + 3);
+  const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round((d - firstThu) / 6048e5);
+}
+// Месечен календар: ред = седмица (с номер), колони = Понеделник…Неделя (BG).
 function leaveRenderCalendar(box, titleEl) {
   if (!box) return;
   const [y, m] = leaveCalMonth.split("-").map(Number);
@@ -207,21 +226,28 @@ function leaveRenderCalendar(box, titleEl) {
   const today = new Date().toISOString().slice(0, 10);
   const dayISO = d => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const onLeave = iso => (LEAVES || []).filter(l => l.from && l.to && l.from <= iso && iso <= l.to && l.status !== "отказана");
-  let cells = "";
-  for (let i = 0; i < startCol; i++) cells += `<div class="lv-cell lv-empty"></div>`;
+  const DOW = ["Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота", "Неделя"];
+  const DOW_S = ["пон", "вто", "сря", "чет", "пет", "съб", "нед"];
+  let cells = `<div class="lv-wk lv-head" title="Номер на седмицата в годината">седм.</div>`
+    + DOW.map((d, i) => `<div class="lv-head">${d}<span class="lv-head-s">${DOW_S[i]}</span></div>`).join("");
+  let col = 0;
+  const weekCell = day => `<div class="lv-wk" title="Седмица ${leaveWeekNo(new Date(y, m - 1, day))} от годината">${leaveWeekNo(new Date(y, m - 1, day))}</div>`;
+  cells += weekCell(1);
+  for (let i = 0; i < startCol; i++) { cells += `<div class="lv-cell lv-empty"></div>`; col++; }
   for (let d = 1; d <= daysIn; d++) {
+    if (col === 7) { col = 0; cells += weekCell(d); }
     const iso = dayISO(d);
     const dow = new Date(y, m - 1, d).getDay();
     const we = dow === 0 || dow === 6;
     const ppl = onLeave(iso);
     cells += `<div class="lv-cell ${we ? "lv-we" : ""} ${iso === today ? "lv-today" : ""}">
-      <div class="lv-day">${d}</div>
+      <div class="lv-day">${d} <span class="lv-day-dow">${DOW_S[(dow + 6) % 7]}</span>${iso === today ? '<span class="lv-today-lbl">днес</span>' : ""}</div>
       ${ppl.map(l => `<div class="lv-chip ${l.status === "одобрена" ? "lv-ok" : "lv-pend"}" title="${escapeAttr(l.name + " · " + leaveFmt(l.from) + " – " + leaveFmt(l.to) + (l.status === "одобрена" ? " (одобрен)" : " (чака)"))}">${escapeHtml((l.name || "").split(" ")[0])}</div>`).join("")}
     </div>`;
+    col++;
   }
-  box.innerHTML = `<div class="lv-grid">
-    ${["пн", "вт", "ср", "чт", "пт", "сб", "нд"].map(d => `<div class="lv-head">${d}</div>`).join("")}
-    ${cells}</div>`;
+  while (col < 7 && col !== 0) { cells += `<div class="lv-cell lv-empty"></div>`; col++; }
+  box.innerHTML = `<div class="lv-grid lv-grid-wk">${cells}</div>`;
 }
 
 /* ---------- Бутон за служителите (в Цехове / РОГОШ / ЗАНИТВАНЕ) ---------- */
