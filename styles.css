@@ -1344,3 +1344,6 @@ tr.times-click:hover td { background: #ecfdf5; }
 
 /* Технологичен множител на операция (напр. 2 огъвки на брой) */
 .t-opsper { display: inline-block; background: #ede9fe; color: #6d28d9; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; white-space: nowrap; }
+
+/* Производствен отчет: открояване на нашия код */
+.pr-table .pr-code b { color: #0f766e; font-size: 13px; }
