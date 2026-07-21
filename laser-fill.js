@@ -28,13 +28,24 @@ async function openLaserFill() {
   const isAdmin = !(typeof amWorker === "function" && amWorker());
   const meWorker = (typeof MY_WORKER !== "undefined" && MY_WORKER) || "";
   const NEW_ROWS = 10;
-  // Служителите на Лазерите — от настройката на цеха; резерва: тримата по подразбиране.
-  const LASER_WORKERS = ((typeof WORKERS !== "undefined" && WORKERS && WORKERS["Лазери"]) || []).length
-    ? WORKERS["Лазери"].slice()
-    : ["Костадин Алвантов", "Димитър", "Кръстьо"];
-  const workerSel = (cls, i, val) => `<select class="${cls}" data-i="${i}" style="width:150px">
+  // ПЪЛНЕЖ важи за Лазери и Преси. Служителите идват от настройката на цеха;
+  // резерва: списъците по подразбиране.
+  const FILL_WS = ["Лазери", "Преси"];
+  const FILL_FALLBACK = {
+    "Лазери": ["Костадин Алвантов", "Димитър", "Кръстьо"],
+    "Преси": ["Захари Маджаров", "Васил Иванов", "Иво Бончев", "Петър Стоилов", "Симеон Танев"],
+  };
+  const wsList = ws => ((typeof WORKERS !== "undefined" && WORKERS && WORKERS[ws]) || []).length ? WORKERS[ws].slice() : (FILL_FALLBACK[ws] || []);
+  // Моят цех (за работник): Преси или Лазери; админът вижда и двата.
+  const wsMine = isAdmin ? "" :
+    ((MY_ACCESS.workshop === "Преси" || (MY_ACCESS.workshops || []).includes("Преси")) ? "Преси" : "Лазери");
+  const workerToWs = {};
+  FILL_WS.forEach(ws => wsList(ws).forEach(n => { if (!workerToWs[n]) workerToWs[n] = ws; }));
+  const workerSel = (cls, i, val) => `<select class="${cls}" data-i="${i}" style="width:160px">
     <option value="">— избери —</option>
-    ${LASER_WORKERS.map(n => `<option ${n === val ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}
+    ${isAdmin
+      ? FILL_WS.map(ws => `<optgroup label="${escapeAttr(ws)}">${wsList(ws).map(n => `<option ${n === val ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}</optgroup>`).join("")
+      : wsList(wsMine).map(n => `<option ${n === val ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}
   </select>`;
 
   const pending = (LFILL || []).filter(r => r.status !== "заприходен").sort((a, b) => String(b.date || "").localeCompare(a.date || ""));
@@ -42,6 +53,7 @@ async function openLaserFill() {
 
   const pendRow = r => `<tr data-id="${r.id}">
     <td>${lfillFmt(r.date)}</td>
+    <td>${escapeHtml(r.workshop || "Лазери")}</td>
     <td>${isAdmin ? `<input type="text" class="lf-code" data-id="${r.id}" value="${escapeAttr(r.code || "")}" list="lf-codes" style="width:110px" placeholder="код…" />` : `<b>${escapeHtml(r.code || "—")}</b>`}</td>
     <td>${escapeHtml(r.thickness || "")}</td>
     <td>${escapeHtml(r.name || "")}</td>
@@ -68,7 +80,7 @@ async function openLaserFill() {
       : "Попълни каквото знаеш — кодът може да остане празен, офисът ще го сложи. Всяка бройка после се заприходява като готов детайл."}</p>
     <div class="lf-scroll">
     <h4 class="erp-group-head">⏳ Чакащи заприходяване (${pending.length})</h4>
-    ${pending.length ? `<table class="report-table erp-table"><thead><tr><th>Дата</th><th>Код</th><th>Дебелина</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
+    ${pending.length ? `<table class="report-table erp-table"><thead><tr><th>Дата</th><th>Цех</th><th>Код</th><th>Дебелина</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
       <tbody id="lf-pending">${pending.map(pendRow).join("")}</tbody></table>`
       : `<p class="hint">Няма чакащи редове. ${isAdmin ? "Когато лазерджиите запишат пълнеж, редовете излизат тук — слагаш код и заприходяваш." : "Попълни долу и натисни Запази."}</p>`}
     <h4 class="erp-group-head">➕ Нови редове</h4>
@@ -76,7 +88,7 @@ async function openLaserFill() {
       <tbody id="lf-new"></tbody></table>
     <button class="btn btn-small" id="lf-more">+ Още редове</button>
     ${isAdmin && posted.length ? `<h4 class="erp-group-head">✓ Заприходени (последните ${posted.length})</h4>
-      <table class="report-table erp-table"><tbody>${posted.map(r => `<tr><td>${lfillFmt(r.date)}</td><td><b>${escapeHtml(r.code || "")}</b></td><td>${escapeHtml(r.name || "")}</td><td class="num">${erpNum(r.qty)} бр.</td><td>${escapeHtml(r.worker || "")}</td><td class="erp-muted">✓ ${lfillFmt(r.postedAt)}</td></tr>`).join("")}</tbody></table>` : ""}
+      <table class="report-table erp-table"><tbody>${posted.map(r => `<tr><td>${lfillFmt(r.date)}</td><td>${escapeHtml(r.workshop || "Лазери")}</td><td><b>${escapeHtml(r.code || "")}</b></td><td>${escapeHtml(r.name || "")}</td><td class="num">${erpNum(r.qty)} бр.</td><td>${escapeHtml(r.worker || "")}</td><td class="erp-muted">✓ ${lfillFmt(r.postedAt)}</td></tr>`).join("")}</tbody></table>` : ""}
     </div>
     <datalist id="lf-codes">${(typeof ERP !== "undefined" && ERP.products ? ERP.products : []).slice(0, 4000).map(p => `<option value="${escapeAttr(p.code || "")}">${escapeAttr(p.name || "")}</option>`).join("")}</datalist>
     <div class="erp-dialog-actions"><button class="btn" id="lf-close">Затвори</button><button class="btn btn-primary" id="lf-save">💾 Запази новите редове</button></div>`);
@@ -97,7 +109,8 @@ async function openLaserFill() {
       const qty = Number(g("lfn-qty")) || 0;
       const name = g("lfn-name"), code = g("lfn-code");
       if (!qty || (!name && !code)) return;   // празен ред
-      rows.push({ id: 0, date: g("lfn-date") || lfillToday(), code, thickness: g("lfn-thick"), name, qty, worker: g("lfn-worker") || meWorker, status: "чакащ" });
+      const worker = g("lfn-worker") || meWorker;
+      rows.push({ id: 0, date: g("lfn-date") || lfillToday(), code, thickness: g("lfn-thick"), name, qty, worker, workshop: wsMine || workerToWs[worker] || "Лазери", status: "чакащ" });
     });
     if (!rows.length) { alert("Попълни поне един ред (наименование/код + брой)."); return; }
     await lfillLoad();
