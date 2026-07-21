@@ -259,6 +259,45 @@ async function erpRenderCustomerOrders() {
       `<p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица customer_orders) в Supabase.</p></div>`;
     return;
   }
+  // Текущи производства ЗА СКЛАД (пуснати от Продукти/Склад детайли, без заявка) —
+  // показват се тук, за да се виждат наравно със заявките. Четат се от задачите.
+  let stockGroups = [];
+  try {
+    const { data } = await erpSelectAll("tasks", "id,done,data");
+    const st = (data || []).map(r => ({ tid: r.id, tdone: r.done, ...(r.data || {}) }))
+      .filter(t => t.source && t.source.stock);
+    const bySid = {};
+    st.forEach(t => {
+      const sid = String(((t.source.orders || [])[0] || {}).id || "");
+      if (!sid) return;
+      (bySid[sid] = bySid[sid] || []).push(t);
+    });
+    stockGroups = Object.entries(bySid).map(([sid, ts]) => {
+      ts.sort((a, b) => (a.source.step || 0) - (b.source.step || 0));
+      const last = ts[ts.length - 1];
+      const allDone = ts.every(t => t.tdone || (Number(t.qty) > 0 && Number(t.produced) >= Number(t.qty)));
+      return { sid, code: ts[0].code || "", product: ts[0].product || "", qty: Number(ts[0].qty) || 0,
+        stocked: Number((last.source || {}).stocked) || 0, allDone,
+        ops: ts.map(t => ({ op: t.operation || "", ws: t.workshop || "", p: Number(t.produced) || 0, q: Number(t.qty) || 0 })) };
+    }).filter(g => !g.allDone);
+  } catch (e) { /* тихо — секцията просто не се показва */ }
+  const stockHtml = stockGroups.length ? `
+    <div class="co-stock-box">
+      <h4 class="erp-group-head" style="margin-top:0">🏭 Производство ЗА СКЛАД — текущи (${stockGroups.length})</h4>
+      <table class="report-table erp-table" style="margin-bottom:6px">
+        <thead><tr><th>Код</th><th>Детайл</th><th class="num">Бройка</th><th>Напредък по операции</th><th class="num">Готови в склада</th><th></th></tr></thead>
+        <tbody>${stockGroups.map(g => `<tr>
+          <td><b>${escapeHtml(g.code)}</b></td>
+          <td>${escapeHtml(g.product)}</td>
+          <td class="num">${erpNum(g.qty)}</td>
+          <td>${g.ops.map(o => `<span class="oip-op ${o.q > 0 && o.p >= o.q ? "ok" : o.p > 0 ? "part" : ""}">${escapeHtml(o.op)} ${o.p}/${o.q}${o.ws ? " · " + escapeHtml(o.ws) : ""}</span>`).join(" ")}</td>
+          <td class="num"><b>${erpNum(g.stocked)}</b></td>
+          <td class="erp-row-actions"><button class="btn btn-small btn-danger" data-stockrm="${escapeAttr(g.sid)}" title="Изтегля производството за склад (маха задачите по цеховете)">✕ Изтегли</button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <p class="hint" style="margin:0">Пуснати от Продукти / Склад детайли (без клиентска заявка). Щом мине последната операция, готовите бройки влизат в Склад детайли и редът изчезва оттук.</p>
+    </div>` : "";
+
   const rows = erpCOSortRows(erpCOList.slice());
   const sortOpts = [
     ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
@@ -285,7 +324,8 @@ async function erpRenderCustomerOrders() {
       ${typeof erpAIStart === "function" ? '<button class="btn btn-small" id="erp-co-ai" title="Качи сканирана заявка (PDF/снимка) — Claude я разчита, ти потвърждаваш">🤖 Разчети заявка (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
-    <table class="report-table erp-table">
+    ${stockHtml}
+    <table class="report-table erp-table" id="co-orders-table">
       <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th>Файл</th><th></th></tr></thead>
       <tbody>
         ${rows.map(o => `
@@ -306,6 +346,17 @@ async function erpRenderCustomerOrders() {
     </table>`;
 
   document.getElementById("erp-co-new").addEventListener("click", erpNewCO);
+  // Изтегляне на производство ЗА СКЛАД (маха задачите му по цеховете).
+  v.querySelectorAll("[data-stockrm]").forEach(b => b.addEventListener("click", async () => {
+    const sid = b.dataset.stockrm;
+    const g = stockGroups.find(x => x.sid === sid);
+    if (!confirm(`Да изтегля ли производството за склад на „${(g && g.code) || ""} ${(g && g.product) || ""}"?\nЗадачите му по цеховете ще се премахнат.`)) return;
+    try {
+      if (typeof erpFlowRemoveOrder === "function") await erpFlowRemoveOrder(sid);
+      else await sb.from("tasks").delete().eq("data->source->>sampleId", String(sid));
+    } catch (e) { alert("Грешка при изтегляне: " + (e.message || e)); return; }
+    erpRenderCustomerOrders();
+  }));
   const aiBtn = document.getElementById("erp-co-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpAIStart);
   const sortSel = document.getElementById("erp-co-sort");
@@ -321,8 +372,8 @@ async function erpRenderCustomerOrders() {
   const qEl = document.getElementById("erp-co-q");
   if (qEl) qEl.addEventListener("input", e => {
     erpCOQuery = e.target.value;
-    // пре-рисуваме само таблицата, за да не губим фокуса на търсачката
-    const tb = v.querySelector("table.erp-table tbody");
+    // пре-рисуваме само таблицата със заявките, за да не губим фокуса на търсачката
+    const tb = v.querySelector("#co-orders-table tbody");
     if (!tb) { erpRenderCustomerOrders(); return; }
     const list = erpCOSortRows(erpCOList.slice());
     tb.innerHTML = list.map(o => `
