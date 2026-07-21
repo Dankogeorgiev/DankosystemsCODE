@@ -545,15 +545,17 @@ function applyTasksAccess() {
   // „ЗАНИТВАНЕ" (сглобяване — отчет) — за админи (служителите му влизат директно).
   const nt = document.getElementById("tasks-nit");
   if (nt) nt.hidden = !!w;
-  // „Excel (за печат)“ — скрит за заваръчния служител и за Лазерите
-  // (лазерджиите вместо него имат бутон „ПЪЛНЕЖ").
+  // „Excel (за печат)“ — скрит за заваръчния служител, за Лазерите и за Пресите
+  // (Лазери/Преси вместо него имат бутон „ПЪЛНЕЖ").
   const ex = document.getElementById("btn-export-tasks");
   const em = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
-  const isLaserWorker = w && (em === "laseri@danko.local" || MY_ACCESS.workshop === "Лазери" || (MY_ACCESS.workshops || []).includes("Лазери"));
-  if (ex) ex.style.display = (w && (em === "zavarka@danko.local" || MY_ACCESS.workshop === "Заваръчно" || isLaserWorker)) ? "none" : "";
-  // „ПЪЛНЕЖ" — за лазерджиите (на мястото на Excel) и за админите (слагат кода и заприходяват).
+  const isFillWorker = w && (
+    em === "laseri@danko.local" || MY_ACCESS.workshop === "Лазери" || (MY_ACCESS.workshops || []).includes("Лазери") ||
+    em === "presi@danko.local" || MY_ACCESS.workshop === "Преси" || (MY_ACCESS.workshops || []).includes("Преси"));
+  if (ex) ex.style.display = (w && (em === "zavarka@danko.local" || MY_ACCESS.workshop === "Заваръчно" || isFillWorker)) ? "none" : "";
+  // „ПЪЛНЕЖ" — за Лазери/Преси (на мястото на Excel) и за админите (слагат кода и заприходяват).
   const lfb = document.getElementById("btn-laser-fill");
-  if (lfb) lfb.hidden = !(isLaserWorker || !w);
+  if (lfb) lfb.hidden = !(isFillWorker || !w);
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
