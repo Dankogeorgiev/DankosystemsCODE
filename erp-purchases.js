@@ -12,6 +12,26 @@
    Пази се в purchases.data (JSON). Ползва ERP/erpDialog/erpToNum/erpNum/erpEur… */
 
 const PU_EUR_BGN = 1.95583;
+/* Видове разход (по счетоводната класификация на фирмата). mat:true =
+   материален разход — стоката трябва да влезе в склад Материали/Детайли
+   (фактурата се заприходява), останалите са чисти разходи. */
+const PU_EXPENSE_TYPES = [
+  { k: "Метали", mat: true },
+  { k: "Бои и цинк", mat: true },
+  { k: "Крепежи", mat: true },
+  { k: "Технически газове" },
+  { k: "Заваръчно" },
+  { k: "Пластмаси", mat: true },
+  { k: "Опаковки", mat: true },
+  { k: "Поддръжка машини" },
+  { k: "Инвестиции" },
+  { k: "Транспорт износ" },
+  { k: "Транспорт вътрешен" },
+  { k: "Ток" },
+  { k: "Други услуги" },
+  { k: "Други разходи" },
+];
+function erpPuTypeIsMat(t) { const x = PU_EXPENSE_TYPES.find(e => e.k === t); return !!(x && x.mat); }
 let erpPurchases = null;
 let erpPuFolder = "payable";   // payable | paid | all
 let erpPuQuery = "";
@@ -118,6 +138,7 @@ async function erpRenderPurchases() {
       <span class="erp-count" id="pu-count"></span>
       <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код…" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
+      <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
       <label class="btn btn-small co-attach-btn" title="Импорт на разходи от GenCloud (xlsx) — сумите се вкарват положителни">⤓ Импорт (GenCloud)<input type="file" id="pu-import" accept=".xlsx,.xls" hidden /></label>
       ${(erpPurchases || []).some(p => p.imported) ? '<button class="btn btn-small btn-danger" id="pu-clear-import" title="Изтрий всички импортирани фактури (ръчно въведените остават)">🗑 Изтегли импорта</button>' : ""}
@@ -133,6 +154,7 @@ async function erpRenderPurchases() {
   if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpPuFillRows(); });
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
+  document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
   const impEl = document.getElementById("pu-import");
@@ -156,7 +178,7 @@ function erpPuFillRows() {
       <td data-label="Дата">${escapeHtml(o.date || "")}</td>
       <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
       <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
-      <td data-label="Класификация">${escapeHtml(cls || "—")}</td>
+      <td data-label="Класификация">${o.expenseType ? `<b>${erpPuTypeIsMat(o.expenseType) ? "🧱 " : ""}${escapeHtml(o.expenseType)}</b>${cls ? " · " : ""}` : ""}${escapeHtml(cls || (o.expenseType ? "" : "—"))}</td>
       <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
       <td data-label="Плащане">${escapeHtml(erpPuPayLabel(o))}</td>
       <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'}</td>
@@ -217,6 +239,7 @@ async function erpRenderPurchaseForm(o) {
         <label id="pu-paid-wrap" ${st === "deferred" ? 'style="display:none"' : ""}>Платена на <input type="date" id="pu-paiddate" value="${escapeAttr(o.paidDate || "")}" /></label>
         <label>Валута <select id="pu-cur"><option ${erpPuCur(o) === "BGN" ? "selected" : ""}>BGN</option><option ${erpPuCur(o) === "EUR" ? "selected" : ""}>EUR</option></select></label>
         <label>ДДС ставка % <select id="pu-vat">${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
+        <label>Вид разход <select id="pu-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === o.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
       </div>
       <label class="erp-co-note">Забележка <textarea id="pu-note" rows="2">${escapeHtml(o.note || "")}</textarea></label>
 
@@ -254,6 +277,12 @@ async function erpRenderPurchaseForm(o) {
   document.getElementById("pu-pay").addEventListener("change", e => { o.payStatus = e.target.value; erpPuApplyPay(o); erpRenderPurchaseForm(o); });
   document.getElementById("pu-cur").addEventListener("change", e => { o.currency = e.target.value; erpPuTotalsBox(o); });
   document.getElementById("pu-vat").addEventListener("change", e => { o.vatRate = Number(e.target.value); erpPuTotalsBox(o); });
+  document.getElementById("pu-etype").addEventListener("change", e => {
+    o.expenseType = e.target.value;
+    // Материален вид без материални редове → подсказка (да не се забрави заприходяването).
+    if (erpPuTypeIsMat(o.expenseType) && !(o.lines || []).some(l => l.materialId))
+      alert("🧱 " + o.expenseType + " е материален разход — добави редовете с бутона + Материал (склад), за да влязат в склада при заприходяване.");
+  });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
   const postBtn = document.getElementById("pu-post"); if (postBtn) postBtn.addEventListener("click", () => erpPostPurchase(o));
@@ -337,6 +366,7 @@ function erpPuSupplierProfile(name) {
     count: mine.length,
     payStatus: erpPuPayStatus(last), termDays: Number(last.termDays) || 0,
     currency: last.currency || "BGN", vatRate: last.vatRate != null ? last.vatRate : 20,
+    expenseType: (mine.find(p => p.expenseType) || {}).expenseType || "",
     topArticles,
   };
 }
@@ -345,6 +375,7 @@ function erpPuApplyProfile(o, prof) {
   if (!prof || o.id) return false;
   o.payStatus = prof.payStatus; o.termDays = prof.termDays;
   o.currency = prof.currency; o.vatRate = prof.vatRate;
+  if (!o.expenseType && prof.expenseType) o.expenseType = prof.expenseType;   // видът разход от историята
   erpPuApplyPay(o);
   return true;
 }
@@ -571,6 +602,100 @@ function erpPuCodeHistory(preCode) {
   };
   render(preCode || ""); wrap.querySelector("#puh-q").addEventListener("input", e => render(e.target.value));
   wrap.querySelector("#puh-close").addEventListener("click", close);
+}
+
+/* ---------- Разходи по вид (месечен преглед + експорт за счетоводството) ---------- */
+let puTypesMonth = null;   // "YYYY-MM"
+function erpPuTypesReport() {
+  if (!puTypesMonth) puTypesMonth = new Date().toISOString().slice(0, 7);
+  const MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+  const label = ym => { const [y, m] = ym.split("-").map(Number); return MONTHS[m - 1] + " " + y; };
+  const shift = (ym, d) => { const [y, m] = ym.split("-").map(Number); const dt = new Date(y, m - 1 + d, 1); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`; };
+  const eur = n => (Math.round(n * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const monthRows = ym => (erpPurchases || []).filter(p => String(p.date || "").slice(0, 7) === ym);
+  const calc = ym => {
+    const byType = {};
+    let tBase = 0, tVat = 0, tTotal = 0;
+    monthRows(ym).forEach(p => {
+      const t = erpPuTotals(p);
+      const rate = erpPuCur(p) === "BGN" ? PU_EUR_BGN : 1;
+      const key = p.expenseType || "— без вид —";
+      const g = byType[key] || (byType[key] = { type: key, n: 0, base: 0, vat: 0, total: 0 });
+      g.n++; g.base += t.base / rate; g.vat += t.vat / rate; g.total += t.total / rate;
+      tBase += t.base / rate; tVat += t.vat / rate; tTotal += t.total / rate;
+    });
+    // Подреждане: по реда на официалния списък, „без вид" накрая.
+    const order = PU_EXPENSE_TYPES.map(t => t.k);
+    const rows = Object.values(byType).sort((a, b) => {
+      const ia = order.indexOf(a.type), ib = order.indexOf(b.type);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    return { rows, tBase, tVat, tTotal, count: monthRows(ym).length };
+  };
+
+  const { wrap, close } = erpDialog(`
+    <h3>📊 Разходи по вид</h3>
+    <div class="erp-toolbar" style="margin-bottom:6px">
+      <button class="btn btn-small" id="pt-prev">‹</button>
+      <b id="pt-title" style="min-width:150px;text-align:center"></b>
+      <button class="btn btn-small" id="pt-next">›</button>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="pt-xls-types">⤓ По видове (Excel)</button>
+      <button class="btn btn-small btn-primary" id="pt-xls-inv">⤓ Всички фактури (Excel)</button>
+    </div>
+    <div id="pt-body" style="max-height:60vh;overflow:auto"></div>
+    <p class="hint" style="margin:6px 0 0">🧱 = материален разход (влиза в склада при заприходяване). Сумите са в EUR (BGN по 1.95583). Експортът „Всички фактури" е за счетоводството — ред за всяка фактура.</p>
+    <div class="erp-dialog-actions"><button class="btn" id="pt-close">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  const render = () => {
+    wrap.querySelector("#pt-title").textContent = label(puTypesMonth);
+    const c = calc(puTypesMonth);
+    wrap.querySelector("#pt-body").innerHTML = `
+      <table class="report-table erp-table">
+        <thead><tr><th>Вид разход</th><th class="num">Фактури</th><th class="num">Основа (EUR)</th><th class="num">ДДС (EUR)</th><th class="num">С ДДС (EUR)</th></tr></thead>
+        <tbody>${c.rows.map(g => `<tr>
+          <td>${erpPuTypeIsMat(g.type) ? "🧱 " : ""}<b>${escapeHtml(g.type)}</b></td>
+          <td class="num">${g.n}</td>
+          <td class="num">${eur(g.base)}</td>
+          <td class="num">${eur(g.vat)}</td>
+          <td class="num"><b>${eur(g.total)}</b></td>
+        </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма фактури за ${escapeHtml(label(puTypesMonth))}.</td></tr>`}
+        ${c.rows.length ? `<tr class="pr-total"><td><b>ОБЩО (${c.count} фактури)</b></td><td></td><td class="num"><b>${eur(c.tBase)}</b></td><td class="num"><b>${eur(c.tVat)}</b></td><td class="num"><b>${eur(c.tTotal)}</b></td></tr>` : ""}
+        </tbody>
+      </table>`;
+  };
+  wrap.querySelector("#pt-prev").addEventListener("click", () => { puTypesMonth = shift(puTypesMonth, -1); render(); });
+  wrap.querySelector("#pt-next").addEventListener("click", () => { puTypesMonth = shift(puTypesMonth, 1); render(); });
+  wrap.querySelector("#pt-close").addEventListener("click", close);
+  // Експорт за счетоводството: ред за всяка фактура от месеца.
+  wrap.querySelector("#pt-xls-inv").addEventListener("click", () => {
+    const rows = monthRows(puTypesMonth).sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    if (!rows.length) { alert("Няма фактури за този месец."); return; }
+    reportExportXls("razhodi-fakturi-" + puTypesMonth, "Разходни фактури · " + label(puTypesMonth), [{
+      title: "Всички фактури",
+      headers: [{ label: "Дата" }, { label: "№ Фактура" }, { label: "Доставчик" }, { label: "Вид разход" },
+        { label: "Основа", num: true }, { label: "ДДС", num: true }, { label: "С ДДС", num: true },
+        { label: "Валута" }, { label: "Плащане" }, { label: "Статус" }],
+      rows: rows.map(p => { const t = erpPuTotals(p); return [
+        p.date || "", p.invoiceNo || "", p.supplierName || "", (erpPuTypeIsMat(p.expenseType) ? "[М] " : "") + (p.expenseType || ""),
+        Math.round(t.base * 100) / 100, Math.round(t.vat * 100) / 100, Math.round(t.total * 100) / 100,
+        erpPuCur(p), erpPuPayLabel(p), p.posted ? "заприходена" : "въведена",
+      ]; }),
+    }]);
+  });
+  // Експорт на обобщението по видове.
+  wrap.querySelector("#pt-xls-types").addEventListener("click", () => {
+    const c = calc(puTypesMonth);
+    if (!c.rows.length) { alert("Няма данни за този месец."); return; }
+    reportExportXls("razhodi-po-vid-" + puTypesMonth, "Разходи по вид · " + label(puTypesMonth), [{
+      title: "По видове (EUR)",
+      headers: [{ label: "Вид разход" }, { label: "Фактури", num: true }, { label: "Основа", num: true }, { label: "ДДС", num: true }, { label: "С ДДС", num: true }],
+      rows: c.rows.map(g => [(erpPuTypeIsMat(g.type) ? "[М] " : "") + g.type, g.n, Math.round(g.base * 100) / 100, Math.round(g.vat * 100) / 100, Math.round(g.total * 100) / 100])
+        .concat([["ОБЩО", c.count, Math.round(c.tBase * 100) / 100, Math.round(c.tVat * 100) / 100, Math.round(c.tTotal * 100) / 100]]),
+    }]);
+  });
+  render();
 }
 
 /* ---------- Заприходяване (само материалните редове; BGN→EUR за средната цена) ---------- */
