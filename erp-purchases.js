@@ -222,7 +222,6 @@ async function erpRenderPurchaseForm(o) {
       <button class="btn btn-small" id="pu-back">← Назад</button>
       <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}</span>
       <span class="spacer"></span>
-      ${typeof erpMailSupplierRequest === "function" ? '<button class="btn btn-small" id="pu-mail-req" title="Изпраща заявка за доставка на редовете до доставчика (имейлът се взима от партньорите)">✉ Заявка до доставчика</button>' : ""}
       <button class="btn btn-small" id="pu-save">💾 Запази</button>
       ${locked
         ? '<span class="erp-count">✓ Заприходена</span> <button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
@@ -286,7 +285,6 @@ async function erpRenderPurchaseForm(o) {
   });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
-  const mrq = document.getElementById("pu-mail-req"); if (mrq) mrq.addEventListener("click", () => erpMailSupplierRequest(o));
   const postBtn = document.getElementById("pu-post"); if (postBtn) postBtn.addEventListener("click", () => erpPostPurchase(o));
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
   document.getElementById("pu-add-mat").addEventListener("click", () => erpPuAddMaterial(o));
