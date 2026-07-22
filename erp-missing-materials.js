@@ -125,7 +125,6 @@ async function erpRenderMissingMaterials() {
       <span class="erp-count">${!list.length ? "няма нужда от материал по пуснатите" : short.length ? `<span class="erp-warn">${short.length} материала няма да стигнат</span>` : "материалите стигат ✅"}${low.length ? ` · ${low.length} под минимум` : ""}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="mm-refresh">↻ Обнови</button>
-      ${typeof openMaterialsPlan === "function" ? `<button class="btn btn-small btn-primary" id="mm-plan" title="Отвори План материали, за да поръчаш липсващото от доставчик">📦 План материали</button>` : ""}
     </div>
     <p class="hint">Колоната <b>„Нужен (оставащо)"</b> е материалът за <i>още нерязаното</i> по заявките, ПУСНАТИ в производство (оставащо количество × материал за 1 бр.). <b>„Налично"</b> е текущата наличност в склада (отразява всички движения — рязане, продажби, корекции). <b>„Ще липсва"</b> = колко няма да стигне. Материалът се изписва при <b>рязане</b>, не при пускане — детайл без материал все пак тръгва, а складът отива на минус. Виж и „🛒 Необходими материали" в таб „Материали".</p>
     ${!list.length ? `<p class="report-empty">Няма пуснати в производство заявки, които да чакат рязане (или всичко вече е нарязано).</p>` : `
@@ -146,7 +145,6 @@ async function erpRenderMissingMaterials() {
     `}`;
 
   const rb = document.getElementById("mm-refresh"); if (rb) rb.addEventListener("click", erpRenderMissingMaterials);
-  const pb = document.getElementById("mm-plan"); if (pb) pb.addEventListener("click", () => { if (typeof openMaterialsPlan === "function") openMaterialsPlan(); });
   // Избор с отметки → запитване към доставчик (влиза в регистъра „Заявки за материали").
   const bar = document.getElementById("mm-reqbar");
   const updBar = () => {
