@@ -20,6 +20,7 @@ const ERP = {
   opRoutingSaved: {},  // { <op_code>: {primary, alt:[...]} } — запазена маршрутизация
   opRouting: {},       // работно копие в екрана „Операции → Цех"
   detailRouting: {},   // { "<код на детайл>¦<операция>": "<цех>" } — ръчно прехвърляне по детайл
+  manualCost: {},      // product_id -> ръчно зададена себестойност (EUR), замества изчислената
 };
 
 /* ---------- Помощници ---------- */
@@ -237,6 +238,15 @@ async function erpLoadAll() {
     Object.values(ERP.linesByProduct).forEach(arr =>
       arr.sort((a, b) => (a.position || 0) - (b.position || 0)));
 
+    // Ръчни себестойности (app_config "manual_costs") — където има зададена,
+    // тя ЗАМЕСТВА изчислената от рецептата (вкл. когато възелът се влага нагоре).
+    ERP.manualCost = {};
+    try {
+      const mc = await sb.from("app_config").select("data").eq("id", "manual_costs").maybeSingle();
+      ERP.manualCost = (mc.data && mc.data.data) || {};
+    } catch (e) { /* още няма ръчни цени — работим с изчислените */ }
+    erpRecalcCosts();
+
     // Опаковки — зареждат се тук, за да са налични за придружаващите документи
     // (Packing List/Стокова разписка/Палет опис), дори табът „Опаковки" да не е отварян.
     try { if (typeof erpPackLoad === "function") await erpPackLoad(); } catch (e) { /* тихо */ }
@@ -247,6 +257,82 @@ async function erpLoadAll() {
       `<p class="hint">Провери дали е пуснат <code>erp-setup.sql</code> в Supabase.</p></div>`;
     throw e;
   }
+}
+
+/* ---------- Ръчни себестойности ----------
+   Имаме много изделия със стари/нереални изчислени цени. Ръчната цена (екран
+   „Рецепта" → ✎ Цена) замества изчислената НАВСЯКЪДЕ (ERP.costById, списъци,
+   маржове, влагане като възел в по-горна рецепта). Пази се в app_config
+   "manual_costs": { productId: EUR }. Без ръчни цени важат тези от базата. */
+
+// Ръчната цена на продукт (число) или null, ако няма зададена.
+function erpManualCostOf(pid) {
+  const v = ERP.manualCost ? ERP.manualCost[pid] : null;
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
+// Себестойност ИЗЧИСЛЕНА от рецептата на pid (без собствената му ръчна цена),
+// но зачитаща ръчните цени на вложените възли. За сравнение в диалога „✎ Цена".
+function erpComputedCost(pid, _depth, _stack) {
+  _depth = _depth || 0; _stack = _stack || new Set();
+  if (_depth > 25 || _stack.has(pid)) return 0;
+  _stack.add(pid);
+  let sum = 0;
+  (ERP.linesByProduct[pid] || []).forEach(l => {
+    const q = Number(l.quantity) || 0;
+    if (l.material_id) sum += q * (Number((ERP.matById[l.material_id] || {}).avg_cost) || 0);
+    else if (l.operation_id) sum += q * (Number((ERP.opById[l.operation_id] || {}).unit_cost) || 0);
+    else if (l.child_product_id) {
+      const man = erpManualCostOf(l.child_product_id);
+      sum += q * (man !== null ? man : erpComputedCost(l.child_product_id, _depth + 1, _stack));
+    }
+  });
+  _stack.delete(pid);
+  return sum;
+}
+
+// Преизчислява ERP.costById (и p.cost_eur) с отчитане на ръчните цени.
+// Без нито една ръчна цена не пипа нищо — важат стойностите от v_product_cost.
+function erpRecalcCosts(force) {
+  if (!force && (!ERP.manualCost || !Object.keys(ERP.manualCost).length)) return;
+  const memo = {};
+  const calc = (pid, depth, stack) => {
+    const man = erpManualCostOf(pid);
+    if (man !== null) return man;
+    if (memo[pid] !== undefined) return memo[pid];
+    if (depth > 25 || stack.has(pid)) return 0;
+    stack.add(pid);
+    let sum = 0;
+    (ERP.linesByProduct[pid] || []).forEach(l => {
+      const q = Number(l.quantity) || 0;
+      if (l.material_id) sum += q * (Number((ERP.matById[l.material_id] || {}).avg_cost) || 0);
+      else if (l.operation_id) sum += q * (Number((ERP.opById[l.operation_id] || {}).unit_cost) || 0);
+      else if (l.child_product_id) sum += q * calc(l.child_product_id, depth + 1, stack);
+    });
+    stack.delete(pid);
+    memo[pid] = sum;
+    return sum;
+  };
+  (ERP.products || []).forEach(p => {
+    const c = calc(p.id, 0, new Set());
+    ERP.costById[p.id] = c;
+    p.cost_eur = c;
+  });
+}
+
+// Записва/маха ръчна цена (val=null → маха) и преизчислява всичко в кеша.
+async function erpManualCostSave(pid, val) {
+  ERP.manualCost = ERP.manualCost || {};
+  if (val === null) delete ERP.manualCost[pid];
+  else ERP.manualCost[pid] = Number(val);
+  const { error } = await sb.from("app_config").upsert(
+    { id: "manual_costs", data: ERP.manualCost, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на ръчната цена: " + error.message); return false; }
+  // Преизчисляваме всичко (и при махане на последната ръчна цена).
+  erpRecalcCosts(true);
+  return true;
 }
 
 /* ---------- Табове ----------

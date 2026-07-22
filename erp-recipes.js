@@ -39,7 +39,11 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
       ${readyBadge}
       <span class="spacer"></span>
-      <span class="erp-count erp-total-cost">Обща себестойност: <strong>${p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId])}</strong></span>
+      <span class="erp-count erp-total-cost">Обща себестойност:
+        <strong>${erpManualCostOf(productId) !== null ? erpEur(ERP.costById[productId]) : (p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId]))}</strong>
+        ${erpManualCostOf(productId) !== null ? '<span class="erp-tag erp-tag-manual" title="Ръчно зададена цена — не се смята от рецептата">✋ ръчна</span>' : ""}
+        <button class="btn btn-small" id="erp-cost-edit" title="Задай реалната себестойност ръчно (за изделия със стари/нереални цени)">✎ Цена</button>
+      </span>
     </div>
     <div class="erp-recipe">
       <div class="erp-node erp-node-product">
@@ -60,6 +64,8 @@ function erpRenderRecipe(productId) {
     <div id="erp-prod-drawings" class="erp-prod-drawings"></div>`;
 
   document.getElementById("erp-recipe-back").addEventListener("click", () => erpSetTab("products", true));
+  const costBtn = document.getElementById("erp-cost-edit");
+  if (costBtn) costBtn.addEventListener("click", () => erpEditManualCost(productId));
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
   const testBtn = document.getElementById("erp-recipe-test");
@@ -100,6 +106,52 @@ function erpRenderRecipe(productId) {
       const hidden = sub.hidden = !sub.hidden;
       t.textContent = hidden ? "▸" : "▾";
     }));
+}
+
+/* ---------- Ръчна себестойност (✎ Цена) ----------
+   За изделия със стари/нереални изчислени цени: задаваш реалната цена ръчно и
+   тя важи навсякъде (списъци, маржове, влагане като възел). Махаш я → връща се
+   изчислената от рецептата. */
+function erpEditManualCost(productId) {
+  const p = ERP.prodById[productId] || {};
+  const man = erpManualCostOf(productId);
+  const computed = erpComputedCost(productId);
+  const { wrap, close } = erpDialog(`
+    <h3>Себестойност — ръчна корекция</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")}</p>
+    <p>Изчислена от рецептата: <b>${erpEur(computed)}</b>${p.needs_recipe ? ' <span class="erp-warn">(чака рецепта — вероятно непълна)</span>' : ""}</p>
+    ${man !== null ? `<p>Сега важи ръчната цена: <b>${erpEur(man)}</b></p>` : ""}
+    <label>Реална цена (EUR за 1 бр.)
+      <input type="number" id="mcost-val" min="0" step="any" value="${man !== null ? escapeAttr(String(man)) : ""}" placeholder="напр. 12,50" /></label>
+    <p class="hint">Ръчната цена <b>замества</b> изчислената навсякъде — в списъка с продукти, в маржовете и когато този детайл се влага като възел в друго изделие. Когато оправиш рецептата и искаш пак да се смята автоматично — махни я оттук.</p>
+    <div class="erp-dialog-actions">
+      ${man !== null ? '<button class="btn" id="mcost-clear">✖ Махни ръчната (върни изчислената)</button>' : ""}
+      <span class="spacer"></span>
+      <button class="btn" id="mcost-cancel">Отказ</button>
+      <button class="btn btn-primary" id="mcost-save">Запази</button>
+    </div>
+    <p class="save-status" id="mcost-status"></p>`);
+  const status = wrap.querySelector("#mcost-status");
+  wrap.querySelector("#mcost-cancel").addEventListener("click", close);
+  const done = () => { close(); erpMarkStale && erpMarkStale(); erpRenderRecipe(ERP._recipeTop || productId); };
+  wrap.querySelector("#mcost-save").addEventListener("click", async () => {
+    const val = erpToNum(wrap.querySelector("#mcost-val").value);
+    if (!(val > 0)) { status.textContent = "Въведи цена, по-голяма от 0."; return; }
+    status.textContent = "Записва…";
+    if (await erpManualCostSave(productId, val)) done();
+  });
+  const clearBtn = wrap.querySelector("#mcost-clear");
+  if (clearBtn) clearBtn.addEventListener("click", async () => {
+    status.textContent = "Записва…";
+    if (await erpManualCostSave(productId, null)) done();
+  });
+}
+
+// Маркира другите панели за опресняване (цените се сменят навсякъде).
+function erpMarkStale() {
+  document.querySelectorAll("#erp-view .erp-pane").forEach(pn => {
+    if (pn.dataset.pane !== ERP.tab) pn.dataset.stale = "1";
+  });
 }
 
 // Връща <li> редовете за съставките на даден продукт.
@@ -159,7 +211,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
       return `<li class="erp-branch">
         <span class="erp-tw">${hasKids ? '<button class="erp-toggle">▾</button>' : ""}</span>
         <span class="erp-node erp-node-semi">
-          <span class="erp-node-main"><span class="erp-tag erp-tag-semi">възел</span> ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")}${cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}${c.needs_recipe ? ' <span class="erp-warn">(чака рецепта)</span>' : ""}</span>
+          <span class="erp-node-main"><span class="erp-tag erp-tag-semi">възел</span> ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")}${cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}${c.needs_recipe ? ' <span class="erp-warn">(чака рецепта)</span>' : ""}${erpManualCostOf(l.child_product_id) !== null ? ' <span class="erp-tag erp-tag-manual" title="Възелът е с ръчно зададена цена">✋ ръчна цена</span>' : ""}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
           <span class="erp-node-cost">${erpEur(cost)}</span>${drawBtn}${rmBtn}
         </span>
