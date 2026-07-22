@@ -48,7 +48,7 @@ async function erpRenderMatRequests() {
       <td>${isDone ? matreqFmt(r.arrivedAt) : (r.expected ? `<b>${matreqFmt(r.expected)}</b>${overdue ? ' <span class="pay-neg">⚠ закъснява</span>' : ""}` : '<span class="erp-muted">—</span>')}</td>
       <td class="erp-row-actions">
         ${!isDone && r.status === "запитване" ? `<button class="btn btn-small" data-mr-ord="${r.id}" title="Отбележи като поръчано и въведи кога ще дойде">📦 Поръчано</button>` : ""}
-        ${!isDone ? `<button class="btn btn-small btn-primary" data-mr-done="${r.id}" title="Материалът е дошъл">✅ Доставено</button>` : ""}
+        ${!isDone ? `<button class="btn btn-small btn-primary" data-mr-done="${r.id}" title="Материалът е дошъл — редът слиза долу при Доставени">Доставено</button>` : ""}
         ${!isDone ? `<button class="btn btn-small" data-mr-exp="${r.id}" title="Промени очакваната дата">📅</button>` : ""}
         <button class="btn btn-small btn-danger" data-mr-del="${r.id}">×</button>
       </td></tr>`;
