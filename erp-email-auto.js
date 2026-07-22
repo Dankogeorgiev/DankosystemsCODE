@@ -146,8 +146,19 @@ async function erpMailInvoice(o) {
 
 /* ---------- Заявка: „готова" / „кога ще е готова" ---------- */
 async function erpMailOrderDialog(o) {
+  // Клиентът от КОНТАКТИ (таб Контакти) — основният източник за имейл и лице;
+  // партньорите остават като резервен вариант.
+  try { if (typeof CONTACTS !== "undefined" && (!CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad(); } catch (e) {}
+  const cn = String(o.clientName || "").trim().toLowerCase();
+  let con = null;
+  if (cn && typeof CONTACTS !== "undefined" && CONTACTS) {
+    con = CONTACTS.find(c => String(c.company || "").trim().toLowerCase() === cn)
+      || CONTACTS.find(c => (c.company || "").trim() && String(c.company).toLowerCase().includes(cn))
+      || CONTACTS.find(c => (c.company || "").trim() && cn.includes(String(c.company).trim().toLowerCase()));
+  }
   const rec = (typeof erpPartnerEmail === "function") ? await erpPartnerEmail("customer", o.clientId, o.clientName) : null;
-  const person = (rec && rec.person) || "";
+  const person = (con && con.contact_person) || (rec && rec.person) || "";
+  const toMail = (con && (con.email || con.invoice_email)) || (rec && rec.email) || "";
   const no = o.ourNo || "";
   const products = (o.lines || []).map(l => `• ${l.name || l.code || ""}${l.qty ? " — " + erpNum(l.qty) + " бр." : ""}`).filter(x => x.trim() !== "•").join("\n");
   const ready = {
@@ -160,6 +171,7 @@ async function erpMailOrderDialog(o) {
   };
   const { wrap, close } = erpDialog(`
     <h3>✉ Имейл до клиента</h3>
+    <p class="hint" style="margin:0 0 8px">👤 Клиент: <b>${escapeHtml(o.clientName || "—")}</b>${con ? ` · 📇 ${escapeHtml(con.contact_person || "")}${con.phone ? " · ☎ " + escapeHtml(con.phone) : ""} · ${toMail ? escapeHtml(toMail) : '<span class="erp-warn">няма имейл в Контакти</span>'}` : (toMail ? " · " + escapeHtml(toMail) : ' · <span class="erp-warn">не е намерен в Контакти — попълни имейла ръчно</span>')}</p>
     <p class="hint" style="margin:0 0 8px">Избери какво да съобщим на клиента за заявка ${escapeHtml(no ? "№" + no : "")}:</p>
     <div class="erp-dialog-actions" style="justify-content:flex-start">
       <button class="btn" id="mo-term">📅 Кога ще е готова (срок)</button>
@@ -167,7 +179,7 @@ async function erpMailOrderDialog(o) {
       <span class="spacer" style="flex:1"></span>
       <button class="btn" id="mo-cancel">Отказ</button>
     </div>`);
-  const open = tpl => { close(); erpMailComposeDialog({ title: "✉ До клиента — заявка " + (no ? "№" + no : ""), to: (rec && rec.email) || "", subject: tpl.subject, text: tpl.text }); };
+  const open = tpl => { close(); erpMailComposeDialog({ title: "✉ До клиента — заявка " + (no ? "№" + no : ""), to: toMail, subject: tpl.subject, text: tpl.text }); };
   wrap.querySelector("#mo-term").addEventListener("click", () => open(term));
   wrap.querySelector("#mo-ready").addEventListener("click", () => open(ready));
   wrap.querySelector("#mo-cancel").addEventListener("click", close);
