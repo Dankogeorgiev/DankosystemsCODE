@@ -154,6 +154,31 @@ async function erpMatReqCompose(startItems, rec) {
   const items = (startItems || []).slice();
   let suppliers = [];
   try { suppliers = await erpLoadSuppliers(); } catch (e) {}
+  // Доставчиците от КОНТАКТИ (категории „Доставчик – …") — основният източник
+  // за име и имейл; партньорите от Покупки остават като резервен списък.
+  let contacts = [];
+  try {
+    if (typeof CONTACTS !== "undefined") {
+      if ((!CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad();
+      contacts = (CONTACTS || []).filter(c => /^Доставчик/i.test(c.category || ""));
+    }
+  } catch (e) { /* контактите не са достъпни — работим с партньорите */ }
+  const supOptions = [];
+  const seenSup = new Set();
+  contacts.forEach(c => {
+    const n = (c.company || "").trim();
+    if (!n || seenSup.has(n.toLowerCase())) return;
+    seenSup.add(n.toLowerCase());
+    supOptions.push({ name: n, hint: [c.category, c.contact_person].filter(Boolean).join(" · ") });
+  });
+  suppliers.forEach(s => {
+    const n = (s.name || "").trim();
+    if (!n || seenSup.has(n.toLowerCase())) return;
+    seenSup.add(n.toLowerCase());
+    supOptions.push({ name: n, hint: "от Покупки" });
+  });
+  const mailOptions = contacts.filter(c => c.email || c.invoice_email)
+    .map(c => ({ email: c.email || c.invoice_email, label: (c.company || "") + (c.category ? " · " + c.category : "") }));
   const bullet = i => `• ${i.code ? i.code + " " : ""}${i.name} — ${erpNum(i.qty)} ${i.unit || ""}`;
   const myCc = (typeof erpMailMyCc === "function") ? erpMailMyCc() : "";
   const edit = !!rec;
@@ -172,12 +197,14 @@ ${items.map(bullet).join("\n")}
     <h3>${edit ? "✎ Заявка към доставчик — редакция" : "✉ Заявка за материали към доставчик"}</h3>
     ${edit ? `<p class="erp-muted" style="margin:-6px 0 8px">Създадена на ${matreqFmt(rec.date)}${rec.sentBy ? " от " + escapeHtml(rec.sentBy) : ""}${rec.emailSent ? " · ✉ имейлът е изпратен" : " · без изпратен имейл"}</p>` : ""}
     <div class="erp-co-grid">
-      <label>Доставчик <input type="text" id="mq-supplier" list="mq-sups" placeholder="избери или напиши" value="${edit ? escapeAttr(rec.supplier || "") : ""}" />
-        <datalist id="mq-sups">${suppliers.map(s => `<option value="${escapeAttr(s.name)}"></option>`).join("")}</datalist></label>
-      <label>Имейл <input type="email" id="mq-email" placeholder="имейл на доставчика" value="${edit ? escapeAttr(rec.supplierEmail || "") : ""}" /></label>
+      <label>Доставчик <input type="text" id="mq-supplier" list="mq-sups" placeholder="избери от Контактите или напиши" value="${edit ? escapeAttr(rec.supplier || "") : ""}" />
+        <datalist id="mq-sups">${supOptions.map(s => `<option value="${escapeAttr(s.name)}">${escapeAttr(s.hint)}</option>`).join("")}</datalist></label>
+      <label>Имейл <input type="email" id="mq-email" list="mq-cmails" placeholder="имейл на доставчика" value="${edit ? escapeAttr(rec.supplierEmail || "") : ""}" />
+        <datalist id="mq-cmails">${mailOptions.map(m => `<option value="${escapeAttr(m.email)}">${escapeAttr(m.label)}</option>`).join("")}</datalist></label>
       <label>Очаквана доставка (ако знаеш) <input type="date" id="mq-expected" value="${edit ? escapeAttr(rec.expected || "") : ""}" /></label>
       ${edit ? `<label>Статус <select id="mq-status">${MATREQ_STATUSES.map(s => `<option value="${s}" ${rec.status === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
     </div>
+    <p class="hint" id="mq-cinfo" style="margin:4px 0 0"></p>
     <label>Съобщение <button type="button" class="btn btn-small" id="mq-additems" style="float:right" title="Избери материали от склада — добавят се като редове в съобщението">🧱 Добави материали</button>
       <textarea id="mq-text" rows="9">${escapeHtml(msg)}</textarea></label>
     ${myCc ? `<p class="hint" style="margin:6px 0 0">📩 Копие ще получиш и ти: <b>${escapeHtml(myCc)}</b></p>` : ""}
@@ -188,12 +215,25 @@ ${items.map(bullet).join("\n")}
       <button class="btn btn-primary" id="mq-send">📤 Изпрати и запиши</button>
     </div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
-  // Имейлът на доставчика от партньорите (при избор по име).
-  wrap.querySelector("#mq-supplier").addEventListener("change", async e => {
+  // При избор на доставчик: имейл + инфо (лице, телефон, бележки) от КОНТАКТИ;
+  // ако го няма там — резервно от партньорите (Покупки).
+  const applySupplier = async (name, keepEmail) => {
+    const n = String(name || "").trim().toLowerCase();
+    const info = wrap.querySelector("#mq-cinfo");
+    const c = contacts.find(x => String(x.company || "").trim().toLowerCase() === n);
+    if (c) {
+      const mail = c.email || c.invoice_email || "";
+      if (mail && !(keepEmail && wrap.querySelector("#mq-email").value)) wrap.querySelector("#mq-email").value = mail;
+      info.innerHTML = `📇 ${escapeHtml(c.contact_person || "")}${c.phone ? " · ☎ " + escapeHtml(c.phone) : ""}${c.category ? " · " + escapeHtml(c.category) : ""}${!mail ? ' · <b class="erp-warn">няма имейл в Контакти — по телефона?</b>' : ""}${c.notes ? "<br>📝 " + escapeHtml(c.notes) : ""}`;
+      return;
+    }
+    info.textContent = "";
     if (typeof erpPartnerEmail !== "function") return;
-    const rec2 = await erpPartnerEmail("supplier", null, e.target.value);
+    const rec2 = await erpPartnerEmail("supplier", null, name);
     if (rec2 && rec2.email && !wrap.querySelector("#mq-email").value) wrap.querySelector("#mq-email").value = rec2.email;
-  });
+  };
+  wrap.querySelector("#mq-supplier").addEventListener("change", e => applySupplier(e.target.value));
+  if (edit && rec.supplier) applySupplier(rec.supplier, true);
   wrap.querySelector("#mq-cancel").addEventListener("click", close);
   // Добавяне на материали → и в списъка, и като редове в съобщението.
   wrap.querySelector("#mq-additems").addEventListener("click", () => {
