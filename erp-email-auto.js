@@ -6,12 +6,22 @@
    erpMailInvoice (фактура към клиента), erpMailOrderDialog (заявка: готова/срок).
    Пада меко: ако функцията не тръгне, отваря старото Gmail compose (erp-email.js). */
 
-async function erpMailSend({ to, subject, html, text, replyTo, direct }) {
+// Личният мейл на влезлия потребител — праща му се копие (CC) на всичко изпратено
+// от негово име. Цеховите профили (@danko.local) не са реални пощи → без копие.
+function erpMailMyCc() {
+  const e = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
+  return (e.includes("@") && !e.toLowerCase().endsWith("@danko.local")) ? e : "";
+}
+
+async function erpMailSend({ to, subject, html, text, replyTo, direct, cc }) {
   const list = (Array.isArray(to) ? to : [to]).filter(e => e && String(e).includes("@"));
   if (!list.length) return { ok: false, error: "Няма валиден имейл на получател." };
+  // Копие до личния мейл (ако не е изрично подадено друго).
+  const ccList = (cc === undefined ? [erpMailMyCc()] : (Array.isArray(cc) ? cc : [cc]))
+    .filter(e => e && String(e).includes("@") && !list.includes(e));
   try {
     const { data, error } = await sb.functions.invoke("send-inquiry", {
-      body: { to: list, subject: subject || "", html: html || "", text: text || "", replyTo: replyTo || "", direct: !!direct },
+      body: { to: list, cc: ccList, subject: subject || "", html: html || "", text: text || "", replyTo: replyTo || "", direct: !!direct },
     });
     if (error) {
       // Тялото на грешката често носи истинската причина (Brevo отказа: ...).
@@ -68,9 +78,11 @@ async function erpMailDiag() {
 function erpMailComposeDialog({ title, to, subject, html, text, onSent }) {
   const { wrap, close } = erpDialog(`
     <h3>${escapeHtml(title || "✉ Изпращане на имейл")}</h3>
-    <label>До <input type="email" id="mc-to" value="${escapeAttr(to || "")}" placeholder="имейл на получателя" /></label>
+    <label>До <input type="email" id="mc-to" list="mc-contacts" value="${escapeAttr(to || "")}" placeholder="имейл на получателя (или избери от Контактите)" /></label>
+    ${typeof erpMailContactsDatalist === "function" ? erpMailContactsDatalist() : ""}
     <label>Тема <input type="text" id="mc-subject" value="${escapeAttr(subject || "")}" /></label>
     <label>Съобщение <textarea id="mc-text" rows="7">${escapeHtml(text || "")}</textarea></label>
+    ${erpMailMyCc() ? `<p class="hint" style="margin:6px 0 0">📩 Копие ще получиш и ти: <b>${escapeHtml(erpMailMyCc())}</b></p>` : ""}
     ${html ? '<p class="hint" style="margin:6px 0 0">Писмото ще включи и оформена таблица с данните (HTML).</p>' : ""}
     <div id="mc-result" style="margin-top:8px"></div>
     <div class="erp-dialog-actions"><button class="btn" id="mc-cancel">Отказ</button><button class="btn btn-primary" id="mc-send">📤 Изпрати</button></div>`);
@@ -140,8 +152,8 @@ async function erpMailOrderDialog(o) {
     text: `Здравейте${person ? " " + person : ""},\n\nВашата поръчка${no ? " №" + no : ""}${o.clientNo ? " (Ваш № " + o.clientNo + ")" : ""} е готова за получаване.\n${products ? "\n" + products + "\n" : ""}\nМоля, свържете се с нас за уговаряне на получаването/транспорта.\n\nПоздрави,\nекип Данко Системс`,
   };
   const term = {
-    subject: "Срок за изпълнение на поръчка" + (no ? " №" + no : ""),
-    text: `Здравейте${person ? " " + person : ""},\n\nВашата поръчка${no ? " №" + no : ""}${o.clientNo ? " (Ваш № " + o.clientNo + ")" : ""} е приета и се изпълнява.\nОчакван срок за готовност: ${o.deadline || "(попълни дата)"}.\n${products ? "\n" + products + "\n" : ""}\nЩе Ви уведомим при готовност.\n\nПоздрави,\nекип Данко Системс`,
+    subject: "Поръчка" + (no ? " №" + no : "") + " е в производство — очаквана дата",
+    text: `Здравейте${person ? " " + person : ""},\n\nВашата поръчка${no ? " №" + no : ""}${o.clientNo ? " (Ваш № " + o.clientNo + ")" : ""} е в производство.\nОчаквана дата на готовност: ${o.deadline || "(попълни дата)"}.\n${products ? "\n" + products + "\n" : ""}\nЩе Ви уведомим, щом бъде готова за експедиция.\n\nПоздрави,\nекип Данко Системс`,
   };
   const { wrap, close } = erpDialog(`
     <h3>✉ Имейл до клиента</h3>
@@ -156,4 +168,61 @@ async function erpMailOrderDialog(o) {
   wrap.querySelector("#mo-term").addEventListener("click", () => open(term));
   wrap.querySelector("#mo-ready").addEventListener("click", () => open(ready));
   wrap.querySelector("#mo-cancel").addEventListener("click", close);
+}
+
+/* ---------- Запитване за ТРАНСПОРТ ----------
+   От фактура или заявка: маршрут, палети и тегло се попълват сами (от
+   Транспорт/Опаковки), получателят се избира от Контактите (превозвачи). */
+function erpMailContactsDatalist() {
+  const list = (typeof CONTACTS !== "undefined" && CONTACTS || []).filter(c => c.email);
+  return `<datalist id="mc-contacts">${list.map(c => `<option value="${escapeAttr(c.email)}">${escapeAttr((c.company || c.name || "") + (c.category ? " · " + c.category : ""))}</option>`).join("")}</datalist>`;
+}
+function erpMailTransportInquiry(o) {
+  const tr = (o && o.transport) || {};
+  const pal = (typeof erpDocAutoRows === "function") ? erpDocAutoRows(o) : [];
+  const totKg = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
+  const cnt = (o.pallets && o.pallets.length) || (tr.totalPackages || pal.length || "");
+  const text = `Здравейте,
+
+Молим за оферта за транспорт:
+
+• Маршрут: ${tr.loadPlace || "Пловдив, България"} → ${tr.unloadPlace || ((o.client && [o.client.city, o.client.country].filter(Boolean).join(", ")) || "(попълни)")}
+• Товар: ${cnt || "(бр.)"} палета${totKg ? ", общо ~" + erpNum(totKg) + " кг" : ""}
+• Готовност за товарене: ${tr.loadDate || "(дата)"}
+${tr.incoterms ? "• Условие: " + tr.incoterms + "\n" : ""}
+Моля, посочете цена и срок за доставка.
+
+Поздрави,
+Данко Системс`;
+  erpMailComposeDialog({
+    title: "🚚 Запитване за транспорт" + (o.__ref || o.docNo ? " — " + (o.__ref || "фактура № " + o.docNo) : ""),
+    to: "", subject: "Запитване за транспорт — Данко Системс",
+    text, datalist: "mc-contacts",
+  });
+}
+
+/* ---------- Заявка за МАТЕРИАЛИ до доставчик (от Покупка) ---------- */
+async function erpMailSupplierRequest(o) {
+  const items = (o.lines || [])
+    .filter(l => l.name || l.article || l.code)
+    .map(l => `• ${l.code ? l.code + " " : ""}${l.article || l.name || ""}${l.qty ? " — " + erpNum(l.qty) + (l.unit ? " " + l.unit : "") : ""}`)
+    .join("\n");
+  if (!items) { alert("Добави поне един ред (материал/артикул) в покупката."); return; }
+  const rec = (typeof erpPartnerEmail === "function") ? await erpPartnerEmail("supplier", o.supplierId, o.supplierName) : null;
+  const person = (rec && rec.person) || "";
+  const text = `Здравейте${person ? " " + person : ""},
+
+Молим за потвърждение и доставка на следните материали:
+
+${items}
+
+Моля, потвърдете наличност, единични цени и срок на доставка.
+
+Поздрави,
+Данко Системс`;
+  erpMailComposeDialog({
+    title: "✉ Заявка за материали → " + (o.supplierName || "доставчик"),
+    to: (rec && rec.email) || "", subject: "Заявка за доставка на материали — Данко Системс",
+    text, datalist: "mc-contacts",
+  });
 }

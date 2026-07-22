@@ -529,6 +529,7 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-doc-packing">📦 Packing List</button>
         <button class="btn btn-small" id="co-doc-pallets">🧱 Палет опис</button>
         <span class="spacer"></span>
+        ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="co-mail-transport" title="Запитване за транспорт до превозвач — маршрут/палети/тегло се попълват от заявката">🚚 Запитване за транспорт</button>' : ""}
         <button class="btn btn-small" id="co-edit-transport">✎ Транспорт</button>
         <button class="btn btn-small" id="co-edit-pallets">✎ Палети (${(o.pallets || []).length})</button>
       </div>
@@ -610,6 +611,8 @@ async function erpRenderCOForm(o) {
   if (dl) dl.addEventListener("click", () => { if (typeof erpInvPrintPallets === "function") erpInvPrintPallets(docObj()); });
   const et = document.getElementById("co-edit-transport");
   if (et) et.addEventListener("click", () => { if (typeof erpInvTransportDialog === "function") erpInvTransportDialog(o, () => { erpSaveCO(o).catch(() => {}); }); });
+  const mtr = document.getElementById("co-mail-transport");
+  if (mtr) mtr.addEventListener("click", () => erpMailTransportInquiry(docObj()));
   const ep = document.getElementById("co-edit-pallets");
   if (ep) ep.addEventListener("click", () => { if (typeof erpInvPalletsDialog === "function") erpInvPalletsDialog(o, () => { erpSaveCO(o).catch(() => {}); erpRenderCOForm(o); }); });
 

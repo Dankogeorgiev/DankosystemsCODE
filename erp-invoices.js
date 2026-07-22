@@ -398,6 +398,7 @@ async function erpInvForm(o) {
         <button class="btn btn-small" id="inv-doc-cmr">🚚 ЧМР (CMR)</button>
         <button class="btn btn-small" id="inv-doc-pallets">🧱 Палет опис</button>
         <span class="spacer"></span>
+        ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="inv-mail-transport" title="Запитване за транспорт до превозвач (маршрут/палети/тегло се попълват сами)">🚚 Запитване за транспорт</button>' : ""}
         <button class="btn btn-small" id="inv-edit-transport" ${locked ? "disabled" : ""}>✎ Транспорт</button>
         <button class="btn btn-small" id="inv-edit-pallets" ${locked ? "disabled" : ""}>✎ Палети (${(o.pallets || []).length})</button>
       </div>
@@ -448,6 +449,7 @@ async function erpInvForm(o) {
   const dc = document.getElementById("inv-doc-cmr"); if (dc) dc.addEventListener("click", () => erpInvPrintCMR(o));
   const dl = document.getElementById("inv-doc-pallets"); if (dl) dl.addEventListener("click", () => erpInvPrintPallets(o));
   const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o));
+  const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", () => erpMailTransportInquiry(o));
   const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o));
   erpInvWireLines(o, locked);
   erpInvTotalsBox(o);

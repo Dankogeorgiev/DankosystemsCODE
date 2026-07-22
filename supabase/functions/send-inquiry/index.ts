@@ -32,6 +32,7 @@ Deno.serve(async (req) => {
   }
 
   const to: string[] = Array.isArray(payload.to) ? payload.to.filter((e: string) => e && e.includes("@")) : [];
+  const cc: string[] = Array.isArray(payload.cc) ? payload.cc.filter((e: string) => e && e.includes("@")) : [];
   const subject: string = (payload.subject || "").toString();
   const html: string = (payload.html || "").toString();
   const text: string = (payload.text || "").toString();
@@ -65,6 +66,8 @@ Deno.serve(async (req) => {
   };
   if (html) body.htmlContent = html;
   if (replyTo) body.replyTo = { email: replyTo };
+  // Копие до личния мейл на изпращащия (профилът, с който е влязъл в Системата).
+  if (cc.length) body.cc = cc.map((e) => ({ email: e }));
 
   try {
     const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
