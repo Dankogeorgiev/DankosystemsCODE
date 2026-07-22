@@ -414,9 +414,12 @@ function erpFlowSteps(s, opts) {
         if (!ws || ws === "Външна услуга") { external.push({ op: op.name || "", product: p.name || "" }); return; }
         ops.push({ operation: op.name || "", workshop: ws, qty: make, opsPerUnit: perUnit });
       } else if (l.material_id) {
+        // Смяна на материал САМО за тази поръчка (напр. Щрипс → Шина): рецептата
+        // не се пипа, но изписването тегли заместителя от склада.
+        const mid = (opts && opts.matSubs && opts.matSubs[l.material_id]) ? Number(opts.matSubs[l.material_id]) : l.material_id;
         const per = Number(l.quantity) || 1;
-        materials[l.material_id] = (materials[l.material_id] || 0) + make * per;
-        nodeMats[l.material_id] = (nodeMats[l.material_id] || 0) + per;   // за 1 бр. детайл
+        materials[mid] = (materials[mid] || 0) + make * per;
+        nodeMats[mid] = (nodeMats[mid] || 0) + per;   // за 1 бр. детайл
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
         const need = make * (Number(l.quantity) || 1);
         const res = walk(l.child_product_id, need, new Set([...anc, l.child_product_id]), depth + 1);
@@ -561,9 +564,9 @@ async function erpFlowApply(meta, productLines) {
     // stockTop: при обикновена заявка готовият краен детайл влиза в Склад детайли
     // (после се изписва с Продажба) — без да сменяме поръчковия режим на „за склад".
     const stepsOpts = toStock
-      ? { keySuffix: sfx, toStockTop: true, noNetTop: true }   // за склад: върхът НЕ се нетва (натрупваме)
-      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop }   // поръчка: върхът СЕ нетва спрямо готовата наличност
-                 : (meta.stockTop ? { toStockTop: true } : undefined));
+      ? { keySuffix: sfx, toStockTop: true, noNetTop: true, matSubs: meta.matSubs || null }   // за склад: върхът НЕ се нетва (натрупваме)
+      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop, matSubs: meta.matSubs || null }   // поръчка: върхът СЕ нетва спрямо готовата наличност
+                 : { toStockTop: !!meta.stockTop, matSubs: meta.matSubs || null });
     const { steps, external, missing, materials } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
     Object.keys(materials || {}).forEach(mid => { matNeed[mid] = (Number(matNeed[mid]) || 0) + Number(materials[mid] || 0); });
     external.forEach(e => externalAll.push(e));
