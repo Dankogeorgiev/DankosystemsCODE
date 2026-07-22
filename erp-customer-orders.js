@@ -515,6 +515,7 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
         <button class="btn btn-small" id="co-test" title="Провери маршрута — дали рецептите ще вървят правилно, преди да пуснеш">🧪 Тест рецепта</button>
         <button class="btn btn-small" id="co-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
+        <button class="btn btn-small" id="co-matsubs" title="Смени материал САМО за тази поръчка (напр. Щрипс → Шина). Рецептата не се пипа; изписването тегли заместителя.">🔁 Смени материал${o.matSubs && Object.keys(o.matSubs).length ? ` (${Object.keys(o.matSubs).length})` : ""}</button>
         <button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>
         ${o.production ? '<button class="btn btn-small" id="co-live-status" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
@@ -576,6 +577,8 @@ async function erpRenderCOForm(o) {
     if (typeof erpSimulateProduction === "function") erpSimulateProduction(items, { title: o.ourNo ? ("заявка №" + o.ourNo) : "", stockTop: true });
   });
   document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
+  const msBtn = document.getElementById("co-matsubs");
+  if (msBtn) msBtn.addEventListener("click", () => erpCOMatSubsDialog(o));
   const stBtn = document.getElementById("co-live-status");
   if (stBtn) stBtn.addEventListener("click", () => {
     if (typeof erpOrderStatus === "function") erpOrderStatus(o.id, o.ourNo ? ("заявка №" + o.ourNo) : (o.clientName || ""), {
@@ -708,6 +711,82 @@ function erpCOFillPrices(o) {
   return filled;
 }
 
+/* ---------- Смяна на материал САМО за тази поръчка ----------
+   Рецептата остава непокътната. Изборът се пази на заявката (o.matSubs =
+   { оригинален_материал_id: заместител_id }) и се прилага при пускането в
+   производство — изписването и „липсващи материали" теглят заместителя. */
+async function erpCOMatSubsDialog(o) {
+  try { await erpEnsureLoaded(); } catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return; }
+  // Всички материали, които поръчката ползва по рецептите (рекурсивно).
+  const need = {};
+  const rec = (pid, mult, anc) => {
+    (ERP.linesByProduct[pid] || []).forEach(l => {
+      const q = mult * (Number(l.quantity) || 1);
+      if (l.material_id) need[l.material_id] = (need[l.material_id] || 0) + q;
+      else if (l.child_product_id && !anc.has(l.child_product_id)) rec(l.child_product_id, q, new Set([...anc, l.child_product_id]));
+    });
+  };
+  (o.lines || []).forEach(l => { if (l.productId) rec(l.productId, erpToNum(l.qty) || 1, new Set([l.productId])); });
+  const mids = Object.keys(need).map(Number);
+  if (!mids.length) { alert("Поръчката няма материали по рецептите (или продуктите нямат рецепти)."); return; }
+  o.matSubs = o.matSubs || {};
+  const mLabel = id => { const m = ERP.matById[id] || {}; return `${m.code || ""} ${m.name || ""}`.trim() || ("материал " + id); };
+  const mStock = id => { const m = ERP.matById[id] || {}; return m.stock != null ? erpNum(m.stock) + " " + (m.unit || "") : "—"; };
+  const { wrap, close } = erpDialog(`
+    <h3>🔁 Смяна на материал — само за заявка №${escapeHtml(o.ourNo || "")}</h3>
+    <p class="hint" style="margin:0 0 8px">Рецептата НЕ се пипа. Заместителят важи само за тази поръчка — изписването от склада и проверката за липси теглят него. Остави „— без смяна —", където няма промяна.</p>
+    <table class="report-table erp-table">
+      <thead><tr><th>По технология (рецепта)</th><th class="num">Нужно</th><th>Наличност</th><th>→ Ще се ползва (заместител)</th><th>Наличност</th></tr></thead>
+      <tbody>${mids.map(id => {
+        const sub = o.matSubs[id] || "";
+        return `<tr>
+          <td><b>${escapeHtml(mLabel(id))}</b></td>
+          <td class="num">${erpNum(need[id])}</td>
+          <td>${mStock(id)}</td>
+          <td><input type="text" class="ms-sub" data-id="${id}" list="ms-mats" value="${sub ? escapeAttr(mLabel(Number(sub))) : ""}" placeholder="— без смяна —" style="min-width:220px" /></td>
+          <td class="ms-substock" data-id="${id}">${sub ? mStock(Number(sub)) : ""}</td>
+        </tr>`; }).join("")}</tbody>
+    </table>
+    <datalist id="ms-mats">${(ERP.materials || []).map(m => `<option value="${escapeAttr((m.code || "") + " " + (m.name || ""))}"></option>`).join("")}</datalist>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="ms-clear">✕ Махни всички смени</button>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn" id="ms-cancel">Отказ</button>
+      <button class="btn btn-primary" id="ms-save">💾 Запази</button>
+    </div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  const findMat = txt => {
+    const t = String(txt || "").trim().toLowerCase();
+    if (!t) return null;
+    return (ERP.materials || []).find(m => (((m.code || "") + " " + (m.name || "")).trim().toLowerCase() === t))
+      || (ERP.materials || []).find(m => String(m.code || "").toLowerCase() === t) || null;
+  };
+  wrap.querySelectorAll(".ms-sub").forEach(inp => inp.addEventListener("change", () => {
+    const cell = wrap.querySelector(`.ms-substock[data-id="${inp.dataset.id}"]`);
+    const m = findMat(inp.value);
+    if (cell) cell.textContent = m ? mStock(m.id) : (inp.value.trim() ? "❓ не е намерен" : "");
+  }));
+  wrap.querySelector("#ms-clear").addEventListener("click", () => { wrap.querySelectorAll(".ms-sub").forEach(i => { i.value = ""; }); wrap.querySelectorAll(".ms-substock").forEach(c => c.textContent = ""); });
+  wrap.querySelector("#ms-cancel").addEventListener("click", close);
+  wrap.querySelector("#ms-save").addEventListener("click", async () => {
+    const subs = {};
+    let bad = "";
+    wrap.querySelectorAll(".ms-sub").forEach(inp => {
+      const txt = inp.value.trim(); if (!txt) return;
+      const m = findMat(txt);
+      if (!m) { bad = txt; return; }
+      if (Number(m.id) !== Number(inp.dataset.id)) subs[inp.dataset.id] = m.id;
+    });
+    if (bad) { alert(`Не намирам материал „${bad}" в склада. Избери от списъка.`); return; }
+    o.matSubs = subs;
+    try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
+    close();
+    if (typeof erpRenderCOForm === "function") erpRenderCOForm(o);
+    const n = Object.keys(subs).length;
+    alert(n ? `✅ Записани ${n} смени. При пускане в производство складът ще тегли заместителите.\nАко поръчката ВЕЧЕ е пусната — пусни я наново (произведеното се запазва), за да влязе смяната в сила.` : "Смените са премахнати.");
+  });
+}
+
 function erpCOAddProduct(o) {
   const { wrap, close } = erpDialog(`
     <h3>Добави продукт или покупен материал</h3>
@@ -827,7 +906,7 @@ async function erpCOProduce(o) {
   let totalSteps = 0, external = [];
   const missMap = {};
   lines.forEach(l => {
-    const r = (typeof erpFlowSteps === "function") ? erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty }) : { steps: [], external: [], missing: [] };
+    const r = (typeof erpFlowSteps === "function") ? erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty }, { matSubs: o.matSubs || null }) : { steps: [], external: [], missing: [] };
     totalSteps += r.steps.length; external = external.concat(r.external);
     (r.missing || []).forEach(m => { const k = m.code || m.name; const c = missMap[k] || (missMap[k] = { code: m.code, name: m.name, qty: 0 }); c.qty += Number(m.qty) || 0; });
   });
@@ -849,6 +928,10 @@ async function erpCOProduce(o) {
     + `Еднакви детайли от различни поръчки се обединяват в СЕРИЯ; всяка операция приема детайлите постепенно, колкото са отчетени в предната.`;
   if (external.length) msg += `\n\n${external.length} външни операции (напр. поцинковане) са за подизпълнител.`;
   msg += missTxt;
+  if (o.matSubs && Object.keys(o.matSubs).length) {
+    const mn = id => { const m = (ERP.matById || {})[id] || {}; return `${m.code || ""} ${m.name || "материал " + id}`.trim(); };
+    msg += `\n\n🔁 СМЕНЕН МАТЕРИАЛ за тази поръчка:\n` + Object.entries(o.matSubs).map(([a, b]) => `• ${mn(a)} → ${mn(b)}`).join("\n");
+  }
   msg += `\n\n📦 Материалите за производството ще се изпишат от склада.`;
   msg += `\n✅ Щом мине последната операция, готовото изделие влиза в Склад детайли (после се изписва с Продажба).`;
   if (already) msg += `\n\n♻ Вече има пуснато производство по тази заявка. НОВИТЕ редове/бройки ще се ДОБАВЯТ към него, а вече произведеното и отчетеното по цеховете СЕ ЗАПАЗВАТ (нищо не се пуска отначало).`;
@@ -857,6 +940,7 @@ async function erpCOProduce(o) {
   const res = await erpFlowApply({
     clientName: o.clientName || "", deadline: o.deadline || "", sampleId: o.id,
     sampleType: "customer_order", orderNo: o.ourNo || "",
+    matSubs: o.matSubs || null,   // смяна на материал само за тази поръчка (Щрипс → Шина)
     stockTop: true,   // готовото изделие влиза в Склад детайли при завършване (после се изписва с Продажба)
   }, lines);
   if (res.error) { alert("Грешка при създаване на задачи: " + (res.error.message || res.error)); return; }
