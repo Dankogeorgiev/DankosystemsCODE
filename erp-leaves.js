@@ -408,3 +408,27 @@ async function leaveBalImport(file, done) {
     if (await leaveBalSave()) { alert(`Импорт готов (лист ${wsName}): ${added} нови, ${updated} обновени.`); if (done) done(); }
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
+
+/* ---------- Отпуски от НАЧАЛНИЯ екран (без достъп до Финанси) ----------
+   Списък с имейли, които виждат бутона „🏖 Отпуски" до Склад/ЕРП. Отваря същия
+   офис изглед (чакащи, одобряване, календар, оставащи дни) в собствен прозорец. */
+const LEAVES_MAIN_EMAILS = ["angelov@dankosystems.com"];
+function leavesMainAllowed() {
+  const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return LEAVES_MAIN_EMAILS.includes(e);
+}
+function openLeavesStandalone() {
+  const { wrap, close } = erpDialog(`
+    <h3>🏖 Отпуски</h3>
+    <div id="lv-standalone"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="lv-sa-close">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-full");
+  wrap.querySelector("#lv-sa-close").addEventListener("click", close);
+  erpRenderLeaves(wrap.querySelector("#lv-standalone"));
+}
+function leavesMainInit() {
+  const b = document.getElementById("btn-leaves-main");
+  if (b && !b._lvWired) { b._lvWired = true; b.addEventListener("click", openLeavesStandalone); }
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", leavesMainInit);
+else leavesMainInit();

@@ -102,6 +102,9 @@ function applyAccess() {
   if (fin) fin.style.display = financeAllowed() ? "" : "none";
   const pulse = document.getElementById("btn-pulse");
   if (pulse) pulse.style.display = pulseAllowed() ? "" : "none";
+  // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
+  const lvBtn = document.getElementById("btn-leaves-main");
+  if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
   const adminOnly = document.querySelectorAll(
     '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-erp,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {
