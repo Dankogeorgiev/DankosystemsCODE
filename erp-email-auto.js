@@ -19,6 +19,9 @@ async function erpMailSend({ to, subject, html, text, replyTo, direct, cc }) {
   // Копие до личния мейл (ако не е изрично подадено друго).
   const ccList = (cc === undefined ? [erpMailMyCc()] : (Array.isArray(cc) ? cc : [cc]))
     .filter(e => e && String(e).includes("@") && !list.includes(e));
+  // „Отговори" при получателя → отива при ЧОВЕКА, пуснал писмото (личния му мейл),
+  // а не в пощата-подател (zapitvane@…), която никой не следи.
+  if (!replyTo) replyTo = erpMailMyCc();
   try {
     const { data, error } = await sb.functions.invoke("send-inquiry", {
       body: { to: list, cc: ccList, subject: subject || "", html: html || "", text: text || "", replyTo: replyTo || "", direct: !!direct },
