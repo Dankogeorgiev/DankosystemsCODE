@@ -46,6 +46,7 @@ async function erpRenderMatRequests() {
       <td>${itemsCell(r)}</td>
       <td>${stBadge(r)}${r.emailSent ? ' <span title="Изпратен е имейл">✉</span>' : ""}</td>
       <td>${isDone ? matreqFmt(r.arrivedAt) : (r.expected ? `<b>${matreqFmt(r.expected)}</b>${overdue ? ' <span class="pay-neg">⚠ закъснява</span>' : ""}` : '<span class="erp-muted">—</span>')}</td>
+      <td>${r.note ? escapeHtml(r.note) : '<span class="erp-muted">—</span>'}</td>
       <td class="erp-row-actions">
         ${!isDone && r.status === "запитване" ? `<button class="btn btn-small" data-mr-ord="${r.id}" title="Отбележи като поръчано и въведи кога ще дойде">📦 Поръчано</button>` : ""}
         ${!isDone ? `<button class="btn btn-small btn-primary" data-mr-done="${r.id}" title="Материалът е дошъл — редът слиза долу при Доставени">Доставено</button>` : ""}
@@ -63,12 +64,12 @@ async function erpRenderMatRequests() {
     <p class="hint">Всички запитвания и заявки за материали на едно място — кой какво е поискал, кога и <b>кога ще дойде</b>. „⚠ закъснява" = очакваната дата е минала, а не е доставено. <b>Клик върху ред = редакция.</b> Пуска се и от „Липсващи материали по заявки" (с отметките).</p>
     <h4 class="erp-group-head">⏳ Активни (${active.length})</h4>
     <table class="report-table erp-table">
-      <thead><tr><th>Дата</th><th>Доставчик</th><th>Материали</th><th>Статус</th><th>Очаква се</th><th></th></tr></thead>
-      <tbody>${active.map(r => row(r, false)).join("") || `<tr><td colspan="6" class="report-empty">Няма активни заявки. Пусни от бутона горе или от Липсващи материали.</td></tr>`}</tbody>
+      <thead><tr><th>Дата</th><th>Доставчик</th><th>Материали</th><th>Статус</th><th>Очаква се</th><th>Забележка</th><th></th></tr></thead>
+      <tbody>${active.map(r => row(r, false)).join("") || `<tr><td colspan="7" class="report-empty">Няма активни заявки. Пусни от бутона горе или от Липсващи материали.</td></tr>`}</tbody>
     </table>
     ${done.length ? `<h4 class="erp-group-head">✅ Доставени (последните ${done.length})</h4>
     <table class="report-table erp-table">
-      <thead><tr><th>Дата</th><th>Доставчик</th><th>Материали</th><th>Статус</th><th>Дошло на</th><th></th></tr></thead>
+      <thead><tr><th>Дата</th><th>Доставчик</th><th>Материали</th><th>Статус</th><th>Дошло на</th><th>Забележка</th><th></th></tr></thead>
       <tbody>${done.map(r => row(r, true)).join("")}</tbody>
     </table>` : ""}`;
 
@@ -203,6 +204,7 @@ ${items.map(bullet).join("\n")}
         <datalist id="mq-cmails">${mailOptions.map(m => `<option value="${escapeAttr(m.email)}">${escapeAttr(m.label)}</option>`).join("")}</datalist></label>
       <label>Очаквана доставка (ако знаеш) <input type="date" id="mq-expected" value="${edit ? escapeAttr(rec.expected || "") : ""}" /></label>
       ${edit ? `<label>Статус <select id="mq-status">${MATREQ_STATUSES.map(s => `<option value="${s}" ${rec.status === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>` : ""}
+      <label>Забележка <input type="text" id="mq-note" value="${edit ? escapeAttr(rec.note || "") : ""}" placeholder="по избор — напр. частична доставка, уговорена цена…" /></label>
     </div>
     <p class="hint" id="mq-cinfo" style="margin:4px 0 0"></p>
     <label>Съобщение <button type="button" class="btn btn-small" id="mq-additems" style="float:right" title="Избери материали от склада — добавят се като редове в съобщението">🧱 Добави материали</button>
@@ -252,6 +254,7 @@ ${items.map(bullet).join("\n")}
     supplier: wrap.querySelector("#mq-supplier").value.trim(),
     supplierEmail: wrap.querySelector("#mq-email").value.trim(),
     expected: wrap.querySelector("#mq-expected").value || "",
+    note: wrap.querySelector("#mq-note").value.trim(),
     msg: wrap.querySelector("#mq-text").value,
     items,
   });
