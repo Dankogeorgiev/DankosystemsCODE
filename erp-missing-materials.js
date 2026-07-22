@@ -97,8 +97,11 @@ async function erpRenderMissingMaterials() {
   erpSetMissingBadge(short.length);   // осветяваме таба според недостига
 
   const ordersCell = r => r.orders.map(orderText).map(t => `<span class="mm-order">${escapeHtml(t)}</span>`).join(" ") || "—";
+  // Отметка за избор → „Запитване към доставчик" (кол. по подразбиране: липсващото/до минимума).
+  const chk = (r, qty) => `<td class="pay-chk"><input type="checkbox" class="mm-sel" data-mid="${r.mid}" data-qty="${qty}" /></td>`;
   const shortRow = r => `
     <tr class="erp-below">
+      ${chk(r, r.missing)}
       <td data-label="Материал"><b>${escapeHtml(r.code)}</b> ${escapeHtml(r.name)}</td>
       <td data-label="Мярка">${escapeHtml(r.unit)}</td>
       <td class="num" data-label="Нужен (оставащо)">${erpNum(r.need)}</td>
@@ -108,6 +111,7 @@ async function erpRenderMissingMaterials() {
     </tr>`;
   const lowRow = r => `
     <tr>
+      ${chk(r, Math.max(0, r.min - r.stock) || r.min)}
       <td data-label="Материал"><b>${escapeHtml(r.code)}</b> ${escapeHtml(r.name)}</td>
       <td data-label="Мярка">${escapeHtml(r.unit)}</td>
       <td class="num" data-label="Нужен (оставащо)">${erpNum(r.need)}</td>
@@ -128,18 +132,38 @@ async function erpRenderMissingMaterials() {
       ${short.length ? `
         <h4 class="erp-group-head">⚠ Няма да стигнат</h4>
         <table class="report-table erp-table">
-          <thead><tr><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th></tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th></tr></thead>
           <tbody>${short.map(shortRow).join("")}</tbody>
         </table>`
         : `<p class="report-empty">✅ За оставащото рязане по пуснатите заявки има достатъчно материал.</p>`}
       ${low.length ? `
         <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
         <table class="report-table erp-table">
-          <thead><tr><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th></tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th></tr></thead>
           <tbody>${low.map(lowRow).join("")}</tbody>
         </table>` : ""}
+      <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Избери материали с отметките, за да пуснеш запитване към доставчик.</span></div>
     `}`;
 
   const rb = document.getElementById("mm-refresh"); if (rb) rb.addEventListener("click", erpRenderMissingMaterials);
   const pb = document.getElementById("mm-plan"); if (pb) pb.addEventListener("click", () => { if (typeof openMaterialsPlan === "function") openMaterialsPlan(); });
+  // Избор с отметки → запитване към доставчик (влиза в регистъра „Заявки за материали").
+  const bar = document.getElementById("mm-reqbar");
+  const updBar = () => {
+    if (!bar) return;
+    const sel = [...v.querySelectorAll(".mm-sel:checked")];
+    if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Избери материали с отметките, за да пуснеш запитване към доставчик.</span>`; return; }
+    bar.innerHTML = `<span class="pay-sel-info">Избрани: <b>${sel.length}</b> материала</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small btn-primary" id="mm-sendreq">✉ Запитване към доставчик (${sel.length})</button>`;
+    bar.querySelector("#mm-sendreq").addEventListener("click", () => {
+      const items = sel.map(c => {
+        const m = ERP.matById[Number(c.dataset.mid)] || {};
+        return { materialId: Number(c.dataset.mid), code: m.code || "", name: m.name || "", unit: m.unit || "", qty: Math.ceil((Number(c.dataset.qty) || 0) * 100) / 100 };
+      });
+      if (typeof erpMatReqCompose === "function") erpMatReqCompose(items);
+      else alert("Модул Заявки за материали не е зареден.");
+    });
+  };
+  v.querySelectorAll(".mm-sel").forEach(c => c.addEventListener("change", updBar));
 }
