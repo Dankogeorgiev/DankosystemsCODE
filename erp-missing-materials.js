@@ -97,6 +97,10 @@ async function erpRenderMissingMaterials() {
   erpSetMissingBadge(short.length);   // осветяваме таба според недостига
 
   const ordersCell = r => r.orders.map(orderText).map(t => `<span class="mm-order">${escapeHtml(t)}</span>`).join(" ") || "—";
+  // Бързо заприходяване направо от този екран — само за Данко.
+  const canIn = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com";
+  const inBtn = r => canIn ? `<td class="erp-row-actions"><button class="btn btn-small" data-mm-in="${r.mid}" title="Заприходи в Склад материали — входящо движение с доставна цена (обновява средната)">📥 Заприходи</button></td>` : "";
+  const inTh = canIn ? "<th></th>" : "";
   // Отметка за избор → „Запитване към доставчик" (кол. по подразбиране: липсващото/до минимума).
   const chk = (r, qty) => `<td class="pay-chk"><input type="checkbox" class="mm-sel" data-mid="${r.mid}" data-qty="${qty}" /></td>`;
   const shortRow = r => `
@@ -108,6 +112,7 @@ async function erpRenderMissingMaterials() {
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Ще липсва"><span class="erp-warn">${erpNum(r.missing)} ⚠</span></td>
       <td data-label="Заявки">${ordersCell(r)}</td>
+      ${inBtn(r)}
     </tr>`;
   const lowRow = r => `
     <tr>
@@ -118,6 +123,7 @@ async function erpRenderMissingMaterials() {
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Минимум">${erpNum(r.min)}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>
+      ${inBtn(r)}
     </tr>`;
 
   v.innerHTML = `
@@ -131,20 +137,25 @@ async function erpRenderMissingMaterials() {
       ${short.length ? `
         <h4 class="erp-group-head">⚠ Няма да стигнат</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th></tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th>${inTh}</tr></thead>
           <tbody>${short.map(shortRow).join("")}</tbody>
         </table>`
         : `<p class="report-empty">✅ За оставащото рязане по пуснатите заявки има достатъчно материал.</p>`}
       ${low.length ? `
         <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th></tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th>${inTh}</tr></thead>
           <tbody>${low.map(lowRow).join("")}</tbody>
         </table>` : ""}
       <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Избери материали с отметките, за да пуснеш запитване към доставчик.</span></div>
     `}`;
 
   const rb = document.getElementById("mm-refresh"); if (rb) rb.addEventListener("click", erpRenderMissingMaterials);
+  // 📥 Заприходи (само Данко) — отваря стандартния диалог „Движение" (входящ + цена).
+  v.querySelectorAll("[data-mm-in]").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    if (typeof erpMovementDialog === "function") erpMovementDialog(Number(b.dataset.mmIn));
+  }));
   // Избор с отметки → запитване към доставчик (влиза в регистъра „Заявки за материали").
   const bar = document.getElementById("mm-reqbar");
   const updBar = () => {
