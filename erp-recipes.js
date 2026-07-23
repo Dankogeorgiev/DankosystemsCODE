@@ -97,7 +97,11 @@ function erpRenderRecipe(productId) {
   v.querySelectorAll(".erp-node-draw-btn").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpNodeDrawings(Number(b.dataset.pid)); }));
   v.querySelectorAll(".erp-cost-edit").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpEditComponentCost(b.dataset.ct, Number(b.dataset.cid)); }));
+    b.addEventListener("click", e => {
+      e.stopPropagation();
+      if (b.dataset.ct === "opline") erpEditLineOpCost(Number(b.dataset.cid), Number(b.dataset.op));
+      else erpEditComponentCost(b.dataset.ct, Number(b.dataset.cid));
+    }));
   erpRenderProductDrawings(productId);
   // Разгъване/свиване на възлите.
   v.querySelectorAll(".erp-toggle").forEach(t =>
@@ -189,6 +193,44 @@ function erpEditComponentCost(type, id) {
   });
 }
 
+/* Цена на операция САМО за конкретния ред в рецептата (line_costs).
+   Общата ставка на операцията НЕ се пипа — една и съща операция (напр.
+   Заваряване) може да струва 0,10 € на един детайл и 2 € на друг. */
+function erpEditLineOpCost(lineId, opId) {
+  const o = ERP.opById[opId] || {};
+  const global = Number(o.unit_cost) || 0;
+  const cur = erpLineCostOf(lineId);
+  const { wrap, close } = erpDialog(`
+    <h3>Цена на операцията — само за този ред</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(o.code || "")}</b> ${escapeHtml(o.name || "")}</p>
+    <p>Обща ставка на операцията: <b>${erpEur(global)}</b> за 1 бр. <span class="erp-muted">(не се променя от тук)</span></p>
+    ${cur !== null ? `<p>Сега този ред ползва ръчна цена: <b>${erpEur(cur)}</b> за 1 бр.</p>` : ""}
+    <label>Цена за 1 бр. САМО в тази рецепта (EUR)
+      <input type="number" id="lc-val" min="0" step="any" value="${cur !== null ? escapeAttr(String(cur)) : ""}" placeholder="напр. 0,35" /></label>
+    <p class="hint">Важи само за този ред. Другите рецепти със същата операция си остават на общата ставка. Себестойността се преизчислява веднага.</p>
+    <div class="erp-dialog-actions">
+      ${cur !== null ? `<button class="btn" id="lc-clear">✖ Махни ръчната (върни ${erpEur(global)})</button>` : ""}
+      <span class="spacer"></span>
+      <button class="btn" id="lc-cancel">Отказ</button>
+      <button class="btn btn-primary" id="lc-save">Запази</button>
+    </div>
+    <p class="save-status" id="lc-status"></p>`);
+  const status = wrap.querySelector("#lc-status");
+  wrap.querySelector("#lc-cancel").addEventListener("click", close);
+  const done = () => { close(); erpMarkStale(); erpRenderRecipe(ERP._recipeTop || 0); };
+  wrap.querySelector("#lc-save").addEventListener("click", async () => {
+    const val = erpToNum(wrap.querySelector("#lc-val").value);
+    if (!(val >= 0) || wrap.querySelector("#lc-val").value.trim() === "") { status.textContent = "Въведи цена (може и 0)."; return; }
+    status.textContent = "Записва…";
+    if (await erpLineCostSave(lineId, val)) done();
+  });
+  const clearBtn = wrap.querySelector("#lc-clear");
+  if (clearBtn) clearBtn.addEventListener("click", async () => {
+    status.textContent = "Записва…";
+    if (await erpLineCostSave(lineId, null)) done();
+  });
+}
+
 // Маркира другите панели за опресняване (цените се сменят навсякъде).
 function erpMarkStale() {
   document.querySelectorAll("#erp-view .erp-pane").forEach(pn => {
@@ -233,13 +275,15 @@ function erpRecipeChildren(productId, depth, ancestors) {
     }
     if (l.operation_id) {
       const o = ERP.opById[l.operation_id] || {};
-      const cost = qty * (Number(o.unit_cost) || 0);
+      const lc = erpLineCostOf(l.id);                  // ръчна цена САМО за този ред
+      const per = lc !== null ? lc : (Number(o.unit_cost) || 0);
+      const cost = qty * per;
       return `<li class="erp-leaf">
         <span class="erp-tw"></span>
         <span class="erp-node erp-node-operation">
-          <span class="erp-node-main"><span class="erp-tag erp-tag-op">опер.</span> ${escapeHtml(o.code || "")} ${escapeHtml(o.name || "")}</span>
+          <span class="erp-node-main"><span class="erp-tag erp-tag-op">опер.</span> ${escapeHtml(o.code || "")} ${escapeHtml(o.name || "")}${lc !== null ? ` <span class="erp-tag erp-tag-manual" title="Ръчна цена само за този ред: ${erpEur(lc)} за 1 бр. (общата ставка е ${erpEur(o.unit_cost)})">✋ ${erpEur(lc)}/бр.</span>` : ""}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
-          <span class="erp-node-cost">${erpEur(cost)}</span><button class="erp-cost-edit" data-ct="op" data-cid="${l.operation_id}" title="Промени ставката на операцията (важи за всички рецепти с нея)">✎€</button>${rmBtn}
+          <span class="erp-node-cost">${erpEur(cost)}</span><button class="erp-cost-edit" data-ct="opline" data-cid="${l.id}" data-op="${l.operation_id}" title="Цена на тази операция САМО в тази рецепта (не пипа общата ставка)">✎€</button>${rmBtn}
         </span></li>`;
     }
     if (l.child_product_id) {

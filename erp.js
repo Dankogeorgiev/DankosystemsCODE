@@ -21,6 +21,7 @@ const ERP = {
   opRouting: {},       // работно копие в екрана „Операции → Цех"
   detailRouting: {},   // { "<код на детайл>¦<операция>": "<цех>" } — ръчно прехвърляне по детайл
   manualCost: {},      // product_id -> ръчно зададена себестойност (EUR), замества изчислената
+  lineCost: {},        // recipe_line_id -> ръчна цена за 1 бр. САМО за този ред (операции)
 };
 
 /* ---------- Помощници ---------- */
@@ -245,6 +246,13 @@ async function erpLoadAll() {
       const mc = await sb.from("app_config").select("data").eq("id", "manual_costs").maybeSingle();
       ERP.manualCost = (mc.data && mc.data.data) || {};
     } catch (e) { /* още няма ръчни цени — работим с изчислените */ }
+    // Ръчни цени ПО РЕД от рецептата (различна цена за една и съща операция
+    // в различни рецепти) — app_config "line_costs": { recipe_line_id: EUR }.
+    ERP.lineCost = {};
+    try {
+      const lc = await sb.from("app_config").select("data").eq("id", "line_costs").maybeSingle();
+      ERP.lineCost = (lc.data && lc.data.data) || {};
+    } catch (e) { /* няма редови цени */ }
     erpRecalcCosts();
 
     // Опаковки — зареждат се тук, за да са налични за придружаващите документи
@@ -273,6 +281,21 @@ function erpManualCostOf(pid) {
   return isNaN(n) ? null : n;
 }
 
+// Ръчната цена НА РЕД от рецептата (за 1 бр.) или null.
+function erpLineCostOf(lineId) {
+  const v = ERP.lineCost ? ERP.lineCost[lineId] : null;
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
+// Ефективната цена на операционен ред: редовата ръчна цена или общата ставка.
+function erpOpLinePrice(l) {
+  const lc = erpLineCostOf(l.id);
+  if (lc !== null) return lc;
+  return Number((ERP.opById[l.operation_id] || {}).unit_cost) || 0;
+}
+
 // Себестойност ИЗЧИСЛЕНА от рецептата на pid (без собствената му ръчна цена),
 // но зачитаща ръчните цени на вложените възли. За сравнение в диалога „✎ Цена".
 function erpComputedCost(pid, _depth, _stack) {
@@ -283,7 +306,7 @@ function erpComputedCost(pid, _depth, _stack) {
   (ERP.linesByProduct[pid] || []).forEach(l => {
     const q = Number(l.quantity) || 0;
     if (l.material_id) sum += q * (Number((ERP.matById[l.material_id] || {}).avg_cost) || 0);
-    else if (l.operation_id) sum += q * (Number((ERP.opById[l.operation_id] || {}).unit_cost) || 0);
+    else if (l.operation_id) sum += q * erpOpLinePrice(l);
     else if (l.child_product_id) {
       const man = erpManualCostOf(l.child_product_id);
       sum += q * (man !== null ? man : erpComputedCost(l.child_product_id, _depth + 1, _stack));
@@ -296,7 +319,9 @@ function erpComputedCost(pid, _depth, _stack) {
 // Преизчислява ERP.costById (и p.cost_eur) с отчитане на ръчните цени.
 // Без нито една ръчна цена не пипа нищо — важат стойностите от v_product_cost.
 function erpRecalcCosts(force) {
-  if (!force && (!ERP.manualCost || !Object.keys(ERP.manualCost).length)) return;
+  const hasManual = ERP.manualCost && Object.keys(ERP.manualCost).length;
+  const hasLine = ERP.lineCost && Object.keys(ERP.lineCost).length;
+  if (!force && !hasManual && !hasLine) return;
   const memo = {};
   const calc = (pid, depth, stack) => {
     const man = erpManualCostOf(pid);
@@ -308,7 +333,7 @@ function erpRecalcCosts(force) {
     (ERP.linesByProduct[pid] || []).forEach(l => {
       const q = Number(l.quantity) || 0;
       if (l.material_id) sum += q * (Number((ERP.matById[l.material_id] || {}).avg_cost) || 0);
-      else if (l.operation_id) sum += q * (Number((ERP.opById[l.operation_id] || {}).unit_cost) || 0);
+      else if (l.operation_id) sum += q * erpOpLinePrice(l);
       else if (l.child_product_id) sum += q * calc(l.child_product_id, depth + 1, stack);
     });
     stack.delete(pid);
@@ -320,6 +345,18 @@ function erpRecalcCosts(force) {
     ERP.costById[p.id] = c;
     p.cost_eur = c;
   });
+}
+
+// Записва/маха ръчна цена ЗА РЕД от рецептата (val=null → маха) и преизчислява.
+async function erpLineCostSave(lineId, val) {
+  ERP.lineCost = ERP.lineCost || {};
+  if (val === null) delete ERP.lineCost[lineId];
+  else ERP.lineCost[lineId] = Number(val);
+  const { error } = await sb.from("app_config").upsert(
+    { id: "line_costs", data: ERP.lineCost, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на цената: " + error.message); return false; }
+  erpRecalcCosts(true);
+  return true;
 }
 
 // Записва/маха ръчна цена (val=null → маха) и преизчислява всичко в кеша.
