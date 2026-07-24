@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=282" />
-  <link rel="stylesheet" href="erp.css?v=271" />
+  <link rel="stylesheet" href="erp.css?v=272" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 405</p>
+      <p class="login-version">версия 406</p>
     </form>
   </div>
 
@@ -572,6 +572,7 @@
       </div>
       <div class="tasks-controls erp-tabs">
         <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
+        <button class="btn btn-small erp-tab" data-tab="rfq" title="Регистър на клиентските запитвания за оферта: №, клиент, дата, описание, мейл от клиента и папки с файлове">📄 Регистър RFQ</button>
         <button class="btn btn-small erp-tab" data-tab="pricelists">💲 Ценови листи</button>
         <button class="btn btn-small erp-tab" data-tab="materials">🧱 Материали (склад)</button>
         <button class="btn btn-small erp-tab" data-tab="missmat" title="Проверка дали стигат материалите за заявките, пуснати в производство. Показва кои материали са отишли на минус (липсват) и кои заявки ги ползват — за да поръчаш навреме. Детайлите тръгват по цеховете дори при липса на материал (складът отива на минус).">⚠ Липсващи материали по заявки</button>
@@ -614,7 +615,7 @@
   <script src="nit.js?v=3"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=139"></script>
-  <script src="erp.js?v=270"></script>
+  <script src="erp.js?v=271"></script>
   <script src="erp-import.js?v=161"></script>
   <script src="erp-materials.js?v=241"></script>
   <script src="erp-products.js?v=240"></script>
@@ -623,6 +624,7 @@
   <script src="erp-requirements.js?v=154"></script>
   <script src="erp-missing-materials.js?v=7"></script>
   <script src="erp-mat-requests.js?v=5"></script>
+  <script src="erp-rfq.js?v=1"></script>
   <script src="erp-packaging.js?v=3"></script>
   <script src="erp-operations.js?v=240"></script>
   <script src="erp-orders.js?v=265"></script>

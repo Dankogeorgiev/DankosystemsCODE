@@ -419,6 +419,7 @@ function erpDispatchTab(tab) {
     case "missmat":      erpRenderMissingMaterials(); break;
     case "packaging":    erpRenderPackaging(); break;
     case "matreq":       erpRenderMatRequests(); break;
+    case "rfq":          erpRenderRfq(); break;
     case "detailstock":  erpRenderDetailStock(); break;
     case "products":     erpRenderProducts(); break;
     case "needs":        erpRenderNeeds(); break;
