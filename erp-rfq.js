@@ -178,12 +178,16 @@ async function erpRfqOpen(rec) {
     await rfqSave(); renderMail();
   });
 
-  // Папките.
+  // Папките. Свити по подразбиране — клик върху заглавието отваря/затваря.
   const foldersBox = wrap.querySelector("#rf-folders");
+  const openFolders = new Set();
   const renderFolders = () => {
-    foldersBox.innerHTML = (rec.folders || []).map((fo, fi) => `
+    foldersBox.innerHTML = (rec.folders || []).map((fo, fi) => {
+      const open = openFolders.has(fo.id);
+      return `
       <div class="erp-rfq-folder">
-        <div class="erp-toolbar" style="margin:0">
+        <div class="erp-toolbar erp-rfq-fhead" style="margin:0" data-ftog="${fo.id}" title="Клик = отвори/затвори папката">
+          <span class="erp-rfq-farrow">${open ? "▾" : "▸"}</span>
           <b>📁 ${escapeHtml(fo.name || "Папка")}</b>
           <span class="erp-muted">(${(fo.files || []).length} файла)</span>
           <span class="spacer"></span>
@@ -192,8 +196,16 @@ async function erpRfqOpen(rec) {
           <input type="file" id="rf-fol-file-${fi}" data-fadd="${fi}" multiple hidden />
           <button class="btn btn-small btn-danger" data-fdel="${fi}" title="Изтрий папката (с файловете)">×</button>
         </div>
-        <div data-frow="${fi}">${rfqFilesHtml(fo.files, "fdel-" + fi)}</div>
-      </div>`).join("") || `<p class="erp-muted">Няма папки — добави с „+ Нова папка".</p>`;
+        ${open ? `<div data-frow="${fi}">${rfqFilesHtml(fo.files, "fdel-" + fi)}</div>` : ""}
+      </div>`;
+    }).join("") || `<p class="erp-muted">Няма папки — добави с „+ Нова папка".</p>`;
+    // отваряне/затваряне (бутоните в заглавието не превключват)
+    foldersBox.querySelectorAll("[data-ftog]").forEach(h => h.addEventListener("click", e => {
+      if (e.target.closest("button") || e.target.closest("label") || e.target.closest("input")) return;
+      const id = Number(h.dataset.ftog);
+      if (openFolders.has(id)) openFolders.delete(id); else openFolders.add(id);
+      renderFolders();
+    }));
     // качване
     foldersBox.querySelectorAll("[data-fadd]").forEach(inp => inp.addEventListener("change", async e => {
       const fo = rec.folders[Number(inp.dataset.fadd)];
@@ -202,6 +214,7 @@ async function erpRfqOpen(rec) {
         if (f) (fo.files = fo.files || []).push(f);
       }
       e.target.value = "";
+      openFolders.add(fo.id);   // след качване папката се отваря, за да се видят файловете
       await rfqSave(); renderFolders();
     }));
     // махане на файл
@@ -237,6 +250,7 @@ async function erpRfqOpen(rec) {
     if (n === null || !n.trim()) return;
     let m = 0; (rec.folders || []).forEach(f => { if ((Number(f.id) || 0) > m) m = Number(f.id); });
     (rec.folders = rec.folders || []).push({ id: m + 1, name: n.trim(), files: [] });
+    openFolders.add(m + 1);   // новата папка се отваря веднага
     await rfqSave(); renderFolders();
   });
 }
