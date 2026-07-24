@@ -1185,3 +1185,26 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+/* ---------- Защита от случайно излизане от Системата ----------
+   1) Backspace ИЗВЪН поле за писане в някои браузъри/тъчпади прави "назад".
+   2) Страничният бутон на мишката / плъзгане наляво по тъчпада също.
+   Системата е една страница, затова "назад" я затваряше цялата (заедно с
+   отворените прозорци). Слагаме капан в историята: оставаме на място. */
+(function () {
+  const isTyping = el => {
+    if (!el) return false;
+    const t = (el.tagName || "").toLowerCase();
+    return t === "input" || t === "textarea" || t === "select" || el.isContentEditable;
+  };
+  document.addEventListener("keydown", e => {
+    if (e.key === "Backspace" && !isTyping(e.target)) e.preventDefault();
+  });
+  try {
+    history.pushState({ ds: 1 }, "", location.href);
+    window.addEventListener("popstate", () => {
+      // Връщаме се веднага на място — "назад" вече не затваря Системата.
+      history.pushState({ ds: 1 }, "", location.href);
+    });
+  } catch (e) { /* стар браузър без History API — оставяме както е */ }
+})();
