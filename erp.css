@@ -579,3 +579,6 @@ img.ai-doc-content { max-width: none; }
 .erp-rfq-folder { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; background: #fff; }
 .erp-rfq-fhead { cursor: pointer; user-select: none; }
 .erp-rfq-farrow { color: var(--muted); width: 14px; display: inline-block; }
+.erp-draw-list li { position: relative; }
+.rfq-fchk { position: absolute; top: 4px; left: 4px; z-index: 2; background: #fff; border-radius: 6px; padding: 2px 3px 0; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: pointer; }
+.rfq-fchk input { cursor: pointer; }

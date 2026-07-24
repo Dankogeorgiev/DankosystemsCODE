@@ -55,7 +55,7 @@ async function erpRenderRfq() {
           <td data-label="Клиент"><b>${escapeHtml(r.client || "—")}</b></td>
           <td data-label="Описание">${escapeHtml((r.desc || "").slice(0, 120))}${(r.desc || "").length > 120 ? "…" : ""}</td>
           <td class="num" data-label="Файлове">${rfqFileCount(r) || "—"}</td>
-          <td class="erp-row-actions"><button class="btn btn-small btn-danger" data-rfq-del="${r.id}">×</button></td>
+          <td class="erp-row-actions">${rfqIsBoss() ? `<button class="btn btn-small btn-danger" data-rfq-del="${r.id}" title="Изтрий RFQ (само админ)">×</button>` : ""}</td>
         </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Още няма RFQ записи. Създай първия с бутона горе.</td></tr>`}
       </tbody>
     </table>`;
@@ -99,18 +99,41 @@ async function rfqUpload(rec, sub, file) {
   const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
   return { name: file.name, type: file.type, path, url: data.publicUrl };
 }
+// Пълен контрол (триене, избор, сваляне) — само за Данко.
+function rfqIsBoss() {
+  return ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com";
+}
 function rfqFilesHtml(files, delAttr) {
+  const boss = rfqIsBoss();
   return `<ul class="files-list erp-draw-list">
     ${(files || []).map((f, i) => {
       const isImg = (f.type || "").startsWith("image/");
       const prev = isImg ? `<img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}" />` : `<span class="pdf-icon">📄</span>`;
       return `<li>
+        ${boss ? `<label class="rfq-fchk" title="Избери за сваляне"><input type="checkbox" class="rfq-fsel" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name)}" /></label>` : ""}
         <a href="${escapeAttr(f.url)}" target="_blank" download="${escapeAttr(f.name)}">${prev}</a>
         <div class="file-name">${escapeHtml(f.name)}</div>
-        <button type="button" class="remove-file" data-${delAttr}="${i}" title="Премахни">×</button>
+        ${boss ? `<button type="button" class="remove-file" data-${delAttr}="${i}" title="Премахни (само админ)">×</button>` : ""}
       </li>`;
     }).join("") || `<li class="erp-muted">Няма файлове.</li>`}
   </ul>`;
+}
+
+// Сваля избраните файлове (отметките) на компютъра, един по един.
+async function rfqDownloadSelected(wrap) {
+  const sel = [...wrap.querySelectorAll(".rfq-fsel:checked")];
+  if (!sel.length) { alert("Избери файлове с отметките върху чертежите."); return; }
+  for (const c of sel) {
+    try {
+      const resp = await fetch(c.dataset.url);
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = c.dataset.name || "file";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (e) { window.open(c.dataset.url, "_blank"); }   // резервно: отваря в нов таб
+  }
 }
 
 /* ---------- Детайлът на един RFQ (папки, описание, мейл) ---------- */
@@ -139,6 +162,8 @@ async function erpRfqOpen(rec) {
     </div>
     <div id="rf-folders"></div>
     <div class="erp-dialog-actions">
+      ${rfqIsBoss() ? '<button class="btn" id="rf-dlsel">⬇ Свали избраните (0)</button>' : ""}
+      <span class="spacer"></span>
       <button class="btn" id="rf-close">Затвори</button>
       <button class="btn btn-primary" id="rf-save">💾 Запази</button>
     </div>
@@ -156,6 +181,15 @@ async function erpRfqOpen(rec) {
   };
   wrap.querySelector("#rf-save").addEventListener("click", () => saveFields(false));
   wrap.querySelector("#rf-close").addEventListener("click", async () => { await saveFields(true); close(); if (ERP.tab === "rfq") erpRenderRfq(); });
+  // Сваляне на избраните с отметките (само админ). Броячът се обновява на живо.
+  const dlBtn = wrap.querySelector("#rf-dlsel");
+  if (dlBtn) {
+    dlBtn.addEventListener("click", () => rfqDownloadSelected(wrap));
+    wrap.addEventListener("change", e => {
+      if (e.target && e.target.classList && e.target.classList.contains("rfq-fsel"))
+        dlBtn.textContent = `⬇ Свали избраните (${wrap.querySelectorAll(".rfq-fsel:checked").length})`;
+    });
+  }
 
   // Мейлът от клиента (файлове до описанието).
   const mailBox = wrap.querySelector("#rf-mail-list");
@@ -194,7 +228,7 @@ async function erpRfqOpen(rec) {
           <button class="btn btn-small" data-fren="${fi}" title="Преименувай папката">✎</button>
           <label class="btn btn-small" for="rf-fol-file-${fi}">+ Прикачи файлове</label>
           <input type="file" id="rf-fol-file-${fi}" data-fadd="${fi}" multiple hidden />
-          <button class="btn btn-small btn-danger" data-fdel="${fi}" title="Изтрий папката (с файловете)">×</button>
+          ${rfqIsBoss() ? `<button class="btn btn-small btn-danger" data-fdel="${fi}" title="Изтрий папката (с файловете) — само админ">×</button>` : ""}
         </div>
         ${open ? `<div data-frow="${fi}">${rfqFilesHtml(fo.files, "fdel-" + fi)}</div>` : ""}
       </div>`;
