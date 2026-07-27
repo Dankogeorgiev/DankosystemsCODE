@@ -27,7 +27,7 @@ async function erpLoadInvoices() {
   erpInvoices = (data || []).map(r => ({ id: r.id, docNo: r.doc_no, posted: r.posted, ...(r.data || {}) }));
 }
 async function erpSaveInvoice(o) {
-  const data = { ...o }; delete data.id; delete data.posted; delete data.docNo;
+  const data = { ...o }; delete data.id; delete data.posted; delete data.docNo; delete data.__editUnlocked;
   const row = { doc_no: o.docNo || null, kind: o.kind || "invoice", posted: !!o.posted, data, updated_at: new Date().toISOString() };
   if (o.id) { const { error } = await sb.from("invoices").update(row).eq("id", o.id); if (error) throw error; }
   else { const { data: ins, error } = await sb.from("invoices").insert(row).select("id").single(); if (error) throw error; o.id = ins.id; }
@@ -389,7 +389,7 @@ async function erpInvForm(o) {
   // Еднократно прилагане на клиентския профил (напр. фактура от продажба без свой срок).
   if (o.__applyProfile && !o.posted) { erpInvApplyClientProfile(o, erpInvClientProfile(o.__applyProfile)); delete o.__applyProfile; }
   const clients = await erpLoadSaleClients();
-  const locked = !!o.posted;
+  const locked = !!o.posted && !o.__editUnlocked;
   const k = INV_KINDS[o.kind] || {};
   const isNote = o.kind === "credit" || o.kind === "debit";
   const cur = erpInvCur(o);
@@ -400,8 +400,10 @@ async function erpInvForm(o) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
       ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
-      ${locked ? '<span class="erp-count">✓ Издадена — само преглед</span>'
-        : '<button class="btn btn-small" id="inv-save">💾 Запази</button><button class="btn btn-small btn-primary" id="inv-issue">📤 Издай (вземи номер)</button>'}
+      ${locked ? '<span class="erp-count">✓ Издадена — само преглед</span><button class="btn btn-small" id="inv-unlock" title="Отключва издадената фактура за ръчна поправка (номерът се запазва)">✎ Ръчна редакция</button>'
+        : (o.posted
+          ? '<span class="erp-count erp-warn">⚠ Редакция на ИЗДАДЕНА — номерът се запазва</span><button class="btn btn-small btn-primary" id="inv-save">💾 Запази промените</button>'
+          : '<button class="btn btn-small" id="inv-save">💾 Запази</button><button class="btn btn-small btn-primary" id="inv-issue">📤 Издай (вземи номер)</button>')}
     </div>
     <div class="erp-co-form">
       <div class="erp-co-grid">
@@ -507,6 +509,7 @@ async function erpInvForm(o) {
   const ml = document.getElementById("inv-mail"); if (ml) ml.addEventListener("click", () => erpMailInvoice(o));
   const sv = document.getElementById("inv-save"); if (sv) sv.addEventListener("click", () => erpInvSaveClick(o));
   const iss = document.getElementById("inv-issue"); if (iss) iss.addEventListener("click", () => erpInvIssue(o));
+  const unl = document.getElementById("inv-unlock"); if (unl) unl.addEventListener("click", () => { if (!confirm("Отключвам издадената фактура за РЪЧНА редакция.\nНомерът и статусът се запазват; промените важат за печата и за вземането.\nПродължавам?")) return; o.__editUnlocked = true; erpInvForm(o); });
   const ap = document.getElementById("inv-add-prod"); if (ap) ap.addEventListener("click", () => erpInvAddProduct(o));
   const af = document.getElementById("inv-add-free"); if (af) af.addEventListener("click", () => { o.lines.push({ code: "", name: "", clientCode: "", unit: "бр.", qty: 1, unitPrice: "" }); erpInvLinesRefresh(o); });
   const dg = document.getElementById("inv-doc-goods"); if (dg) dg.addEventListener("click", () => erpInvPrintGoodsNote(o));
@@ -594,7 +597,13 @@ function erpInvAddProduct(o) {
 async function erpInvSaveClick(o) {
   const btn = document.getElementById("inv-save");
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
-  try { await erpSaveInvoice(o); await erpLoadInvoices(); if (btn) { btn.disabled = false; btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) btn.textContent = "💾 Запази"; }, 1400); } }
+  try {
+    await erpSaveInvoice(o);
+    // Редакция на издадена → опресняваме и вземането от тази фактура (ако не е платено).
+    if (o.posted && o.kind !== "proforma" && typeof erpRecvSyncFromInvoice === "function") { try { await erpRecvSyncFromInvoice(o); } catch (e) {} }
+    await erpLoadInvoices();
+    if (btn) { btn.disabled = false; btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) btn.textContent = "💾 Запази"; }, 1400); }
+  }
   catch (e) { if (btn) { btn.disabled = false; btn.textContent = "💾 Запази"; } alert("Грешка при запис: " + (e.message || e)); }
 }
 
@@ -671,60 +680,11 @@ function erpInvPrint(o) {
   const bgnLine = cur === "EUR" ? `<div class="tot-bgn">= ${fm(t.total * INV_EUR_BGN)} BGN</div>` : "";
   const c = o.client || {};
 
-  const html = `<!doctype html><html lang="${en ? "en" : "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(title)} ${escapeHtml(o.docNo || "")}</title>
-  <style>
-    *{box-sizing:border-box}
-    body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 26px;max-width:840px}
-    hr.thin{border:none;border-top:1.4px solid #000;margin:6px 0}
-    .lg img{height:56px;display:block}
-    .trow{display:flex;align-items:baseline;justify-content:space-between}
-    .trow h1{flex:1;text-align:center;font-size:17px;letter-spacing:1px;margin:2px 0}
-    .trow .orig{font-weight:700;font-size:13px}
-    .meta{display:flex;justify-content:space-between;margin:6px 0 10px}
-    .meta .ml{padding-left:120px}
-    .meta .mr{text-align:right;font-size:11.5px}
-    .meta .mr .lab{color:#333}
-    .parties{display:flex;gap:18px;margin-bottom:12px}
-    .party{flex:1;border:1.6px solid #000}
-    .party .ph{font-weight:700;padding:3px 8px;border-bottom:1.4px solid #000}
-    .party .pb{padding:8px 10px 6px 26px;min-height:128px;display:flex;flex-direction:column}
-    .party .pb .mol{margin-top:auto;padding-top:10px}
-    table.items{width:100%;border-collapse:collapse;margin-bottom:10px}
-    table.items th,table.items td{border:1.2px solid #000;padding:4px 6px;font-size:11.5px;text-align:left;vertical-align:top}
-    table.items th{background:#efefef;text-align:center}
-    td.r{text-align:right}td.c,th.c{text-align:center}.muted{color:#777}small{color:#555}
-    .totbox{border:1.6px solid #000;display:flex;gap:10px;padding:8px 10px;margin-bottom:10px}
-    .totbox .tl{flex:1;align-self:center}
-    .totbox .tr2{min-width:300px}
-    .totbox .trow2{display:flex;justify-content:space-between;gap:14px;padding:1px 0}
-    .totbox .trow2 .v{font-weight:700;min-width:110px;text-align:right}
-    .tot-bgn{text-align:right;font-size:11px}
-    .bankbox{border:1.6px solid #000;padding:8px 10px;margin-top:12px}
-    .bankrow{display:flex;justify-content:space-between}
-    .bankrow .bl b{display:inline-block;min-width:76px}
-    .signs{display:flex;justify-content:space-between;margin-top:16px}
-    .signs .sg{width:46%}
-    .isobox{text-align:center;margin-top:26px}
-    .isobox img{height:92px}
-    .made{ text-align:center;font-size:9.5px;color:#666;margin-top:6px}
-    @page{size:A4 portrait;margin:8mm}
-    @media print{
-      body{margin:0;max-width:none;font-size:11px}
-      .noprint{display:none}
-      .lg img{height:46px}
-      .party .pb{min-height:104px}
-      table.items th,table.items td{padding:3px 5px;font-size:10.5px}
-      .isobox{margin-top:14px}
-      .isobox img{height:72px}
-      .bankbox{margin-top:8px}
-      .signs{margin-top:10px}
-    }
-    .noprint{text-align:center;margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
-  </style></head><body>
-    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button></div>
+  // Една страница от документа (lbl = ОРИГИНАЛ / КОПИЕ)
+  const invPage = lbl => `
     <div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>
     <hr class="thin" />
-    <div class="trow"><span style="width:80px"></span><h1>${escapeHtml(title)}</h1><span class="orig">${L.orig}</span></div>
+    <div class="trow"><span style="width:80px"></span><h1>${escapeHtml(title)}</h1><span class="orig">${lbl}</span></div>
     <hr class="thin" />
     <div class="meta">
       <div class="ml">${L.no}: <b>${escapeHtml(o.docNo || "____")}</b><br>${L.date}: <b>${fmtD(o.issueDate)}</b></div>
@@ -799,7 +759,62 @@ function erpInvPrint(o) {
       </div>
     </div>
     <div class="isobox"><img src="${base}iso-cert.png" alt="ISO 9001:2015" /></div>
-    <div class="made">Данко Системс · СИСТЕМАТА</div>
+    <div class="made">Данко Системс · СИСТЕМАТА</div>`;
+  const html = `<!doctype html><html lang="${en ? "en" : "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(title)} ${escapeHtml(o.docNo || "")}</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 26px;max-width:840px}
+    hr.thin{border:none;border-top:1.4px solid #000;margin:6px 0}
+    .lg img{height:56px;display:block}
+    .trow{display:flex;align-items:baseline;justify-content:space-between}
+    .trow h1{flex:1;text-align:center;font-size:17px;letter-spacing:1px;margin:2px 0}
+    .trow .orig{font-weight:700;font-size:13px}
+    .meta{display:flex;justify-content:space-between;margin:6px 0 10px}
+    .meta .ml{padding-left:120px}
+    .meta .mr{text-align:right;font-size:11.5px}
+    .meta .mr .lab{color:#333}
+    .parties{display:flex;gap:18px;margin-bottom:12px}
+    .party{flex:1;border:1.6px solid #000}
+    .party .ph{font-weight:700;padding:3px 8px;border-bottom:1.4px solid #000}
+    .party .pb{padding:8px 10px 6px 26px;min-height:128px;display:flex;flex-direction:column}
+    .party .pb .mol{margin-top:auto;padding-top:10px}
+    table.items{width:100%;border-collapse:collapse;margin-bottom:10px}
+    table.items th,table.items td{border:1.2px solid #000;padding:4px 6px;font-size:11.5px;text-align:left;vertical-align:top}
+    table.items th{background:#efefef;text-align:center}
+    td.r{text-align:right}td.c,th.c{text-align:center}.muted{color:#777}small{color:#555}
+    .totbox{border:1.6px solid #000;display:flex;gap:10px;padding:8px 10px;margin-bottom:10px}
+    .totbox .tl{flex:1;align-self:center}
+    .totbox .tr2{min-width:300px}
+    .totbox .trow2{display:flex;justify-content:space-between;gap:14px;padding:1px 0}
+    .totbox .trow2 .v{font-weight:700;min-width:110px;text-align:right}
+    .tot-bgn{text-align:right;font-size:11px}
+    .bankbox{border:1.6px solid #000;padding:8px 10px;margin-top:12px}
+    .bankrow{display:flex;justify-content:space-between}
+    .bankrow .bl b{display:inline-block;min-width:76px}
+    .signs{display:flex;justify-content:space-between;margin-top:16px}
+    .signs .sg{width:46%}
+    .isobox{text-align:center;margin-top:26px}
+    .isobox img{height:92px}
+    .made{ text-align:center;font-size:9.5px;color:#666;margin-top:6px}
+    @page{size:A4 portrait;margin:8mm}
+    @media print{
+      body{margin:0;max-width:none;font-size:11px}
+      .noprint{display:none}
+      .lg img{height:46px}
+      .party .pb{min-height:104px}
+      table.items th,table.items td{padding:3px 5px;font-size:10.5px}
+      .isobox{margin-top:14px}
+      .isobox img{height:72px}
+      .bankbox{margin-top:8px}
+      .signs{margin-top:10px}
+    }
+    .inv-page{break-after:page;page-break-after:always}
+    @media screen{.inv-page{border-bottom:2px dashed #cbd5e1;margin-bottom:26px;padding-bottom:26px}}
+    .noprint{text-align:center;margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
+  </style></head><body>
+    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button></div>
+    <div class="inv-page">${invPage(L.orig)}</div>
+    <div>${invPage(en ? "COPY" : "КОПИЕ")}</div>
   </body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
