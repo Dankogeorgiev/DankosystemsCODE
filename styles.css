@@ -1347,3 +1347,6 @@ tr.times-click:hover td { background: #ecfdf5; }
 
 /* Производствен отчет: открояване на нашия код */
 .pr-table .pr-code b { color: #0f766e; font-size: 13px; }
+
+/* Пулс се отваря и ВЪРХУ Склад/ЕРП (бутонът е вътре) — трябва да е отгоре */
+#pulse-modal { z-index: 900; }
