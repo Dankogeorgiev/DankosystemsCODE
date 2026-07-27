@@ -114,6 +114,28 @@ function erpPuDueDate(o) {
 // „За плащане" = отложено, срок>0, още неплатена.
 function erpPuIsPayable(o) { return !o.paid && erpPuPayStatus(o) === "deferred" && Number(o.termDays) > 0; }
 function erpPuStatus(o) { return o.paid ? "платена" : (erpPuIsPayable(o) ? "за плащане" : "платена"); }
+/* Тотал на покупките за избрания месец (без ДДС / ДДС / с ДДС), в EUR.
+   BGN фактурите се превръщат по фиксинга 1.95583. */
+let erpPuMonth = "";
+function erpPuMonthCards() {
+  const host = document.getElementById("pu-month-cards"); if (!host) return;
+  const m = erpPuMonth || new Date().toISOString().slice(0, 7);
+  const RATE = 1.95583;
+  let net = 0, vat = 0, n = 0;
+  (erpPurchases || []).forEach(o => {
+    if (String(o.date || "").slice(0, 7) !== m) return;
+    const t = erpPuTotals(o);
+    const k = (o.currency === "BGN") ? 1 / RATE : 1;
+    net += t.base * k; vat += t.vat * k; n++;
+  });
+  const money = v => (Math.round(v * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const lbl = m.split("-")[1] + "." + m.split("-")[0];
+  host.innerHTML = `
+    <div class="pay-card"><div class="pay-card-l">🧾 Покупки БЕЗ ДДС · ${lbl}</div><div class="pay-card-v">${money(net)} EUR</div><div class="pay-card-n">${n} фактури</div></div>
+    <div class="pay-card"><div class="pay-card-l">➕ ДДС · ${lbl}</div><div class="pay-card-v">${money(vat)} EUR</div><div class="pay-card-n">&nbsp;</div></div>
+    <div class="pay-card pay-card-total"><div class="pay-card-l">Σ Покупки С ДДС · ${lbl}</div><div class="pay-card-v">${money(net + vat)} EUR</div><div class="pay-card-n">&nbsp;</div></div>`;
+}
+
 function erpPuTotals(o) {
   const base = (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
   const rate = Number(o.vatRate != null ? o.vatRate : 20);
@@ -146,6 +168,10 @@ async function erpRenderPurchases() {
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <label class="erp-inline">📅 Месец <input type="month" id="pu-month" value="${erpPuMonth || new Date().toISOString().slice(0, 7)}" /></label>
+    </div>
+    <div class="pay-cards" id="pu-month-cards"></div>
     <p class="hint">Тук се въвеждат входящите фактури (класификация, склад). Плащането им се води в таб <b>💳 Задължения</b> (банковите с отложен срок отиват там автоматично).</p>
     <table class="report-table erp-table">
       <thead><tr><th>Дата</th><th>№ Фактура</th><th>Доставчик</th><th>Класификация</th><th class="num">Сума (с ДДС)</th><th>Плащане</th><th>Статус</th><th></th></tr></thead>
@@ -153,6 +179,9 @@ async function erpRenderPurchases() {
     </table>`;
   const qEl = document.getElementById("pu-q");
   if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpPuFillRows(); });
+  const mEl = document.getElementById("pu-month");
+  if (mEl) mEl.addEventListener("change", e => { erpPuMonth = e.target.value; erpPuMonthCards(); });
+  erpPuMonthCards();
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
