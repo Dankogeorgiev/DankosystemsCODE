@@ -485,19 +485,25 @@ function nitRenderOps(v) {
       <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">${NIT_NO_LD.has(me.name) ? "НОВИ бройки (добавят се)" : "НОВИ бройки · Л = ляв, Д = десен"}</span></div></div>
       ${me.ops.map(o => {
         const cur = rec.ops ? rec.ops[o.n] : null;
+        // Складовите кодове на операцията — винаги видими до името (Л и Д
+        // хранят различни кодове; операция без връзка го казва изрично).
+        const map = NIT_STOCK_MAP[o.n];
+        const codesHtml = map
+          ? `<div class="nit-opcodes">код: Л <b>${escapeHtml(map.l || "—")}</b> · Д <b>${escapeHtml(map.d || "—")}</b></div>`
+          : `<div class="nit-opcodes nit-opcodes-none">без складов код</div>`;
         if (NIT_NO_LD.has(me.name)) {
           const t = nitOpTotal(cur);
           return `<div class="rog-row">
-            <div class="rog-op">${escapeHtml(o.n)}${t ? `<div class="nit-today">днес: <b>${t}</b></div>` : ""}</div>
+            <div class="rog-op">${escapeHtml(o.n)}${codesHtml}${t ? `<div class="nit-today">днес: <b>${t}</b></div>` : ""}</div>
             <div class="rog-inputs"><input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" step="any" inputmode="decimal" value="" placeholder="добави брой" /></div>
           </div>`;
         }
         const ld = nitOpLD(cur);
         return `<div class="rog-row">
-          <div class="rog-op">${escapeHtml(o.n)}${(ld.l || ld.d) ? `<div class="nit-today">днес: Л <b>${ld.l}</b> · Д <b>${ld.d}</b></div>` : ""}</div>
+          <div class="rog-op">${escapeHtml(o.n)}${codesHtml}${(ld.l || ld.d) ? `<div class="nit-today">днес: Л <b>${ld.l}</b> · Д <b>${ld.d}</b></div>` : ""}</div>
           <div class="rog-inputs rog-ld">
-            <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" step="any" inputmode="decimal" value="" placeholder="ляв" /></label>
-            <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" step="any" inputmode="decimal" value="" placeholder="десен" /></label>
+            <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" step="any" inputmode="decimal" value="" placeholder="${map && map.l ? "ляв → " + escapeAttr(map.l) : "ляв"}" /></label>
+            <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" step="any" inputmode="decimal" value="" placeholder="${map && map.d ? "десен → " + escapeAttr(map.d) : "десен"}" /></label>
           </div>
         </div>`;
       }).join("")}
