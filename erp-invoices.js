@@ -214,6 +214,9 @@ async function erpRenderInvoices() {
         <select id="inv-fstatus"><option value="">Всички</option>${["чернова", "издадена", "платена", "сторнирана"].map(s => `<option ${s === erpInvStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <span class="spacer"></span>
       ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
+      <label class="btn btn-small co-attach-btn" title="Импорт на издадени фактури от GenCloud (xlsx) — регистър. При съвпадащ № импортът ПРЕЗАПИСВА записа (тестовете се заместват).">⤓ Импорт (GenCloud)<input type="file" id="inv-import" accept=".xlsx,.xls" hidden /></label>
+      ${(erpInvoices || []).some(o => o.imported) ? '<button class="btn btn-small btn-danger" id="inv-clear-import" title="Изтрий импортираните фактури (ръчните остават)">🗑 Изтегли импорта</button>' : ""}
+      ${(erpInvoices || []).length ? '<button class="btn btn-small btn-danger" id="inv-clear-all" title="Изтрий ВСИЧКИ документи от Фактуриране">🗑 Изчисти всичко</button>' : ""}
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
       <button class="btn btn-small btn-primary" id="inv-new-invoice">+ Фактура</button>
@@ -243,6 +246,12 @@ async function erpRenderInvoices() {
   document.getElementById("inv-fstatus").addEventListener("change", e => { erpInvStatusFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-series").addEventListener("click", erpInvSeriesDialog);
   const mt = document.getElementById("inv-mail-test"); if (mt) mt.addEventListener("click", erpMailDiag);
+  const imEl = document.getElementById("inv-import");
+  if (imEl) imEl.addEventListener("change", e => { erpInvImport(e.target.files[0]); e.target.value = ""; });
+  const ciEl = document.getElementById("inv-clear-import");
+  if (ciEl) ciEl.addEventListener("click", erpInvClearImport);
+  const caEl = document.getElementById("inv-clear-all");
+  if (caEl) caEl.addEventListener("click", erpInvClearAll);
   document.getElementById("inv-new-proforma").addEventListener("click", () => erpNewInvoice("proforma"));
   document.getElementById("inv-new-invoice").addEventListener("click", () => erpNewInvoice("invoice"));
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenInvoice(Number(b.dataset.open)); }));
@@ -843,4 +852,118 @@ function erpInvPrintCMR(o) {
       <tr>${cell("24 Получена стока / Goods received — подпис, дата", "")}<td></td></tr>
     </table>`;
   invPrintWindow("ЧМР / CMR", body, "bg");
+}
+
+/* ---------- Импорт на издадени фактури от GenCloud (xlsx) ----------
+   Регистър на вече издадените документи. Групира редовете по № + клиент +
+   дата. ИМПОРТЪТ Е МЕРОДАВЕН: при съвпадащ № (нормализиран) записът се
+   ПРЕЗАПИСВА (тестовите фактури се заместват). Импортираните са със статус
+   „издадена", НЕ създават вземания (вземанията идват от техния си импорт)
+   и не пипат склада. */
+async function erpInvImport(file) {
+  if (!file) return;
+  if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (!raw.length) { alert("Файлът е празен."); return; }
+    const pick = (row, ...names) => { for (const n of names) { for (const k of Object.keys(row)) { if (String(k).trim().toLowerCase() === n.toLowerCase()) return row[k]; } } return ""; };
+    const num = v => { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+    const pDate = s => {
+      s = String(s || "").trim(); if (!s) return "";
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+      m = s.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/); if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+      return "";
+    };
+    await erpLoadInvoices();
+
+    const groups = new Map();
+    raw.forEach(r => {
+      const docNo = String(pick(r, "№:", "№", "Док.№", "Док.No", "No", "Номер") || "").trim();
+      const client = String(pick(r, "Партньор", "Клиент", "Контрагент") || "").trim();
+      const date = pDate(pick(r, "Дата", "Док.дата", "Дата на док."));
+      if (!docNo && !client) return;
+      const key = docNo + "|" + client + "|" + date;
+      if (!groups.has(key)) groups.set(key, {
+        docNo, client, date,
+        docType: String(pick(r, "Док.тип", "Тип документ", "Тип") || "").trim(),
+        currency: String(pick(r, "Пр.цена (мярка)", "Кр.цена (мярка)", "Валута") || "").trim().toUpperCase() || "EUR",
+        net: 0, vat: 0, lines: [],
+      });
+      const g = groups.get(key);
+      const qty = num(pick(r, "Кол.", "Количество")) || 1;
+      const rowNet = Math.abs(num(pick(r, "Пр.цена", "Кр.цена", "Стойност", "Сума без ДДС", "Сума")));
+      const rowVat = Math.abs(num(pick(r, "ДДС сума", "ДДС")));
+      g.net += rowNet; g.vat += rowVat;
+      g.lines.push({
+        code: String(pick(r, "Код") || "").trim(),
+        name: String(pick(r, "Артикул", "Описание") || "").trim() || "услуга/стока",
+        qty, unit: "бр.", unitPrice: qty ? Math.round((rowNet / qty) * 100) / 100 : rowNet,
+      });
+    });
+    if (!groups.size) { alert("Не намерих редове с № фактура/клиент в файла."); return; }
+
+    const norm = s => String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase();
+    const byNo = new Map();
+    (erpInvoices || []).forEach(o => { const k = norm(o.docNo); if (k && !byNo.has(k)) byNo.set(k, o); });
+    let added = 0, replaced = 0;
+    for (const g of groups.values()) {
+      const rate = g.net > 0 ? g.vat / g.net * 100 : 20;
+      const vatRate = [20, 9, 0].reduce((b, r) => Math.abs(r - rate) < Math.abs(b - rate) ? r : b, 20);
+      const kind = /кредит/i.test(g.docType) ? "credit" : /дебит/i.test(g.docType) ? "debit" : /проформа/i.test(g.docType) ? "proforma" : "invoice";
+      const fields = {
+        docNo: g.docNo, kind, issueDate: g.date, taxDate: g.date,
+        client: { name: g.client, eik: "", vat: "", city: "", street: "", country: "България", person: "" }, clientId: null,
+        currency: g.currency === "BGN" ? "BGN" : "EUR", vatRate, vatBasis: "",
+        paymentMethod: "по банка", termDays: 0, dueDate: "", refInvoice: null, refReason: "",
+        lines: g.lines, status: "издадена", posted: true, imported: true,
+        note: "Импорт от GenCloud", compiledBy: (typeof ERP_SELLER !== "undefined" && ERP_SELLER.mol) || "",
+      };
+      const k = norm(g.docNo);
+      const ex = k ? byNo.get(k) : null;
+      if (ex) {
+        const rec = { id: ex.id, ...fields };
+        try { await erpSaveInvoice(rec); replaced++; } catch (e) {}
+      } else {
+        const rec = { ...fields };
+        try { await erpSaveInvoice(rec); if (k) byNo.set(k, rec); added++; } catch (e) {}
+      }
+    }
+    await erpLoadInvoices();
+    erpRenderInvoices();
+    alert(`Импорт готов: ${added} добавени, ${replaced} презаписани (импортът е меродавен).` +
+      `\n\nВажно: импортираните НЕ създават вземания (те идват от импорта във Вземания) и не пипат склада.` +
+      `\nПровери ⚙ Серии/номера — броячът да продължава СЛЕД последния импортиран номер.`);
+  } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}
+
+// Изтегля (изтрива) импортираните фактури — ръчно създадените остават.
+async function erpInvClearImport() {
+  await erpLoadInvoices();
+  const imp = (erpInvoices || []).filter(o => o.imported);
+  if (!imp.length) { alert("Няма импортирани фактури."); return; }
+  if (!confirm(`Да изтрия ли ${imp.length} импортирани фактури?\nСъздадените в Системата остават.`)) return;
+  let del = 0;
+  for (const o of imp) { try { const { error } = await sb.from("invoices").delete().eq("id", o.id); if (!error) del++; } catch (e) {} }
+  await erpLoadInvoices();
+  erpRenderInvoices();
+  alert(`Изтрити ${del} импортирани фактури.`);
+}
+
+// Пълно изчистване на Фактуриране — трие ВСИЧКИ документи.
+async function erpInvClearAll() {
+  await erpLoadInvoices();
+  const n = (erpInvoices || []).length;
+  if (!n) { alert("Няма документи за изтриване."); return; }
+  if (!confirm(`Да изтрия ли ВСИЧКИ ${n} документа от Фактуриране (фактури, проформи, кредитни)?` +
+    `\n\nВнимание: вземанията, създадени от тези фактури, остават в таб Вземания — ако трябва, изчисти ги и там.` +
+    `\n\nТова не може да се върне.`)) return;
+  if (!confirm("Последно потвърждение: изтривам ВСИЧКО от Фактуриране?")) return;
+  const { error } = await sb.from("invoices").delete().gte("id", 0);
+  if (error) { alert("Грешка при изтриване: " + error.message); return; }
+  await erpLoadInvoices();
+  erpRenderInvoices();
+  alert("Готово. Фактурирането е изчистено.");
 }
