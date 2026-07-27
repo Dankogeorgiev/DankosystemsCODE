@@ -130,6 +130,8 @@ async function erpRenderSales() {
       <span class="erp-count" id="sa-count"></span>
       <input type="search" id="sa-q" placeholder="🔎 № / клиент / код / продукт…" value="${escapeAttr(erpSaQuery || "")}" style="min-width:220px" autocomplete="off" />
       <span class="spacer"></span>
+      <label class="btn btn-small co-attach-btn" title="Импорт на продажби от GenCloud (xlsx) — регистър/архив. При съвпадащ № фактура импортът ПРЕЗАПИСВА записа в Системата (тестовете се заместват).">⤓ Импорт (GenCloud)<input type="file" id="sa-import" accept=".xlsx,.xls" hidden /></label>
+      ${(erpSales || []).some(o => o.imported) ? '<button class="btn btn-small btn-danger" id="sa-clear-import" title="Изтрий импортираните продажби (ръчните/тестовете остават)">🗑 Изтегли импорта</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-sa-new">+ Нова продажба</button>
     </div>
     <table class="report-table erp-table">
@@ -139,6 +141,10 @@ async function erpRenderSales() {
   document.getElementById("erp-sa-new").addEventListener("click", erpNewSale);
   const qEl = document.getElementById("sa-q");
   if (qEl) qEl.addEventListener("input", e => { erpSaQuery = e.target.value; erpSaFillRows(); });
+  const imEl = document.getElementById("sa-import");
+  if (imEl) imEl.addEventListener("change", e => { erpSaImport(e.target.files[0]); e.target.value = ""; });
+  const ciEl = document.getElementById("sa-clear-import");
+  if (ciEl) ciEl.addEventListener("click", erpSaClearImport);
   erpSaFillRows();
 }
 // Търсенето филтрира В ПАМЕТТА (само тялото на таблицата) — без нова заявка към базата.
@@ -158,7 +164,7 @@ function erpSaFillRows() {
       <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
       <td class="num" data-label="Редове">${(o.lines || []).length}</td>
       <td class="num" data-label="Сума">${erpSaleMoney(t.total, erpSaleCur(o))}</td>
-      <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">осчетоводена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">чернова</span>'}</td>
+      <td data-label="Статус">${o.imported ? '<span class="erp-co-status" style="background:#f1f5f9;color:#475569" title="Импорт от GenCloud — само регистър, не пипа склада">импорт</span>' : o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">осчетоводена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">чернова</span>'}</td>
       <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
     </tr>`; }).join("") ||
     `<tr><td colspan="7" class="report-empty">${q ? "Няма продажби за това търсене." : "Още няма продажби. Натисни бутона + Нова продажба."}</td></tr>`;
@@ -307,6 +313,107 @@ async function erpRenderSaleForm(o) {
 // Отменя осчетоводяване: връща движенията (материали + детайли) в склада по ref,
 // сваля „осчетоводена", за да може продажбата да се направи пак (напр. с правилен
 // „Вид" на редовете — готов детайл вместо суровини).
+/* ---------- Импорт на продажби от GenCloud (xlsx) ----------
+   Регистър/архив: редовете се групират по № фактура + клиент + дата.
+   ИМПОРТЪТ Е МЕРОДАВЕН: при съвпадащ № (нормализиран) записът в Системата се
+   ПРЕЗАПИСВА с данните от файла (тестовете се заместват). Осчетоводена тестова
+   продажба първо връща движенията си, за да не остане боклук в склада.
+   Импортираните продажби НЕ пипат склада и не могат да се осчетоводяват. */
+async function erpSaImport(file) {
+  if (!file) return;
+  if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (!raw.length) { alert("Файлът е празен."); return; }
+    const pick = (row, ...names) => { for (const n of names) { for (const k of Object.keys(row)) { if (String(k).trim().toLowerCase() === n.toLowerCase()) return row[k]; } } return ""; };
+    const num = v => { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+    const pDate = s => {
+      s = String(s || "").trim(); if (!s) return "";
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+      m = s.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/); if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+      return "";
+    };
+    await erpLoadSales();
+
+    // Групиране по фактура (№ + клиент + дата).
+    const groups = new Map();
+    raw.forEach(r => {
+      const invoiceNo = String(pick(r, "№:", "№", "Док.№", "Док.No", "No", "Номер") || "").trim();
+      const client = String(pick(r, "Партньор", "Клиент", "Контрагент") || "").trim();
+      const date = pDate(pick(r, "Дата", "Док.дата", "Дата на док."));
+      if (!invoiceNo && !client) return;
+      const key = invoiceNo + "|" + client + "|" + date;
+      if (!groups.has(key)) groups.set(key, {
+        invoiceNo, client, date,
+        currency: String(pick(r, "Пр.цена (мярка)", "Кр.цена (мярка)", "Валута") || "").trim().toUpperCase() || "EUR",
+        net: 0, vat: 0, lines: [],
+      });
+      const g = groups.get(key);
+      const qty = num(pick(r, "Кол.", "Количество")) || 1;
+      const rowNet = Math.abs(num(pick(r, "Пр.цена", "Кр.цена", "Стойност", "Сума без ДДС", "Сума")));
+      const rowVat = Math.abs(num(pick(r, "ДДС сума", "ДДС")));
+      g.net += rowNet; g.vat += rowVat;
+      g.lines.push({
+        code: String(pick(r, "Код") || "").trim(), name: String(pick(r, "Артикул", "Описание") || "").trim() || "продажба",
+        qty, unit: "бр.", unitPrice: qty ? Math.round((rowNet / qty) * 100) / 100 : rowNet,
+        itemKind: "import",
+      });
+    });
+    if (!groups.size) { alert("Не намерих редове с фактура/клиент в файла."); return; }
+
+    const norm = s => String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase();
+    const byNo = new Map();
+    (erpSales || []).forEach(o => {
+      [o.invoiceNo, o.saleNo].forEach(x => { const k = norm(x); if (k && !byNo.has(k)) byNo.set(k, o); });
+    });
+    let added = 0, replaced = 0;
+    for (const g of groups.values()) {
+      const rate = g.net > 0 ? g.vat / g.net * 100 : 20;
+      const vatRate = [20, 9, 0].reduce((b, r) => Math.abs(r - rate) < Math.abs(b - rate) ? r : b, 20);
+      const fields = {
+        saleNo: g.invoiceNo, invoiceNo: g.invoiceNo, date: g.date,
+        clientName: g.client, clientId: null,
+        currency: g.currency === "BGN" ? "BGN" : "EUR", vatRate,
+        lines: g.lines, imported: true, posted: false,
+        note: "Импорт от GenCloud",
+      };
+      const k = norm(g.invoiceNo);
+      const ex = k ? byNo.get(k) : null;
+      if (ex) {
+        // Тестова осчетоводена продажба → първо връщаме движенията ѝ от склада.
+        if (ex.posted) {
+          const ref = `Продажба ${ex.saleNo || "—"} · ${ex.clientName || ""}`.trim();
+          try { await sb.from("stock_movements").delete().eq("ref", ref); } catch (e) {}
+          try { await sb.from("product_movements").delete().eq("ref", ref); } catch (e) {}
+        }
+        const rec = { id: ex.id, ...fields };
+        try { await erpSaveSale(rec); replaced++; } catch (e) {}
+      } else {
+        const rec = { ...fields };
+        try { await erpSaveSale(rec); if (k) byNo.set(k, rec); added++; } catch (e) {}
+      }
+    }
+    await erpLoadSales();
+    erpRenderSales();
+    alert(`Импорт готов: ${added} добавени, ${replaced} презаписани (импортът е меродавен — старите/тестовите са заместени).\nИмпортираните продажби са само регистър — НЕ пипат склада.`);
+  } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}
+// Изтегля (изтрива) импортираните продажби — ръчните остават.
+async function erpSaClearImport() {
+  await erpLoadSales();
+  const imp = (erpSales || []).filter(o => o.imported);
+  if (!imp.length) { alert("Няма импортирани продажби."); return; }
+  if (!confirm(`Да изтрия ли ${imp.length} импортирани продажби?\nРъчно въведените остават.`)) return;
+  let del = 0;
+  for (const o of imp) { try { const { error } = await sb.from("sales").delete().eq("id", o.id); if (!error) del++; } catch (e) {} }
+  await erpLoadSales();
+  erpRenderSales();
+  alert(`Изтрити ${del} импортирани продажби.`);
+}
+
 async function erpUnpostSale(o) {
   if (!o.posted) { alert("Продажбата не е осчетоводена."); return; }
   if (!confirm(`Да отменя ли осчетоводяването на продажба №${o.saleNo || ""}?\n\nВсички движения от тази продажба ще се върнат (изписаните материали/детайли се възстановяват в склада), за да можеш да я осчетоводиш пак — напр. с Вид = готов детайл.`)) return;
@@ -430,6 +537,7 @@ async function erpSaSaveClick(o) {
 
 /* ---------- Осчетоводяване (изписване от склада) ---------- */
 async function erpPostSale(o) {
+  if (o.imported) { alert("Това е ИМПОРТИРАНА продажба (регистър от GenCloud) — не се осчетоводява и не пипа склада.\nСкладът за нея е бил обслужен в стария процес."); return; }
   if (o.posted) { alert("Вече е осчетоводена."); return; }
   if (!(o.lines || []).length) { alert("Добави поне един ред."); return; }
   try { await erpSaveSale(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
