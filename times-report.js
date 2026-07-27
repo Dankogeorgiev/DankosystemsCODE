@@ -159,6 +159,66 @@ function timesSetPeriod(kind) {
   if (kind === "week") { const day = (now.getDay() + 6) % 7; const f = new Date(now); f.setDate(f.getDate() - day); timesRpt.from = iso(f); timesRpt.to = iso(now); return; }
 }
 
+/* ---------- Сглобени комплекти / опаковки ----------
+   Движенията с ref „нит-сглоб:" (авто-сглобяване от Занитване) и „сглоб:"
+   (опаковка — ръчно от Склад детайли или автоматично при продажба) се събират
+   тук като партиди: какво е сглобено (+) и какви части е вложило (−). */
+let TIMES_ASM = [];
+async function loadAsmLog() {
+  const out = [];
+  try {
+    let rows = [];
+    for (const pat of ["нит-сглоб:%", "сглоб:%"]) {
+      const { data } = await sb.from("product_movements")
+        .select("product_id,kind,quantity,ref,note,created_at")
+        .like("ref", pat).order("created_at", { ascending: false }).limit(3000);
+      rows = rows.concat(data || []);
+    }
+    const pids = [...new Set(rows.map(r => r.product_id))];
+    const names = {};
+    if (pids.length) {
+      const { data: ps } = await sb.from("products").select("id,code,name").in("id", pids);
+      (ps || []).forEach(p => { names[p.id] = { code: p.code || "", name: p.name || "" }; });
+    }
+    // Партида = ref + момент на запис (един ref „сглоб:ръчно" се ползва многократно).
+    const map = {};
+    rows.forEach(r => {
+      const key = (r.ref || "") + "¦" + String(r.created_at || "").slice(0, 19);
+      const g = map[key] || (map[key] = { at: r.created_at || "", ref: r.ref || "", made: [], used: [] });
+      const nm = names[r.product_id] || { code: "#" + r.product_id, name: "" };
+      const q = Number(r.quantity) || 0;
+      if (q > 0) g.made.push({ code: nm.code, name: nm.name, qty: q });
+      else if (q < 0) g.used.push({ code: nm.code, name: nm.name, qty: -q });
+    });
+    out.push(...Object.values(map));
+    out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  } catch (e) { /* без секцията, ако четенето пропадне */ }
+  TIMES_ASM = out;
+}
+function asmSourceLabel(ref) {
+  const r = String(ref || "");
+  if (r.startsWith("нит-сглоб:")) return "Занитване (авто)";
+  if (r.startsWith("сглоб:прод")) return "Продажба " + r.slice("сглоб:прод".length).trim();
+  if (r === "сглоб:ръчно") return "Склад детайли (ръчно)";
+  if (r.startsWith("сглоб:")) return "Опаковка";
+  return r;
+}
+// Партидите според текущия филтър на ОТЧЕТИ (период + търсене по код).
+function timesAsmRows() {
+  const f = timesRpt;
+  return (TIMES_ASM || []).filter(g => {
+    const d = String(g.at || "").slice(0, 10);
+    if (f.from && d < f.from) return false;
+    if (f.to && d > f.to) return false;
+    if (f.code) {
+      const q = f.code.toLowerCase().trim();
+      const inList = list => list.some(x => (`${x.code} ${x.name}`).toLowerCase().includes(q));
+      if (!inList(g.made) && !inList(g.used)) return false;
+    }
+    return true;
+  });
+}
+
 /* ---------- Изглед ---------- */
 function renderTimesReport() {
   showSub("times");
@@ -271,6 +331,27 @@ function renderTimesReport() {
         <td class="num">${timesDur(g.sec || null)}</td><td class="num ${cls}">${timesDur(g.avg)}${arrow}</td>
       </tr>`; }).join("") || `<tr><td colspan="5" class="report-empty">Няма данни за този филтър.</td></tr>`}</tbody>
     </table>
+
+    ${(() => {
+      const asm = timesAsmRows();
+      const totalMade = asm.reduce((s, g) => s + g.made.reduce((x, m) => x + m.qty, 0), 0);
+      const fmtList = (list, bold) => list.map(x => `${bold ? "<b>" : ""}${escapeHtml(x.code)}${bold ? "</b>" : ""} ${escapeHtml(x.name)} <span class="muted">× ${x.qty}</span>`).join("<br>");
+      return `
+    <div class="times-detail-head" style="margin-top:16px">
+      <h4 style="margin:0 0 4px">🧩 Сглобени комплекти / опаковки <span class="muted">— ${asm.length} партиди · общо ${totalMade} бр. (спазва периода и „🔎 Код")</span></h4>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Тук излиза всяко сглобяване без цехова операция: авто-сглобяването от Занитване (две половини → цял/к-т), „🧩 сглоби" от Склад детайли и автоматичната опаковка при продажба. Показва се какво е заприходено и кои части са изписани.</p>
+    <table class="report-table times-table">
+      <thead><tr><th>Дата</th><th>Сглобено (+)</th><th>Вложени части (−)</th><th>Източник</th></tr></thead>
+      <tbody>${asm.slice(0, 200).map(g => `<tr>
+        <td>${escapeHtml(fmtLogDate(String(g.at || "").slice(0, 10)))} <span class="muted">${escapeHtml(String(g.at || "").slice(11, 16))}</span></td>
+        <td>${fmtList(g.made, true) || "—"}</td>
+        <td class="times-cons">${fmtList(g.used, false) || "—"}</td>
+        <td>${escapeHtml(asmSourceLabel(g.ref))}</td>
+      </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма сглобявания за този период.</td></tr>`}</tbody>
+    </table>
+    ${asm.length > 200 ? `<p class="muted">Показани са последните 200 партиди от ${asm.length}. Стесни периода за останалите.</p>` : ""}`;
+    })()}
 
     ${showDetail ? `
       <div class="times-detail-head">
