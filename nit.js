@@ -87,6 +87,52 @@ const NIT_MECHANISMS = [
 const NIT_OP_INDEX = (() => { const m = {}; NIT_MECHANISMS.forEach(me => me.ops.forEach(o => { m[o.n] = { mech: me.name, r: o.r, t: o.t }; })); return m; })();
 const NIT_RIVET_TYPES = [["обикн", "обикновени"], ["големи", "големи"], ["колела", "колела"], ["ос", "ос"]];
 
+/* ---------- Връзка със Склад детайли ----------
+   Операциите с наш код се ЗАПРИХОДЯВАТ в Склад детайли при запис на отчета.
+   Синхронизира се по разликата (rec.stocked пази вече заприходеното за
+   служител+ден+операция) — редакция на бройката прави корекция в склада.
+   Засега: механизъм ИТАЛИЯ. Добавяне на нов ред тук = нова връзка. */
+const NIT_STOCK_MAP = {
+  "Италия 2ка 3ка": "101116",
+  "Италия само нож": "101114",
+  "Италия 2ка 3ка и Нож": "100949",   // = 101116 + 101114, направени наведнъж
+};
+let NIT_PID = null;   // код → product_id (зарежда се веднъж)
+async function nitStockIds() {
+  if (NIT_PID) return NIT_PID;
+  NIT_PID = {};
+  try {
+    const codes = [...new Set(Object.values(NIT_STOCK_MAP))];
+    const { data } = await sb.from("products").select("id,code").in("code", codes);
+    (data || []).forEach(p => { NIT_PID[String(p.code).trim()] = p.id; });
+  } catch (e) { /* без връзка със склада — отчетът пак се записва */ }
+  return NIT_PID;
+}
+async function nitSyncStock(rec) {
+  const ids = await nitStockIds();
+  rec.stocked = rec.stocked || {};
+  const moves = [], applied = [];
+  Object.keys(NIT_STOCK_MAP).forEach(op => {
+    const pid = ids[NIT_STOCK_MAP[op]];
+    if (!pid) return;
+    const now = Number((rec.ops || {})[op]) || 0;
+    const done = Number(rec.stocked[op]) || 0;
+    const delta = now - done;
+    if (!delta) return;
+    moves.push({
+      product_id: pid, kind: "заприходяване", quantity: delta,
+      ref: `нит:${rec.worker}|${rec.date}|${op}`,
+      note: `Занитване · ${rec.worker} · ${op}` + (delta < 0 ? " (корекция)" : ""),
+    });
+    applied.push({ op, now });
+  });
+  if (!moves.length) return true;
+  const { error } = await sb.from("product_movements").insert(moves);
+  if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message); return false; }
+  applied.forEach(a => { rec.stocked[a.op] = a.now; });
+  return true;
+}
+
 let NIT = { records: {} };
 let NIT_LOADED = false;
 let nitWorker = "", nitDate = "", nitMech = null, nitView = "entry", nitPeriod = "week";
@@ -209,8 +255,11 @@ function nitRenderOps(v) {
     r.worker = worker; r.date = nitDate; r.ops = r.ops || {};
     v.querySelectorAll(".nit-q").forEach(inp => { const op = inp.dataset.op; const q = nitNum(inp.value); if (q > 0) r.ops[op] = q; else delete r.ops[op]; });
     r.at = new Date().toISOString();
-    if (Object.keys(r.ops).length) NIT.records[key] = r; else delete NIT.records[key];
     const btn = v.querySelector("#nit-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // Заприходяване в Склад детайли за операциите с наш код (по разликата).
+    try { await nitSyncStock(r); } catch (e) {}
+    const hasStocked = r.stocked && Object.values(r.stocked).some(x => Number(x) > 0);
+    if (Object.keys(r.ops).length || hasStocked) NIT.records[key] = r; else delete NIT.records[key];
     const ok = await nitSave();
     btn.disabled = false; btn.textContent = "💾 Запиши";
     const st = v.querySelector("#nit-status"); if (st) st.textContent = ok ? "✓ Записано " + nitNowHM() : "⚠ грешка";
