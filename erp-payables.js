@@ -182,7 +182,9 @@ async function erpPayImport(file) {
     // Разпознаване на колоните по заглавия (толерантно).
     const pick = (row, ...names) => { for (const n of names) { for (const k of Object.keys(row)) { if (k.trim().toLowerCase() === n.toLowerCase()) return row[k]; } } return ""; };
     await erpPayLoad();
+    const pybNorm = s => String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase();
     let added = 0, updated = 0;
+    const review = [];
     raw.forEach(r => {
       const invoiceNo = String(pick(r, "№:", "№", "No", "Номер") || "").trim();
       const supplier = String(pick(r, "Партньор", "Доставчик") || "").trim();
@@ -197,12 +199,27 @@ async function erpPayImport(file) {
         currency: String(pick(r, "Непл.сума (мярка)", "Валута") || "EUR").trim() || "EUR",
         payMethod: String(pick(r, "Авоар", "Плащане") || "Банка").trim() || "Банка",
       };
-      // Дедуп по № + доставчик; обновяваме неплатените, добавяме новите.
-      const ex = (PAYABLES || []).find(p => !p.paid && String(p.invoiceNo) === invoiceNo && (p.supplier || "") === supplier);
-      if (ex) { Object.assign(ex, rec); updated++; }
-      else { PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", imported: true, ...rec }); added++; }
+      // „Само липсващите": по НОМЕРА на фактурата (нормализиран), независимо
+      // как е изписан доставчикът. Съществуващите (вкл. ръчните) НЕ се пипат.
+      const k = pybNorm(invoiceNo);
+      const ex = k
+        ? (PAYABLES || []).find(p => pybNorm(p.invoiceNo) === k)
+        : (PAYABLES || []).find(p => !p.paid && (p.supplier || "") === supplier && Math.abs(payNum(p.amount) - rec.amount) < 0.005);
+      if (ex) {
+        updated++;
+        if (!ex.paid && Math.abs(payNum(ex.amount) - rec.amount) > 0.005)
+          review.push(`№${invoiceNo} ${supplier}: в Системата ${(payNum(ex.amount)).toFixed(2)}, във файла ${rec.amount.toFixed(2)}`);
+        return;
+      }
+      PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", imported: true, ...rec });
+      added++;
     });
-    if (await erpPaySave()) { pybFilter = "all"; erpRenderPayables(); alert(`Импорт готов: ${added} нови, ${updated} обновени.`); }
+    if (await erpPaySave()) {
+      pybFilter = "all"; erpRenderPayables();
+      let msg = `Импорт готов: ${added} добавени, ${updated} прескочени (вече ги има — не са пипани).`;
+      if (review.length) msg += `\n\n⚠ РАЗЛИКА В СУМАТА (провери ръчно):\n` + review.slice(0, 15).join("\n") + (review.length > 15 ? `\n… и още ${review.length - 15}` : "");
+      alert(msg);
+    }
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 

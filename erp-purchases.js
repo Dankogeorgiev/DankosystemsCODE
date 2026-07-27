@@ -539,11 +539,20 @@ async function erpPuImport(file) {
     });
     if (!groups.size) { alert("Не намерих редове с фактура/партньор в файла."); return; }
 
-    // Дедуп срещу вече въведените (№ + доставчик).
-    const existing = new Set((erpPurchases || []).map(p => `${(p.invoiceNo || "").trim()}|${(p.supplierName || "").trim()}`));
+    // Дедуп „само липсващите": първо по НОМЕРА на фактурата (нормализиран —
+    // хваща и ръчно въведените с другояче изписан доставчик), после по № + доставчик.
+    const puNorm = s => String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase();
+    const existingNo = new Set();
+    const existing = new Set();
+    (erpPurchases || []).forEach(p => {
+      const k = puNorm(p.invoiceNo);
+      if (k) existingNo.add(k);
+      existing.add(`${(p.invoiceNo || "").trim()}|${(p.supplierName || "").trim()}`);
+    });
     let added = 0, skipped = 0;
     for (const g of groups.values()) {
-      if (existing.has(`${g.invoiceNo}|${g.supplier}`)) { skipped++; continue; }
+      const gk = puNorm(g.invoiceNo);
+      if ((gk && existingNo.has(gk)) || existing.has(`${g.invoiceNo}|${g.supplier}`)) { skipped++; continue; }
       const rate = g.net > 0 ? g.vat / g.net * 100 : 20;
       const vatRate = [20, 9, 0].reduce((b, r) => Math.abs(r - rate) < Math.abs(b - rate) ? r : b, 20);
       const pp = puParsePay(g.pay, g.date);
@@ -560,6 +569,7 @@ async function erpPuImport(file) {
       try {
         await erpSavePurchase(o);
         existing.add(`${g.invoiceNo}|${g.supplier}`);
+        if (gk) existingNo.add(gk);
         added++;
       } catch (e) { /* пропусни проблемния запис */ }
     }
