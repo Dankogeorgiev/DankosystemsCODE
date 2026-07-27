@@ -107,7 +107,7 @@ async function erpRenderReceivables() {
         <td>${escapeHtml(p.payMethod || "Банка")}</td>
         ${recvFilter === "paid"
           ? `<td>${recvFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
-          : `<td class="erp-row-actions"><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена">✓ Платена</button></td>`}
+          : `<td class="erp-row-actions"><button class="btn btn-small" data-fix="${p.id}" title="Корекция на сумата/падежа (при грешка от импорта)">✎ Корекция</button><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена">✓ Платена</button></td>`}
       </tr>`;
     }).join("");
     return groupHead + invRows;
@@ -161,6 +161,7 @@ async function erpRenderReceivables() {
   }));
   v.querySelectorAll("[data-paid1]").forEach(b => b.addEventListener("click", () => erpRecvMarkPaid([Number(b.dataset.paid1)])));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
+  v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
   erpRecvBar();
 }
 
@@ -177,6 +178,34 @@ function erpRecvBar() {
     <button class="btn btn-small btn-primary" id="recv-paysel">✓ Отбележи избраните като платени</button>`;
   document.getElementById("recv-paysel").addEventListener("click", () => erpRecvMarkPaid([...recvSelected]));
   document.getElementById("recv-print").addEventListener("click", () => erpRecvPrint(sel));
+}
+
+/* ---------- Корекция (сума/падеж/№) — за грешки от импорта ---------- */
+async function erpRecvEdit(id) {
+  const p = (RECEIVABLES || []).find(x => x.id === id); if (!p) return;
+  const { wrap, close } = erpDialog(`
+    <h3>✎ Корекция на вземане</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(p.client || "")}</b> · фактура №${escapeHtml(p.invoiceNo || "—")}</p>
+    <div class="erp-co-grid">
+      <label>Сума (EUR) <input type="number" id="rce-amount" step="any" value="${escapeAttr(String(recvNum(p.amount)))}" /></label>
+      <label>Падеж <input type="date" id="rce-due" value="${escapeAttr(p.dueDate || "")}" /></label>
+      <label>№ Фактура <input type="text" id="rce-no" value="${escapeAttr(p.invoiceNo || "")}" /></label>
+      <label>Клиент <input type="text" id="rce-client" value="${escapeAttr(p.client || "")}" /></label>
+    </div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="rce-cancel">Отказ</button>
+      <button class="btn btn-primary" id="rce-save">Запази</button>
+    </div>
+    <p class="save-status" id="rce-status"></p>`);
+  wrap.querySelector("#rce-cancel").addEventListener("click", close);
+  wrap.querySelector("#rce-save").addEventListener("click", async () => {
+    p.amount = recvNum(wrap.querySelector("#rce-amount").value);
+    p.dueDate = wrap.querySelector("#rce-due").value || "";
+    p.invoiceNo = wrap.querySelector("#rce-no").value.trim();
+    p.client = wrap.querySelector("#rce-client").value.trim();
+    wrap.querySelector("#rce-status").textContent = "Записва…";
+    if (await erpRecvSave()) { close(); erpRenderReceivables(); }
+  });
 }
 
 /* ---------- Платено / върни ---------- */
