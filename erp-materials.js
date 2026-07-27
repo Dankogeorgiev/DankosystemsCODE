@@ -303,7 +303,7 @@ async function erpMatNeededDialog() {
   let tasks = (typeof TASKS !== "undefined" && Array.isArray(TASKS) && TASKS.length) ? TASKS : null;
   if (!tasks) {
     try {
-      const { data } = await sb.from("tasks").select("id,data").eq("data->source->>flow", "true");
+      const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
       tasks = (data || []).map(r => Object.assign({ id: r.id }, r.data || {}));
     } catch (e) { tasks = []; }
   }

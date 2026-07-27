@@ -26,7 +26,8 @@ const CONTACT_CATEGORIES = [
 
 /* ---------- Зареждане / запис ---------- */
 async function cLoad() {
-  const { data, error } = await sb.from("contacts").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("contacts", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) { alert("Грешка при зареждане на контактите: " + error.message); return; }
   const all = (data || []).map(r => ({ ...r.data, id: r.id }));
   CONTACTS = all.filter(c => c.kind !== "inquiry");

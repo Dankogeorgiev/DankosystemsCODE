@@ -22,7 +22,8 @@ let erpInvKindFilter = "", erpInvQuery = "", erpInvStatusFilter = "";
 
 /* ---------- Зареждане / запис ---------- */
 async function erpLoadInvoices() {
-  const { data, error } = await sb.from("invoices").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("invoices", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) throw error;
   erpInvoices = (data || []).map(r => ({ id: r.id, docNo: r.doc_no, posted: r.posted, ...(r.data || {}) }));
 }

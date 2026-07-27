@@ -34,7 +34,8 @@ function erpCOSortRows(rows) {
 let erpClientsCache = null; // клиенти от Контакти (за избор)
 
 async function erpLoadCustomerOrders() {
-  const { data, error } = await sb.from("customer_orders").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("customer_orders", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) throw error;
   erpCOList = (data || []).map(r => ({ id: r.id, ...(r.data || {}) }));
   if (typeof erpPLEnsureCache === "function") { try { await erpPLEnsureCache(); } catch (e) {} }   // клиентски ценови листи

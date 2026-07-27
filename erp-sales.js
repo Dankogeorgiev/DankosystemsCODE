@@ -27,7 +27,8 @@ let erpSales = null;
 let erpSaQuery = "";   // 🔎 търсене в списъка (в паметта)
 
 async function erpLoadSales() {
-  const { data, error } = await sb.from("sales").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("sales", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) throw error;
   erpSales = (data || []).map(r => ({ id: r.id, posted: r.posted, ...(r.data || {}) }));
 }

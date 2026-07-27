@@ -1373,3 +1373,11 @@ tr.times-click:hover td { background: #ecfdf5; }
 .nit-pick { padding: 10px 12px; border: 2px solid #2563eb; border-radius: 10px; font: inherit; font-size: 15px; background: #eff6ff; color: #0f172a; max-width: 100%; }
 .nit-pick:focus { outline: none; border-color: #1d4ed8; background: #fff; }
 .nit-hint { font-size: 12px; color: #94a3b8; font-weight: 400; }
+
+/* ⚠ Непълно зареждане на задачите (по-добре шумно, отколкото скрита задача) */
+.tasks-incomplete {
+  background: #fef2f2; border: 2px solid #dc2626; color: #7f1d1d;
+  border-radius: 10px; padding: 10px 14px; margin: 0 0 10px;
+  font-size: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.tasks-incomplete .btn { border-color: #dc2626; }

@@ -37,7 +37,8 @@ let erpPuFolder = "payable";   // payable | paid | all
 let erpPuQuery = "";
 
 async function erpLoadPurchases() {
-  const { data, error } = await sb.from("purchases").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("purchases", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) throw error;
   erpPurchases = (data || []).map(r => ({ id: r.id, posted: r.posted, ...(r.data || {}) }));
 }
