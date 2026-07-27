@@ -582,3 +582,12 @@ img.ai-doc-content { max-width: none; }
 .erp-draw-list li { position: relative; }
 .rfq-fchk { position: absolute; top: 4px; left: 4px; z-index: 2; background: #fff; border-radius: 6px; padding: 2px 3px 0; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: pointer; }
 .rfq-fchk input { cursor: pointer; }
+
+/* Финансовите табове — отделени вдясно (2 реда по 3), светло сини */
+.erp-tabs-row { display: flex; align-items: stretch; background: var(--panel); border-bottom: 1px solid var(--line); }
+.erp-tabs-row .erp-tabs { flex: 1; border-bottom: none; }
+.erp-fin-tabs { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, minmax(110px, auto)); gap: 6px; align-content: start; padding: 12px 18px 12px 10px; border-left: 1px dashed var(--line); }
+.erp-fin-tabs .erp-tab { background: #e0f2fe; border-color: #bae6fd; color: #075985; white-space: nowrap; }
+.erp-fin-tabs .erp-tab:hover { background: #bae6fd; }
+.erp-fin-tabs .erp-tab.active { background: #0284c7; border-color: #0284c7; color: #fff; }
+@media (max-width: 900px) { .erp-tabs-row { flex-direction: column; } .erp-fin-tabs { border-left: none; border-top: 1px dashed var(--line); padding: 8px 18px; } }
