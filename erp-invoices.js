@@ -406,7 +406,9 @@ async function erpInvForm(o) {
     <div class="erp-co-form">
       <div class="erp-co-grid">
         <label>Серия
-          <select id="inv-series" ${locked ? "disabled" : ""}>${Object.entries(erpInvSeries).map(([sk, x]) => `<option value="${sk}" ${sk === o.seriesKey ? "selected" : ""}>${escapeHtml(sk + " · " + x.label + " (сл. № " + x.next + ")")}</option>`).join("")}</select></label>
+          <select id="inv-series" ${locked ? "disabled" : ""}>${Object.entries(erpInvSeries).map(([sk, x]) => `<option value="${sk}" ${sk === o.seriesKey ? "selected" : ""}>${escapeHtml(sk + ". " + x.label)}</option>`).join("")}</select></label>
+        <label>${o.posted ? "№ на документа" : "№ (който ще получи)"}
+          <input type="text" id="inv-nextno" class="inv-nextno" readonly value="${escapeAttr(o.posted ? (o.docNo || "") : String((erpInvSeries[o.seriesKey] || erpInvSeries["2"] || {}).next || ""))}" /></label>
         <label>Тип
           <select id="inv-kind" ${locked ? "disabled" : ""}>${Object.entries(INV_KINDS).map(([kk, x]) => `<option value="${kk}" ${kk === o.kind ? "selected" : ""}>${x.label}</option>`).join("")}</select></label>
         <label>Дата на издаване <input type="date" id="inv-date" value="${escapeAttr(o.issueDate || "")}" ${locked ? "disabled" : ""} /></label>
@@ -471,7 +473,12 @@ async function erpInvForm(o) {
   };
   document.getElementById("inv-back").addEventListener("click", erpRenderInvoices);
   const g = (id, cb) => { const el = document.getElementById(id); if (el) el.addEventListener(locked ? "change" : "input", cb); };
-  g("inv-series", e => o.seriesKey = e.target.value);
+  g("inv-series", e => {
+    o.seriesKey = e.target.value;
+    // Обновява квадратчето с номера, който документът ще получи от тази серия.
+    const nn = document.getElementById("inv-nextno");
+    if (nn && !o.posted) nn.value = String((erpInvSeries[o.seriesKey] || {}).next || "");
+  });
   g("inv-kind", e => { o.kind = e.target.value; erpInvForm(o); });
   g("inv-date", e => o.issueDate = e.target.value);
   g("inv-taxdate", e => o.taxDate = e.target.value);
