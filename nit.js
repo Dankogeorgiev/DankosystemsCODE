@@ -287,21 +287,22 @@ function nitRenderOps(v) {
       <span class="rog-who">🔩 <b>${escapeHtml(me.name)}</b> · 👷 ${escapeHtml(worker)} · ${nitFmtDate(nitDate)}</span>
     </div>
     <div class="rog-rows">
-      <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">${NIT_NO_LD.has(me.name) ? "брой" : "Л = ляв · Д = десен"}</span></div></div>
+      <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">${NIT_NO_LD.has(me.name) ? "НОВИ бройки (добавят се)" : "НОВИ бройки · Л = ляв, Д = десен"}</span></div></div>
       ${me.ops.map(o => {
         const cur = rec.ops ? rec.ops[o.n] : null;
         if (NIT_NO_LD.has(me.name)) {
+          const t = nitOpTotal(cur);
           return `<div class="rog-row">
-            <div class="rog-op">${escapeHtml(o.n)}</div>
-            <div class="rog-inputs"><input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" min="0" step="any" inputmode="decimal" value="${cur != null ? escapeAttr(String(nitOpTotal(cur))) : ""}" placeholder="брой" /></div>
+            <div class="rog-op">${escapeHtml(o.n)}${t ? `<div class="nit-today">днес: <b>${t}</b></div>` : ""}</div>
+            <div class="rog-inputs"><input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" step="any" inputmode="decimal" value="" placeholder="добави брой" /></div>
           </div>`;
         }
         const ld = nitOpLD(cur);
         return `<div class="rog-row">
-          <div class="rog-op">${escapeHtml(o.n)}</div>
+          <div class="rog-op">${escapeHtml(o.n)}${(ld.l || ld.d) ? `<div class="nit-today">днес: Л <b>${ld.l}</b> · Д <b>${ld.d}</b></div>` : ""}</div>
           <div class="rog-inputs rog-ld">
-            <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" min="0" step="any" inputmode="decimal" value="${ld.l ? escapeAttr(String(ld.l)) : ""}" placeholder="ляв" /></label>
-            <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" min="0" step="any" inputmode="decimal" value="${ld.d ? escapeAttr(String(ld.d)) : ""}" placeholder="десен" /></label>
+            <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" step="any" inputmode="decimal" value="" placeholder="ляв" /></label>
+            <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" step="any" inputmode="decimal" value="" placeholder="десен" /></label>
           </div>
         </div>`;
       }).join("")}
@@ -312,7 +313,8 @@ function nitRenderOps(v) {
       <button class="btn btn-primary rog-save-btn" id="nit-save">💾 Запиши</button>
     </div>`;
 
-  const recalc = () => { let t = 0; v.querySelectorAll(".nit-q").forEach(i => t += nitNum(i.value)); const el = v.querySelector("#nit-tot"); if (el) el.innerHTML = `Общо за механизма: <b>${Math.round(t * 100) / 100}</b>`; };
+  const dayTot = me.ops.reduce((s, o) => s + nitOpTotal(rec.ops ? rec.ops[o.n] : 0), 0);
+  const recalc = () => { let t = 0; v.querySelectorAll(".nit-q").forEach(i => t += nitNum(i.value)); const el = v.querySelector("#nit-tot"); if (el) el.innerHTML = `Добавяш сега: <b>${Math.round(t * 100) / 100}</b> · вече записани днес: <b>${Math.round(dayTot * 100) / 100}</b><br><span class="nit-hint">Пишеш само НОВИТЕ бройки — добавят се към днешните. Сгрешено? Въведи с минус (напр. -50), за да извадиш.</span>`; };
   v.querySelectorAll(".nit-q").forEach(i => i.addEventListener("input", recalc));
   recalc();
   v.querySelector("#nit-back").addEventListener("click", () => { nitMech = null; nitRender(); });
@@ -328,8 +330,17 @@ function nitRenderOps(v) {
       if (side) cur[side] = q; else cur.single = q;
     });
     Object.entries(vals).forEach(([op, x]) => {
-      if (x.single !== undefined) { if (x.single > 0) r.ops[op] = x.single; else delete r.ops[op]; }
-      else { const l = nitNum(x.l), d = nitNum(x.d); if (l > 0 || d > 0) r.ops[op] = { l, d }; else delete r.ops[op]; }
+      if (x.single !== undefined) {
+        if (!x.single) return;   // празно поле не пипа днешното
+        const nv = Math.max(0, nitOpTotal(r.ops[op]) + x.single);
+        if (nv > 0) r.ops[op] = nv; else delete r.ops[op];
+      } else {
+        const addL = nitNum(x.l), addD = nitNum(x.d);
+        if (!addL && !addD) return;
+        const cur = nitOpLD(r.ops[op]);
+        const l = Math.max(0, cur.l + addL), d = Math.max(0, cur.d + addD);
+        if (l > 0 || d > 0) r.ops[op] = { l, d }; else delete r.ops[op];
+      }
     });
     r.at = new Date().toISOString();
     const btn = v.querySelector("#nit-save"); btn.disabled = true; btn.textContent = "Записва…";
