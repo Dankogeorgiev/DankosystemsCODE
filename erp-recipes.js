@@ -410,7 +410,7 @@ function erpStockTreeData(pid, mult, depth, ancestors) {
       const m = ERP.matById[l.material_id] || {};
       const need = q * mult;
       const have = Number(m.stock) || 0;
-      rows.push({ depth, kind: "mat", code: m.code || "", name: m.name || "", unit: m.unit || "", have, need, miss: Math.max(0, need - have) });
+      rows.push({ depth, kind: "mat", mid: l.material_id, code: m.code || "", name: m.name || "", unit: m.unit || "", have, need, miss: Math.max(0, need - have) });
       return;
     }
     if (l.child_product_id) {
@@ -427,12 +427,53 @@ function erpStockTreeData(pid, mult, depth, ancestors) {
   return rows;
 }
 
+/* Бърза корекция на наличност направо от дървото: задаваш НОВАТА наличност,
+   Системата записва корекция с разликата (материал → stock_movements,
+   възел/детайл → product_movements) и обновява екрана. */
+function erpStockQuickFix(kind, id, after) {
+  const isMat = kind === "mat";
+  const x = isMat ? (ERP.matById[id] || {}) : (ERP.prodById[id] || {});
+  const cur = Number(x.stock) || 0;
+  const unit = isMat ? (x.unit || "") : "бр.";
+  const { wrap, close } = erpDialog(`
+    <h3>± Поправи наличността</h3>
+    <p><b>${escapeHtml(x.code || "")}</b> ${escapeHtml(x.name || "")} — сега: <b>${erpNum(cur)} ${escapeHtml(unit)}</b> <span class="erp-muted">(${isMat ? "Склад материали" : "Склад детайли"})</span></p>
+    <label>Нова наличност (${escapeHtml(unit)})
+      <input type="number" id="qf-val" step="any" value="${escapeAttr(String(cur))}" autofocus /></label>
+    <label>Бележка (по избор)<input type="text" id="qf-note" placeholder="напр. преброено на рафта" /></label>
+    <p class="hint">Записва се <b>корекция</b> с разликата — историята на движенията се пази.</p>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="qf-cancel">Отказ</button>
+      <button class="btn btn-primary" id="qf-save">Запиши</button>
+    </div>
+    <p class="save-status" id="qf-status"></p>`);
+  wrap.querySelector("#qf-cancel").addEventListener("click", close);
+  wrap.querySelector("#qf-save").addEventListener("click", async () => {
+    const status = wrap.querySelector("#qf-status");
+    const val = erpToNum(wrap.querySelector("#qf-val").value);
+    const note = (wrap.querySelector("#qf-note").value || "").trim() || "Корекция (Наличности по структурата)";
+    const delta = val - cur;
+    if (!delta) { close(); return; }
+    status.textContent = "Записва…";
+    const who = (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || null;
+    const { error } = isMat
+      ? await sb.from("stock_movements").insert({ material_id: id, kind: "корекция", quantity: delta, note, created_by: who })
+      : await sb.from("product_movements").insert({ product_id: id, kind: "корекция", quantity: delta, note });
+    if (error) { status.textContent = "⚠ " + error.message; return; }
+    x.stock = val;
+    if (!isMat && ERP.prodStock) ERP.prodStock[id] = val;
+    if (typeof erpMarkStale === "function") erpMarkStale();   // другите табове да се опреснят
+    close();
+    if (after) after();
+  });
+}
+
 async function erpStockTree(productId) {
   const p = ERP.prodById[productId]; if (!p) return;
   let qty = 1;
   const { wrap, close } = erpDialog(`
     <h3>📦 Наличности по структурата</h3>
-    <p class="erp-muted" style="margin:-6px 0 8px"><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} · готови на склад: <b>${erpNum(Number(p.stock) || 0)} бр.</b></p>
+    <p class="erp-muted" style="margin:-6px 0 8px"><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} · готови на склад: <b id="st-topstock">${erpNum(Number(p.stock) || 0)} бр.</b> <button class="erp-cost-edit" id="st-topfix" title="Поправи наличността на готовото изделие">±</button></p>
     <div class="erp-toolbar" style="margin-bottom:8px">
       <label class="erp-inline">Искам да сглобя <input type="number" id="st-qty" min="1" step="1" value="1" style="width:80px" /> бр.</label>
       <span id="st-buildable" class="erp-count"></span>
@@ -470,13 +511,24 @@ async function erpStockTree(productId) {
             <td style="padding-left:${10 + r.depth * 22}px">${r.kind === "node" ? '<span class="erp-tag erp-tag-semi">възел</span>' : '<span class="erp-tag erp-tag-mat">мат.</span>'} ${escapeHtml(r.name)}${r.cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}</td>
             <td><b>${escapeHtml(r.code)}</b></td>
             <td class="num">${grey ? '<span class="erp-muted">0</span>' : erpNum(r.need) + " " + escapeHtml(r.unit)}</td>
-            <td class="num">${erpNum(r.have)} ${escapeHtml(r.unit)}</td>
+            <td class="num">${erpNum(r.have)} ${escapeHtml(r.unit)} <button class="erp-cost-edit" data-fix="${r.kind}¦${r.kind === "mat" ? r.mid : r.pid}" title="Поправи наличността (корекция)">±</button></td>
             <td class="num">${missCell}</td>
           </tr>`;
         }).join("") || '<tr><td colspan="5" class="report-empty">Рецептата няма съставки.</td></tr>'}</tbody>
       </table>`;
+    // ± корекция на наличност по ред (материал или възел/детайл).
+    wrap.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => {
+      const [kind, id] = String(b.dataset.fix).split("¦");
+      erpStockQuickFix(kind, Number(id), render);
+    }));
   };
   render();
+  const topFix = wrap.querySelector("#st-topfix");
+  if (topFix) topFix.addEventListener("click", () => erpStockQuickFix("node", productId, () => {
+    const el = wrap.querySelector("#st-topstock");
+    if (el) el.textContent = erpNum(Number(p.stock) || 0) + " бр.";
+    render();
+  }));
   wrap.querySelector("#st-qty").addEventListener("input", e => { qty = Math.max(1, Math.floor(erpToNum(e.target.value) || 1)); render(); });
   wrap.querySelector("#st-refresh").addEventListener("click", async () => {
     wrap.querySelector("#st-table").innerHTML = '<p class="erp-loading">Презареждам наличностите…</p>';
