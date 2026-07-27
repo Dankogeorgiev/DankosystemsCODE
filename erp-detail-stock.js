@@ -23,8 +23,12 @@ async function dsFetchAllProducts(cols) {
 // Зарежда наведнъж кои продукти имат чертежи (products.drawings непразно).
 // Леко: тегли само id-тата на продуктите С чертежи (не целия jsonb списък —
 // при хиляди продукти това бяха мегабайти при всяко отваряне на склада).
-async function dsLoadHasDrawings() {
-  DS_HAS_DRAW = new Set();
+// Прави се ВЕДНЪЖ на сесия и НИКОГА не спира отварянето на склада: при грешка
+// бутоните за чертежи просто остават неоцветени.
+let DS_DRAW_LOADED = false;
+async function dsLoadHasDrawings(force) {
+  if (DS_DRAW_LOADED && !force) return;
+  const found = new Set();
   try {
     const CHUNK = 1000;
     for (let from = 0; ; from += CHUNK) {
@@ -32,15 +36,13 @@ async function dsLoadHasDrawings() {
         .not("drawings", "is", null).neq("drawings", "[]")
         .order("id", { ascending: true }).range(from, from + CHUNK - 1);
       if (error) throw error;
-      (data || []).forEach(r => DS_HAS_DRAW.add(Number(r.id)));
+      (data || []).forEach(r => found.add(Number(r.id)));
       if (!data || data.length < CHUNK) break;
     }
+    DS_HAS_DRAW = found;
+    DS_DRAW_LOADED = true;
   } catch (e) {
-    // Резервен (стар, тежък) път — ако jsonb филтърът не мине на тази база.
-    try {
-      const rows = await dsFetchAllProducts("id,drawings");
-      rows.forEach(r => { if (Array.isArray(r.drawings) && r.drawings.length) DS_HAS_DRAW.add(Number(r.id)); });
-    } catch (e2) { /* при грешка бутоните остават неоцветени */ }
+    console.warn("Склад детайли: чертежите не се заредиха —", e && (e.message || e));
   }
 }
 // Има ли продуктът чертеж? Зареденото в паметта има превес (за да отразява промени).
@@ -83,7 +85,24 @@ async function dsRefreshStock() {
   } catch (e) { /* при грешка оставаме на кешираните стойности */ }
 }
 
+// Обвивка: каквото и да се обърка вътре, екранът СЕ ОТВАРЯ и показва точната
+// грешка (иначе табът оставаше празен и не се разбираше защо).
 async function erpRenderDetailStock() {
+  try { await erpRenderDetailStockInner(); }
+  catch (e) {
+    console.error("Склад детайли:", e);
+    erpView().innerHTML = `<div class="erp-error">
+      <h3>📦 Склад детайли — възникна грешка</h3>
+      <p>${escapeHtml((e && (e.message || e.details)) || String(e))}</p>
+      <p class="hint">Опитай пак с бутона по-долу. Ако се повтаря, покажи това съобщение на Данко.</p>
+      <button class="btn btn-small btn-primary" id="ds-retry">↻ Опитай пак</button>
+    </div>`;
+    const rb = document.getElementById("ds-retry");
+    if (rb) rb.addEventListener("click", () => erpRenderDetailStock());
+  }
+}
+
+async function erpRenderDetailStockInner() {
   try { await erpEnsureLoaded(); }
   catch (e) { erpView().innerHTML = `<div class="erp-error"><h3>Грешка</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
   await dsRefreshStock();   // винаги свежи наличности (готовото от цеха се вижда веднага)
@@ -157,8 +176,8 @@ async function erpRenderDetailStock() {
   if (rs) rs.addEventListener("click", dsResetTestMovements);
   dsFillRows();
   if (q) q.focus();
-  // Зареждаме кои имат чертежи и оцветяваме бутоните (без да чакаме за самата таблица).
-  dsLoadHasDrawings().then(() => dsFillRows());
+  // Чертежите се дозареждат отзад — таблицата вече е на екрана и НЕ я чака.
+  dsLoadHasDrawings().then(() => dsFillRows()).catch(() => {});
 }
 
 // Пълни само редовете на таблицата според текущото търсене/филтър (без да
@@ -166,7 +185,15 @@ async function erpRenderDetailStock() {
 function dsFillRows() {
   const tbody = document.getElementById("ds-tbody");
   if (!tbody) return;
-  let list = ERP.products.filter(dsShowInStock);
+  try { dsFillRowsInner(tbody); }
+  catch (e) {
+    console.error("Склад детайли (редове):", e);
+    tbody.innerHTML = `<tr><td colspan="4" class="erp-warn">Грешка при показване на списъка: ${escapeHtml((e && e.message) || String(e))}</td></tr>`;
+  }
+}
+
+function dsFillRowsInner(tbody) {
+  let list = (ERP.products || []).filter(dsShowInStock);
   if (DS_TERM) { const q = DS_TERM.toLowerCase().trim(); list = list.filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q)); }
   if (DS_ONLY_STOCK) list = list.filter(p => (Number(p.stock) || 0) > 0);
   if (DS_ONLY_NEG) {
@@ -188,7 +215,7 @@ function dsFillRows() {
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
-        ${(ERP.linesByProduct[p.id] || []).some(l => l.child_product_id) ? `<button type="button" class="btn btn-small ds-asm" data-id="${p.id}" title="Опаковка: изписва частите по рецептата от склада и заприходява готовия артикул — без операция в цех">🧩 сглоби</button>` : ""}
+        ${((ERP.linesByProduct && ERP.linesByProduct[p.id]) || []).some(l => l.child_product_id) ? `<button type="button" class="btn btn-small ds-asm" data-id="${p.id}" title="Опаковка: изписва частите по рецептата от склада и заприходява готовия артикул — без операция в цех">🧩 сглоби</button>` : ""}
         ${ERP.childIds && ERP.childIds.has(Number(p.id)) ? `<button type="button" class="btn btn-small ds-wu" data-id="${p.id}" title="Къде се влага този възел/детайл — директно и в кои крайни продукти">↥ влага се в</button>` : ""}
         <button type="button" class="btn btn-small ds-draw${dsHasDrawing(p) ? " ds-draw-has" : ""}" data-id="${p.id}" title="${dsHasDrawing(p) ? "Има прикачен чертеж" : "Няма чертеж"}">📎 чертежи</button>
         <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
