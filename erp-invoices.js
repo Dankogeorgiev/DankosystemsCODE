@@ -635,208 +635,162 @@ function erpInvPrint(o) {
   const t = erpInvTotals(o); const cur = erpInvCur(o);
   const s = ERP_SELLER || {};
   const L = en ? {
-    orig: "ORIGINAL", no: "No", date: "Date", order: "Order No/date", recipient: "Recipient", supplier: "Supplier",
-    eik: "UIC", vat: "VAT No", nn: "No", name: "Description", code: "Code", qty: "Qty/UoM", price: "Unit price", amount: "Amount",
-    words: "In words", pay: "Payment", due: "Due date", base: "Tax base", vatL: "VAT", total: "Total", compiled: "Issued by", received: "Received by",
-    ref: "To invoice No/date", reason: "Reason",
+    orig: "ORIGINAL", no: "No", date: "Date", order: "Order No and date", tel: "tel.", recipient: "Recipient", supplier: "Supplier",
+    nn: "No", name: "Description of goods and services", ordCol: "Order No/ date", code: "Code", qty: "Qty / UoM", price: "Unit price", amount: "Amount",
+    totalQty: "Total qty", words: "In words", pay: "Payment", due: "Due date", base: "Tax base", vatL: "VAT", total: "Total",
+    bankL: "Bank", ibanL: "IBAN", bicL: "BIC/SWIFT", received: "Recipient", suppSign: "Supplier", ref: "To invoice No/date", reason: "Reason", eik: "UIC",
   } : {
-    orig: "ОРИГИНАЛ", no: "№", date: "Дата", order: "Номер и дата на поръчка", recipient: "Получател", supplier: "Доставчик",
-    eik: "ЕИК", vat: "ДДС №", nn: "№", name: "Наименование на стоките и услугите", code: "Код", qty: "Кол./МЕ", price: "Ед. цена", amount: "Стойност",
-    words: "Словом", pay: "Начин на плащане", due: "Падеж", base: "Данъчна основа", vatL: "ДДС", total: "Обща стойност", compiled: "Съставил", received: "Получил",
-    ref: "Към фактура №/дата", reason: "Основание",
+    orig: "ОРИГИНАЛ", no: "№", date: "Дата", order: "Номер и дата на поръчка", tel: "тел.", recipient: "Получател", supplier: "Доставчик",
+    nn: "№", name: "Наименование на стоките и услугите", ordCol: "№ и дата на Поръчка", code: "Код", qty: "Кол. / МЕ", price: "Ед. цена", amount: "Стойност",
+    totalQty: "Общо кол.", words: "Словом", pay: "Начин на плащане", due: "Падеж", base: "Данъчна основа", vatL: "ДДС", total: "Обща стойност",
+    bankL: "Банка", ibanL: "IBAN", bicL: "BIC/SWIFT", received: "Получател", suppSign: "Доставчик", ref: "Към фактура №/дата", reason: "Основание", eik: "ЕИК",
   };
-  const rows = (o.lines || []).map((l, i) => `
-    <tr><td>${i + 1}</td><td>${escapeHtml(l.code || "")}${l.clientCode ? `<br><small>клиент: ${escapeHtml(l.clientCode)}</small>` : ""}</td>
-      <td>${escapeHtml(l.name || "")}</td>
+  const fm = n => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtD = d => { const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || ""); };
+  const base = new URL(".", location.href).href;
+  let totQty = 0;
+  const rows = (o.lines || []).map((l, i) => {
+    totQty += erpToNum(l.qty) || 0;
+    return `<tr>
+      <td class="c">${i + 1}</td>
+      <td><b>${escapeHtml(l.name || "")}</b>${l.clientCode ? `<br><small>${en ? "client code" : "клиент"}: ${escapeHtml(l.clientCode)}</small>` : ""}</td>
+      <td class="c">${escapeHtml(o.orderRef || "- /")}</td>
+      <td class="c">${escapeHtml(l.code || "")}</td>
       <td class="r">${erpNum(l.qty)} ${escapeHtml(l.unit || "")}</td>
-      <td class="r">${erpNum(l.unitPrice)}</td>
-      <td class="r">${erpInvMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), cur)}</td></tr>`).join("")
-    || `<tr><td colspan="6" class="c muted">—</td></tr>`;
-  const sellerLines = [
-    (en ? "UIC: " : "ЕИК: ") + escapeHtml(s.eik || ""),
-    (en ? "VAT: " : "ДДС №: ") + escapeHtml(s.vat || ""),
-    escapeHtml([s.address, s.city].filter(Boolean).join(", ")),
-    s.iban ? "IBAN: " + escapeHtml(s.iban) + (s.bic ? " · " + escapeHtml(s.bic) : "") : "",
-    s.bank ? (en ? "Bank: " : "Банка: ") + escapeHtml(s.bank) : "",
-    s.phone ? (en ? "Tel: " : "тел: ") + escapeHtml(s.phone) : "",
-    s.email ? "e-mail: " + escapeHtml(s.email) : "",
-  ].filter(Boolean).join("<br>");
-  const clientLines = [
-    (en ? "UIC: " : "ЕИК: ") + escapeHtml(o.client.eik || ""),
-    (en ? "VAT: " : "ДДС №: ") + escapeHtml(o.client.vat || ""),
-    escapeHtml([o.client.street, o.client.city, o.client.country].filter(Boolean).join(", ")),
-    o.client.person ? escapeHtml(o.client.person) : "",
-  ].filter(Boolean).join("<br>");
+      <td class="r">${fm(l.unitPrice)}</td>
+      <td class="r">${fm((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" class="c muted">—</td></tr>`;
+
   const noteRef = (o.kind === "credit" || o.kind === "debit") && o.refInvoice
-    ? `<div class="pay"><b>${L.ref}:</b> ${escapeHtml(o.refInvoice.docNo || "")} / ${escapeHtml(o.refInvoice.date || "")}${o.refReason ? ` · ${L.reason}: ${escapeHtml(o.refReason)}` : ""}</div>` : "";
-  const vatBasis = (Number(o.vatRate) === 0 && o.vatBasis) ? `<div class="pay">${escapeHtml(o.vatBasis)}</div>` : "";
-  const bgn = cur === "EUR" ? `<tr><td></td><td class="r">= ${erpInvMoney(t.total * INV_EUR_BGN, "BGN")}</td></tr>` : "";
+    ? `<div class="inl"><b>${L.ref}:</b> ${escapeHtml(o.refInvoice.docNo || "")} / ${fmtD(o.refInvoice.date || "")}${o.refReason ? ` · ${L.reason}: ${escapeHtml(o.refReason)}` : ""}</div>` : "";
+  const vatBasis = (Number(o.vatRate) === 0 && o.vatBasis) ? `<div class="inl">${escapeHtml(o.vatBasis)}</div>` : "";
+  const bgnLine = cur === "EUR" ? `<div class="tot-bgn">= ${fm(t.total * INV_EUR_BGN)} BGN</div>` : "";
+  const c = o.client || {};
 
   const html = `<!doctype html><html lang="${en ? "en" : "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(title)} ${escapeHtml(o.docNo || "")}</title>
-  <style>*{box-sizing:border-box}body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 22px}
-    .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:12px}
-    .head h1{font-size:22px;margin:0;color:#0f766e;letter-spacing:1px}.sub{font-size:11px;color:#666}
-    .meta{text-align:right;font-size:12px}.parties{display:flex;gap:16px;margin-bottom:14px}
-    .party{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px}.party h3{margin:0 0 4px;font-size:12px;color:#0f766e}
-    table.items{width:100%;border-collapse:collapse;margin-bottom:8px}table.items th,table.items td{border:1px solid #cbd5e1;padding:5px 7px;font-size:11.5px;text-align:left}
-    table.items th{background:#ecfdf5;color:#065f46}td.r{text-align:right}td.c{text-align:center}.muted{color:#777}small{color:#555}
-    .sum{width:300px;margin-left:auto;border-collapse:collapse}.sum td{padding:4px 8px}.sum tr.g td{border-top:2px solid #0f766e;font-size:14px}
-    .pay{margin:5px 0;font-size:12px}.words{font-style:italic;margin:6px 0}
-    .foot{display:flex;justify-content:space-between;margin-top:28px;font-size:11px}.foot div{flex:1;border-top:1px solid #333;padding-top:4px;margin:0 12px;text-align:center}
-    @media print{body{margin:8mm}.noprint{display:none}}.noprint{text-align:center;margin:14px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 26px;max-width:840px}
+    hr.thin{border:none;border-top:1.4px solid #000;margin:6px 0}
+    .lg img{height:56px;display:block}
+    .trow{display:flex;align-items:baseline;justify-content:space-between}
+    .trow h1{flex:1;text-align:center;font-size:17px;letter-spacing:1px;margin:2px 0}
+    .trow .orig{font-weight:700;font-size:13px}
+    .meta{display:flex;justify-content:space-between;margin:6px 0 10px}
+    .meta .ml{padding-left:120px}
+    .meta .mr{text-align:right;font-size:11.5px}
+    .meta .mr .lab{color:#333}
+    .parties{display:flex;gap:18px;margin-bottom:12px}
+    .party{flex:1;border:1.6px solid #000}
+    .party .ph{font-weight:700;padding:3px 8px;border-bottom:1.4px solid #000}
+    .party .pb{padding:8px 10px 6px 26px;min-height:128px;display:flex;flex-direction:column}
+    .party .pb .mol{margin-top:auto;padding-top:10px}
+    table.items{width:100%;border-collapse:collapse;margin-bottom:10px}
+    table.items th,table.items td{border:1.2px solid #000;padding:4px 6px;font-size:11.5px;text-align:left;vertical-align:top}
+    table.items th{background:#efefef;text-align:center}
+    td.r{text-align:right}td.c,th.c{text-align:center}.muted{color:#777}small{color:#555}
+    .totbox{border:1.6px solid #000;display:flex;gap:10px;padding:8px 10px;margin-bottom:10px}
+    .totbox .tl{flex:1;align-self:center}
+    .totbox .tr2{min-width:300px}
+    .totbox .trow2{display:flex;justify-content:space-between;gap:14px;padding:1px 0}
+    .totbox .trow2 .v{font-weight:700;min-width:110px;text-align:right}
+    .tot-bgn{text-align:right;font-size:11px}
+    .bankbox{border:1.6px solid #000;padding:8px 10px;margin-top:12px}
+    .bankrow{display:flex;justify-content:space-between}
+    .bankrow .bl b{display:inline-block;min-width:76px}
+    .signs{display:flex;justify-content:space-between;margin-top:16px}
+    .signs .sg{width:46%}
+    .isobox{text-align:center;margin-top:26px}
+    .isobox img{height:92px}
+    .made{ text-align:center;font-size:9.5px;color:#666;margin-top:6px}
+    @media print{body{margin:8mm;max-width:none}.noprint{display:none}}
+    .noprint{text-align:center;margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
   </style></head><body>
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button></div>
-    <div class="head">
-      <div><h1>${escapeHtml(title)}</h1><div>${L.orig}</div></div>
-      <div class="meta"><b>${escapeHtml(s.name || "")}</b><br>${L.no} <b>${escapeHtml(o.docNo || "____")}</b><br>${L.date}: <b>${escapeHtml(o.issueDate || "")}</b>${o.orderRef ? `<br>${L.order}: ${escapeHtml(o.orderRef)}` : ""}</div>
-    </div>
-    <div class="parties">
-      <div class="party"><h3>${L.recipient}</h3><b>${escapeHtml(o.client.name || "")}</b><br>${clientLines || '<span class="muted">—</span>'}</div>
-      <div class="party"><h3>${L.supplier}</h3><b>${escapeHtml(s.name || "")}</b><br>${sellerLines}</div>
+    <div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>
+    <hr class="thin" />
+    <div class="trow"><span style="width:80px"></span><h1>${escapeHtml(title)}</h1><span class="orig">${L.orig}</span></div>
+    <hr class="thin" />
+    <div class="meta">
+      <div class="ml">${L.no}: <b>${escapeHtml(o.docNo || "____")}</b><br>${L.date}: <b>${fmtD(o.issueDate)}</b></div>
+      <div class="mr">
+        <div><span class="lab">${L.order}:</span> ${escapeHtml(o.orderRef || "/")}</div>
+        ${s.phone ? `<div><span class="lab">${L.tel}:</span> ${escapeHtml(s.phone)}</div>` : ""}
+        ${s.email ? `<div><span class="lab">e-mail:</span> ${escapeHtml(s.email)}</div>` : ""}
+      </div>
     </div>
     ${noteRef}${vatBasis}
+    <div class="parties">
+      <div class="party"><div class="ph">${L.recipient}:</div><div class="pb">
+        <b>${escapeHtml((c.name || "").toUpperCase())}</b><br><br>
+        ${c.eik ? `<b>${L.eik} ${escapeHtml(c.eik)}</b><br>` : ""}
+        ${c.vat ? `<b>${escapeHtml(c.vat)}</b><br>` : ""}
+        ${[c.street, c.city, c.country].filter(Boolean).map(x => escapeHtml(x)).join("<br>")}
+        <span class="mol">${escapeHtml((c.person || "").toUpperCase())}</span>
+      </div></div>
+      <div class="party"><div class="ph">${L.supplier}:</div><div class="pb">
+        <b>${escapeHtml((s.name || "").toUpperCase())}</b><br><br>
+        <b>${L.eik} ${escapeHtml(s.eik || "")}</b><br>
+        <b>${escapeHtml(s.vat || "")}</b><br>
+        ${escapeHtml((s.address || "").toUpperCase())}<br>
+        ${escapeHtml((s.city || "").toUpperCase())}<br>
+        ${en ? "Bulgaria" : "България"}
+        <span class="mol">${escapeHtml(s.mol || "")}</span>
+      </div></div>
+    </div>
     <table class="items">
-      <thead><tr><th>${L.nn}</th><th>${L.code}</th><th>${L.name}</th><th>${L.qty}</th><th>${L.price} ${cur}</th><th>${L.amount} ${cur}</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <thead><tr>
+        <th class="c" style="width:26px">${L.nn}</th>
+        <th>${L.name}</th>
+        <th class="c" style="width:82px">${L.ordCol}</th>
+        <th class="c" style="width:70px">${L.code}</th>
+        <th class="c" style="width:78px">${L.qty}</th>
+        <th class="c" style="width:70px">${L.price}<br>${cur}</th>
+        <th class="c" style="width:84px">${L.amount}<br>${cur}</th>
+      </tr></thead>
+      <tbody>${rows}
+        <tr><td></td><td class="r" colspan="3"><b>${L.totalQty}:</b></td><td class="r">${erpNum(totQty)}</td><td></td><td></td></tr>
+      </tbody>
     </table>
-    <div class="words">${L.words}: <b>${escapeHtml(invAmountWords(t.total, cur, en ? "en" : "bg"))}</b></div>
-    <table class="sum">
-      <tr><td>${L.base}</td><td class="r">${erpInvMoney(t.base, cur)}</td></tr>
-      <tr><td>${L.vatL} ${t.rate}%</td><td class="r">${erpInvMoney(t.vat, cur)}</td></tr>
-      <tr class="g"><td><b>${L.total}</b></td><td class="r"><b>${erpInvMoney(t.total, cur)}</b></td></tr>
-      ${bgn}
-    </table>
-    <div class="pay">${L.pay}: <b>${escapeHtml(o.paymentMethod || "")}</b>${(o.dueDate || Number(o.termDays) > 0) ? ` · ${L.due}: <b>${escapeHtml(o.dueDate || "")}</b>${Number(o.termDays) > 0 ? ` (${o.termDays} ${en ? "days" : "дни"})` : ""}` : ""}</div>
-    ${o.note ? `<div class="pay">${escapeHtml(o.note)}</div>` : ""}
-    <div class="foot"><div>${L.compiled}${o.compiledBy ? ": " + escapeHtml(o.compiledBy) : ""}</div><div>${L.received}</div></div>
+    <div class="totbox">
+      <div class="tl">
+        <div><b>${L.words}:</b> ${escapeHtml(invAmountWords(t.total, cur, en ? "en" : "bg"))}</div>
+        <div>${L.pay}: ${escapeHtml(o.paymentMethod || "")}</div>
+        ${(o.dueDate || Number(o.termDays) > 0) ? `<div>${L.due}: <b>${fmtD(o.dueDate)}</b>${Number(o.termDays) > 0 ? ` (${o.termDays} ${en ? "days" : "дни"})` : ""}</div>` : ""}
+      </div>
+      <div class="tr2">
+        <div class="trow2"><span>${L.base}:</span><span class="v">${fm(t.base)} ${cur}</span></div>
+        <div class="trow2"><span>${L.vatL} ${t.rate}%:</span><span class="v">${fm(t.vat)} ${cur}</span></div>
+        <div class="trow2"><span><b>${L.total}:</b></span><span class="v" style="font-size:13px">${fm(t.total)} ${cur}</span></div>
+        ${bgnLine}
+      </div>
+    </div>
+    ${o.note ? `<div class="inl">${escapeHtml(o.note)}</div>` : ""}
+    <div class="bankbox">
+      <div class="bankrow">
+        <div class="bl">
+          <div><b>${L.ibanL}:</b> ${escapeHtml(s.iban || "")}</div>
+          <div><b>${L.bicL}:</b> ${escapeHtml(s.bic || "")}</div>
+          <div><b>${L.bankL}:</b> ${escapeHtml((s.bank || "").toUpperCase())}</div>
+        </div>
+        <div class="br">
+          <div><b>${L.date}:</b> ${fmtD(o.issueDate)}</div>
+          <div><b>${L.suppSign}:</b> ${escapeHtml((s.name || "").toUpperCase())}</div>
+        </div>
+      </div>
+      <div class="signs">
+        <div class="sg">${L.received}:................................</div>
+        <div class="sg" style="text-align:right">${L.suppSign}:..............................<br><span style="margin-right:30px">${escapeHtml(o.compiledBy || "")}</span></div>
+      </div>
+    </div>
+    <div class="isobox"><img src="${base}iso-cert.png" alt="ISO 9001:2015" /></div>
+    <div class="made">Данко Системс · СИСТЕМАТА</div>
   </body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
 }
-
-/* ---------- Етап 2: фактура от продажба ---------- */
-function erpInvFromSale(sale) {
-  const today = new Date().toISOString().slice(0, 10);
-  const country = (sale.clientCountry || "").trim();
-  const isExport = !!country && !/^(bg|бг|българия|bulgaria)$/i.test(country);
-  const lines = (sale.lines || []).map(l => ({
-    productId: l.refId || l.productId, code: l.code || "", name: l.name || "", clientCode: l.clientCode || "",
-    unit: l.unit || "бр.", qty: erpToNum(l.qty) || 0, unitPrice: erpToNum(l.unitPrice) || "",
-  })).filter(l => (erpToNum(l.qty) || 0) > 0);
-  if (!lines.length) { alert("Продажбата няма редове с количество."); return; }
-  erpInvForm({
-    kind: "invoice", seriesKey: isExport ? "1" : "2",   // 1 = износ, 2 = вътрешен
-    issueDate: today, taxDate: sale.taxDate || today,
-    orderRef: sale.note || "",
-    client: { name: sale.clientName || "", eik: "", vat: sale.clientVat || "", city: sale.clientCity || "", street: sale.clientStreet || "", country: country || "България", person: "" },
-    clientId: sale.clientId || null,
-    currency: sale.currency || "EUR", vatRate: sale.vatRate != null ? sale.vatRate : 20, vatBasis: "",
-    paymentMethod: sale.paymentMethod || "по банка", termDays: sale.termDays || 0, dueDate: sale.dueDate || "", note: "",
-    refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
-    saleId: sale.id, compiledBy: (ERP_SELLER && ERP_SELLER.mol) || "",
-    transport: {}, pallets: [],
-    __applyProfile: (!sale.termDays && sale.clientName) ? sale.clientName : null,   // навици от историята
-  });
-}
-
-/* ---------- Етап 3: данни за транспорт / палети ---------- */
-function erpInvTransportDialog(o, onDone) {
-  const tr = o.transport = o.transport || {};
-  const f = (id, label, val, ph) => `<label>${label} <input type="text" id="tr-${id}" value="${escapeAttr(val || "")}" ${ph ? `placeholder="${escapeAttr(ph)}"` : ""} /></label>`;
-  const { wrap, close } = erpDialog(`
-    <h3>Данни за транспорт (ЧМР / Packing List)</h3>
-    <div class="inv-tr-grid">
-      ${f("carrier", "Превозвач", tr.carrier)}
-      ${f("vehicle", "Рег. № на МПС", tr.vehicleReg)}
-      ${f("driver", "Шофьор", tr.driver)}
-      ${f("loadPlace", "Място на товарене", tr.loadPlace, "град, държава")}
-      ${f("unloadPlace", "Място на разтоварване", tr.unloadPlace, "град, държава")}
-      ${f("loadDate", "Дата на товарене", tr.loadDate)}
-      ${f("incoterms", "Условие на доставка (Incoterms)", tr.incoterms, "напр. FCA Пловдив")}
-      ${f("packages", "Брой пакети/палети", tr.totalPackages)}
-      ${f("weight", "Общо бруто тегло (кг)", tr.totalWeightKg)}
-    </div>
-    <div class="erp-dialog-actions"><button class="btn" id="tr-cancel">Отказ</button><button class="btn btn-primary" id="tr-save">Запази</button></div>`);
-  wrap.querySelector("#tr-cancel").addEventListener("click", close);
-  wrap.querySelector("#tr-save").addEventListener("click", () => {
-    const g = id => (wrap.querySelector("#tr-" + id).value || "").trim();
-    o.transport = { carrier: g("carrier"), vehicleReg: g("vehicle"), driver: g("driver"), loadPlace: g("loadPlace"), unloadPlace: g("unloadPlace"), loadDate: g("loadDate"), incoterms: g("incoterms"), totalPackages: g("packages"), totalWeightKg: g("weight") };
-    close();
-    if (typeof onDone === "function") onDone();
-  });
-}
-
-function erpInvPalletsDialog(o, onDone) {
-  o.pallets = o.pallets || [];
-  const finish = () => (typeof onDone === "function" ? onDone() : erpInvForm(o));
-  const render = () => `${(o.pallets || []).map((p, i) => `
-    <div class="inv-pal-row" data-i="${i}">
-      <input type="text" class="pal-no" data-i="${i}" value="${escapeAttr(p.no || String(i + 1))}" placeholder="№" style="width:50px" />
-      <input type="text" class="pal-desc" data-i="${i}" value="${escapeAttr(p.desc || "")}" placeholder="съдържание (код/наименование)" />
-      <input type="number" class="pal-qty" data-i="${i}" value="${escapeAttr(String(p.qty || ""))}" placeholder="бр." style="width:80px" />
-      <input type="number" class="pal-w" data-i="${i}" value="${escapeAttr(String(p.weightKg || ""))}" placeholder="кг" style="width:80px" />
-      <button type="button" class="btn btn-small btn-danger pal-rm" data-i="${i}">×</button>
-    </div>`).join("") || `<p class="report-empty">Няма палети. Добави или „Попълни от редовете".</p>`}`;
-  const { wrap, close } = erpDialog(`
-    <h3>Палети (за Палет опис / Packing List)</h3>
-    <div id="pal-list">${render()}</div>
-    <div class="erp-dialog-actions" style="justify-content:flex-start">
-      <button class="btn btn-small" id="pal-add">+ Палет</button>
-      <button class="btn btn-small" id="pal-fill" title="По един палет на ред; килограмите се смятат от рецептата (може да се коригират ръчно)">↻ Попълни от редовете (+ кг от рецепта)</button>
-      <span class="spacer" style="flex:1"></span>
-      <button class="btn" id="pal-cancel">Затвори</button>
-      <button class="btn btn-primary" id="pal-save">Запази</button>
-    </div>`);
-  const listEl = wrap.querySelector("#pal-list");
-  const readBack = () => {
-    listEl.querySelectorAll(".inv-pal-row").forEach(row => {
-      const i = Number(row.dataset.i); const p = o.pallets[i]; if (!p) return;
-      p.no = row.querySelector(".pal-no").value; p.desc = row.querySelector(".pal-desc").value;
-      p.qty = erpToNum(row.querySelector(".pal-qty").value); p.weightKg = erpToNum(row.querySelector(".pal-w").value);
-    });
-  };
-  const redraw = () => { listEl.innerHTML = render(); wire(); };
-  const wire = () => {
-    listEl.querySelectorAll(".pal-rm").forEach(b => b.addEventListener("click", () => { readBack(); o.pallets.splice(Number(b.dataset.i), 1); redraw(); }));
-  };
-  wire();
-  wrap.querySelector("#pal-add").addEventListener("click", () => { readBack(); o.pallets.push({ no: String(o.pallets.length + 1), desc: "", qty: "", weightKg: "" }); redraw(); });
-  wrap.querySelector("#pal-fill").addEventListener("click", () => {
-    o.pallets = erpDocAutoRows(o).map((p, i) => ({ no: String(i + 1), desc: p.desc, qty: erpToNum(p.qty) || "", weightKg: p.weightKg }));
-    redraw();
-  });
-  wrap.querySelector("#pal-cancel").addEventListener("click", () => { readBack(); close(); finish(); });
-  wrap.querySelector("#pal-save").addEventListener("click", () => { readBack(); close(); finish(); });
-}
-
-/* ---------- Печат: общ прозорец ---------- */
-function invPrintWindow(titleText, bodyHtml, lang) {
-  const css = `*{box-sizing:border-box}body{font-family:Arial,"DejaVu Sans",sans-serif;color:#111;font-size:12px;margin:16px 22px}
-    h1{font-size:20px;color:#0f766e;margin:0 0 2px;letter-spacing:1px}
-    .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f766e;padding-bottom:8px;margin-bottom:12px}
-    .parties{display:flex;gap:16px;margin-bottom:14px}.party{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px}.party h3{margin:0 0 4px;font-size:12px;color:#0f766e}
-    table{width:100%;border-collapse:collapse;margin-bottom:10px}th,td{border:1px solid #cbd5e1;padding:5px 7px;font-size:11.5px;text-align:left}th{background:#ecfdf5;color:#065f46}
-    td.r{text-align:right}td.c{text-align:center}.muted{color:#777}.kv{margin:2px 0}
-    .foot{display:flex;justify-content:space-between;margin-top:26px;font-size:11px}.foot div{flex:1;border-top:1px solid #333;padding-top:4px;margin:0 12px;text-align:center}
-    .cmr{border:1px solid #333}.cmr td{vertical-align:top;height:auto}.cmr .lbl{font-size:9px;color:#555;display:block}
-    @media print{body{margin:8mm}.noprint{display:none}}.noprint{text-align:center;margin:14px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}`;
-  const w = window.open("", "_blank");
-  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
-  w.document.write(`<!doctype html><html lang="${lang || "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(titleText)}</title><style>${css}</style></head><body><div class="noprint"><button class="btnp" onclick="window.print()">🖨</button></div>${bodyHtml}</body></html>`);
-  w.document.close(); w.focus();
-}
-function invSellerBlock() {
-  const s = ERP_SELLER || {};
-  return `<b>${escapeHtml(s.name || "")}</b><br>ЕИК ${escapeHtml(s.eik || "")} · ДДС ${escapeHtml(s.vat || "")}<br>${escapeHtml([s.address, s.city].filter(Boolean).join(", "))}`;
-}
-function invClientBlock(o) {
-  const c = o.client || {};
-  return `<b>${escapeHtml(c.name || "")}</b><br>${c.eik ? "ЕИК " + escapeHtml(c.eik) + " · " : ""}${c.vat ? "ДДС " + escapeHtml(c.vat) : ""}<br>${escapeHtml([c.street, c.city, c.country].filter(Boolean).join(", "))}`;
-}
-function invDocRef(o) { return (o.docNo ? "фактура № " + o.docNo : "чернова") + (o.issueDate ? " / " + o.issueDate : ""); }
-
-/* ---------- Стокова разписка (БГ) ---------- */
 function erpInvPrintGoodsNote(o) {
   let totKg = 0;
   const rows = (o.lines || []).map((l, i) => {
