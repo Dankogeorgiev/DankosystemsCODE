@@ -87,22 +87,29 @@ const NIT_MECHANISMS = [
 const NIT_OP_INDEX = (() => { const m = {}; NIT_MECHANISMS.forEach(me => me.ops.forEach(o => { m[o.n] = { mech: me.name, r: o.r, t: o.t }; })); return m; })();
 const NIT_RIVET_TYPES = [["обикн", "обикновени"], ["големи", "големи"], ["колела", "колела"], ["ос", "ос"]];
 
+/* Ляв / Десен: новите записи пазят {l, d} за операция; старите са число (без
+   страна — брои се като десен). Общите категории (на парче) са без Л/Д. */
+const NIT_NO_LD = new Set(["ЛАЗ. РЯЗАНЕ", "ЗАНИТВАНЕ"]);
+function nitOpTotal(v) { return (v && typeof v === "object") ? (nitNum(v.l) + nitNum(v.d)) : nitNum(v); }
+function nitOpLD(v) { return (v && typeof v === "object") ? { l: nitNum(v.l), d: nitNum(v.d) } : { l: 0, d: nitNum(v) }; }
+
 /* ---------- Връзка със Склад детайли ----------
    Операциите с наш код се ЗАПРИХОДЯВАТ в Склад детайли при запис на отчета.
    Синхронизира се по разликата (rec.stocked пази вече заприходеното за
    служител+ден+операция) — редакция на бройката прави корекция в склада.
    Засега: механизъм ИТАЛИЯ. Добавяне на нов ред тук = нова връзка. */
 const NIT_STOCK_MAP = {
-  "Италия 2ка 3ка": "101116",
-  "Италия само нож": "101114",
-  "Италия 2ка 3ка и Нож": "100949",   // = 101116 + 101114, направени наведнъж
+  //                        десен код   ляв код (чакаме от Данко)
+  "Италия 2ка 3ка":       { d: "101116", l: "" },
+  "Италия само нож":      { d: "101114", l: "" },
+  "Италия 2ка 3ка и Нож": { d: "100949", l: "" },   // = 101116 + 101114 наведнъж
 };
 let NIT_PID = null;   // код → product_id (зарежда се веднъж)
 async function nitStockIds() {
   if (NIT_PID) return NIT_PID;
   NIT_PID = {};
   try {
-    const codes = [...new Set(Object.values(NIT_STOCK_MAP))];
+    const codes = [...new Set(Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]).filter(Boolean))];
     const { data } = await sb.from("products").select("id,code").in("code", codes);
     (data || []).forEach(p => { NIT_PID[String(p.code).trim()] = p.id; });
   } catch (e) { /* без връзка със склада — отчетът пак се записва */ }
@@ -112,24 +119,33 @@ async function nitSyncStock(rec) {
   const ids = await nitStockIds();
   rec.stocked = rec.stocked || {};
   const moves = [], applied = [];
-  Object.keys(NIT_STOCK_MAP).forEach(op => {
-    const pid = ids[NIT_STOCK_MAP[op]];
-    if (!pid) return;
-    const now = Number((rec.ops || {})[op]) || 0;
-    const done = Number(rec.stocked[op]) || 0;
-    const delta = now - done;
-    if (!delta) return;
-    moves.push({
-      product_id: pid, kind: "заприходяване", quantity: delta,
-      ref: `нит:${rec.worker}|${rec.date}|${op}`,
-      note: `Занитване · ${rec.worker} · ${op}` + (delta < 0 ? " (корекция)" : ""),
+  Object.entries(NIT_STOCK_MAP).forEach(([op, m]) => {
+    const ld = nitOpLD((rec.ops || {})[op]);
+    [["l", "Л", "ляв"], ["d", "Д", "десен"]].forEach(([sk, tag, word]) => {
+      const code = m[sk]; if (!code) return;
+      const pid = ids[code]; if (!pid) return;
+      const key = op + "¦" + tag;
+      // съвместимост: старият формат пазеше stocked[op] без страна (= десен)
+      const done = rec.stocked[key] != null ? Number(rec.stocked[key]) || 0
+        : (sk === "d" ? Number(rec.stocked[op]) || 0 : 0);
+      const now = ld[sk];
+      const delta = now - done;
+      if (!delta) {
+        if (rec.stocked[key] == null && sk === "d" && rec.stocked[op] != null) { rec.stocked[key] = done; delete rec.stocked[op]; }
+        return;
+      }
+      moves.push({
+        product_id: pid, kind: "заприходяване", quantity: delta,
+        ref: `нит:${rec.worker}|${rec.date}|${op}|${tag}`,
+        note: `Занитване · ${rec.worker} · ${op} (${word})` + (delta < 0 ? " · корекция" : ""),
+      });
+      applied.push({ key, now, op, sk });
     });
-    applied.push({ op, now });
   });
   if (!moves.length) return true;
   const { error } = await sb.from("product_movements").insert(moves);
   if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message); return false; }
-  applied.forEach(a => { rec.stocked[a.op] = a.now; });
+  applied.forEach(a => { rec.stocked[a.key] = a.now; if (a.sk === "d") delete rec.stocked[a.op]; });
   return true;
 }
 
@@ -194,7 +210,7 @@ function nitRenderMechanisms(v) {
   const worker = nitWorker || NIT_WORKERS[0];
   if (!nitWorker) nitWorker = worker;
   const rec = NIT.records[nitKey(worker, nitDate)] || { ops: {} };
-  const mechQty = me => me.ops.reduce((s, o) => s + nitNum(rec.ops ? rec.ops[o.n] : 0), 0);
+  const mechQty = me => me.ops.reduce((s, o) => s + nitOpTotal(rec.ops ? rec.ops[o.n] : 0), 0);
 
   const workerCtrl = isW
     ? `<span class="rog-who">👷 <b>${escapeHtml(worker)}</b></span><button class="btn btn-small rog-switch-btn" id="nit-switch">🔄 Смени служител</button>`
@@ -233,11 +249,24 @@ function nitRenderOps(v) {
       <span class="rog-who">🔩 <b>${escapeHtml(me.name)}</b> · 👷 ${escapeHtml(worker)} · ${nitFmtDate(nitDate)}</span>
     </div>
     <div class="rog-rows">
-      <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">брой</span></div></div>
-      ${me.ops.map(o => `<div class="rog-row">
-        <div class="rog-op">${escapeHtml(o.n)}</div>
-        <div class="rog-inputs"><input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" min="0" step="any" inputmode="decimal" value="${rec.ops && rec.ops[o.n] != null ? escapeAttr(String(rec.ops[o.n])) : ""}" placeholder="брой" /></div>
-      </div>`).join("")}
+      <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">${NIT_NO_LD.has(me.name) ? "брой" : "Л = ляв · Д = десен"}</span></div></div>
+      ${me.ops.map(o => {
+        const cur = rec.ops ? rec.ops[o.n] : null;
+        if (NIT_NO_LD.has(me.name)) {
+          return `<div class="rog-row">
+            <div class="rog-op">${escapeHtml(o.n)}</div>
+            <div class="rog-inputs"><input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" min="0" step="any" inputmode="decimal" value="${cur != null ? escapeAttr(String(nitOpTotal(cur))) : ""}" placeholder="брой" /></div>
+          </div>`;
+        }
+        const ld = nitOpLD(cur);
+        return `<div class="rog-row">
+          <div class="rog-op">${escapeHtml(o.n)}</div>
+          <div class="rog-inputs rog-ld">
+            <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" min="0" step="any" inputmode="decimal" value="${ld.l ? escapeAttr(String(ld.l)) : ""}" placeholder="ляв" /></label>
+            <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" min="0" step="any" inputmode="decimal" value="${ld.d ? escapeAttr(String(ld.d)) : ""}" placeholder="десен" /></label>
+          </div>
+        </div>`;
+      }).join("")}
     </div>
     <div class="rog-tot-line" id="nit-tot"></div>
     <div class="rog-actions">
@@ -253,7 +282,17 @@ function nitRenderOps(v) {
     const key = nitKey(worker, nitDate);
     const r = NIT.records[key] || { worker, date: nitDate, ops: {} };
     r.worker = worker; r.date = nitDate; r.ops = r.ops || {};
-    v.querySelectorAll(".nit-q").forEach(inp => { const op = inp.dataset.op; const q = nitNum(inp.value); if (q > 0) r.ops[op] = q; else delete r.ops[op]; });
+    const vals = {};
+    v.querySelectorAll(".nit-q").forEach(inp => {
+      const op = inp.dataset.op, side = inp.dataset.side || "";
+      const q = nitNum(inp.value);
+      const cur = vals[op] || (vals[op] = {});
+      if (side) cur[side] = q; else cur.single = q;
+    });
+    Object.entries(vals).forEach(([op, x]) => {
+      if (x.single !== undefined) { if (x.single > 0) r.ops[op] = x.single; else delete r.ops[op]; }
+      else { const l = nitNum(x.l), d = nitNum(x.d); if (l > 0 || d > 0) r.ops[op] = { l, d }; else delete r.ops[op]; }
+    });
     r.at = new Date().toISOString();
     const btn = v.querySelector("#nit-save"); btn.disabled = true; btn.textContent = "Записва…";
     // Заприходяване в Склад детайли за операциите с наш код (по разликата).
@@ -293,7 +332,7 @@ function nitSummaryData(from, to) {
     const w = r.worker; if (!opAgg[w]) return;
     let any = false;
     Object.entries(r.ops || {}).forEach(([op, qv]) => {
-      const q = nitNum(qv); if (!q) return; any = true;
+      const q = nitOpTotal(qv); if (!q) return; any = true;
       const info = NIT_OP_INDEX[op]; if (!info) return;
       opAgg[w][op] = (opAgg[w][op] || 0) + q;
       mechAgg[w][info.mech] = (mechAgg[w][info.mech] || 0) + q;
