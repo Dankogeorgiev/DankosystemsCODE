@@ -393,6 +393,7 @@ async function creditWeldingWorkshop(product,qty,timeExtra,worker,robotName){
     if(left<=0)break;
   }
   let first=true;
+  const readyIds=new Set();   // заявки за проверка „готова за продажба"
   for(const p of plan){
     const {data}=await c.from('tasks').select('*').eq('id',p.id).maybeSingle();
     if(!data||!data.data)continue;
@@ -401,12 +402,21 @@ async function creditWeldingWorkshop(product,qty,timeExtra,worker,robotName){
     t.logs=Array.isArray(t.logs)?t.logs:[];
     const e={date:todayStr(),worker:worker||'',qty:p.give,machine:robotName};
     if(first){if(timeExtra.tOrder)e.tOrder=timeExtra.tOrder;if(timeExtra.tSetup)e.tSetup=timeExtra.tSetup;if(timeExtra.consumables)e.consumables=timeExtra.consumables;}
+    if(window.FLOW_CREDIT)e.lid=Date.now().toString(36)+'-r-'+Math.random().toString(36).slice(2,6);
     t.logs.push(e);
     const done=(Number(t.qty)||0)>0&&(Number(t.produced)||0)>=(Number(t.qty)||0);
     const {error}=await c.from('tasks').update({data:t,done,updated_at:new Date().toISOString()}).eq('id',p.id);
     if(error)throw error;
+    // Складови последствия като в главното табло: изписване на вложените
+    // детайли от рецептата, заприходяване на готовото, вечен дневник.
+    if(window.FLOW_CREDIT){
+      try{ await FLOW_CREDIT.afterCredit(c,p.id,t); }catch(err){ console.warn('Заваръчно роботи: складови движения',err); }
+      try{ await FLOW_CREDIT.prodLog(c,p.id,t,e); }catch(err){}
+      const s=t.source; ((s&&s.orderIds)||[]).forEach(x=>readyIds.add(String(x)));
+    }
     first=false;
   }
+  if(window.FLOW_CREDIT&&readyIds.size){ try{ await FLOW_CREDIT.markOrdersReady(c,[...readyIds]); }catch(err){} }
 }
 
 /* ===== Преименуване ===== */
@@ -488,6 +498,7 @@ else loadWeldingTasks();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
+<script src="../flow-credit.js?v=1"></script>
 <script src="sync.js?v=1"></script>
 </body>
 </html>
