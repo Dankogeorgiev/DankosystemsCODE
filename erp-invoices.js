@@ -36,19 +36,32 @@ async function erpSaveInvoice(o) {
 /* ---------- Серии / номерация ---------- */
 async function erpInvLoadSeries() {
   if (erpInvSeries) return erpInvSeries;
+  let fixed = false;
   try {
     const { data } = await sb.from("app_config").select("data").eq("id", "invoice_series").maybeSingle();
     erpInvSeries = (data && data.data && data.data.series) || null;
+    fixed = !!(data && data.data && data.data.fix2026);
   } catch (e) { erpInvSeries = null; }
+  // ЕДНОКРАТНА корекция (07.2026, по Данко): серия 1 = ИЗНОС (беше сбъркано
+  // „Български пазар"), серия 2 = вътрешен пазар, серия 3 = месечни +
+  // стартовите номера от GenCloud. Изпълнява се веднъж (маркер fix2026).
+  if (!fixed) {
+    erpInvSeries = {
+      "1": { label: "Износ (външен пазар, English)", lang: "en", next: 1000003036 },
+      "2": { label: "Вътрешен пазар (България)", lang: "bg", next: 2000005409 },
+      "3": { label: "Месечни (край на месец)", lang: "bg", next: 3000000049 },
+    };
+    try { await erpInvSaveSeries(); } catch (e) { /* ще се запише при първата редакция */ }
+  }
   if (!erpInvSeries) erpInvSeries = {
-    "1": { label: "Български пазар", lang: "bg", next: 10000000 },
-    "2": { label: "Износ (English)", lang: "en", next: 20000000 },
-    "3": { label: "Месечни (край на месец)", lang: "bg", next: 300000000 },
+    "1": { label: "Износ (външен пазар, English)", lang: "en", next: 1000003036 },
+    "2": { label: "Вътрешен пазар (България)", lang: "bg", next: 2000005409 },
+    "3": { label: "Месечни (край на месец)", lang: "bg", next: 3000000049 },
   };
   return erpInvSeries;
 }
 async function erpInvSaveSeries() {
-  const { error } = await sb.from("app_config").upsert({ id: "invoice_series", data: { series: erpInvSeries }, updated_at: new Date().toISOString() });
+  const { error } = await sb.from("app_config").upsert({ id: "invoice_series", data: { series: erpInvSeries, fix2026: true }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис на сериите: " + error.message + (/row-level security|violates/i.test(error.message || "") ? "\n\nПусни веднъж app-config-rls-fix.sql в Supabase." : "")); throw error; }
 }
 
@@ -298,7 +311,7 @@ function erpOpenInvoice(id) {
 function erpNewInvoice(kind) {
   const today = new Date().toISOString().slice(0, 10);
   erpInvForm({
-    kind, seriesKey: kind === "proforma" ? "1" : "1",
+    kind, seriesKey: "2",   // по подразбиране: вътрешен пазар (серия 2)
     issueDate: today, taxDate: today, orderRef: "",
     client: { name: "", eik: "", vat: "", city: "", street: "", country: "България", person: "" }, clientId: null,
     currency: "EUR", vatRate: 20, vatBasis: "", paymentMethod: "по банка", termDays: 0, dueDate: "", note: "",
@@ -350,7 +363,7 @@ function erpInvClientProfile(name) {
     paymentMethod: last.paymentMethod || "",
     currency: last.currency || "EUR",
     vatRate: last.vatRate != null ? last.vatRate : 20,
-    seriesKey: last.seriesKey || "1",
+    seriesKey: last.seriesKey || "2",
     vatBasis: last.vatBasis || "",
   };
 }
@@ -587,7 +600,7 @@ async function erpInvIssue(o) {
   if (btn) { btn.disabled = true; btn.textContent = "Издавам…"; }
   try {
     await erpInvLoadSeries();
-    const ser = erpInvSeries[o.seriesKey] || erpInvSeries["1"];
+    const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
     o.docNo = String(ser.next);
     o.posted = true; o.status = "издадена";
     await erpSaveInvoice(o);              // уникалният индекс ще хване евентуален дублат
@@ -706,7 +719,7 @@ function erpInvFromSale(sale) {
   })).filter(l => (erpToNum(l.qty) || 0) > 0);
   if (!lines.length) { alert("Продажбата няма редове с количество."); return; }
   erpInvForm({
-    kind: "invoice", seriesKey: isExport ? "2" : "1",
+    kind: "invoice", seriesKey: isExport ? "1" : "2",   // 1 = износ, 2 = вътрешен
     issueDate: today, taxDate: sale.taxDate || today,
     orderRef: sale.note || "",
     client: { name: sale.clientName || "", eik: "", vat: sale.clientVat || "", city: sale.clientCity || "", street: sale.clientStreet || "", country: country || "България", person: "" },
