@@ -316,7 +316,7 @@ function erpNewInvoice(kind) {
     client: { name: "", eik: "", vat: "", city: "", street: "", country: "България", person: "" }, clientId: null,
     currency: "EUR", vatRate: 20, vatBasis: "", paymentMethod: "по банка", termDays: 0, dueDate: "", note: "",
     refInvoice: null, refReason: "", lines: [], status: "чернова", posted: false,
-    compiledBy: (ERP_SELLER && ERP_SELLER.mol) || "",
+    compiledBy: "",   // изготвилият се попълва във формата (поле „Изготвил фактурата")
   });
 }
 
@@ -419,6 +419,8 @@ async function erpInvForm(o) {
         <label>Падеж (дата за плащане) <input type="date" id="inv-due" value="${escapeAttr(o.dueDate || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Валута <select id="inv-cur" ${locked ? "disabled" : ""}>${["EUR", "BGN"].map(c => `<option ${c === cur ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         <label>ДДС ставка % <select id="inv-vat" ${locked ? "disabled" : ""}>${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
+        <label>Изготвил фактурата <input type="text" id="inv-compiled" list="inv-compiled-list" value="${escapeAttr(o.compiledBy || "")}" ${locked ? "disabled" : ""} placeholder="име на изготвилия" />
+          <datalist id="inv-compiled-list"><option value="Кристина Дончева"></option><option value="Данко Георгиев"></option><option value="Евгени Георгиев"></option><option value="Таня Илиева"></option></datalist></label>
       </div>
       ${isNote ? `<div class="inv-note-ref">
         <b>Връзка към фактура (чл. 115 — задължително):</b>
@@ -488,6 +490,7 @@ async function erpInvForm(o) {
   g("inv-due", e => o.dueDate = e.target.value);
   g("inv-cur", e => { o.currency = e.target.value; erpInvTotalsBox(o); });
   g("inv-vat", e => { o.vatRate = Number(e.target.value); erpInvForm(o); });
+  g("inv-compiled", e => o.compiledBy = e.target.value);
   g("inv-vatbasis", e => o.vatBasis = e.target.value);
   g("inv-refno", e => { o.refInvoice = o.refInvoice || {}; o.refInvoice.docNo = e.target.value; });
   g("inv-refdate", e => { o.refInvoice = o.refInvoice || {}; o.refInvoice.date = e.target.value; });
@@ -792,7 +795,7 @@ function erpInvPrint(o) {
       </div>
       <div class="signs">
         <div class="sg">${L.received}:................................</div>
-        <div class="sg" style="text-align:right">${L.suppSign}:..............................<br><span style="margin-right:30px">${escapeHtml(o.compiledBy || "")}</span></div>
+        <div class="sg" style="text-align:right">${en ? "Issued by" : "Изготвил фактурата"}:..............................<br><span style="margin-right:30px">${escapeHtml(o.compiledBy || "")}</span></div>
       </div>
     </div>
     <div class="isobox"><img src="${base}iso-cert.png" alt="ISO 9001:2015" /></div>
