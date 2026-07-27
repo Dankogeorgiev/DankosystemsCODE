@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=282" />
-  <link rel="stylesheet" href="erp.css?v=274" />
+  <link rel="stylesheet" href="erp.css?v=275" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 417</p>
+      <p class="login-version">версия 418</p>
     </form>
   </div>
 
@@ -570,6 +570,7 @@
           <button id="erp-close" class="btn">Затвори</button>
         </div>
       </div>
+      <div class="erp-tabs-row">
       <div class="tasks-controls erp-tabs">
         <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
         <button class="btn btn-small erp-tab" data-tab="rfq" title="Регистър на клиентските запитвания за оферта: №, клиент, дата, описание, мейл от клиента и папки с файлове">📄 Регистър RFQ</button>
@@ -579,18 +580,21 @@
         <button class="btn btn-small erp-tab" data-tab="matreq" title="Регистър на запитванията/заявките за материали към доставчици — кой какво е поискал и кога ще дойде">📨 Заявки за материали</button>
         <button class="btn btn-small erp-tab" data-tab="packaging" title="Как се опакова всяко изделие за всеки клиент (кг/брой, кг/кашон, кашони/палет, аксесоари). Оттук се пълнят придружаващите документи.">🎁 Опаковки</button>
         <button class="btn btn-small erp-tab" data-tab="detailstock">📦 Склад детайли</button>
-        <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
-        <button class="btn btn-small erp-tab" data-tab="payables">💳 Задължения</button>
-        <button class="btn btn-small erp-tab" data-tab="receivables">💵 Вземания</button>
-        <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
-        <button class="btn btn-small erp-tab" data-tab="invoices">📄 Фактуриране</button>
-        <button class="btn btn-small erp-tab" data-tab="archive">📚 Архив (изпълнени)</button>
         <button class="btn btn-small erp-tab" data-tab="products">📦 Продукти</button>
         <button class="btn btn-small erp-tab" data-tab="needs">📝 Чака рецепта</button>
         <button class="btn btn-small erp-tab" data-tab="requirements">🧮 Разбивка на нуждите</button>
         <button class="btn btn-small erp-tab" data-tab="operations">🏭 Операции → Цех</button>
         <button class="btn btn-small erp-tab" data-tab="partners">👥 Клиенти/Доставчици</button>
         <button class="btn btn-small erp-tab" data-tab="import">⤓ Импорт (xlsx)</button>
+      </div>
+      <div class="erp-fin-tabs" title="Финансови модули — плащания и документи">
+        <button class="btn btn-small erp-tab" data-tab="invoices">📄 Фактуриране</button>
+        <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
+        <button class="btn btn-small erp-tab" data-tab="payables">💳 Задължения</button>
+        <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
+        <button class="btn btn-small erp-tab" data-tab="receivables">💵 Вземания</button>
+        <button class="btn btn-small erp-tab" data-tab="archive" title="Архив (изпълнени заявки)">📚 Архив</button>
+      </div>
       </div>
       <div id="erp-open-tabs" class="erp-open-tabs" hidden></div>
       <div id="erp-view"></div>
