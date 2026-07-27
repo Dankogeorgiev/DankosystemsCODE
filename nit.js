@@ -105,26 +105,29 @@ const NIT_STOCK_MAP = {
   "Италия нож на заготовка":   { d: "101114", l: "101115" },   // същият резултат като „само нож"
   "Италия 2ка 3ка и Нож":      { d: "100949", l: "100950" },   // = 2ка3ка + нож наведнъж
 };
-let NIT_PID = null;   // код → product_id (зарежда се веднъж)
+let NIT_PID = null;   // код → product_id (кешира се само при УСПЕШНО зареждане)
 async function nitStockIds() {
   if (NIT_PID) return NIT_PID;
-  NIT_PID = {};
+  const out = {};
   try {
     const codes = [...new Set(Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]).filter(Boolean))];
-    const { data } = await sb.from("products").select("id,code").in("code", codes);
-    (data || []).forEach(p => { NIT_PID[String(p.code).trim()] = p.id; });
-  } catch (e) { /* без връзка със склада — отчетът пак се записва */ }
-  return NIT_PID;
+    const { data, error } = await sb.from("products").select("id,code").in("code", codes);
+    if (error) throw error;
+    (data || []).forEach(p => { out[String(p.code).trim()] = p.id; });
+    NIT_PID = out;   // кеш само при успех — при мрежова грешка ще опита пак
+  } catch (e) { /* без кеш — следващият запис ще опита наново */ }
+  return out;
 }
 async function nitSyncStock(rec) {
   const ids = await nitStockIds();
   rec.stocked = rec.stocked || {};
-  const moves = [], applied = [];
+  const moves = [], applied = [], missing = [];
   Object.entries(NIT_STOCK_MAP).forEach(([op, m]) => {
     const ld = nitOpLD((rec.ops || {})[op]);
     [["l", "Л", "ляв"], ["d", "Д", "десен"]].forEach(([sk, tag, word]) => {
       const code = m[sk]; if (!code) return;
-      const pid = ids[code]; if (!pid) return;
+      const pid = ids[code];
+      if (!pid) { if (ld[sk] > 0) missing.push(code + " (" + op + " · " + word + ")"); return; }
       const key = op + "¦" + tag;
       // съвместимост: старият формат пазеше stocked[op] без страна (= десен)
       const done = rec.stocked[key] != null ? Number(rec.stocked[key]) || 0
@@ -143,9 +146,10 @@ async function nitSyncStock(rec) {
       applied.push({ key, now, op, sk });
     });
   });
+  if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
   if (!moves.length) return true;
   const { error } = await sb.from("product_movements").insert(moves);
-  if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message); return false; }
+  if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message + "\n\nПокажи това съобщение на Данко."); return false; }
   applied.forEach(a => { rec.stocked[a.key] = a.now; if (a.sk === "d") delete rec.stocked[a.op]; });
   return true;
 }
