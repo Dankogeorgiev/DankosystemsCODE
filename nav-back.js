@@ -1,6 +1,10 @@
 /* Данко Системс — браузърният бутон „Назад" (и жестът назад на телефон)
    затваря текущия слой (диалог → детайл → модал), вместо да излиза от
-   приложението. Работи глобално, без промяна по останалите файлове. */
+   приложението. Работи глобално, без промяна по останалите файлове.
+   ВАЖНО: на устройства с МИШКА (десктоп) „назад" НЕ затваря нищо — само
+   оставаме на място. Иначе страничният бутон на мишката / случайно плъзгане
+   по тъчпада изхвърляше от Отчети/Съобщения/Цехове по средата на работа.
+   Слоевото затваряне остава за телефони/таблети (жестът назад е нарочен). */
 (function () {
   // Затваря най-горния отворен слой. Връща true, ако е обработено.
   function handleBack() {
@@ -19,9 +23,17 @@
     }
 
     // 3) Модал „Цехове" — винаги оставаме в приложението (пази заключените
-    //    цехови акаунти); затваряме само ако бутонът „Затвори" е видим (админ).
+    //    цехови акаунти). Подизглед (Отчети/Съобщения/Служители/Планиране…)
+    //    се връща към таблото на Цехове — НЕ затваряме целия модул.
     const tm = document.getElementById("tasks-modal");
     if (tm && !tm.hidden) {
+      const subs = ["workers-view", "report-view", "messages-view", "times-view", "planning-view", "board-view"];
+      const inSub = subs.some(id => { const el = document.getElementById(id); return el && !el.hidden; });
+      if (inSub && typeof showSub === "function") {
+        showSub("tasks");
+        if (typeof renderTasks === "function") try { renderTasks(); } catch (e) {}
+        return true;
+      }
       const c = document.getElementById("tasks-close");
       if (c && getComputedStyle(c).display !== "none") c.click();
       return true;
@@ -40,7 +52,16 @@
 
   function seed() { try { history.pushState({ dsBack: 1 }, ""); } catch (e) {} }
 
+  // Телефон/таблет (груб показалец) → жестът назад затваря слой (нарочен е).
+  // Десктоп с мишка → нищо не се затваря: случайният страничен бутон/плъзгане
+  // само остава на място (капанът в app.js връща състоянието).
+  const touchDevice = (function () {
+    try { return window.matchMedia && window.matchMedia("(pointer: coarse)").matches; }
+    catch (e) { return false; }
+  })();
+
   window.addEventListener("popstate", function () {
+    if (!touchDevice) return;   // мишка: не пипаме нищо, само оставаме (app.js)
     // Ако сме затворили слой — оставяме буферно състояние, за да не излезем.
     if (handleBack()) seed();
   });
