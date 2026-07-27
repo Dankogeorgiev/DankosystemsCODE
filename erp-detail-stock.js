@@ -173,6 +173,7 @@ function dsFillRows() {
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
+        ${(ERP.linesByProduct[p.id] || []).some(l => l.child_product_id) ? `<button type="button" class="btn btn-small ds-asm" data-id="${p.id}" title="Опаковка: изписва частите по рецептата от склада и заприходява готовия артикул — без операция в цех">🧩 сглоби</button>` : ""}
         <button type="button" class="btn btn-small ds-draw${dsHasDrawing(p) ? " ds-draw-has" : ""}" data-id="${p.id}" title="${dsHasDrawing(p) ? "Има прикачен чертеж" : "Няма чертеж"}">📎 чертежи</button>
         <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
       </td>
@@ -181,6 +182,7 @@ function dsFillRows() {
   const cnt = document.getElementById("ds-count");
   if (cnt) cnt.textContent = list.length > 300 ? `показани 300 от ${list.length}` : `${list.length} детайла`;
   tbody.querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
+  tbody.querySelectorAll(".ds-asm").forEach(b => b.addEventListener("click", () => dsAssembleDialog(Number(b.dataset.id))));
   tbody.querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
   tbody.querySelectorAll(".ds-prod").forEach(b => b.addEventListener("click", () => dsProduce(Number(b.dataset.id))));
   tbody.querySelectorAll(".ds-draw").forEach(b => b.addEventListener("click", () => {
@@ -832,6 +834,59 @@ async function dsImportFill(file) {
   await erpLoadAll();
   erpRenderDetailStock();
   alert(`Готово! Обновени ${moves.length} детайла.` + (unknown.length ? `\n${unknown.length} реда не бяха намерени по код/име.` : ""));
+}
+
+/* ---------- „Опаковка" — сглобяване на артикул от наличните му части ----------
+   За изделия без финална операция (напр. без „Опаковане"): частите са на склад,
+   а готовият артикул не се събира от производството. Тук се сглобява ръчно:
+   изписват се частите по рецептата, заприходява се готовият (erpAssembleFromParts). */
+async function dsAssembleDialog(pid) {
+  const p = ERP.prodById[pid] || {};
+  if (typeof erpAssembleFromParts !== "function" || typeof erpDirectStockComponents !== "function") { alert("Модулът за производство не е зареден. Презареди страницата."); return; }
+  const comps = erpDirectStockComponents(pid);
+  if (!comps.length) { alert("Този продукт няма части по рецепта, от които да се сглоби."); return; }
+  const stock = {};
+  try {
+    const { data } = await sb.from("v_product_stock").select("id,stock").in("id", comps.map(c => c.pid));
+    (data || []).forEach(r => { stock[r.id] = Number(r.stock) || 0; });
+  } catch (e) {}
+  let max = Infinity;
+  comps.forEach(c => { const per = Number(c.per) || 0; if (per > 0) max = Math.min(max, Math.floor(Math.max(0, stock[c.pid] || 0) / per)); });
+  if (!isFinite(max)) max = 0;
+  const rowsHtml = comps.map(c => {
+    const cp = ERP.prodById[c.pid] || {};
+    const per = Number(c.per) || 0, have = Math.max(0, stock[c.pid] || 0);
+    return `<tr><td><b>${escapeHtml(cp.code || "")}</b></td><td>${escapeHtml(cp.name || "")}</td><td class="num">${erpNum(per)}</td><td class="num ${have < per ? "erp-warn" : ""}">${erpNum(stock[c.pid] || 0)}</td><td class="num">${per > 0 ? erpNum(Math.floor(have / per)) : "—"}</td></tr>`;
+  }).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>🧩 Сглоби от налични части</h3>
+    <p><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} — сега на склад: <b>${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</p>
+    <table class="report-table erp-table"><thead><tr><th>Код</th><th>Част (за 1 бр.)</th><th class="num">Бройка</th><th class="num">Налично</th><th class="num">Стига за</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    <p class="hint">Изписва частите от Склад детайли и заприходява готовия артикул — „опаковка" без операция в цех. Ако част не достига, системата първо опитва да сглоби нея от нейните части.</p>
+    <label class="erp-inline">Колко броя да сглобя <input type="number" id="asm-qty" min="1" step="1" value="${max > 0 ? max : ""}" style="width:110px" /></label>
+    <span class="erp-muted">възможни сега: <b>${erpNum(max)}</b></span>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="asm-cancel">Отказ</button>
+      <button class="btn btn-primary" id="asm-go" ${max > 0 ? "" : "disabled"}>🧩 Сглоби</button>
+    </div>
+    <p class="save-status" id="asm-status"></p>`);
+  wrap.querySelector("#asm-cancel").addEventListener("click", close);
+  wrap.querySelector("#asm-go").addEventListener("click", async () => {
+    const q = Math.floor(erpToNum(wrap.querySelector("#asm-qty").value) || 0);
+    if (!(q > 0)) { alert("Въведи брой по-голям от 0."); return; }
+    const btn = wrap.querySelector("#asm-go"); btn.disabled = true;
+    const st = wrap.querySelector("#asm-status"); st.textContent = "Сглобявам…";
+    const res = await erpAssembleFromParts(pid, q, "сглоб:ръчно");
+    if (res.error) { st.textContent = "⚠ Грешка: " + res.error; btn.disabled = false; return; }
+    close();
+    await erpLoadAll();
+    erpRenderDetailStock();
+    const missTxt = (res.missing || []).map(m => `• ${m.code} ${m.name}: липсват ${erpNum(m.short)}`).join("\n");
+    alert(res.made > 0
+      ? `🧩 Сглобени ${erpNum(res.made)} бр. „${p.name || ""}" — частите са изписани, готовият е заприходен.`
+        + (res.made < q ? `\n\nЗа останалите ${erpNum(q - res.made)} бр. не достигат части:\n${missTxt}` : "")
+      : `Не може да се сглоби нито един брой — липсват части:\n${missTxt}`);
+  });
 }
 
 function dsMoveDialog(pid, kind) {

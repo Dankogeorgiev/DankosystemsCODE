@@ -580,12 +580,34 @@ async function erpPostSale(o) {
     msg += `\n⚠ Ако тази заявка вече е минала през „Пусни в производство", материалите СА ИЗПИСАНИ там — не потвърждавай материалните редове тук, за да не се броят двойно.`;
   }
   if (negatives.length) msg += `\n\n⚠ Материали на минус:\n` + negatives.slice(0, 12).join("\n") + (negatives.length > 12 ? `\n…и още ${negatives.length - 12}` : "");
-  if (dNegatives.length) msg += `\n\n⚠ Детайли на минус:\n` + dNegatives.slice(0, 12).join("\n") + (dNegatives.length > 12 ? `\n…и още ${dNegatives.length - 12}` : "");
+  if (dNegatives.length) {
+    msg += `\n\n⚠ Детайли на минус:\n` + dNegatives.slice(0, 12).join("\n") + (dNegatives.length > 12 ? `\n…и още ${dNegatives.length - 12}` : "");
+    msg += `\n🧩 Недостигащите готови артикули ще опитам първо да сглобя от наличните им части („опаковка" по рецептата).`;
+  }
   msg += `\n\nДействието се прави веднъж.`;
   if (!confirm(msg)) return;
 
   const ref = `Продажба ${o.saleNo || "—"} · ${o.clientName || ""}`.trim();
   const by = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || null;
+
+  // „Опаковка": готов артикул без финална операция никога не се събира от
+  // производството — частите му са на склад, а самият той не. Ако не достига,
+  // сглобяваме липсата от частите по рецептата (изписва части, заприходява готов),
+  // за да не отиде артикулът на минус при изписването по-долу.
+  const asmNotes = [];
+  if (dids.length && typeof erpAssembleFromParts === "function") {
+    for (const pid of dids) {
+      const have = Number((ERP.prodById[pid] || {}).stock) || 0;
+      const short = detailNeed[pid] - have;
+      if (short > 0) {
+        const res = await erpAssembleFromParts(pid, short, "сглоб:прод " + (o.saleNo || ""));
+        if (res && res.made > 0) {
+          const p = ERP.prodById[pid] || {};
+          asmNotes.push(`🧩 Сглобени ${erpNum(res.made)} бр. ${(p.code ? p.code + " " : "") + (p.name || "")} от наличните части (опаковка).`);
+        }
+      }
+    }
+  }
 
   if (mids.length) {
     const moves = mids.map(mid => ({ material_id: Number(mid), kind: "изписване", quantity: -Math.abs(need[mid]), ref, created_by: by }));
@@ -608,6 +630,7 @@ async function erpPostSale(o) {
   await erpLoadSales();
   alert(`Готово! Осчетоводена продажба №${o.saleNo}.`
     + (dids.length ? `\nИзписани ${dids.length} готови детайла от Склад детайли.` : "")
+    + (asmNotes.length ? `\n` + asmNotes.join("\n") : "")
     + (mids.length ? `\nИзписани ${mids.length} материала от склад материали.` : "")
     + closedNote);
   erpRenderSaleForm(o);
