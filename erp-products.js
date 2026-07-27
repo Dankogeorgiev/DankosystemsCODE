@@ -186,6 +186,11 @@ function erpRenderProducts() {
   const v = erpView();
   // Историята на клиентите (за собственик/споделен) — зарежда се веднъж лениво.
   if (ERP._prodHist === undefined) { ERP._prodHist = null; erpLoadProdHist().then(() => { if (ERP.tab === "products") erpProdFillRows(); }).catch(() => {}); }
+  // Клиент-собственик (втори обход на products) — също лениво, БЕЗ да бави
+  // отварянето: таблицата се показва веднага и се допълва после.
+  if (typeof erpEnsureOwnerClients === "function" && (ERP.hasOwnerClient === null || ERP.hasOwnerClient === undefined)) {
+    erpEnsureOwnerClients().then(() => { if (ERP.tab === "products") erpProdFillRows(); }).catch(() => {});
+  }
 
   v.innerHTML = `
     <div class="erp-toolbar">

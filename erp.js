@@ -64,18 +64,34 @@ function erpNextCode() {
 }
 
 // Тегли ВСИЧКИ редове (Supabase връща макс 1000/заявка) чрез странициране.
+// Страниците след първата се теглят ПАРАЛЕЛНО (по BATCH наведнъж) — при голяма
+// таблица (рецепти, продукти, наличности) последователното теглене правеше
+// десетки заявки една след друга и отварянето на екраните се влачеше.
 async function erpSelectAll(table, cols, eqCol, eqVal) {
-  const PAGE = 1000;
-  let from = 0, out = [];
-  for (;;) {
+  const PAGE = 1000, BATCH = 6;
+  const getPage = n => {
     let q = sb.from(table).select(cols);
     if (eqCol !== undefined) q = q.eq(eqCol, eqVal);
-    q = q.order("id", { ascending: true }).range(from, from + PAGE - 1);
-    const { data, error } = await q;
-    if (error) return { data: out, error };
-    out = out.concat(data || []);
-    if (!data || data.length < PAGE) break;
-    from += PAGE;
+    return q.order("id", { ascending: true }).range(n * PAGE, n * PAGE + PAGE - 1);
+  };
+  const first = await getPage(0);
+  if (first.error) return { data: [], error: first.error };
+  let out = (first.data || []).slice();
+  if (out.length < PAGE) return { data: out, error: null };
+  for (let next = 1; ;) {
+    const nums = [];
+    for (let i = 0; i < BATCH; i++) nums.push(next + i);
+    const res = await Promise.all(nums.map(getPage));
+    const bad = res.find(r => r && r.error);
+    if (bad) return { data: out, error: bad.error };
+    let last = false;
+    for (const r of res) {
+      const rows = (r && r.data) || [];
+      out = out.concat(rows);
+      if (rows.length < PAGE) { last = true; break; }   // край на данните
+    }
+    if (last) break;
+    next += BATCH;
   }
   return { data: out, error: null };
 }
@@ -114,6 +130,20 @@ function closeErp() { document.getElementById("erp-modal").hidden = true; }
 // Гарантира, че ЕРП данните са заредени (ползва се и извън модала — напр. в поръчките).
 async function erpEnsureLoaded() {
   if (!ERP.loaded) { await erpLoadAll(); ERP.loaded = true; }
+}
+
+// Клиент-собственик на продуктите — зарежда се веднъж, само когато потрябва
+// (таб Продукти). Връща true, ако колоната съществува в базата.
+async function erpEnsureOwnerClients() {
+  if (ERP.hasOwnerClient !== null && ERP.hasOwnerClient !== undefined) return ERP.hasOwnerClient;
+  try {
+    const oc = await erpSelectAll("products", "id,owner_client");
+    if (oc.error) { ERP.hasOwnerClient = false; return false; }
+    const m = {}; (oc.data || []).forEach(r => { m[r.id] = r.owner_client || ""; });
+    (ERP.products || []).forEach(p => { p.owner_client = m[p.id] || ""; });
+    ERP.hasOwnerClient = true;
+  } catch (e) { ERP.hasOwnerClient = false; }
+  return ERP.hasOwnerClient;
 }
 
 // Презарежда данните от базата и пре-рендира текущия таб. Останалите отворени
@@ -215,21 +245,13 @@ async function erpLoadAll() {
     ERP.prodStock = {};
     try {
       const ps = await erpSelectAll("v_product_stock", "id,stock");
-      if (!ps.error) (ps.data || []).forEach(r => { ERP.prodStock[r.id] = Number(r.stock) || 0; });
+      if (!ps.error) { (ps.data || []).forEach(r => { ERP.prodStock[r.id] = Number(r.stock) || 0; }); ERP._stockAt = Date.now(); }
     } catch (e) { /* складът за детайли още не е създаден — работим без нето */ }
     ERP.products.forEach(p => { p.stock = Number(ERP.prodStock[p.id]) || 0; });
 
-    // Клиент-собственик на продукта (по избор) — чете се от базовата таблица
-    // products (v_product_cost не го включва). Тихо, ако колоната още липсва.
-    ERP.hasOwnerClient = false;
-    try {
-      const oc = await erpSelectAll("products", "id,owner_client");
-      if (!oc.error) {
-        ERP.hasOwnerClient = true;
-        const m = {}; (oc.data || []).forEach(r => { m[r.id] = r.owner_client || ""; });
-        ERP.products.forEach(p => { p.owner_client = m[p.id] || ""; });
-      }
-    } catch (e) { /* колоната още липсва — работим без клиент-собственик */ }
+    // Клиент-собственик: чете се ЛЕНИВО (само за таб Продукти) — това е втори
+    // пълен обход на products и бавеше всяко отваряне на ЕРП.
+    ERP.hasOwnerClient = null;   // null = още не е проверено
 
     ERP.operations = ops.data || [];
     ERP.opById = {};
@@ -266,6 +288,10 @@ async function erpLoadAll() {
     // Опаковки — зареждат се тук, за да са налични за придружаващите документи
     // (Packing List/Стокова разписка/Палет опис), дори табът „Опаковки" да не е отварян.
     try { if (typeof erpPackLoad === "function") await erpPackLoad(); } catch (e) { /* тихо */ }
+
+    // Клиент-собственик: дозарежда се НА ЗАДЕН ФОН (не бави отварянето), за да
+    // е налично за таб Продукти и за разпознаването на артикули по клиент.
+    try { erpEnsureOwnerClients(); } catch (e) { /* тихо */ }
   } catch (e) {
     const msg = (e && e.message) || String(e);
     erpView().innerHTML =
