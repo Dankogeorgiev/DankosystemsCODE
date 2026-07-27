@@ -974,6 +974,7 @@ async function erpInvImport(file) {
 
 // Изтегля (изтрива) импортираните фактури — ръчно създадените остават.
 async function erpInvClearImport() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpLoadInvoices();
   const imp = (erpInvoices || []).filter(o => o.imported);
   if (!imp.length) { alert("Няма импортирани фактури."); return; }
@@ -987,6 +988,7 @@ async function erpInvClearImport() {
 
 // Пълно изчистване на Фактуриране — трие ВСИЧКИ документи.
 async function erpInvClearAll() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpLoadInvoices();
   const n = (erpInvoices || []).length;
   if (!n) { alert("Няма документи за изтриване."); return; }

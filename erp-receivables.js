@@ -288,6 +288,7 @@ async function erpRecvImport(file) {
 }
 // Изтегля (изтрива) импортираните вземания; тези от издадена фактура остават.
 async function erpRecvClearImport() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpRecvLoad();
   const imported = (RECEIVABLES || []).filter(p => !p.srcInvoiceId);
   if (!imported.length) { alert("Няма импортирани вземания за изтегляне."); return; }
@@ -298,6 +299,7 @@ async function erpRecvClearImport() {
 }
 // Пълно изчистване — трие ВСИЧКИ вземания (вкл. архива с платените).
 async function erpRecvClearAll() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpRecvLoad();
   const n = (RECEIVABLES || []).length;
   if (!n) { alert("Вземанията вече са празни."); return; }

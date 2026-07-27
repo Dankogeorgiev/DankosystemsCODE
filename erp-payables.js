@@ -226,6 +226,7 @@ async function erpPayImport(file) {
 // Изтегля (изтрива) импортираните от GenCloud задължения. Тези, дошли автоматично
 // от въведена фактура-разход (имат srcPurchaseId), остават непокътнати.
 async function erpPayClearImport() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpPayLoad();
   const imported = (PAYABLES || []).filter(p => !p.srcPurchaseId);
   if (!imported.length) { alert("Няма импортирани задължения за изтегляне."); return; }
@@ -237,6 +238,7 @@ async function erpPayClearImport() {
 
 // Пълно изчистване — трие ВСИЧКИ задължения (включително архива с платените).
 async function erpPayClearAll() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpPayLoad();
   const n = (PAYABLES || []).length;
   if (!n) { alert("Задълженията вече са празни."); return; }

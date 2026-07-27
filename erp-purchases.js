@@ -612,6 +612,7 @@ async function erpPuImport(file) {
 }
 // Пълно изчистване на Покупки — трие ВСИЧКИ фактури (и ръчните, и импортите).
 async function erpPuClearAll() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpLoadPurchases();
   const n = (erpPurchases || []).length;
   if (!n) { alert("Няма фактури за изтриване."); return; }
@@ -629,6 +630,7 @@ async function erpPuClearAll() {
 
 // Изтегля (изтрива) всички импортирани фактури — ръчно въведените остават.
 async function erpPuClearImport() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   const imp = (erpPurchases || []).filter(p => p.imported);
   if (!imp.length) { alert("Няма импортирани фактури за изтегляне."); return; }
   if (!confirm(`Да изтегля (изтрия) ли ${imp.length} импортирани фактури?\nРъчно въведените остават непокътнати.`)) return;

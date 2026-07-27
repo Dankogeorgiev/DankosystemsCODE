@@ -403,6 +403,7 @@ async function erpSaImport(file) {
 }
 // Изтегля (изтрива) импортираните продажби — ръчните остават.
 async function erpSaClearImport() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
   await erpLoadSales();
   const imp = (erpSales || []).filter(o => o.imported);
   if (!imp.length) { alert("Няма импортирани продажби."); return; }
