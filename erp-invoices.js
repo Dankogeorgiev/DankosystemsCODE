@@ -704,7 +704,18 @@ function erpInvPrint(o) {
     .isobox{text-align:center;margin-top:26px}
     .isobox img{height:92px}
     .made{ text-align:center;font-size:9.5px;color:#666;margin-top:6px}
-    @media print{body{margin:8mm;max-width:none}.noprint{display:none}}
+    @page{size:A4 portrait;margin:8mm}
+    @media print{
+      body{margin:0;max-width:none;font-size:11px}
+      .noprint{display:none}
+      .lg img{height:46px}
+      .party .pb{min-height:104px}
+      table.items th,table.items td{padding:3px 5px;font-size:10.5px}
+      .isobox{margin-top:14px}
+      .isobox img{height:72px}
+      .bankbox{margin-top:8px}
+      .signs{margin-top:10px}
+    }
     .noprint{text-align:center;margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
   </style></head><body>
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button></div>
