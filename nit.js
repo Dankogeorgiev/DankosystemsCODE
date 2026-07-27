@@ -102,32 +102,32 @@ function nitOpLD(v) { return (v && typeof v === "object") ? { l: nitNum(v.l), d:
    Списъкът идва от справката „Къде се влага" на възела (ЕРП → Продукти). */
 const NIT_OP_PRODUCTS = {
   "Италия затваряне на крак": {
-    from: "100949 / 100950",
+    from: "заготовка 100949",
+    single: true,   // страната (ляв/десен) е В САМОТО изделие → едно поле за брой
     list: [
-      ["101124", "Механизъм Италия 9.5"],
-      ["102621", "Механизъм СИЯНА"],
-      ["101133", "Механизъм Италия 10"],
-      ["101134", "Механизъм Италия 10 BG - M34"],
-      ["101135", "Механизъм Италия 11.5 - СОФА МАКС"],
-      ["101136", "Механизъм Италия 2.11"],
-      ["101123", "Механизъм Италия Начеви - 1"],
-      ["101139", "Механизъм Италия Начеви - 2 - сваляемо колело"],
-      ["101140", "Механизъм Италия Начеви - 3"],
-      ["102835", "Механизъм Италия Начеви - Mobicord"],
-      ["102252", "Механизъм Италия Начеви H140"],
-      ["101142", "Механизъм Италия Станков"],
-      ["101137", "Механизъм Италия ASIA"],
-      ["101880", "Механизъм Италия VINCENT"],
-      ["101125", "Механизъм BG M19"],
-      ["101128", "Механизъм MECCANICA BLG ART.E-WHEEL(BG-M20)DA"],
-      ["101129", "Механизъм MECCANICA BLG H.130"],
-      ["102494", "Механизъм MECCANICA BLG H.140"],
-      ["101130", "Механизъм MECCANICA BLG H183"],
-      ["101141", "IZA MECHANISAM, BLACK 713MM"],
-      ["102458", "MECC.BLG NEW-MAX 2"],
-      ["103093", "MECC.BLG NEW-MAX 2 WHE NEW PLATE rev.2"],
-      ["101131", "MECCANICA NEW MAXI BLG"],
-      ["102752", "MECCANICA NEW MAXI BLG - Cubolli Version"],
+      ["101008", "Механизъм Asia - ляв"],
+      ["101010", "Механизъм BG M19 - ляв"],
+      ["101018", "Механизъм MECCANICA BLG ART.E-WHEEL(BG-M20)DA - ляв"],
+      ["101020", "Механизъм MECCANICA BLG H.130 - ляв"],
+      ["101022", "Механизъм MECCANICA BLG H.183 - ляв"],
+      ["102496", "Механизъм MECCANICA BLG H.140 - десен"],
+      ["102457", "Механизъм MECC.BLG NEW-MAX 2 - ляв"],
+      ["103098", "Механизъм MECC.BLG NEW-MAX 2 WHE NEW PLATE rev.2 - ляв"],
+      ["101024", "Механизъм New Maxi Blg - ляв"],
+      ["101876", "Механизъм Vincent - ляв"],
+      ["101034", "Механизъм Италия 9.5 - ляв"],
+      ["101028", "Механизъм Италия 10 - ляв"],
+      ["101026", "Механизъм Италия 10 BG M34 - ляв"],
+      ["101030", "Механизъм Италия 11.5 - ляв"],
+      ["101032", "Механизъм Италия 2.11 - ляв"],
+      ["102204", "Механизъм Италия Начеви - 1 - ляв"],
+      ["101040", "Механизъм Италия Начеви - 2 сваляемо колело - ляв"],
+      ["101042", "Механизъм Италия Начеви 3 - ляв"],
+      ["102250", "Механизъм Италия Начеви H130 - ляв"],
+      ["102833", "Механизъм Италия Начеви Mobicord - ляв"],
+      ["102627", "Механизъм Италия Сияна - ляв"],
+      ["101038", "Механизъм Италия Станков - ляв"],
+      ["101043", "Механизъм Италия-Румъния - десен"],
     ],
   },
 };
@@ -543,23 +543,33 @@ function nitRenderOps(v) {
         const pick = NIT_OP_PRODUCTS[o.n];
         if (pick) {
           const selId = "nit-pick-" + oi;
+          const opts = pick.list.slice().sort((a, b) => a[1].localeCompare(b[1], "bg"));
+          // Днешните бройки по изделия. Записите с избор пазят обща бройка
+          // (страната е в изделието); старите записи без избор — Л/Д.
           const todays = Object.keys(rec.ops || {})
             .filter(k => nitOpBase(k) === o.n && nitOpTotal(rec.ops[k]) !== 0)
-            .map(k => { const ld = nitOpLD(rec.ops[k]); return `${escapeHtml(nitOpPick(k) || "?")}: Л <b>${ld.l}</b> · Д <b>${ld.d}</b>`; });
+            .map(k => {
+              const code = nitOpPick(k);
+              if (!code) { const ld = nitOpLD(rec.ops[k]); return `<span class="nit-opcodes-none">без избор</span>: Л <b>${ld.l}</b> · Д <b>${ld.d}</b>`; }
+              return `${escapeHtml(code)}: <b>${nitOpTotal(rec.ops[k])}</b>`;
+            });
+          const inputHtml = pick.single
+            ? `<input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="брой за избраното изделие" />`
+            : `<span class="rog-ld">
+                <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="ляв" /></label>
+                <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="десен" /></label>
+              </span>`;
           return `<div class="rog-row">
             <div class="rog-op">${escapeHtml(o.n)}
-              <div class="nit-opcodes">код: <b>по избраното изделие</b> <span class="nit-opcodes-none">(от ${escapeHtml(pick.from || "")})</span></div>
+              <div class="nit-opcodes">код: <b>по избраното изделие</b> <span class="nit-opcodes-none">(влага ${escapeHtml(pick.from || "")})</span></div>
               ${todays.length ? `<div class="nit-today">днес: ${todays.join(" &nbsp;|&nbsp; ")}</div>` : ""}
             </div>
             <div class="rog-inputs nit-pickwrap">
               <select class="nit-pick" id="${selId}">
                 <option value="">— избери изделие —</option>
-                ${pick.list.map(([c, n]) => `<option value="${escapeAttr(c)}">${escapeHtml(c)} · ${escapeHtml(n)}</option>`).join("")}
+                ${opts.map(([c, n]) => `<option value="${escapeAttr(c)}">${escapeHtml(n)} · ${escapeHtml(c)}</option>`).join("")}
               </select>
-              <span class="rog-ld">
-                <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="ляв" /></label>
-                <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="десен" /></label>
-              </span>
+              ${inputHtml}
             </div>
           </div>`;
         }
