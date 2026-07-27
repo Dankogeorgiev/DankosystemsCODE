@@ -76,12 +76,18 @@ function dsShowInStock(p) {
 
 // Опреснява наличностите на продуктите от v_product_stock (готовото, заприходено
 // от производствената дъска, не минава през ERP кеша — затова презареждаме тук).
-async function dsRefreshStock() {
+// force = true при изрично опресняване (след движение/сглобяване).
+async function dsRefreshStock(force) {
+  // Ако наличностите са изтеглени преди секунди (напр. току-що при отварянето
+  // на ЕРП), не ги дърпаме пак — това беше втори пълен обход при всяко влизане.
+  const fresh = ERP._stockAt && (Date.now() - ERP._stockAt) < 20000;
+  if (fresh && !force) return;
   try {
     const { data, error } = await erpSelectAll("v_product_stock", "id,stock");
     if (error) return;
     const byId = {}; (data || []).forEach(r => { byId[r.id] = Number(r.stock) || 0; });
     (ERP.products || []).forEach(p => { p.stock = byId[p.id] != null ? byId[p.id] : 0; });
+    ERP._stockAt = Date.now();
   } catch (e) { /* при грешка оставаме на кешираните стойности */ }
 }
 

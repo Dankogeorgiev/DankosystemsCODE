@@ -542,7 +542,7 @@ async function erpPostSale(o) {
   if (o.posted) { alert("Вече е осчетоводена."); return; }
   if (!(o.lines || []).length) { alert("Добави поне един ред."); return; }
   try { await erpSaveSale(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
-  if (typeof dsRefreshStock === "function") await dsRefreshStock();   // свежи наличности на детайлите преди проверката „на минус"
+  if (typeof dsRefreshStock === "function") await dsRefreshStock(true);   // свежи наличности на детайлите преди проверката „на минус"
 
   // Събираме нужното за изписване:
   //  • редове „готов детайл" (writeoffKind:"detail") — изписват СЕ директно от Склад
