@@ -523,10 +523,18 @@ async function erpFlowApply(meta, productLines) {
   const avail = {};                // product_id -> наличен брой (за нетване)
   let stockOn = false;
   if (!toStock) {
-    const { data: moves, error: mErr } = await erpSelectAll("product_movements", "id,product_id,quantity,ref");
-    if (!mErr) {
+    // Наличностите идват от изгледа v_product_stock (базата ги сумира) — преди
+    // четяхме ВСИЧКИ движения по 1000 реда, което ставаше все по-бавно с растежа
+    // на таблицата. Собствените стари order: изписвания на тази поръчка (стар
+    // модел) се изключват, за да е идемпотентно повторното пускане.
+    const { data: stockRows, error: sErr } = await erpSelectAll("v_product_stock", "id,stock");
+    if (!sErr) {
       stockOn = true;
-      (moves || []).forEach(m => { if (m.ref === ref) return; avail[m.product_id] = (Number(avail[m.product_id]) || 0) + (Number(m.quantity) || 0); });
+      (stockRows || []).forEach(r => { avail[r.id] = Number(r.stock) || 0; });
+      try {
+        const { data: ownMoves } = await sb.from("product_movements").select("product_id,quantity").eq("ref", ref);
+        (ownMoves || []).forEach(m => { avail[m.product_id] = (Number(avail[m.product_id]) || 0) - (Number(m.quantity) || 0); });
+      } catch (e) {}
       Object.keys(avail).forEach(k => { if (avail[k] < 0) avail[k] = 0; });
     }
   }
@@ -652,7 +660,10 @@ async function erpFlowApply(meta, productLines) {
       orders.splice(idx, 1);
       src.orders = orders; src.orderIds = orders.map(o => String(o.id));
     }
-    bySeries[src.seriesKey] = { id: r.id, data: d };
+    // _touched: пипната от ТАЗИ поръчка → само тя се записва после. Останалите
+    // серии не се презаписват (преди се пренаписваха ВСИЧКИ задачи в системата —
+    // все по-бавно с растежа им и с риск да върнат назад междувременен цехов отчет).
+    bySeries[src.seriesKey] = { id: r.id, data: d, _touched: idx >= 0 };
   });
 
   // 4) Добавяме новите приноси (нова серия или обединяване към съществуваща).
@@ -674,6 +685,7 @@ async function erpFlowApply(meta, productLines) {
       bySeries[k] = r;
     }
     const src = r.data.source;
+    r._touched = true;
     // Обновяваме метаданните на потока според ТЕКУЩАТА рецепта (при повторно
     // пускане след промяна) — така новодобавени операции и ново изчакване се
     // отразяват, а произведеното/логовете/цехът се запазват.
@@ -714,8 +726,10 @@ async function erpFlowApply(meta, productLines) {
     }
   });
 
-  // 5) Клиент/срок според броя поръчки; трием изпразнените серии.
-  const toInsert = [];
+  // 5) Клиент/срок според броя поръчки; трием изпразнените серии. Записват се
+  //    САМО пипнатите от тази поръчка серии (_new/_touched) — и то на партиди
+  //    паралелно, не една по една.
+  const toInsert = [], toUpdate = [];
   for (const k of Object.keys(bySeries)) {
     const r = bySeries[k], src = r.data.source || {}, orders = src.orders || [];
     if (!orders.length) {
@@ -728,13 +742,22 @@ async function erpFlowApply(meta, productLines) {
       }
       continue;
     }
+    if (!r._new && !r._touched) continue;   // чужда серия — не я пипаме
     // Серия (2+ поръчки) няма клиент/срок в колоните — показва „СЕРИЯ".
     r.data.client = orders.length >= 2 ? "" : (orders[0].client || "");
     r.data.due = orders.length >= 2 ? "" : (orders[0].due || "");
     if (r._new) { toInsert.push(r.data); continue; }
-    const qty = Number(r.data.qty) || 0, prod = Number(r.data.produced) || 0;
-    const { error } = await sb.from("tasks").update({ data: r.data, done: qty > 0 && prod >= qty, updated_at: new Date().toISOString() }).eq("id", r.id);
-    if (error) return { error };
+    toUpdate.push(r);
+  }
+  const UP_CHUNK = 10;
+  for (let i = 0; i < toUpdate.length; i += UP_CHUNK) {
+    const part = toUpdate.slice(i, i + UP_CHUNK);
+    const results = await Promise.all(part.map(r => {
+      const qty = Number(r.data.qty) || 0, prod = Number(r.data.produced) || 0;
+      return sb.from("tasks").update({ data: r.data, done: qty > 0 && prod >= qty, updated_at: new Date().toISOString() }).eq("id", r.id);
+    }));
+    const bad = results.find(x => x && x.error);
+    if (bad) return { error: bad.error };
   }
   if (toInsert.length) {
     const { error } = await sb.from("tasks").insert(toInsert.map(d => ({ data: d })));
