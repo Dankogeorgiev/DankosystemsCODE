@@ -104,6 +104,9 @@ const NIT_STOCK_MAP = {
   "Италия само нож":           { d: "101114", l: "101115" },
   "Италия нож на заготовка":   { d: "101114", l: "101115" },   // същият резултат като „само нож"
   "Италия 2ка 3ка и Нож":      { d: "100949", l: "100950" },   // = 2ка3ка + нож наведнъж
+  "Малък бял заготовка":       { d: "100937", l: "100938" },
+  "Малък бял затваряне":       { d: "101002", l: "101001" },
+  "Малък бял цял":             { d: "101002", l: "101001" },   // същият резултат като „затваряне"
 };
 /* Авто-сглобяване: щом в склада има И от двете половини, Системата ги
    „сглобява" — изписва по-малкото от двете и заприходява същия брой готови.
@@ -112,6 +115,7 @@ const NIT_STOCK_MAP = {
 const NIT_COMBINE = [
   { a: "101117", b: "101115", to: "100950", label: "Италия ляв" },
   { a: "101116", b: "101114", to: "100949", label: "Италия десен" },
+  { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)" },
 ];
 async function nitCombineStock() {
   const ids = await nitStockIds();
@@ -143,7 +147,10 @@ async function nitStockIds() {
   if (NIT_PID) return NIT_PID;
   const out = {};
   try {
-    const codes = [...new Set(Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]).filter(Boolean))];
+    const codes = [...new Set([
+      ...Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]),
+      ...NIT_COMBINE.flatMap(c => [c.a, c.b, c.to]),
+    ].filter(Boolean))];
     const { data, error } = await sb.from("products").select("id,code").in("code", codes);
     if (error) throw error;
     (data || []).forEach(p => { out[String(p.code).trim()] = p.id; });
