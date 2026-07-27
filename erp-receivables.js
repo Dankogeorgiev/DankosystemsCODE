@@ -127,10 +127,7 @@ async function erpRenderReceivables() {
       ${(RECEIVABLES || []).length ? '<button class="btn btn-small btn-danger" id="recv-clear-all" title="Изтрий ВСИЧКИ вземания (пълно изчистване)">🗑 Изчисти всичко</button>' : ""}
     </div>
     <div class="pay-cards">
-      ${card("📅 Тази седмица", weekItems, "pay-card-week")}
-      ${card("📅 До края на месеца", monthItems)}
-      ${card("⚠ Просрочени", overdueItems, "pay-card-total")}
-      ${card("Σ Общо за събиране", unpaid)}
+      ${card("Σ Общо за събиране", unpaid, "pay-card-total")}
     </div>
     <div class="pay-scroll"><table class="report-table erp-table pay-table recv-table">
       <thead><tr>

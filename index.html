@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=282" />
-  <link rel="stylesheet" href="erp.css?v=275" />
+  <link rel="stylesheet" href="erp.css?v=276" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 419</p>
+      <p class="login-version">версия 420</p>
     </form>
   </div>
 
@@ -49,7 +49,6 @@
         <button id="btn-offer" class="btn btn-offer" onclick="window.open('https://dankogeorgiev.github.io/PriceOfferCalculations/','_blank')">💶 Офериране</button>
         <button id="btn-erp" class="btn btn-erp">📦 Склад / ЕРП</button>
         <button id="btn-leaves-main" class="btn btn-finance" style="display:none" title="Молби за отпуск, одобряване, календар и оставащи дни">🏖 Отпуски</button>
-        <button id="btn-pulse" class="btn btn-pulse" style="display:none">⚡ Пулс</button>
         <button id="btn-finance" class="btn btn-finance" style="display:none">💰 Финанси</button>
       </div>
     </div>
@@ -588,12 +587,17 @@
         <button class="btn btn-small erp-tab" data-tab="import">⤓ Импорт (xlsx)</button>
       </div>
       <div class="erp-fin-tabs" title="Финансови модули — плащания и документи">
-        <button class="btn btn-small erp-tab" data-tab="invoices">📄 Фактуриране</button>
-        <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
-        <button class="btn btn-small erp-tab" data-tab="payables">💳 Задължения</button>
-        <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
-        <button class="btn btn-small erp-tab" data-tab="receivables">💵 Вземания</button>
-        <button class="btn btn-small erp-tab" data-tab="archive" title="Архив (изпълнени заявки)">📚 Архив</button>
+        <div class="erp-fin-row">
+          <button class="btn btn-small erp-tab" data-tab="invoices">📄 Фактуриране</button>
+          <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
+          <button class="btn btn-small erp-tab" data-tab="payables">💳 Задължения</button>
+        </div>
+        <div class="erp-fin-row">
+          <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
+          <button class="btn btn-small erp-tab" data-tab="receivables">💵 Вземания</button>
+          <button class="btn btn-small erp-tab" data-tab="archive" title="Архив (изпълнени заявки)">📚 Архив</button>
+          <button class="btn btn-small" id="erp-pulse-btn" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
+        </div>
       </div>
       </div>
       <div id="erp-open-tabs" class="erp-open-tabs" hidden></div>
@@ -606,7 +610,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
-  <script src="app.js?v=245"></script>
+  <script src="app.js?v=246"></script>
   <script src="tasks.js?v=276"></script>
   <script src="laser-fill.js?v=3"></script>
   <script src="master-report.js?v=2"></script>
@@ -645,7 +649,7 @@
   <script src="erp-purchases.js?v=251"></script>
   <script src="erp-ai-purchases.js?v=1"></script>
   <script src="erp-payables.js?v=10"></script>
-  <script src="erp-receivables.js?v=5"></script>
+  <script src="erp-receivables.js?v=6"></script>
   <script src="erp-sales.js?v=241"></script>
   <script src="erp-invoices.js?v=17"></script>
   <script src="erp-email.js?v=233"></script>
@@ -659,6 +663,6 @@
   <script src="erp-leaves.js?v=5"></script>
   <script src="nav-back.js?v=163"></script>
   <script src="assistant.js?v=179"></script>
-  <script src="pulse.js?v=210"></script>
+  <script src="pulse.js?v=211"></script>
 </body>
 </html>

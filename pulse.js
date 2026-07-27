@@ -76,15 +76,7 @@ async function renderPulse() {
   const money = (n, cur) => Math.round(n).toLocaleString("bg-BG") + " " + (cur === "BGN" ? "лв" : cur === "EUR" ? "€" : (cur || "€"));
   const ordersValue = orders.reduce((s, o) => s + lineNet(o.lines), 0);
   const month = today.slice(0, 7);
-  const salesByCur = {};
-  sales.forEach(s => {
-    if (String(s.date || "").slice(0, 7) !== month) return;
-    const cur = s.currency || "EUR";
-    salesByCur[cur] = (salesByCur[cur] || 0) + lineNet(s.lines);
-  });
-  const salesMonthStr = Object.keys(salesByCur).length
-    ? Object.entries(salesByCur).map(([c, n]) => money(n, c)).join(" · ")
-    : "0 €";
+  // (картата „продажби месец" е премахната — фактурираното е меродавното)
 
   // Финанси: приходи (издадени фактури този месец), разходи (покупки този месец),
   // вземания от клиенти и задължения към доставчици. Всичко в EUR (BGN → /1.95583).
@@ -101,6 +93,37 @@ async function renderPulse() {
     if (String(o.date || "").slice(0, 7) !== month) return;
     purchMonth += toEur(lineNet(o.lines), o.currency || "BGN");
   });
+  // Платени заплати за месеца (Заплати седмично): От банка + CODE 005.
+  let salMonth = 0;
+  try {
+    const { data: pr } = await sb.from("app_config").select("data").eq("id", "payroll_m_" + month).maybeSingle();
+    const entries = (pr && pr.data && pr.data.entries) || {};
+    if (typeof payFridays === "function" && typeof payFriNormalize === "function") {
+      const [pY, pM] = month.split("-").map(Number);
+      const fridays = payFridays(pY, pM);
+      Object.values(entries).forEach(r => {
+        const map = payFriNormalize(r || {}, fridays);
+        Object.values(map).forEach(x => { salMonth += (Number(x.b) || 0) + (Number(x.c) || 0); });
+      });
+    }
+  } catch (e) { /* без заплати, ако модулът/записът липсва */ }
+
+  // ДДС за месеца: начислено по издадените фактури − ДДС по покупките.
+  let vatOut = 0, vatIn = 0;
+  invoices.forEach(o => {
+    if (!o.posted || o.kind === "proforma") return;
+    if (String(o.issueDate || "").slice(0, 7) !== month) return;
+    const sign = o.kind === "credit" ? -1 : 1;
+    const rate = Number(o.vatRate != null ? o.vatRate : 20);
+    vatOut += sign * toEur(lineNet(o.lines) * rate / 100, o.currency || "EUR");
+  });
+  purchases.forEach(o => {
+    if (String(o.date || "").slice(0, 7) !== month) return;
+    const rate = Number(o.vatRate != null ? o.vatRate : 20);
+    vatIn += toEur(lineNet(o.lines) * rate / 100, o.currency || "BGN");
+  });
+  const vatDue = vatOut - vatIn;   // >0 → за внасяне; <0 → за възстановяване
+
   const recvUnpaid = recvList.filter(p => !p.paid);
   const recvSum = recvUnpaid.reduce((s, p) => s + (num(p.amount) || 0), 0);
   const recvOver = recvUnpaid.filter(p => p.dueDate && p.dueDate < today)
@@ -117,9 +140,10 @@ async function renderPulse() {
       ${card("разходи месец (без ДДС)", money(purchMonth, "EUR"), "money")}
       ${card("вземания от клиенти (с ДДС)", money(recvSum, "EUR"), recvOver.length ? "warn" : "money")}
       ${card("от тях просрочени", money(recvOverSum, "EUR") + " · " + recvOver.length + " бр.", recvOver.length ? "danger" : "")}
-      ${card("задължения (с ДДС)", money(paySum, "EUR"), "")}
+      ${card("общо задължения (с ДДС)", money(paySum, "EUR"), "")}
       ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money")}
-      ${card("продажби месец (без ДДС)", salesMonthStr, "money")}
+      ${card("платени заплати месец (банка + 005)", money(salMonth, "EUR"), "money")}
+      ${card(vatDue >= 0 ? "ДДС за внасяне (месец)" : "ДДС за възстановяване (месец)", money(Math.abs(vatDue), "EUR"), vatDue >= 0 ? "warn" : "ok")}
       ${card("произведено днес (бр.)", erpNum(todayQty), "ok")}
       ${card("работници днес", workersToday.size, "")}
       ${card("активни заявки", activeOrders.length, "")}
@@ -160,6 +184,8 @@ async function renderPulse() {
 function pulseInit() {
   const btn = document.getElementById("btn-pulse");
   if (btn) btn.addEventListener("click", openPulse);
+  const btn2 = document.getElementById("erp-pulse-btn");   // бутонът в Склад/ЕРП (синята група)
+  if (btn2) btn2.addEventListener("click", openPulse);
   const c = document.getElementById("pulse-close"); if (c) c.addEventListener("click", closePulse);
   const r = document.getElementById("pulse-refresh"); if (r) r.addEventListener("click", renderPulse);
 }
