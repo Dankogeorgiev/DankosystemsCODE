@@ -97,6 +97,12 @@ function nitOpLD(v) { return (v && typeof v === "object") ? { l: nitNum(v.l), d:
    Синхронизира се по разликата (rec.stocked пази вече заприходеното за
    служител+ден+операция) — редакция на бройката прави корекция в склада.
    Засега: механизъм ИТАЛИЯ. Добавяне на нов ред тук = нова връзка. */
+/* ⚠ ВАЖНО при промяна: МАХАНЕТО на код от NIT_STOCK_MAP/NIT_COMBINE го изважда
+   от предпазителя erpNitManagedCode (erp-orders.js) — поточните задачи за него
+   пак почват да пипат склада, а src.stocked им е стоял замразен, така че
+   първият отчет в Цехове би заприходил НАВЕДНЪЖ цялата натрупана бройка
+   (двойно върху нит-записите). Преди да махнеш код оттук, кажи на Клод да
+   изравни src.stocked/consumedUnits на задачите му. */
 const NIT_STOCK_MAP = {
   //                             десен код   ляв код
   "Италия 2ка 3ка":            { d: "101116", l: "101117" },
@@ -392,7 +398,9 @@ async function openNit() {
   const cl = document.getElementById("nit-close"); if (cl) cl.hidden = isW;
   const h = document.querySelector("#nit-modal .mini-head h3");
   if (h) h.textContent = isW ? "🔩 ЗАНИТВАНЕ — дневен запис" : "🔩 ЗАНИТВАНЕ — сглобяване (отчет)";
-  if (!NIT_LOADED) { await nitLoad(); NIT_LOADED = true; }
+  // Винаги свежи данни при отваряне — вторa отворена сесия (офис + таблет)
+  // иначе презаписваше чуждите записи със стар кеш (last-writer-wins).
+  await nitLoad(); NIT_LOADED = true;
   if (!nitDate) nitDate = nitToday();
   nitRender();
 }
@@ -496,6 +504,9 @@ function nitRenderOps(v) {
   recalc();
   v.querySelector("#nit-back").addEventListener("click", () => { nitMech = null; nitRender(); });
   v.querySelector("#nit-save").addEventListener("click", async () => {
+    // Свеж документ точно преди записа — да не стъпчем запис от друга сесия
+    // (кешът може да е от сутринта, а междувременно някой да е писал).
+    try { await nitLoad(); } catch (e) {}
     const key = nitKey(worker, nitDate);
     const r = NIT.records[key] || { worker, date: nitDate, ops: {} };
     r.worker = worker; r.date = nitDate; r.ops = r.ops || {};
