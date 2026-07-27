@@ -189,6 +189,7 @@ function dsFillRows() {
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
         ${(ERP.linesByProduct[p.id] || []).some(l => l.child_product_id) ? `<button type="button" class="btn btn-small ds-asm" data-id="${p.id}" title="Опаковка: изписва частите по рецептата от склада и заприходява готовия артикул — без операция в цех">🧩 сглоби</button>` : ""}
+        ${ERP.childIds && ERP.childIds.has(Number(p.id)) ? `<button type="button" class="btn btn-small ds-wu" data-id="${p.id}" title="Къде се влага този възел/детайл — директно и в кои крайни продукти">↥ влага се в</button>` : ""}
         <button type="button" class="btn btn-small ds-draw${dsHasDrawing(p) ? " ds-draw-has" : ""}" data-id="${p.id}" title="${dsHasDrawing(p) ? "Има прикачен чертеж" : "Няма чертеж"}">📎 чертежи</button>
         <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
       </td>
@@ -198,6 +199,10 @@ function dsFillRows() {
   if (cnt) cnt.textContent = list.length > 300 ? `показани 300 от ${list.length}` : `${list.length} детайла`;
   tbody.querySelectorAll(".ds-mv").forEach(b => b.addEventListener("click", () => dsMoveDialog(Number(b.dataset.id), b.dataset.k)));
   tbody.querySelectorAll(".ds-asm").forEach(b => b.addEventListener("click", () => dsAssembleDialog(Number(b.dataset.id))));
+  tbody.querySelectorAll(".ds-wu").forEach(b => b.addEventListener("click", () => {
+    if (typeof erpWhereUsedDialog === "function") erpWhereUsedDialog(Number(b.dataset.id));
+    else alert("Модулът Продукти не е зареден. Презареди страницата.");
+  }));
   tbody.querySelectorAll(".ds-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
   tbody.querySelectorAll(".ds-prod").forEach(b => b.addEventListener("click", () => dsProduce(Number(b.dataset.id))));
   tbody.querySelectorAll(".ds-draw").forEach(b => b.addEventListener("click", () => {
