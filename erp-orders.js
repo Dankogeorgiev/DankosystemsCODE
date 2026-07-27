@@ -360,6 +360,76 @@ function erpDirectStockComponents(pid, anc) {
   return Object.keys(byPid).map(k => ({ pid: Number(k), per: byPid[k] }));
 }
 
+/* ---------- „Опаковка" — сглобяване на готов артикул от налични части ----------
+   Изделие без собствена операция (напр. липсва „Опаковане" в рецептата) никога
+   не се събира от производството: частите му влизат в Склад детайли, а самият
+   артикул — не. Тук го сглобяваме без цех: изписваме директните складируеми
+   части по рецептата (през прозрачните възли) и заприходяваме готовия. Ако
+   част не достига, първо опитваме да сглобим НЕЯ от нейните части (рекурсивно,
+   до 5 нива). Никога не изписваме повече от наличното — сглобява се толкова,
+   колкото частите стигат. ref „сглоб:…" не се трие от „Нулирай тестови
+   движения" (реална складова трансформация, като нит-сглоб).
+   Връща { made, missing:[{pid,code,name,short}], error? }. */
+async function erpAssembleFromParts(pid, qty, refLbl, _depth) {
+  qty = Math.floor(Number(qty) || 0);
+  const out = { made: 0, missing: [] };
+  if (!(qty > 0)) return out;
+  const depth = _depth || 0;
+  const comps = erpDirectStockComponents(pid);
+  if (!comps.length) return out;   // няма части по рецепта — няма какво да сглобим
+  const stock = {};
+  try {
+    const { data, error } = await sb.from("v_product_stock").select("id,stock").in("id", comps.map(c => c.pid));
+    if (error) { out.error = error.message; return out; }
+    (data || []).forEach(r => { stock[r.id] = Number(r.stock) || 0; });
+  } catch (e) { out.error = String(e && e.message || e); return out; }
+  // Недостигащи части: първо опитваме да ги сглобим от техните части.
+  if (depth < 5) {
+    for (const c of comps) {
+      const needQ = Math.ceil((Number(c.per) || 0) * qty);
+      const have = Math.max(0, stock[c.pid] || 0);
+      if (have < needQ) {
+        const sub = await erpAssembleFromParts(c.pid, needQ - have, refLbl, depth + 1);
+        if (sub.made > 0) stock[c.pid] = have + sub.made;
+      }
+    }
+  }
+  let can = qty;
+  comps.forEach(c => {
+    const per = Number(c.per) || 0;
+    if (per <= 0) return;
+    can = Math.min(can, Math.floor(Math.max(0, stock[c.pid] || 0) / per));
+  });
+  if (can > 0) {
+    const p = (ERP.prodById && ERP.prodById[pid]) || {};
+    const nm = ((p.code ? p.code + " " : "") + (p.name || "")).trim() || String(pid);
+    const rows = comps
+      .map(c => ({ product_id: Number(c.pid), kind: "изписване", quantity: -((Number(c.per) || 0) * can), ref: refLbl || "сглоб:", note: "Вложен в " + nm + " (опаковка)" }))
+      .filter(r => r.quantity < 0);
+    rows.push({ product_id: Number(pid), kind: "заприходяване", quantity: can, ref: refLbl || "сглоб:", note: "Опаковка — сглобен от налични части" });
+    const { error } = await sb.from("product_movements").insert(rows);
+    if (error) { out.error = error.message; return out; }
+    out.made = can;
+    // Опресняваме кеша, за да са верни следващите проверки без презареждане.
+    if (ERP.prodById) {
+      if (ERP.prodById[pid]) ERP.prodById[pid].stock = (Number(ERP.prodById[pid].stock) || 0) + can;
+      comps.forEach(c => { const cp = ERP.prodById[c.pid]; if (cp) cp.stock = (Number(cp.stock) || 0) - (Number(c.per) || 0) * can; });
+    }
+  }
+  if (can < qty) {
+    comps.forEach(c => {
+      const per = Number(c.per) || 0;
+      if (per <= 0) return;
+      const have0 = Math.max(0, stock[c.pid] || 0);
+      if (Math.floor(have0 / per) < qty) {
+        const cp = (ERP.prodById && ERP.prodById[c.pid]) || {};
+        out.missing.push({ pid: c.pid, code: cp.code || "", name: cp.name || "", short: Math.max(0, per * qty - have0) });
+      }
+    });
+  }
+  return out;
+}
+
 function erpFlowSteps(s, opts) {
   const qty = erpToNum(s.erpQty) || 1;
   const steps = [], external = [], missing = [], materials = {};   // materials: material_id -> нужно к-во
