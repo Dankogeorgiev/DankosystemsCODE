@@ -2588,6 +2588,7 @@ async function toggleTimes() {
   const v = document.getElementById("times-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
   await loadProdLog();   // вечният дневник (за да излизат и отчетите на вече изтеглени поръчки)
+  if (typeof loadAsmLog === "function") { try { await loadAsmLog(); } catch (e) {} }   // сглобени комплекти/опаковки
   if (typeof renderTimesReport === "function") renderTimesReport(); else renderTimes();
 }
 function renderTimes() {
