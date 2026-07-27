@@ -406,7 +406,17 @@ async function tSaveWorkers() {
   if (error) alert("Грешка при запис на служителите: " + error.message);
 }
 async function tLoadTasks() {
-  const { data, error } = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
+  // Странициране (базата връща макс. 1000 наведнъж): без него задачите над
+  // 1000 просто липсваха. erpSelectAll тегли страниците паралелно.
+  let data, error;
+  if (typeof erpSelectAll === "function") {
+    const r = await erpSelectAll("tasks", "id,data,done,updated_at");
+    data = r.data; error = r.error;
+    if (!error) data = (data || []).slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  } else {
+    const r = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
+    data = r.data; error = r.error;
+  }
   if (error) { alert("Грешка при зареждане на задачите: " + error.message); return; }
   TASKS = (data || []).map(r => {
     const t = { ...r.data, id: r.id };
@@ -490,7 +500,12 @@ async function openTasks() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   document.getElementById("tasks-modal").hidden = false;
   showSub("tasks");
-  if (!tasksLoaded) { await tLoadWorkers(); await tLoadRoles(); await tLoadTasks(); await mLoad(); tasksLoaded = true; subscribeTasks(); subscribeMessages(); }
+  if (!tasksLoaded) {
+    // Четирите зареждания са независими → ПАРАЛЕЛНО (преди се чакаха едно
+    // друго и отварянето на Цехове се бавеше).
+    await Promise.all([tLoadWorkers(), tLoadRoles(), tLoadTasks(), mLoad()]);
+    tasksLoaded = true; subscribeTasks(); subscribeMessages();
+  }
   msgNotifyState = snapshotNotify();
   requestNotifyPermission();
   applyTasksAccess();
