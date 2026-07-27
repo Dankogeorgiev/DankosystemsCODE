@@ -997,6 +997,21 @@ function erpFlowGatePending(t, map) {
   return out;
 }
 
+// Кодовете, чийто склад се води от екрана „Занитване" (nit.js): поточните им
+// задачи движат САМО прогреса на заявката — заприходяването, влагането на
+// части и материалите ги прави нит-отчетът (иначе става двойно: веднъж от
+// жените в Занитване, втори път от Цехове/Мастер отчитане).
+function erpNitManagedCode(code) {
+  if (typeof NIT_STOCK_MAP === "undefined" || !code) return false;
+  if (!erpNitManagedCode._set) {
+    const s = new Set();
+    Object.values(NIT_STOCK_MAP).forEach(m => { if (m && m.d) s.add(String(m.d)); if (m && m.l) s.add(String(m.l)); });
+    if (typeof NIT_COMBINE !== "undefined") NIT_COMBINE.forEach(c => { if (c) { s.add(String(c.a)); s.add(String(c.b)); s.add(String(c.to)); } });
+    erpNitManagedCode._set = s;
+  }
+  return erpNitManagedCode._set.has(String(code).trim());
+}
+
 // Заприходява готови детайли в Склад детайли (движение „заприходяване").
 async function erpStockCredit(pid, qty, note, ref) {
   if (!pid || !(qty > 0)) return;
@@ -1012,6 +1027,7 @@ async function erpStockCredit(pid, qty, note, ref) {
 async function erpFlowStockIn(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.last || !src.pid) return;
+  if (erpNitManagedCode(t.code)) return;   // складът на този код се води от Занитване
   const produced = Number(t.produced) || 0;
   const stocked = Number(src.stocked) || 0;
   const delta = produced - stocked;
@@ -1028,6 +1044,7 @@ async function erpFlowStockIn(t) {
 async function erpFlowConsume(t) {
   const src = t && t.source;
   if (!src || !src.flow || !Array.isArray(src.consumes) || !src.consumes.length) return;
+  if (erpNitManagedCode(t.code)) return;   // влагането на частите го прави нит-отчетът
   const produced = Number(t.produced) || 0;
   const done = Number(src.consumedUnits) || 0;
   const delta = produced - done;
@@ -1049,6 +1066,7 @@ async function erpFlowConsume(t) {
 async function erpFlowMaterialConsume(t) {
   const src = t && t.source;
   if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return;
+  if (erpNitManagedCode(t.code)) return;   // нитовете/шайбите ги изписва нит-отчетът
   const produced = Number(t.produced) || 0;
   const done = Number(src.matConsumed) || 0;
   const delta = produced - done;

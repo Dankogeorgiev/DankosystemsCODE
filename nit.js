@@ -274,7 +274,7 @@ async function nitSyncStock(rec) {
           else if (delta > 0) missing.push(ccode + " (влагане при " + op + " · " + word + ")");
         }
       });
-      applied.push({ key, now, op, sk });
+      applied.push({ key, now, op, sk, code, delta });
     });
   });
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
@@ -288,7 +288,50 @@ async function nitSyncStock(rec) {
     if (r2.error) alert("Детайлите са отчетени, но МАТЕРИАЛИТЕ (нитове/шайби) не се изписаха: " + r2.error.message);
   }
   applied.forEach(a => { rec.stocked[a.key] = a.now; if (a.sk === "d") delete rec.stocked[a.op]; });
+  // Вариант Б: отчетът движи и ПРОГРЕСА на заявките (поточните задачи в цех
+  // Занитване за същия код) — само produced/готово, без складови движения
+  // (складът за тези кодове се води единствено тук; потокът ги прескача —
+  // виж erpNitManagedCode в erp-orders.js).
+  try { await nitCreditFlow(applied, rec.worker); } catch (e) { console.warn("нит→поток:", e); }
   return true;
+}
+
+/* Отчетът в Занитване бута напред поточните задачи „Занитване" за същия код:
+   прогрес до поръчаното (излишъкът е складов, не прогресен), минус-корекция
+   смъква прогреса (не под 0). Така заявката върви без Мастер отчитане, а
+   гейтовете на следващите операции виждат готовите бройки веднага. */
+async function nitCreditFlow(applied, worker) {
+  const byCode = {};
+  (applied || []).forEach(a => { if (a && a.code && a.delta) byCode[a.code] = (byCode[a.code] || 0) + a.delta; });
+  const codes = Object.keys(byCode);
+  if (!codes.length) return;
+  let rows = [];
+  try {
+    const { data, error } = await sb.from("tasks").select("id,data").eq("data->source->>flow", "true");
+    if (error) throw error;
+    rows = data || [];
+  } catch (e) { console.warn("нит→поток: четене", e); return; }
+  for (const code of codes) {
+    let delta = byCode[code];
+    const tasks = rows
+      .map(r => ({ id: r.id, d: r.data }))
+      .filter(x => x.d && x.d.source && x.d.source.kind === "series" && x.d.source.flow
+        && x.d.workshop === "Занитване" && String(x.d.code).trim() === String(code).trim())
+      .sort((a, b) => (Number(a.d.source.step) || 0) - (Number(b.d.source.step) || 0));
+    for (let i = 0; i < tasks.length && delta; i++) {
+      const x = tasks[i], q = Number(x.d.qty) || 0, p = Number(x.d.produced) || 0;
+      const add = delta > 0 ? Math.min(Math.max(0, q - p), delta) : Math.max(delta, -p);
+      if (!add) continue;
+      x.d.produced = Math.max(0, p + add);
+      x.d.logs = Array.isArray(x.d.logs) ? x.d.logs : [];
+      x.d.logs.push({ date: nitToday(), worker: worker || "Занитване", qty: add, note: "отчет Занитване (авто)" });
+      const done = q > 0 && x.d.produced >= q;
+      try {
+        await sb.from("tasks").update({ data: x.d, done, updated_at: new Date().toISOString() }).eq("id", x.id);
+        delta -= add;
+      } catch (e) { console.warn("нит→поток: запис", e); }
+    }
+  }
 }
 
 let NIT = { records: {} };
