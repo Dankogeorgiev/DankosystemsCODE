@@ -565,8 +565,8 @@ async function erpFlowApply(meta, productLines) {
     // (после се изписва с Продажба) — без да сменяме поръчковия режим на „за склад".
     const stepsOpts = toStock
       ? { keySuffix: sfx, toStockTop: true, noNetTop: true, matSubs: meta.matSubs || null }   // за склад: върхът НЕ се нетва (натрупваме)
-      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop, matSubs: meta.matSubs || null }   // поръчка: върхът СЕ нетва спрямо готовата наличност
-                 : { toStockTop: !!meta.stockTop, matSubs: meta.matSubs || null });
+      : (stockOn ? { stock: avail, consumed, toStockTop: !!meta.stockTop, noNetTop: !!meta.noNetTop, matSubs: meta.matSubs || null }   // поръчка: върхът СЕ нетва, освен ако готовото е пазено за друга заявка (noNetTop)
+                 : { toStockTop: !!meta.stockTop, noNetTop: !!meta.noNetTop, matSubs: meta.matSubs || null });
     const { steps, external, missing, materials } = erpFlowSteps({ erpProductId: line.productId, erpQty: q }, stepsOpts);
     Object.keys(materials || {}).forEach(mid => { matNeed[mid] = (Number(matNeed[mid]) || 0) + Number(materials[mid] || 0); });
     external.forEach(e => externalAll.push(e));

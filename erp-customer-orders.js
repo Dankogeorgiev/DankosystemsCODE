@@ -940,9 +940,32 @@ async function erpCOProduce(o) {
   if (already) msg += `\n\n♻ Вече има пуснато производство по тази заявка. НОВИТЕ редове/бройки ще се ДОБАВЯТ към него, а вече произведеното и отчетеното по цеховете СЕ ЗАПАЗВАТ (нищо не се пуска отначало).`;
   if (!confirm(msg)) return;
 
+  // Има ли ГОТОВИ бройки от самите изделия на склад? Ако са произведени за
+  // друга (още непродадена) заявка, не бива да се „изяждат" от тази — питаме.
+  let noNetTop = false;
+  const ready = lines.map(l => {
+    const p = (ERP.prodById || {})[l.productId] || {};
+    return { code: p.code || "", name: p.name || "", have: Number(p.stock) || 0, need: l.qty };
+  }).filter(x => x.have > 0);
+  if (ready.length) {
+    noNetTop = await new Promise(resolve => {
+      const { wrap, close } = erpDialog(`
+        <h3>📦 Има готови бройки на склад</h3>
+        <p class="hint">В Склад детайли има <b>готови</b> бройки от изделия в тази заявка. Ако са произведени за <b>друга заявка</b>, която още не е продадена/взета, избери „Произведи всичко наново" — наличните остават запазени за нея. Ако наистина са свободни — „Ползвай наличните".</p>
+        <ul>${ready.map(x => `<li><b>${escapeHtml(x.code)}</b> ${escapeHtml(x.name)} — налични <b>${erpNum(x.have)}</b> бр. · нужни ${erpNum(x.need)} бр.</li>`).join("")}</ul>
+        <div class="erp-dialog-actions">
+          <button class="btn" id="nn-use">➖ Ползвай наличните (произвеждаме по-малко)</button>
+          <button class="btn btn-primary" id="nn-new">🏭 Произведи ВСИЧКО наново (пази наличните)</button>
+        </div>`);
+      wrap.querySelector("#nn-use").addEventListener("click", () => { close(); resolve(false); });
+      wrap.querySelector("#nn-new").addEventListener("click", () => { close(); resolve(true); });
+    });
+  }
+
   const res = await erpFlowApply({
     clientName: o.clientName || "", deadline: o.deadline || "", sampleId: o.id,
     sampleType: "customer_order", orderNo: o.ourNo || "",
+    noNetTop,   // true = не пипай готовите бройки на склад (пазени за друга заявка)
     matSubs: o.matSubs || null,   // смяна на материал само за тази поръчка (Щрипс → Шина)
     stockTop: true,   // готовото изделие влиза в Склад детайли при завършване (после се изписва с Продажба)
   }, lines);
