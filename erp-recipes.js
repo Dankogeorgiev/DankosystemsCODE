@@ -35,6 +35,7 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
       <button class="btn btn-small" id="erp-recipe-test" title="Симулира пускането в производство — проверява дали ще върви правилно">🧪 Тест рецепта</button>
       <button class="btn btn-small" id="erp-recipe-stock" title="Дървото на изделието с наличностите: кой възел/материал колко е на склад и колко липсва за желана бройка">📦 Наличности</button>
+      <button class="btn btn-small" id="erp-recipe-dl" title="Сваля цялата рецепта (дървото с възли, материали, операции, количества и цени) като Excel файл">⤓ Свали (Excel)</button>
       <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
       ${typeof erpRecipeAutoMenu === "function" ? '<button class="btn btn-small" id="erp-rl-auto" title="Копирай от подобен · От чертеж (AI) · Шаблони">🪄 Бързо съставяне</button>' : ""}
       <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
@@ -75,6 +76,8 @@ function erpRenderRecipe(productId) {
   });
   const stockBtn = document.getElementById("erp-recipe-stock");
   if (stockBtn) stockBtn.addEventListener("click", () => erpStockTree(productId));
+  const dlBtn = document.getElementById("erp-recipe-dl");
+  if (dlBtn) dlBtn.addEventListener("click", () => erpRecipeDownload(productId));
   document.getElementById("erp-rl-add").addEventListener("click", () => erpAddRecipeLine(productId));
   const autoBtn = document.getElementById("erp-rl-auto");
   if (autoBtn) autoBtn.addEventListener("click", () => erpRecipeAutoMenu(productId));
@@ -115,6 +118,51 @@ function erpRenderRecipe(productId) {
       const hidden = sub.hidden = !sub.hidden;
       t.textContent = hidden ? "▸" : "▾";
     }));
+}
+
+/* ---------- Сваляне на рецептата (Excel) ----------
+   Цялото дърво на изделието като редове с отстъп по нива: възли/детайли,
+   материали и операции, с количества за 1 родител и единични цени. Колоната
+   „Стойност у 1 краен" е количеството по веригата × ед. цена — за възлите тя
+   включва и подредовете им (не се сумира сляпо, за да няма двойно броене). */
+function erpRecipeDownload(productId) {
+  if (typeof reportExportXls !== "function") { alert("Експортният модул не е зареден. Презареди страницата."); return; }
+  const p = ERP.prodById[productId] || {};
+  const rows = [];
+  (function walk(pid, depth, mult, anc) {
+    const ind = "    ".repeat(depth);
+    (ERP.linesByProduct[pid] || []).forEach(l => {
+      const qty = Number(l.quantity) || 1;
+      if (l.material_id) {
+        const m = ERP.matById[l.material_id] || {};
+        const unitCost = Number(m.avg_cost) || 0;
+        rows.push([ind + "материал", m.code || "", m.name || "", erpNum(qty), l.unit || m.unit || "", unitCost.toFixed(4), (unitCost * qty * mult).toFixed(4)]);
+      } else if (l.operation_id) {
+        const op = ERP.opById[l.operation_id] || {};
+        const price = (typeof erpOpLinePrice === "function") ? erpOpLinePrice(l) : (Number(op.unit_cost) || 0);
+        rows.push([ind + "операция", op.code || "", (op.name || "") + (op.workshop ? " · " + op.workshop : ""), erpNum(qty), "бр.", Number(price || 0).toFixed(4), (Number(price || 0) * qty * mult).toFixed(4)]);
+      } else if (l.child_product_id) {
+        const cp = ERP.prodById[l.child_product_id] || {};
+        const cost = Number(ERP.costById[l.child_product_id]) || 0;
+        rows.push([ind + (cp.is_semifinished ? "възел" : "детайл"), cp.code || "", cp.name || "", erpNum(qty), l.unit || cp.unit || "бр.", cost.toFixed(4), (cost * qty * mult).toFixed(4)]);
+        if (!anc.has(l.child_product_id)) walk(l.child_product_id, depth + 1, mult * qty, new Set([...anc, l.child_product_id]));
+      }
+    });
+  })(productId, 0, 1, new Set([productId]));
+  const man = (typeof erpManualCostOf === "function") ? erpManualCostOf(productId) : null;
+  const total = Number(ERP.costById[productId]) || 0;
+  reportExportXls(
+    "recepta-" + String(p.code || productId).replace(/[^\w\-]+/g, "_"),
+    `Рецепта · ${p.code || ""} ${p.name || ""} — себестойност ${total.toFixed(2)} €${man !== null ? " (ръчна)" : ""}`,
+    [{
+      headers: [
+        { label: "Тип (с нивото)" }, { label: "Код" }, { label: "Име" },
+        { label: "К-во за 1 родител", num: true }, { label: "Мярка" },
+        { label: "Ед. цена €", num: true }, { label: "Стойност у 1 краен €", num: true },
+      ],
+      rows,
+    }]
+  );
 }
 
 /* ---------- Ръчна себестойност (✎ Цена) ----------
