@@ -195,6 +195,32 @@ function erpDocAutoRows(o) {
 }
 
 /* ---------- Списък ---------- */
+/* Фактурирано за избрания месец (без ДДС / ДДС / с ДДС), в EUR.
+   Броят се ИЗДАДЕНИТЕ фактури/дебитни минус кредитните (по датата на
+   издаване); проформите и сторнираните НЕ влизат. BGN → по фиксинг. */
+let erpInvMonth = "";
+function erpInvMonthCards() {
+  const host = document.getElementById("inv-month-cards"); if (!host) return;
+  const m = erpInvMonth || new Date().toISOString().slice(0, 7);
+  const RATE = 1.95583;
+  let net = 0, vat = 0, n = 0;
+  (erpInvoices || []).forEach(o => {
+    if (o.kind === "proforma") return;
+    const status = o.status || (o.posted ? "издадена" : "чернова");
+    if (!o.posted || status === "чернова" || status === "сторнирана") return;
+    if (String(o.issueDate || "").slice(0, 7) !== m) return;
+    const t = erpInvTotals(o);   // кредитните са с минус
+    const k = (o.currency === "BGN") ? 1 / RATE : 1;
+    net += t.base * k; vat += t.vat * k; n++;
+  });
+  const money = v => (Math.round(v * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const lbl = m.split("-")[1] + "." + m.split("-")[0];
+  host.innerHTML = `
+    <div class="pay-card"><div class="pay-card-l">🧾 Фактурирано БЕЗ ДДС · ${lbl}</div><div class="pay-card-v">${money(net)} EUR</div><div class="pay-card-n">${n} документа</div></div>
+    <div class="pay-card"><div class="pay-card-l">➕ ДДС · ${lbl}</div><div class="pay-card-v">${money(vat)} EUR</div><div class="pay-card-n">&nbsp;</div></div>
+    <div class="pay-card pay-card-total"><div class="pay-card-l">Σ Фактурирано С ДДС · ${lbl}</div><div class="pay-card-v">${money(net + vat)} EUR</div><div class="pay-card-n">&nbsp;</div></div>`;
+}
+
 async function erpRenderInvoices() {
   const v = erpView();
   if (!erpInvoices) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; try { await erpLoadInvoices(); await erpInvLoadSeries(); } catch (e) {
@@ -221,6 +247,10 @@ async function erpRenderInvoices() {
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
       <button class="btn btn-small btn-primary" id="inv-new-invoice">+ Фактура</button>
     </div>
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <label class="erp-inline">📅 Месец <input type="month" id="inv-month" value="${erpInvMonth || new Date().toISOString().slice(0, 7)}" /></label>
+    </div>
+    <div class="pay-cards" id="inv-month-cards"></div>
     <table class="report-table erp-table">
       <thead><tr><th>№</th><th>Тип</th><th>Клиент</th><th>Дата</th><th class="num">Сума</th><th>Вал.</th><th>Статус</th><th></th></tr></thead>
       <tbody>${rows.map(o => {
@@ -242,6 +272,9 @@ async function erpRenderInvoices() {
 
   const qEl = document.getElementById("inv-q");
   if (qEl) qEl.addEventListener("input", e => { erpInvQuery = e.target.value; erpRenderInvoices(); });
+  const mEl = document.getElementById("inv-month");
+  if (mEl) mEl.addEventListener("change", e => { erpInvMonth = e.target.value; erpInvMonthCards(); });
+  erpInvMonthCards();
   document.getElementById("inv-fkind").addEventListener("change", e => { erpInvKindFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-fstatus").addEventListener("change", e => { erpInvStatusFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-series").addEventListener("click", erpInvSeriesDialog);
