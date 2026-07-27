@@ -74,10 +74,8 @@ async function erpFillProductClients() {
   erpRenderProducts();
 }
 
-function erpRenderProducts() {
-  const v = erpView();
-  // Историята на клиентите (за собственик/споделен) — зарежда се веднъж лениво.
-  if (ERP._prodHist === undefined) { ERP._prodHist = null; erpLoadProdHist().then(() => { if (ERP.tab === "products") erpRenderProducts(); }).catch(() => {}); }
+// Филтрираните редове според търсенето и филтрите (сортирани по име).
+function erpProdRows() {
   const q = erpProdSearch.trim().toLowerCase();
   let rows = ERP.products.slice();
   if (erpProdFilter === "top") rows = rows.filter(erpIsTopProduct);
@@ -91,6 +89,35 @@ function erpRenderProducts() {
     (p.group_name || "").toLowerCase().includes(q) ||
     (p.owner_client || "").toLowerCase().includes(q));
   rows.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+  return rows;
+}
+
+// Пълни само редовете (до 300) — търсенето не пре-рисува целия екран и не губи
+// фокуса. При хиляди продукти пълното рисуване правеше таба много бавен.
+function erpProdFillRows() {
+  const tbody = document.getElementById("erp-prod-tbody");
+  if (!tbody) return;
+  const rows = erpProdRows();
+  const shown = rows.slice(0, 300);
+  tbody.innerHTML = shown.map(p => `
+          <tr class="erp-clickable ${erpIsTopProduct(p) ? "erp-top-product" : ""} ${p.needs_recipe ? "erp-needs" : ""}" data-prod="${p.id}">
+            <td data-label="Код">${erpIsTopProduct(p) ? '<span class="erp-top-flag" title="Краен продукт — този код влиза във фактурата">🧾</span> ' : ''}${escapeHtml(p.code || "—")}</td>
+            <td data-label="Име">${escapeHtml(p.name || "")}</td>
+            <td data-label="Клиент" class="erp-owner-cell">${erpOwnerCell(p)}</td>
+            <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
+            <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
+            <td class="num cost-cell" data-label="Себестойност">${erpManualCostOf(p.id) !== null ? erpEur(p.cost_eur) + ' <span class="erp-tag erp-tag-manual" title="Ръчно зададена цена (екран Рецепта → ✎ Цена)">✋</span>' : (p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur))}</td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
+          </tr>`).join("") ||
+    `<tr><td colspan="7" class="report-empty">Няма продукти по този филтър.</td></tr>`;
+  const cnt = document.getElementById("erp-prod-count");
+  if (cnt) cnt.textContent = rows.length > 300 ? `показани 300 от ${rows.length} — потърси, за да стесниш` : `${rows.length} продукта`;
+}
+
+function erpRenderProducts() {
+  const v = erpView();
+  // Историята на клиентите (за собственик/споделен) — зарежда се веднъж лениво.
+  if (ERP._prodHist === undefined) { ERP._prodHist = null; erpLoadProdHist().then(() => { if (ERP.tab === "products") erpProdFillRows(); }).catch(() => {}); }
 
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -108,7 +135,7 @@ function erpRenderProducts() {
       </select>
       <button class="btn btn-small" id="erp-prod-fillclients" title="Задай клиент-собственик автоматично от историята на заявките/продажбите (само където е поръчван от точно един клиент)">👥 Попълни клиентите</button>
       <span class="spacer"></span>
-      <span class="erp-count">${rows.length} продукта</span>
+      <span class="erp-count" id="erp-prod-count"></span>
       <button class="btn btn-primary" id="erp-prod-add">🛠 Създай технология</button>
     </div>
     <p class="erp-prod-legend"><span class="erp-legend-top">🧾 Оцветените са крайни продукти</span> — кодът, който реално вкарваме във фактурата (главното от сглобката). Неоцветените се влагат като детайл/възел в друга рецепта.</p>
@@ -117,41 +144,32 @@ function erpRenderProducts() {
       <thead>
         <tr><th>Код</th><th>Име</th><th>Клиент</th><th>Тип</th><th>Група</th><th class="num cost-cell">Себестойност</th><th></th></tr>
       </thead>
-      <tbody>
-        ${rows.map(p => `
-          <tr class="erp-clickable ${erpIsTopProduct(p) ? "erp-top-product" : ""} ${p.needs_recipe ? "erp-needs" : ""}" data-prod="${p.id}">
-            <td data-label="Код">${erpIsTopProduct(p) ? '<span class="erp-top-flag" title="Краен продукт — този код влиза във фактурата">🧾</span> ' : ''}${escapeHtml(p.code || "—")}</td>
-            <td data-label="Име">${escapeHtml(p.name || "")}</td>
-            <td data-label="Клиент" class="erp-owner-cell">${erpOwnerCell(p)}</td>
-            <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
-            <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
-            <td class="num cost-cell" data-label="Себестойност">${erpManualCostOf(p.id) !== null ? erpEur(p.cost_eur) + ' <span class="erp-tag erp-tag-manual" title="Ръчно зададена цена (екран Рецепта → ✎ Цена)">✋</span>' : (p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur))}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
-          </tr>`).join("") ||
-          `<tr><td colspan="7" class="report-empty">Няма продукти. Импортирай рецепти от таба „Импорт".</td></tr>`}
-      </tbody>
+      <tbody id="erp-prod-tbody"></tbody>
     </table>`;
 
   document.getElementById("erp-prod-search").addEventListener("input", e => {
-    erpProdSearch = e.target.value; erpRenderProducts();
-    const el = document.getElementById("erp-prod-search"); el.focus(); el.setSelectionRange(el.value.length, el.value.length);
+    erpProdSearch = e.target.value; erpProdFillRows();
   });
   document.getElementById("erp-prod-filter").addEventListener("change", e => {
-    erpProdFilter = e.target.value; erpRenderProducts();
+    erpProdFilter = e.target.value; erpProdFillRows();
   });
   const clientSel = document.getElementById("erp-prod-client");
-  if (clientSel) clientSel.addEventListener("change", e => { erpProdClient = e.target.value; erpRenderProducts(); });
+  if (clientSel) clientSel.addEventListener("change", e => { erpProdClient = e.target.value; erpProdFillRows(); });
   const fillBtn = document.getElementById("erp-prod-fillclients");
   if (fillBtn) fillBtn.addEventListener("click", erpFillProductClients);
   document.getElementById("erp-prod-add").addEventListener("click", erpNewProduct);
-  v.querySelectorAll("[data-editp]").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpEditProduct(Number(b.dataset.editp)); }));
-  v.querySelectorAll("[data-stree]").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); if (typeof erpStockTree === "function") erpStockTree(Number(b.dataset.stree)); }));
-  v.querySelectorAll("[data-open]").forEach(b =>
-    b.addEventListener("click", e => { e.stopPropagation(); erpRenderRecipe(Number(b.dataset.open)); }));
-  v.querySelectorAll("tr[data-prod]").forEach(tr =>
-    tr.addEventListener("click", () => erpRenderRecipe(Number(tr.dataset.prod))));
+
+  // Един слушател за цялата таблица (вместо по 4 на ред — хиляди при много продукти).
+  const tbody = document.getElementById("erp-prod-tbody");
+  tbody.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b && b.dataset.editp) { e.stopPropagation(); erpEditProduct(Number(b.dataset.editp)); return; }
+    if (b && b.dataset.stree) { e.stopPropagation(); if (typeof erpStockTree === "function") erpStockTree(Number(b.dataset.stree)); return; }
+    if (b && b.dataset.open) { e.stopPropagation(); erpRenderRecipe(Number(b.dataset.open)); return; }
+    const tr = e.target.closest("tr[data-prod]");
+    if (tr) erpRenderRecipe(Number(tr.dataset.prod));
+  });
+  erpProdFillRows();
 }
 
 // Редакция на продукт/детайл/възел: име, група, мярка, тип (кодът не се променя,
