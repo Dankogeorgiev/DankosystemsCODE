@@ -1368,4 +1368,8 @@ tr.times-click:hover td { background: #ecfdf5; }
 .nit-opcodes { font-size: 12px; color: #2563eb; font-weight: 600; margin-top: 1px; }
 .nit-opcodes b { font-family: Consolas, Menlo, monospace; letter-spacing: .3px; }
 .nit-opcodes-none { color: #94a3b8; font-weight: 500; }
+/* Операция с избор на изделие (падащ списък + Л/Д) */
+.nit-pickwrap { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.nit-pick { padding: 10px 12px; border: 2px solid #2563eb; border-radius: 10px; font: inherit; font-size: 15px; background: #eff6ff; color: #0f172a; max-width: 100%; }
+.nit-pick:focus { outline: none; border-color: #1d4ed8; background: #fff; }
 .nit-hint { font-size: 12px; color: #94a3b8; font-weight: 400; }

@@ -93,6 +93,54 @@ const NIT_NO_LD = new Set(["ЛАЗ. РЯЗАНЕ", "ЗАНИТВАНЕ"]);
 function nitOpTotal(v) { return (v && typeof v === "object") ? (nitNum(v.l) + nitNum(v.d)) : nitNum(v); }
 function nitOpLD(v) { return (v && typeof v === "object") ? { l: nitNum(v.l), d: nitNum(v.d) } : { l: 0, d: nitNum(v) }; }
 
+/* ---------- Операции с ИЗБОР НА ИЗДЕЛИЕ ----------
+   Един и същ възел влиза в много крайни механизми (напр. 100949/100950 →
+   над 20 механизма). При такава операция служителят първо ИЗБИРА изделието
+   от падащ списък, после пише бройките Л/Д. Записът се пази с ключ
+   „операция¦код" (напр. Италия затваряне на крак¦101124), затова всяко
+   изделие си има собствена бройка и собствена складова история.
+   Списъкът идва от справката „Къде се влага" на възела (ЕРП → Продукти). */
+const NIT_OP_PRODUCTS = {
+  "Италия затваряне на крак": {
+    from: "100949 / 100950",
+    list: [
+      ["101124", "Механизъм Италия 9.5"],
+      ["102621", "Механизъм СИЯНА"],
+      ["101133", "Механизъм Италия 10"],
+      ["101134", "Механизъм Италия 10 BG - M34"],
+      ["101135", "Механизъм Италия 11.5 - СОФА МАКС"],
+      ["101136", "Механизъм Италия 2.11"],
+      ["101123", "Механизъм Италия Начеви - 1"],
+      ["101139", "Механизъм Италия Начеви - 2 - сваляемо колело"],
+      ["101140", "Механизъм Италия Начеви - 3"],
+      ["102835", "Механизъм Италия Начеви - Mobicord"],
+      ["102252", "Механизъм Италия Начеви H140"],
+      ["101142", "Механизъм Италия Станков"],
+      ["101137", "Механизъм Италия ASIA"],
+      ["101880", "Механизъм Италия VINCENT"],
+      ["101125", "Механизъм BG M19"],
+      ["101128", "Механизъм MECCANICA BLG ART.E-WHEEL(BG-M20)DA"],
+      ["101129", "Механизъм MECCANICA BLG H.130"],
+      ["102494", "Механизъм MECCANICA BLG H.140"],
+      ["101130", "Механизъм MECCANICA BLG H183"],
+      ["101141", "IZA MECHANISAM, BLACK 713MM"],
+      ["102458", "MECC.BLG NEW-MAX 2"],
+      ["103093", "MECC.BLG NEW-MAX 2 WHE NEW PLATE rev.2"],
+      ["101131", "MECCANICA NEW MAXI BLG"],
+      ["102752", "MECCANICA NEW MAXI BLG - Cubolli Version"],
+    ],
+  },
+};
+// Ключ на запис: „операция" или „операция¦код на изделие".
+function nitOpBase(key) { return String(key || "").split("¦")[0]; }
+function nitOpPick(key) { const p = String(key || "").split("¦"); return p.length > 1 ? p[1] : ""; }
+// Сборът за една операция в един запис (по всички избрани изделия).
+function nitOpSum(rec, opName) {
+  let s = 0;
+  Object.keys((rec && rec.ops) || {}).forEach(k => { if (nitOpBase(k) === opName) s += nitOpTotal(rec.ops[k]); });
+  return s;
+}
+
 /* ---------- Връзка със Склад детайли ----------
    Операциите с наш код се ЗАПРИХОДЯВАТ в Склад детайли при запис на отчета.
    Синхронизира се по разликата (rec.stocked пази вече заприходеното за
@@ -443,7 +491,7 @@ function nitRenderMechanisms(v) {
   const worker = nitWorker || NIT_WORKERS[0];
   if (!nitWorker) nitWorker = worker;
   const rec = NIT.records[nitKey(worker, nitDate)] || { ops: {} };
-  const mechQty = me => me.ops.reduce((s, o) => s + nitOpTotal(rec.ops ? rec.ops[o.n] : 0), 0);
+  const mechQty = me => me.ops.reduce((s, o) => s + nitOpSum(rec, o.n), 0);
 
   const workerCtrl = isW
     ? `<span class="rog-who">👷 <b>${escapeHtml(worker)}</b></span><button class="btn btn-small rog-switch-btn" id="nit-switch">🔄 Смени служител</button>`
@@ -483,7 +531,7 @@ function nitRenderOps(v) {
     </div>
     <div class="rog-rows">
       <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">${NIT_NO_LD.has(me.name) ? "НОВИ бройки (добавят се)" : "НОВИ бройки · Л = ляв, Д = десен"}</span></div></div>
-      ${me.ops.map(o => {
+      ${me.ops.map((o, oi) => {
         const cur = rec.ops ? rec.ops[o.n] : null;
         // Складовите кодове на операцията — винаги видими до името (Л и Д
         // хранят различни кодове; операция без връзка го казва изрично).
@@ -491,6 +539,30 @@ function nitRenderOps(v) {
         const codesHtml = map
           ? `<div class="nit-opcodes">код: Л <b>${escapeHtml(map.l || "—")}</b> · Д <b>${escapeHtml(map.d || "—")}</b></div>`
           : `<div class="nit-opcodes nit-opcodes-none">без складов код</div>`;
+        // Операция с ИЗБОР НА ИЗДЕЛИЕ: падащ списък + Л/Д за избраното.
+        const pick = NIT_OP_PRODUCTS[o.n];
+        if (pick) {
+          const selId = "nit-pick-" + oi;
+          const todays = Object.keys(rec.ops || {})
+            .filter(k => nitOpBase(k) === o.n && nitOpTotal(rec.ops[k]) !== 0)
+            .map(k => { const ld = nitOpLD(rec.ops[k]); return `${escapeHtml(nitOpPick(k) || "?")}: Л <b>${ld.l}</b> · Д <b>${ld.d}</b>`; });
+          return `<div class="rog-row">
+            <div class="rog-op">${escapeHtml(o.n)}
+              <div class="nit-opcodes">код: <b>по избраното изделие</b> <span class="nit-opcodes-none">(от ${escapeHtml(pick.from || "")})</span></div>
+              ${todays.length ? `<div class="nit-today">днес: ${todays.join(" &nbsp;|&nbsp; ")}</div>` : ""}
+            </div>
+            <div class="rog-inputs nit-pickwrap">
+              <select class="nit-pick" id="${selId}">
+                <option value="">— избери изделие —</option>
+                ${pick.list.map(([c, n]) => `<option value="${escapeAttr(c)}">${escapeHtml(c)} · ${escapeHtml(n)}</option>`).join("")}
+              </select>
+              <span class="rog-ld">
+                <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="ляв" /></label>
+                <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="десен" /></label>
+              </span>
+            </div>
+          </div>`;
+        }
         if (NIT_NO_LD.has(me.name)) {
           const t = nitOpTotal(cur);
           return `<div class="rog-row">
@@ -514,7 +586,7 @@ function nitRenderOps(v) {
       <button class="btn btn-primary rog-save-btn" id="nit-save">💾 Запиши</button>
     </div>`;
 
-  const dayTot = me.ops.reduce((s, o) => s + nitOpTotal(rec.ops ? rec.ops[o.n] : 0), 0);
+  const dayTot = me.ops.reduce((s, o) => s + nitOpSum(rec, o.n), 0);
   const recalc = () => { let t = 0; v.querySelectorAll(".nit-q").forEach(i => t += nitNum(i.value)); const el = v.querySelector("#nit-tot"); if (el) el.innerHTML = `Добавяш сега: <b>${Math.round(t * 100) / 100}</b> · вече записани днес: <b>${Math.round(dayTot * 100) / 100}</b><br><span class="nit-hint">Пишеш само НОВИТЕ бройки — добавят се към днешните. Сгрешено? Въведи с минус (напр. -50), за да извадиш.</span>`; };
   v.querySelectorAll(".nit-q").forEach(i => i.addEventListener("input", recalc));
   recalc();
@@ -527,12 +599,25 @@ function nitRenderOps(v) {
     const r = NIT.records[key] || { worker, date: nitDate, ops: {} };
     r.worker = worker; r.date = nitDate; r.ops = r.ops || {};
     const vals = {};
+    const noPick = [];
     v.querySelectorAll(".nit-q").forEach(inp => {
-      const op = inp.dataset.op, side = inp.dataset.side || "";
+      let op = inp.dataset.op;
+      const side = inp.dataset.side || "";
       const q = nitNum(inp.value);
+      // Операция с избор на изделие: ключът става „операция¦код".
+      if (inp.dataset.pickref) {
+        const sel = v.querySelector("#" + inp.dataset.pickref);
+        const code = (sel && sel.value) || "";
+        if (!code) { if (q) noPick.push(op); return; }
+        op = op + "¦" + code;
+      }
       const cur = vals[op] || (vals[op] = {});
       if (side) cur[side] = q; else cur.single = q;
     });
+    if (noPick.length) {
+      alert("Избери изделие от падащия списък за: " + [...new Set(noPick)].join(", ") + "\n\nБройката трябва да знае за кой механизъм е.");
+      return;
+    }
     Object.entries(vals).forEach(([op, x]) => {
       if (x.single !== undefined) {
         if (!x.single) return;   // празно поле не пипа днешното
@@ -592,9 +677,10 @@ function nitSummaryData(from, to) {
     let any = false;
     Object.entries(r.ops || {}).forEach(([op, qv]) => {
       const q = nitOpTotal(qv); if (!q) return; any = true;
-      // Премахнати операции (напр. „Италия нож на заготовка"): старите записи
-      // остават в справките като архив, за да не се топят историческите числа.
-      const info = NIT_OP_INDEX[op] || { mech: "(архивни операции)", r: 0, t: "обикн" };
+      // Ключът може да е „операция¦код на изделие" (операции с избор) —
+      // броим по базовата операция. Премахнати операции остават като архив,
+      // за да не се топят историческите числа.
+      const info = NIT_OP_INDEX[nitOpBase(op)] || { mech: "(архивни операции)", r: 0, t: "обикн" };
       opAgg[w][op] = (opAgg[w][op] || 0) + q;
       mechAgg[w][info.mech] = (mechAgg[w][info.mech] || 0) + q;
       riv[w][info.t] = (riv[w][info.t] || 0) + q * info.r;
