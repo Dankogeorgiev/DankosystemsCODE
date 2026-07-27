@@ -21,12 +21,27 @@ async function dsFetchAllProducts(cols) {
   return out;
 }
 // Зарежда наведнъж кои продукти имат чертежи (products.drawings непразно).
+// Леко: тегли само id-тата на продуктите С чертежи (не целия jsonb списък —
+// при хиляди продукти това бяха мегабайти при всяко отваряне на склада).
 async function dsLoadHasDrawings() {
   DS_HAS_DRAW = new Set();
   try {
-    const rows = await dsFetchAllProducts("id,drawings");
-    rows.forEach(r => { if (Array.isArray(r.drawings) && r.drawings.length) DS_HAS_DRAW.add(Number(r.id)); });
-  } catch (e) { /* при грешка бутоните остават неоцветени */ }
+    const CHUNK = 1000;
+    for (let from = 0; ; from += CHUNK) {
+      const { data, error } = await sb.from("products").select("id")
+        .not("drawings", "is", null).neq("drawings", "[]")
+        .order("id", { ascending: true }).range(from, from + CHUNK - 1);
+      if (error) throw error;
+      (data || []).forEach(r => DS_HAS_DRAW.add(Number(r.id)));
+      if (!data || data.length < CHUNK) break;
+    }
+  } catch (e) {
+    // Резервен (стар, тежък) път — ако jsonb филтърът не мине на тази база.
+    try {
+      const rows = await dsFetchAllProducts("id,drawings");
+      rows.forEach(r => { if (Array.isArray(r.drawings) && r.drawings.length) DS_HAS_DRAW.add(Number(r.id)); });
+    } catch (e2) { /* при грешка бутоните остават неоцветени */ }
+  }
 }
 // Има ли продуктът чертеж? Зареденото в паметта има превес (за да отразява промени).
 function dsHasDrawing(p) {
