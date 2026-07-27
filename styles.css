@@ -1290,6 +1290,14 @@ tr.times-click:hover td { background: #ecfdf5; }
 .m-chip.m-prog { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
 .m-chip.m-wait { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
 .m-chip.m-wait:hover { background: #e5e7eb; }
+/* Артикул от заявката (ред с прогрес; клик разгъва детайлите) */
+.m-art { border: 1px solid #e2e8f0; border-radius: 10px; padding: 6px 10px; margin: 6px 0; background: #fff; }
+.m-art-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; user-select: none; }
+.m-art-t { font-size: .93rem; }
+.m-art-h .m-prog-n { margin-left: auto; }
+.m-art-ok { color: #047857; font-weight: 700; font-size: .9rem; }
+.m-art.m-art-done { background: #f0fdf4; border-color: #bbf7d0; }
+.m-art .m-detail { margin-left: 16px; }
 
 /* ---------- РОГОШ: обобщение по период (карти) ---------- */
 .rog-period-btns { display: inline-flex; gap: 4px; }
