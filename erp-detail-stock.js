@@ -6,6 +6,7 @@
 
 let DS_TERM = "";
 let DS_ONLY_STOCK = false;
+let DS_ONLY_NEG = false;   // показва само детайли с отрицателна наличност
 let DS_HAS_DRAW = new Set();   // id-та на продукти с поне един чертеж (за оцветяване на бутона)
 
 // Чете ВСИЧКИ продукти (със странициране — Supabase връща макс. 1000 наведнъж).
@@ -93,16 +94,14 @@ async function erpRenderDetailStock() {
       <span class="erp-muted">${totalWith} детайла с наличност</span>
     </div>
     <p class="hint">Тук въвеждаш реалната наличност на готовите детайли/възли. При пускане на заявка системата
-      автоматично приспада наличното и праща в цех само недостига.
-      За наливане наведнъж: <b>свали шаблона</b>, попълни колоната „Налична бройка (попълни)" и го <b>импортирай</b>.</p>
+      автоматично приспада наличното и праща в цех само недостига.</p>
     <div class="erp-toolbar">
       <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
+      <button type="button" class="btn btn-small${DS_ONLY_NEG ? " btn-danger" : ""}" id="ds-neg" title="Показва само детайлите, чиято наличност е под нулата (изписано е повече, отколкото е заприходено)">⚠ Отрицателни наличности</button>
       <span id="ds-count" class="erp-muted"></span>
       <span class="spacer"></span>
       <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
-      <label class="btn btn-small btn-primary" for="ds-import-file">⤴ Импортирай наличности</label>
-      <input type="file" id="ds-import-file" accept=".xlsx,.xls,.csv" hidden />
       <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
       <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip" multiple hidden />
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
@@ -123,10 +122,14 @@ async function erpRenderDetailStock() {
   if (q) q.addEventListener("input", e => { DS_TERM = e.target.value; dsFillRows(); });
   const only = document.getElementById("ds-only");
   if (only) only.addEventListener("change", e => { DS_ONLY_STOCK = e.target.checked; dsFillRows(); });
+  const neg = document.getElementById("ds-neg");
+  if (neg) neg.addEventListener("click", () => {
+    DS_ONLY_NEG = !DS_ONLY_NEG;
+    neg.classList.toggle("btn-danger", DS_ONLY_NEG);
+    dsFillRows();
+  });
   const exp = document.getElementById("ds-export");
   if (exp) exp.addEventListener("click", dsExportTemplate);
-  const imp = document.getElementById("ds-import-file");
-  if (imp) imp.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) dsImportFill(f); });
   const db = document.getElementById("ds-draw-bulk");
   if (db) db.addEventListener("change", e => { const fs = [...(e.target.files || [])]; e.target.value = ""; if (fs.length) dsBulkDrawings(fs); });
   const dc = document.getElementById("ds-draw-check");
@@ -151,14 +154,20 @@ function dsFillRows() {
   let list = ERP.products.filter(dsShowInStock);
   if (DS_TERM) { const q = DS_TERM.toLowerCase().trim(); list = list.filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q)); }
   if (DS_ONLY_STOCK) list = list.filter(p => (Number(p.stock) || 0) > 0);
-  list.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));
+  if (DS_ONLY_NEG) {
+    list = list.filter(p => (Number(p.stock) || 0) < 0);
+    // Най-големият минус най-отгоре — там е най-спешното.
+    list.sort((a, b) => (Number(a.stock) || 0) - (Number(b.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));
+  } else {
+    list.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));
+  }
 
   const shown = list.slice(0, 300);
   tbody.innerHTML = shown.map(p => `
     <tr>
       <td data-label="Код"><b>${escapeHtml(p.code || "")}</b></td>
       <td data-label="Детайл">${escapeHtml(p.name || "")} <span class="erp-muted">#${p.id}</span>${p.is_semifinished ? ` <span class="erp-muted">възел</span>` : ""}</td>
-      <td class="num" data-label="Наличност"><b class="${(Number(p.stock) || 0) > 0 ? "" : "erp-muted"}">${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</td>
+      <td class="num" data-label="Наличност"><b class="${(Number(p.stock) || 0) > 0 ? "" : (Number(p.stock) || 0) < 0 ? "erp-warn" : "erp-muted"}">${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</td>
       <td data-label="Движение">
         <button type="button" class="btn btn-small btn-primary ds-prod" data-id="${p.id}" title="Пусни по цеховете; готовото влиза тук">🏭 произведи</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
