@@ -67,7 +67,7 @@ function erpNextCode() {
 // Страниците след първата се теглят ПАРАЛЕЛНО (по BATCH наведнъж) — при голяма
 // таблица (рецепти, продукти, наличности) последователното теглене правеше
 // десетки заявки една след друга и отварянето на екраните се влачеше.
-async function erpSelectAll(table, cols, eqCol, eqVal) {
+async function erpSelectAllOnce(table, cols, eqCol, eqVal) {
   const PAGE = 1000, BATCH = 6;
   const getPage = n => {
     let q = sb.from(table).select(cols);
@@ -94,6 +94,41 @@ async function erpSelectAll(table, cols, eqCol, eqVal) {
     next += BATCH;
   }
   return { data: out, error: null };
+}
+
+// Броят редове в базата (без да тегли самите редове) — за проверка, че сме
+// изтеглили ВСИЧКО. Връща null, ако броенето не е възможно.
+async function erpCountRows(table, eqCol, eqVal) {
+  try {
+    let q = sb.from(table).select("id", { count: "exact", head: true });
+    if (eqCol !== undefined) q = q.eq(eqCol, eqVal);
+    const { count, error } = await q;
+    return error ? null : (typeof count === "number" ? count : null);
+  } catch (e) { return null; }
+}
+
+/* КОНТРОЛА „нищо да не липсва": едновременно с първата страница питаме базата
+   КОЛКО реда има. Ако изтегленото е по-малко (прекъсната мрежа, отрязана
+   страница), опитваме ВТОРИ път; ако пак не достига, връщаме резултата с
+   белег truncated — екранът показва предупреждение, вместо тихо да работи с
+   непълни данни. Точно това криеше задачи преди. */
+async function erpSelectAll(table, cols, eqCol, eqVal) {
+  const [res, cnt] = await Promise.all([
+    erpSelectAllOnce(table, cols, eqCol, eqVal),
+    erpCountRows(table, eqCol, eqVal),
+  ]);
+  if (res.error) return res;
+  if (cnt == null || res.data.length >= cnt) return res;
+  // Втори опит със свежо преброяване (данните може да са се променили).
+  const [res2, cnt2] = await Promise.all([
+    erpSelectAllOnce(table, cols, eqCol, eqVal),
+    erpCountRows(table, eqCol, eqVal),
+  ]);
+  const best = (!res2.error && res2.data.length > res.data.length) ? res2 : res;
+  const expect = (cnt2 == null) ? cnt : cnt2;
+  if (best.data.length >= expect) return { data: best.data, error: null };
+  console.warn(`erpSelectAll(${table}): изтеглени ${best.data.length} от ${expect} реда!`);
+  return { data: best.data, error: null, truncated: true, expected: expect, got: best.data.length };
 }
 
 // Връща контейнера на АКТИВНИЯ раздел (всеки отворен таб живее в собствен „pane",

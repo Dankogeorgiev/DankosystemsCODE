@@ -405,13 +405,18 @@ async function tSaveWorkers() {
     .upsert({ id: "workers", data: { workshops: WORKERS, seeded_v1: workersSeededV1 }, updated_at: new Date().toISOString() });
   if (error) alert("Грешка при запис на служителите: " + error.message);
 }
+let TASKS_INCOMPLETE = null;   // {expected, got} — ако базата има повече задачи, отколкото сме изтеглили
+
 async function tLoadTasks() {
   // Странициране (базата връща макс. 1000 наведнъж): без него задачите над
-  // 1000 просто липсваха. erpSelectAll тегли страниците паралелно.
+  // 1000 просто липсваха. erpSelectAll тегли страниците паралелно И сверява
+  // броя с базата — при разминаване вдига белег, който излиза на екрана.
   let data, error;
+  TASKS_INCOMPLETE = null;
   if (typeof erpSelectAll === "function") {
     const r = await erpSelectAll("tasks", "id,data,done,updated_at");
     data = r.data; error = r.error;
+    if (r.truncated) TASKS_INCOMPLETE = { expected: r.expected, got: r.got };
     if (!error) data = (data || []).slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   } else {
     const r = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
@@ -691,12 +696,37 @@ function flowDetailProgress(t) {
   return { total, doneOps, pct: qtySum > 0 ? Math.round(prodSum / qtySum * 100) : 0, step: (Number(src.step) || 0) + 1 };
 }
 
+// Видимо предупреждение, ако НЕ всички задачи са изтеглени (по-добре шумно,
+// отколкото цехът да работи по непълен списък).
+function renderTasksIncompleteWarn() {
+  const host = document.getElementById("tasks-view");
+  if (!host) return;
+  let box = document.getElementById("tasks-incomplete");
+  if (!TASKS_INCOMPLETE) { if (box) box.remove(); return; }
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "tasks-incomplete";
+    box.className = "tasks-incomplete";
+    host.insertBefore(box, host.firstChild);
+  }
+  box.innerHTML = `⚠ <b>ВНИМАНИЕ: списъкът може да е непълен</b> — заредени ${TASKS_INCOMPLETE.got} от ${TASKS_INCOMPLETE.expected} задачи в базата.
+    Не работи по този списък, докато не се зареди докрай.
+    <button class="btn btn-small" id="tasks-reload-now">↻ Зареди наново</button>`;
+  const b = document.getElementById("tasks-reload-now");
+  if (b) b.addEventListener("click", async () => {
+    b.disabled = true; b.textContent = "Зарежда…";
+    await tLoadTasks();
+    renderTasks();
+  });
+}
+
 function renderTasks() {
   showSub("tasks");
 
   // Цехов достъп: първо избор „кой си ти“
   if (amWorker() && !MY_WORKER) { renderIdentityPicker(); return; }
   document.getElementById("identity-picker").hidden = true;
+  renderTasksIncompleteWarn();
 
   renderWorkerBar();
   const tbody = document.getElementById("tasks-body");
@@ -1886,7 +1916,8 @@ function taskRefText(t) {
 }
 
 async function mLoad() {
-  const { data, error } = await sb.from("messages").select("*").order("created_at", { ascending: false });
+  const { data, error } = await erpSelectAll("messages", "*");
+  if (!error) (data || []).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   if (error) { console.error("messages load", error.message); MESSAGES = []; return; }
   MESSAGES = (data || []).map(r => ({ ...r.data, id: r.id }));
 }
@@ -2545,7 +2576,8 @@ function prodLogId() { return Date.now().toString(36) + "-" + (prodLogSeq++).toS
 // Зарежда вечния дневник (ако таблицата е създадена — production-log.sql).
 async function loadProdLog() {
   try {
-    const { data, error } = await sb.from("production_log").select("lid,data").order("created_at", { ascending: true }).limit(50000);
+    const { data, error } = await erpSelectAll("production_log", "lid,data,created_at");
+    if (!error) (data || []).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
     if (error) { PROD_LOG = []; return; }
     PROD_LOG = (data || []).map(r => Object.assign({ lid: r.lid }, r.data || {}));
   } catch (e) { PROD_LOG = []; }
