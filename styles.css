@@ -1350,3 +1350,8 @@ tr.times-click:hover td { background: #ecfdf5; }
 
 /* Пулс се отваря и ВЪРХУ Склад/ЕРП (бутонът е вътре) — трябва да е отгоре */
 #pulse-modal { z-index: 900; }
+
+/* Занитване: Л/Д полета на един ред */
+.rog-ld { display: flex; gap: 10px; flex-wrap: wrap; }
+.nit-ldl { display: inline-flex; align-items: center; gap: 5px; font-weight: 800; color: #475569; }
+.nit-ldl input { width: 92px; }
