@@ -108,6 +108,13 @@ const NIT_STOCK_MAP = {
   "Малък бял затваряне":       { d: "101002", l: "101001" },
   "Малък бял цял":             { d: "101002", l: "101001" },   // същият резултат като „затваряне"
 };
+/* Консумация: операцията ВЗИМА предишното стъпало от склада (същата страна).
+   Пример: „Малък бял затваряне" (Д) прави 101002, като ИЗПИСВА 1 бр. 100937.
+   „...цял" прави всичко наведнъж и НЕ взима заготовка от склада. */
+const NIT_CONSUME = {
+  "Малък бял затваряне": { d: "100937", l: "100938" },
+};
+
 /* Авто-сглобяване: щом в склада има И от двете половини, Системата ги
    „сглобява" — изписва по-малкото от двете и заприходява същия брой готови.
    Пример: 101117 (2ка3ка ляв) 100 бр + 101115 (нож ляв) 100 бр →
@@ -150,6 +157,7 @@ async function nitStockIds() {
     const codes = [...new Set([
       ...Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]),
       ...NIT_COMBINE.flatMap(c => [c.a, c.b, c.to]),
+      ...Object.values(NIT_CONSUME).flatMap(m => [m.l, m.d]),
     ].filter(Boolean))];
     const { data, error } = await sb.from("products").select("id,code").in("code", codes);
     if (error) throw error;
@@ -183,6 +191,17 @@ async function nitSyncStock(rec) {
         ref: `нит:${rec.worker}|${rec.date}|${op}|${tag}`,
         note: `Занитване · ${rec.worker} · ${op} (${word})` + (delta < 0 ? " · корекция" : ""),
       });
+      // Операцията консумира предишното стъпало (същата страна) — огледално на делтата.
+      const con = NIT_CONSUME[op] && NIT_CONSUME[op][sk];
+      if (con) {
+        const cpid = ids[con];
+        if (cpid) moves.push({
+          product_id: cpid, kind: "изписване", quantity: -delta,
+          ref: `нит:${rec.worker}|${rec.date}|${op}|${tag}`,
+          note: `Занитване · ${rec.worker} · ${op} (${word}) — влага ${con}` + (delta < 0 ? " · корекция" : ""),
+        });
+        else if (delta > 0) missing.push(con + " (влагане при " + op + " · " + word + ")");
+      }
       applied.push({ key, now, op, sk });
     });
   });
