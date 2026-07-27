@@ -97,6 +97,12 @@ function nitOpLD(v) { return (v && typeof v === "object") ? { l: nitNum(v.l), d:
    Синхронизира се по разликата (rec.stocked пази вече заприходеното за
    служител+ден+операция) — редакция на бройката прави корекция в склада.
    Засега: механизъм ИТАЛИЯ. Добавяне на нов ред тук = нова връзка. */
+/* ⚠ ВАЖНО при промяна: МАХАНЕТО на код от NIT_STOCK_MAP/NIT_COMBINE го изважда
+   от предпазителя erpNitManagedCode (erp-orders.js) — поточните задачи за него
+   пак почват да пипат склада, а src.stocked им е стоял замразен, така че
+   първият отчет в Цехове би заприходил НАВЕДНЪЖ цялата натрупана бройка
+   (двойно върху нит-записите). Преди да махнеш код оттук, кажи на Клод да
+   изравни src.stocked/consumedUnits на задачите му. */
 const NIT_STOCK_MAP = {
   //                             десен код   ляв код
   "Италия 2ка 3ка":            { d: "101116", l: "101117" },
@@ -169,6 +175,16 @@ const NIT_COMBINE = [
 ];
 async function nitCombineStock() {
   const ids = await nitStockIds();
+  // Бройки, РЕЗЕРВИРАНИ от пуснати заявки (кръстосано нетване) — не се комбинират:
+  // те са обещани на заявка, която ще ги вложи при своето сглобяване.
+  const reserved = {};
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (data && data.data && data.data.byOrder) || {};
+    Object.values(byOrder).forEach(per => Object.keys(per || {}).forEach(pid => {
+      reserved[pid] = (reserved[pid] || 0) + (Number(per[pid]) || 0);
+    }));
+  } catch (e) { /* без резервации при грешка */ }
   for (const c of NIT_COMBINE) {
     const ia = ids[c.a], ib = ids[c.b], it = ids[c.to];
     if (!ia || !ib || !it) continue;
@@ -178,6 +194,8 @@ async function nitCombineStock() {
       if (error) continue;
       (data || []).forEach(r => { if (r.id === ia) stA = Number(r.stock) || 0; if (r.id === ib) stB = Number(r.stock) || 0; });
     } catch (e) { continue; }
+    stA = Math.max(0, stA - (reserved[ia] || 0));
+    stB = Math.max(0, stB - (reserved[ib] || 0));
     const q = Math.floor(Math.min(stA, stB));
     if (!(q > 0)) continue;
     const note = `Авто-сглобяване: ${c.a} + ${c.b} → ${c.to} (${c.label})`;
@@ -274,7 +292,7 @@ async function nitSyncStock(rec) {
           else if (delta > 0) missing.push(ccode + " (влагане при " + op + " · " + word + ")");
         }
       });
-      applied.push({ key, now, op, sk });
+      applied.push({ key, now, op, sk, code, delta });
     });
   });
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
@@ -288,7 +306,68 @@ async function nitSyncStock(rec) {
     if (r2.error) alert("Детайлите са отчетени, но МАТЕРИАЛИТЕ (нитове/шайби) не се изписаха: " + r2.error.message);
   }
   applied.forEach(a => { rec.stocked[a.key] = a.now; if (a.sk === "d") delete rec.stocked[a.op]; });
+  // Вариант Б: отчетът движи и ПРОГРЕСА на заявките (поточните задачи в цех
+  // Занитване за същия код) — само produced/готово, без складови движения
+  // (складът за тези кодове се води единствено тук; потокът ги прескача —
+  // виж erpNitManagedCode в erp-orders.js).
+  try { await nitCreditFlow(applied, rec.worker); } catch (e) { console.warn("нит→поток:", e); }
   return true;
+}
+
+/* Отчетът в Занитване бута напред поточните задачи „Занитване" за същия код:
+   прогрес до поръчаното (излишъкът е складов, не прогресен), минус-корекция
+   смъква прогреса (не под 0). Така заявката върви без Мастер отчитане, а
+   гейтовете на следващите операции виждат готовите бройки веднага. */
+async function nitCreditFlow(applied, worker) {
+  const byCode = {};
+  (applied || []).forEach(a => { if (a && a.code && a.delta) byCode[a.code] = (byCode[a.code] || 0) + a.delta; });
+  const codes = Object.keys(byCode);
+  if (!codes.length) return;
+  let rows = [];
+  try {
+    // Странициране (Supabase връща макс. 1000 наведнъж) — през erpSelectAll,
+    // ако е зареден; иначе ръчно.
+    if (typeof erpSelectAll === "function") {
+      const { data, error } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
+      if (error) throw error;
+      rows = data || [];
+    } else {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("tasks").select("id,data")
+          .eq("data->source->>flow", "true").order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+    }
+  } catch (e) { console.warn("нит→поток: четене", e); return; }
+  for (const code of codes) {
+    let delta = byCode[code];
+    const tasks = rows
+      .map(r => ({ id: r.id, d: r.data }))
+      .filter(x => x.d && x.d.source && x.d.source.kind === "series" && x.d.source.flow
+        && x.d.workshop === "Занитване" && String(x.d.code).trim() === String(code).trim())
+      .sort((a, b) => (Number(a.d.source.step) || 0) - (Number(b.d.source.step) || 0));
+    for (let i = 0; i < tasks.length && delta; i++) {
+      const x = tasks[i], q = Number(x.d.qty) || 0, p = Number(x.d.produced) || 0;
+      // Плюс: пълним до поръчаното; ИЗЛИШЪКЪТ отива на последната задача (позволен
+      // е и в Цехове — свръхпроизводството е складово). Минус: смъква, не под 0.
+      const last = i === tasks.length - 1;
+      const add = delta > 0
+        ? (last ? delta : Math.min(Math.max(0, q - p), delta))
+        : Math.max(delta, -p);
+      if (!add) continue;
+      x.d.produced = Math.max(0, p + add);
+      x.d.logs = Array.isArray(x.d.logs) ? x.d.logs : [];
+      x.d.logs.push({ date: nitToday(), worker: worker || "Занитване", qty: add, note: "отчет Занитване (авто)" });
+      const done = q > 0 && x.d.produced >= q;
+      const { error } = await sb.from("tasks").update({ data: x.d, done, updated_at: new Date().toISOString() }).eq("id", x.id);
+      // При отказан запис НЕ прехвърляме бройката към друга серия (би излъгала
+      // чужда заявка) — оставяме я; Мастер отчитане ще навакса прогреса.
+      if (error) { console.warn("нит→поток: запис", error); break; }
+      delta -= add;
+    }
+  }
 }
 
 let NIT = { records: {} };
@@ -319,7 +398,9 @@ async function openNit() {
   const cl = document.getElementById("nit-close"); if (cl) cl.hidden = isW;
   const h = document.querySelector("#nit-modal .mini-head h3");
   if (h) h.textContent = isW ? "🔩 ЗАНИТВАНЕ — дневен запис" : "🔩 ЗАНИТВАНЕ — сглобяване (отчет)";
-  if (!NIT_LOADED) { await nitLoad(); NIT_LOADED = true; }
+  // Винаги свежи данни при отваряне — вторa отворена сесия (офис + таблет)
+  // иначе презаписваше чуждите записи със стар кеш (last-writer-wins).
+  await nitLoad(); NIT_LOADED = true;
   if (!nitDate) nitDate = nitToday();
   nitRender();
 }
@@ -423,6 +504,9 @@ function nitRenderOps(v) {
   recalc();
   v.querySelector("#nit-back").addEventListener("click", () => { nitMech = null; nitRender(); });
   v.querySelector("#nit-save").addEventListener("click", async () => {
+    // Свеж документ точно преди записа — да не стъпчем запис от друга сесия
+    // (кешът може да е от сутринта, а междувременно някой да е писал).
+    try { await nitLoad(); } catch (e) {}
     const key = nitKey(worker, nitDate);
     const r = NIT.records[key] || { worker, date: nitDate, ops: {} };
     r.worker = worker; r.date = nitDate; r.ops = r.ops || {};
@@ -447,6 +531,10 @@ function nitRenderOps(v) {
       }
     });
     r.at = new Date().toISOString();
+    // Полетата се нулират ВЕДНАГА щом бройките влязат в записа — иначе повторно
+    // натискане на „Запиши" (напр. след паднала връзка) ги добавяше втори път.
+    v.querySelectorAll(".nit-q").forEach(inp => { inp.value = ""; });
+    recalc();
     const btn = v.querySelector("#nit-save"); btn.disabled = true; btn.textContent = "Записва…";
     // Заприходяване в Склад детайли за операциите с наш код (по разликата).
     try { await nitSyncStock(r); } catch (e) {}
@@ -488,7 +576,9 @@ function nitSummaryData(from, to) {
     let any = false;
     Object.entries(r.ops || {}).forEach(([op, qv]) => {
       const q = nitOpTotal(qv); if (!q) return; any = true;
-      const info = NIT_OP_INDEX[op]; if (!info) return;
+      // Премахнати операции (напр. „Италия нож на заготовка"): старите записи
+      // остават в справките като архив, за да не се топят историческите числа.
+      const info = NIT_OP_INDEX[op] || { mech: "(архивни операции)", r: 0, t: "обикн" };
       opAgg[w][op] = (opAgg[w][op] || 0) + q;
       mechAgg[w][info.mech] = (mechAgg[w][info.mech] || 0) + q;
       riv[w][info.t] = (riv[w][info.t] || 0) + q * info.r;
