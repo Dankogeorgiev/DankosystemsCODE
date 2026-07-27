@@ -126,7 +126,7 @@ function erpRenderProducts() {
             <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
             <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
             <td class="num cost-cell" data-label="Себестойност">${erpManualCostOf(p.id) !== null ? erpEur(p.cost_eur) + ' <span class="erp-tag erp-tag-manual" title="Ръчно зададена цена (екран Рецепта → ✎ Цена)">✋</span>' : (p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur))}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
           `<tr><td colspan="7" class="report-empty">Няма продукти. Импортирай рецепти от таба „Импорт".</td></tr>`}
       </tbody>
@@ -146,6 +146,8 @@ function erpRenderProducts() {
   document.getElementById("erp-prod-add").addEventListener("click", erpNewProduct);
   v.querySelectorAll("[data-editp]").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpEditProduct(Number(b.dataset.editp)); }));
+  v.querySelectorAll("[data-stree]").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); if (typeof erpStockTree === "function") erpStockTree(Number(b.dataset.stree)); }));
   v.querySelectorAll("[data-open]").forEach(b =>
     b.addEventListener("click", e => { e.stopPropagation(); erpRenderRecipe(Number(b.dataset.open)); }));
   v.querySelectorAll("tr[data-prod]").forEach(tr =>

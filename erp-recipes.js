@@ -34,6 +34,7 @@ function erpRenderRecipe(productId) {
       <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
       <button class="btn btn-small" id="erp-recipe-test" title="Симулира пускането в производство — проверява дали ще върви правилно">🧪 Тест рецепта</button>
+      <button class="btn btn-small" id="erp-recipe-stock" title="Дървото на изделието с наличностите: кой възел/материал колко е на склад и колко липсва за желана бройка">📦 Наличности</button>
       <button class="btn btn-small btn-primary" id="erp-rl-add">+ Добави ред</button>
       ${typeof erpRecipeAutoMenu === "function" ? '<button class="btn btn-small" id="erp-rl-auto" title="Копирай от подобен · От чертеж (AI) · Шаблони">🪄 Бързо съставяне</button>' : ""}
       <button class="btn btn-small" id="erp-rl-fix" title="Материали/възли най-отпред, операциите в реда на добавяне">↕ Подреди правилно</button>
@@ -72,6 +73,8 @@ function erpRenderRecipe(productId) {
   if (testBtn) testBtn.addEventListener("click", () => {
     if (typeof erpTestRecipe === "function") erpTestRecipe(productId, document.getElementById("erp-wc-qty").value, true);
   });
+  const stockBtn = document.getElementById("erp-recipe-stock");
+  if (stockBtn) stockBtn.addEventListener("click", () => erpStockTree(productId));
   document.getElementById("erp-rl-add").addEventListener("click", () => erpAddRecipeLine(productId));
   const autoBtn = document.getElementById("erp-rl-auto");
   if (autoBtn) autoBtn.addEventListener("click", () => erpRecipeAutoMenu(productId));
@@ -391,4 +394,93 @@ async function erpRemoveProductDrawing(productId, i, refresh) {
   const { error } = await sb.from("products").update({ drawings: p.drawings }).eq("id", productId);
   if (error) alert("Грешка при запис: " + error.message);
   (refresh || (() => erpRenderProductDrawings(productId)))();
+}
+
+/* ---------- „Наличности по структурата" (📦 в рецептата) ----------
+   Дървото на изделието с наличности: възли (Склад детайли) и материали
+   (Склад материали). Въвеждаш желана бройка N → за всеки ред: нужно,
+   налично, ЛИПСВА — с нетване: наличен възел покрива нуждата и НЕ иска
+   частите си за покритото количество (както при пускане в производство). */
+function erpStockTreeData(pid, mult, depth, ancestors) {
+  const rows = [];
+  (ERP.linesByProduct[pid] || []).forEach(l => {
+    const q = Number(l.quantity) || 0;
+    if (l.operation_id || !q) return;
+    if (l.material_id) {
+      const m = ERP.matById[l.material_id] || {};
+      const need = q * mult;
+      const have = Number(m.stock) || 0;
+      rows.push({ depth, kind: "mat", code: m.code || "", name: m.name || "", unit: m.unit || "", have, need, miss: Math.max(0, need - have) });
+      return;
+    }
+    if (l.child_product_id) {
+      const c = ERP.prodById[l.child_product_id] || {};
+      const have = Number(c.stock) || 0;
+      const need = q * mult;
+      const net = Math.max(0, need - have);
+      const cycle = ancestors.has(l.child_product_id);
+      rows.push({ depth, kind: "node", pid: l.child_product_id, code: c.code || "", name: c.name || "", unit: "бр.", have, need, miss: net, cycle, covered: need > 0 && net === 0 });
+      if (!cycle && depth < 25)
+        rows.push(...erpStockTreeData(l.child_product_id, net, depth + 1, new Set([...ancestors, l.child_product_id])));
+    }
+  });
+  return rows;
+}
+
+async function erpStockTree(productId) {
+  const p = ERP.prodById[productId]; if (!p) return;
+  let qty = 1;
+  const { wrap, close } = erpDialog(`
+    <h3>📦 Наличности по структурата</h3>
+    <p class="erp-muted" style="margin:-6px 0 8px"><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} · готови на склад: <b>${erpNum(Number(p.stock) || 0)} бр.</b></p>
+    <div class="erp-toolbar" style="margin-bottom:8px">
+      <label class="erp-inline">Искам да сглобя <input type="number" id="st-qty" min="1" step="1" value="1" style="width:80px" /> бр.</label>
+      <span id="st-buildable" class="erp-count"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="st-refresh" title="Презарежда наличностите от склада">↻ Обнови наличностите</button>
+    </div>
+    <p class="hint">За всеки ред: <b>Нужно</b> за въведената бройка, <b>Налично</b> в склада и <b>Липсва</b>. Наличен възел <b>покрива</b> нуждата надолу — частите му се искат само за непокритото количество (редовете „покрито" са сиви). Материалът се гледа в Склад материали, възлите/детайлите — в Склад детайли.</p>
+    <div id="st-table" class="erp-scroll"></div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="st-close">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-full");
+  wrap.querySelector("#st-close").addEventListener("click", close);
+
+  const render = () => {
+    const rows = erpStockTreeData(productId, qty, 0, new Set([productId]));
+    // До колко броя стигат наличните съставки (двоично търсене по липсите).
+    const anyMiss = n => erpStockTreeData(productId, n, 0, new Set([productId])).some(r => r.miss > 0);
+    let buildTxt;
+    if (anyMiss(1)) buildTxt = "0";
+    else {
+      let lo = 1, hi = 2;
+      while (hi <= 500000 && !anyMiss(hi)) { lo = hi; hi *= 2; }
+      if (hi > 500000) buildTxt = "500000+";
+      else { while (lo < hi - 1) { const mid = Math.floor((lo + hi) / 2); if (anyMiss(mid)) hi = mid; else lo = mid; } buildTxt = String(lo); }
+    }
+    wrap.querySelector("#st-buildable").innerHTML = `От наличните съставки можеш да сглобиш до <b>${buildTxt} бр.</b>${(Number(p.stock) || 0) > 0 ? ` (+ ${erpNum(p.stock)} готови на склад)` : ""}`;
+    wrap.querySelector("#st-table").innerHTML = `
+      <table class="report-table erp-table">
+        <thead><tr><th>Съставка</th><th>Код</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num">Липсва</th></tr></thead>
+        <tbody>${rows.map(r => {
+          const grey = r.need === 0;
+          const missCell = grey ? '<span class="erp-muted">— покрито</span>'
+            : r.miss > 0 ? `<span class="erp-warn">${erpNum(r.miss)} ${escapeHtml(r.unit)} ⚠</span>`
+            : '<span style="color:#15803d;font-weight:700">✓ стига</span>';
+          return `<tr${grey ? ' style="opacity:.55"' : ""}>
+            <td style="padding-left:${10 + r.depth * 22}px">${r.kind === "node" ? '<span class="erp-tag erp-tag-semi">възел</span>' : '<span class="erp-tag erp-tag-mat">мат.</span>'} ${escapeHtml(r.name)}${r.cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}</td>
+            <td><b>${escapeHtml(r.code)}</b></td>
+            <td class="num">${grey ? '<span class="erp-muted">0</span>' : erpNum(r.need) + " " + escapeHtml(r.unit)}</td>
+            <td class="num">${erpNum(r.have)} ${escapeHtml(r.unit)}</td>
+            <td class="num">${missCell}</td>
+          </tr>`;
+        }).join("") || '<tr><td colspan="5" class="report-empty">Рецептата няма съставки.</td></tr>'}</tbody>
+      </table>`;
+  };
+  render();
+  wrap.querySelector("#st-qty").addEventListener("input", e => { qty = Math.max(1, Math.floor(erpToNum(e.target.value) || 1)); render(); });
+  wrap.querySelector("#st-refresh").addEventListener("click", async () => {
+    wrap.querySelector("#st-table").innerHTML = '<p class="erp-loading">Презареждам наличностите…</p>';
+    try { await erpLoadAll(); } catch (e) {}
+    render();
+  });
 }
