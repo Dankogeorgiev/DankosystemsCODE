@@ -108,11 +108,32 @@ const NIT_STOCK_MAP = {
   "Малък бял затваряне":       { d: "101002", l: "101001" },
   "Малък бял цял":             { d: "101002", l: "101001" },   // същият резултат като „затваряне"
 };
-/* Консумация: операцията ВЗИМА предишното стъпало от склада (същата страна).
-   Пример: „Малък бял затваряне" (Д) прави 101002, като ИЗПИСВА 1 бр. 100937.
-   „...цял" прави всичко наведнъж и НЕ взима заготовка от склада. */
+/* Консумация: какво ВЛАГА всяка операция за 1 брой (по рецептата на 101102).
+   { code } = общ детайл (еднакъв за Л и Д); { side: {d, l} } = по страна;
+   mat: true = материал от Склад материали (нитове, шайби); per = брой за 1.
+   Изписва се огледално на делтата — корекция с минус връща вложеното. */
 const NIT_CONSUME = {
-  "Малък бял затваряне": { d: "100937", l: "100938" },
+  "Малък бял заготовка": [
+    { code: "100512", per: 1 },              // Късо малък бял
+    { code: "100485", per: 1 },              // Дълго малък бял
+    { code: "100453", per: 1 },              // Винкел малък бял
+    { code: "100898", per: 1 },              // Ухо малък бял
+    { code: "100168", per: 1, mat: true },   // Нит 6 х 12
+  ],
+  "Малък бял затваряне": [
+    { side: { d: "100937", l: "100938" }, per: 1 },   // заготовката (същата страна)
+    { code: "100502", per: 1 },              // Криво малък бял
+    { code: "100167", per: 3, mat: true },   // Нит 6 х 10
+    { code: "100187", per: 2, mat: true },   // Подложна шайба DIN 125 АМ 6
+  ],
+  "Малък бял цял": [
+    { code: "100512", per: 1 }, { code: "100485", per: 1 },
+    { code: "100453", per: 1 }, { code: "100898", per: 1 },
+    { code: "100502", per: 1 },
+    { code: "100168", per: 1, mat: true },
+    { code: "100167", per: 3, mat: true },
+    { code: "100187", per: 2, mat: true },
+  ],
 };
 
 /* Авто-сглобяване: щом в склада има И от двете половини, Системата ги
@@ -122,7 +143,7 @@ const NIT_CONSUME = {
 const NIT_COMBINE = [
   { a: "101117", b: "101115", to: "100950", label: "Италия ляв" },
   { a: "101116", b: "101114", to: "100949", label: "Италия десен" },
-  { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)" },
+  { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)", extra: [{ code: "100622", per: 2 }] },   // + 2 пружини L=90
 ];
 async function nitCombineStock() {
   const ids = await nitStockIds();
@@ -140,11 +161,16 @@ async function nitCombineStock() {
     const note = `Авто-сглобяване: ${c.a} + ${c.b} → ${c.to} (${c.label})`;
     const ref = "нит-сглоб:" + new Date().toISOString();
     try {
-      await sb.from("product_movements").insert([
+      const rows = [
         { product_id: ia, kind: "изписване", quantity: -q, ref, note },
         { product_id: ib, kind: "изписване", quantity: -q, ref, note },
         { product_id: it, kind: "заприходяване", quantity: q, ref, note },
-      ]);
+      ];
+      (c.extra || []).forEach(x => {
+        const xp = ids[x.code];
+        if (xp) rows.push({ product_id: xp, kind: "изписване", quantity: -q * (Number(x.per) || 1), ref, note: note + " · влага " + x.code });
+      });
+      await sb.from("product_movements").insert(rows);
     } catch (e) { /* при грешка ще се сглоби при следващия отчет */ }
   }
 }
@@ -157,7 +183,8 @@ async function nitStockIds() {
     const codes = [...new Set([
       ...Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]),
       ...NIT_COMBINE.flatMap(c => [c.a, c.b, c.to]),
-      ...Object.values(NIT_CONSUME).flatMap(m => [m.l, m.d]),
+      ...Object.values(NIT_CONSUME).flat().flatMap(it => it.mat ? [] : (it.side ? [it.side.l, it.side.d] : [it.code])),
+      ...NIT_COMBINE.flatMap(c => (c.extra || []).map(x => x.code)),
     ].filter(Boolean))];
     const { data, error } = await sb.from("products").select("id,code").in("code", codes);
     if (error) throw error;
@@ -166,8 +193,25 @@ async function nitStockIds() {
   } catch (e) { /* без кеш — следващият запис ще опита наново */ }
   return out;
 }
+let NIT_MID = null;   // код на материал → material_id (нитове, шайби)
+async function nitMatIds() {
+  if (NIT_MID) return NIT_MID;
+  const out = {};
+  try {
+    const codes = [...new Set(Object.values(NIT_CONSUME).flat().filter(it => it.mat).map(it => it.code))];
+    if (!codes.length) { NIT_MID = out; return out; }
+    const { data, error } = await sb.from("materials").select("id,code").in("code", codes);
+    if (error) throw error;
+    (data || []).forEach(m => { out[String(m.code).trim()] = m.id; });
+    NIT_MID = out;
+  } catch (e) { /* следващият запис ще опита пак */ }
+  return out;
+}
+
 async function nitSyncStock(rec) {
   const ids = await nitStockIds();
+  const mids = await nitMatIds();
+  const matMoves = [];
   rec.stocked = rec.stocked || {};
   const moves = [], applied = [], missing = [];
   Object.entries(NIT_STOCK_MAP).forEach(([op, m]) => {
@@ -191,24 +235,36 @@ async function nitSyncStock(rec) {
         ref: `нит:${rec.worker}|${rec.date}|${op}|${tag}`,
         note: `Занитване · ${rec.worker} · ${op} (${word})` + (delta < 0 ? " · корекция" : ""),
       });
-      // Операцията консумира предишното стъпало (същата страна) — огледално на делтата.
-      const con = NIT_CONSUME[op] && NIT_CONSUME[op][sk];
-      if (con) {
-        const cpid = ids[con];
-        if (cpid) moves.push({
-          product_id: cpid, kind: "изписване", quantity: -delta,
-          ref: `нит:${rec.worker}|${rec.date}|${op}|${tag}`,
-          note: `Занитване · ${rec.worker} · ${op} (${word}) — влага ${con}` + (delta < 0 ? " · корекция" : ""),
-        });
-        else if (delta > 0) missing.push(con + " (влагане при " + op + " · " + word + ")");
-      }
+      // Операцията ВЛАГА съставките си (детайли и материали) — огледално на делтата.
+      (NIT_CONSUME[op] || []).forEach(item => {
+        const ccode = item.side ? item.side[sk] : item.code;
+        if (!ccode) return;
+        const q = delta * (Number(item.per) || 1);
+        const cref = `нит:${rec.worker}|${rec.date}|${op}|${tag}`;
+        const cnote = `Занитване · ${rec.worker} · ${op} (${word}) — влага ${ccode}` + (delta < 0 ? " · корекция" : "");
+        if (item.mat) {
+          const mid = mids[ccode];
+          if (mid) matMoves.push({ material_id: mid, kind: "изписване", quantity: -q, ref: cref, note: cnote, created_by: rec.worker || null });
+          else if (delta > 0) missing.push(ccode + " (материал при " + op + ")");
+        } else {
+          const cpid = ids[ccode];
+          if (cpid) moves.push({ product_id: cpid, kind: "изписване", quantity: -q, ref: cref, note: cnote });
+          else if (delta > 0) missing.push(ccode + " (влагане при " + op + " · " + word + ")");
+        }
+      });
       applied.push({ key, now, op, sk });
     });
   });
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
-  if (!moves.length) return true;
-  const { error } = await sb.from("product_movements").insert(moves);
-  if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message + "\n\nПокажи това съобщение на Данко."); return false; }
+  if (!moves.length && !matMoves.length) return true;
+  if (moves.length) {
+    const { error } = await sb.from("product_movements").insert(moves);
+    if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message + "\n\nПокажи това съобщение на Данко."); return false; }
+  }
+  if (matMoves.length) {
+    const r2 = await sb.from("stock_movements").insert(matMoves);
+    if (r2.error) alert("Детайлите са отчетени, но МАТЕРИАЛИТЕ (нитове/шайби) не се изписаха: " + r2.error.message);
+  }
   applied.forEach(a => { rec.stocked[a.key] = a.now; if (a.sk === "d") delete rec.stocked[a.op]; });
   return true;
 }
