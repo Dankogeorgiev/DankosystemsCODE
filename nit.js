@@ -105,6 +105,39 @@ const NIT_STOCK_MAP = {
   "Италия нож на заготовка":   { d: "101114", l: "101115" },   // същият резултат като „само нож"
   "Италия 2ка 3ка и Нож":      { d: "100949", l: "100950" },   // = 2ка3ка + нож наведнъж
 };
+/* Авто-сглобяване: щом в склада има И от двете половини, Системата ги
+   „сглобява" — изписва по-малкото от двете и заприходява същия брой готови.
+   Пример: 101117 (2ка3ка ляв) 100 бр + 101115 (нож ляв) 100 бр →
+   −100/−100 и +100 бр 100950 (Италия цял ляв). Пуска се след всеки отчет. */
+const NIT_COMBINE = [
+  { a: "101117", b: "101115", to: "100950", label: "Италия ляв" },
+  { a: "101116", b: "101114", to: "100949", label: "Италия десен" },
+];
+async function nitCombineStock() {
+  const ids = await nitStockIds();
+  for (const c of NIT_COMBINE) {
+    const ia = ids[c.a], ib = ids[c.b], it = ids[c.to];
+    if (!ia || !ib || !it) continue;
+    let stA = 0, stB = 0;
+    try {
+      const { data, error } = await sb.from("v_product_stock").select("id,stock").in("id", [ia, ib]);
+      if (error) continue;
+      (data || []).forEach(r => { if (r.id === ia) stA = Number(r.stock) || 0; if (r.id === ib) stB = Number(r.stock) || 0; });
+    } catch (e) { continue; }
+    const q = Math.floor(Math.min(stA, stB));
+    if (!(q > 0)) continue;
+    const note = `Авто-сглобяване: ${c.a} + ${c.b} → ${c.to} (${c.label})`;
+    const ref = "нит-сглоб:" + new Date().toISOString();
+    try {
+      await sb.from("product_movements").insert([
+        { product_id: ia, kind: "изписване", quantity: -q, ref, note },
+        { product_id: ib, kind: "изписване", quantity: -q, ref, note },
+        { product_id: it, kind: "заприходяване", quantity: q, ref, note },
+      ]);
+    } catch (e) { /* при грешка ще се сглоби при следващия отчет */ }
+  }
+}
+
 let NIT_PID = null;   // код → product_id (кешира се само при УСПЕШНО зареждане)
 async function nitStockIds() {
   if (NIT_PID) return NIT_PID;
@@ -302,6 +335,8 @@ function nitRenderOps(v) {
     const btn = v.querySelector("#nit-save"); btn.disabled = true; btn.textContent = "Записва…";
     // Заприходяване в Склад детайли за операциите с наш код (по разликата).
     try { await nitSyncStock(r); } catch (e) {}
+    // Авто-сглобяване на двете половини в готов механизъм (мин. от двете).
+    try { await nitCombineStock(); } catch (e) {}
     const hasStocked = r.stocked && Object.values(r.stocked).some(x => Number(x) > 0);
     if (Object.keys(r.ops).length || hasStocked) NIT.records[key] = r; else delete NIT.records[key];
     const ok = await nitSave();
