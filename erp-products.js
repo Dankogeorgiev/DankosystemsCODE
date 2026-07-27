@@ -74,6 +74,74 @@ async function erpFillProductClients() {
   erpRenderProducts();
 }
 
+/* ---------- „Къде се влага?" — обратна справка по рецептите ----------
+   За възел/детайл показва: (1) в кои продукти се влага ДИРЕКТНО (с бройка за
+   1 родител) и (2) до кои КРАЙНИ продукти стига по веригата (с общата бройка
+   за 1 краен, сумирана по всички пътища). Пример: „заготовка потапящ" + различни
+   крака → различни крайни механизми. */
+function erpWhereUsedData(pid) {
+  pid = Number(pid);
+  const byChild = {};
+  (ERP.lines || []).forEach(l => {
+    if (l.child_product_id) (byChild[l.child_product_id] = byChild[l.child_product_id] || []).push({ pid: Number(l.product_id), per: Number(l.quantity) || 1 });
+  });
+  const direct = (byChild[pid] || []).slice();
+  const tops = {};   // краен продукт -> общо бройки от pid за 1 бр. краен
+  (function up(id, mult, seen) {
+    const parents = byChild[id] || [];
+    if (!parents.length) { if (id !== pid) tops[id] = (tops[id] || 0) + mult; return; }
+    parents.forEach(pe => {
+      if (seen.has(pe.pid)) return;   // защита от цикли
+      up(pe.pid, mult * pe.per, new Set([...seen, pe.pid]));
+    });
+  })(pid, 1, new Set([pid]));
+  return { direct, tops };
+}
+
+function erpWhereUsedDialog(prefPid) {
+  const { wrap, close } = erpDialog(`
+    <h3>🔎 Къде се влага?</h3>
+    <label>Възел / детайл<input type="search" id="wu-q" placeholder="търси по код или име…" autocomplete="off" /></label>
+    <div id="wu-list"></div>
+    <div id="wu-res"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="wu-close">Затвори</button></div>`);
+  wrap.querySelector("#wu-close").addEventListener("click", close);
+  const listEl = wrap.querySelector("#wu-list"), resEl = wrap.querySelector("#wu-res"), qEl = wrap.querySelector("#wu-q");
+
+  const prodLine = (p, extra) => `<b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")}${extra || ""}`;
+  const showResult = pid => {
+    const p = ERP.prodById[pid] || {};
+    const { direct, tops } = erpWhereUsedData(pid);
+    const row = (id, txt) => `<div class="erp-clickable wu-row" data-goto="${id}" style="padding:5px 8px;border-bottom:1px dashed var(--line,#e2e8f0)">${txt}</div>`;
+    const topIds = Object.keys(tops).sort((a, b) => (tops[b] - tops[a]) || ((ERP.prodById[a] || {}).name || "").localeCompare((ERP.prodById[b] || {}).name || "", "bg"));
+    resEl.innerHTML = `
+      <p style="margin:10px 0 6px">🔩 ${prodLine(p)} <span class="erp-muted">— влага се в:</span></p>
+      <h4 class="erp-group-head" style="margin:6px 0 2px">Директно (${direct.length})</h4>
+      ${direct.length ? direct.map(d => { const pp = ERP.prodById[d.pid] || {}; return row(d.pid, prodLine(pp, ` <span class="erp-muted">× ${erpNum(d.per)} бр. за 1</span>`)); }).join("") : `<p class="erp-muted" style="margin:2px 0 6px">Никъде — не участва в ничия рецепта.</p>`}
+      <h4 class="erp-group-head" style="margin:10px 0 2px">🧾 Крайни продукти (${topIds.length})</h4>
+      ${topIds.length ? topIds.map(id => { const pp = ERP.prodById[id] || {}; return row(id, prodLine(pp, ` <span class="erp-muted">× ${erpNum(tops[id])} бр. в 1 краен</span>`)); }).join("") : `<p class="erp-muted" style="margin:2px 0">Не стига до краен продукт.</p>`}
+      <p class="hint" style="margin-top:8px">Клик върху ред отваря рецептата на продукта.</p>`;
+    resEl.querySelectorAll("[data-goto]").forEach(r => r.addEventListener("click", () => { close(); erpRenderRecipe(Number(r.dataset.goto)); }));
+  };
+
+  const fillList = () => {
+    const q = (qEl.value || "").trim().toLowerCase();
+    if (!q) { listEl.innerHTML = `<p class="erp-muted">Пиши код или име (напр. „заготовка потапящ").</p>`; return; }
+    // Търсим само сред влаганите някъде (възли/детайли) — за тях справката има смисъл.
+    const cand = (ERP.products || [])
+      .filter(p => ERP.childIds && ERP.childIds.has(Number(p.id)))
+      .filter(p => ((p.code || "") + " " + (p.name || "")).toLowerCase().includes(q))
+      .slice(0, 30);
+    listEl.innerHTML = cand.length
+      ? cand.map(p => `<div class="erp-clickable wu-row" data-pick="${p.id}" style="padding:4px 8px;border-bottom:1px dashed var(--line,#e2e8f0)">${prodLine(p)}</div>`).join("")
+      : `<p class="erp-muted">Нищо намерено (търси сред влаганите възли/детайли).</p>`;
+    listEl.querySelectorAll("[data-pick]").forEach(r => r.addEventListener("click", () => { listEl.innerHTML = ""; qEl.value = ((ERP.prodById[r.dataset.pick] || {}).code || "") + " " + ((ERP.prodById[r.dataset.pick] || {}).name || ""); showResult(Number(r.dataset.pick)); }));
+  };
+  qEl.addEventListener("input", fillList);
+  if (prefPid) { const p = ERP.prodById[prefPid] || {}; qEl.value = (p.code || "") + " " + (p.name || ""); showResult(Number(prefPid)); }
+  else { fillList(); qEl.focus(); }
+}
+
 // Филтрираните редове според търсенето и филтрите (сортирани по име).
 function erpProdRows() {
   const q = erpProdSearch.trim().toLowerCase();
@@ -107,7 +175,7 @@ function erpProdFillRows() {
             <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
             <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
             <td class="num cost-cell" data-label="Себестойност">${erpManualCostOf(p.id) !== null ? erpEur(p.cost_eur) + ' <span class="erp-tag erp-tag-manual" title="Ръчно зададена цена (екран Рецепта → ✎ Цена)">✋</span>' : (p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur))}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button><button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button>${ERP.childIds && ERP.childIds.has(Number(p.id)) ? `<button class="btn btn-small" data-wu="${p.id}" title="Къде се влага този възел/детайл (директно и в кои крайни продукти)">↥ влага се в</button>` : ""}<button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
     `<tr><td colspan="7" class="report-empty">Няма продукти по този филтър.</td></tr>`;
   const cnt = document.getElementById("erp-prod-count");
@@ -134,6 +202,7 @@ function erpRenderProducts() {
         ${erpProdOwners().map(c => `<option value="${escapeAttr(c)}" ${erpProdClient === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
       </select>
       <button class="btn btn-small" id="erp-prod-fillclients" title="Задай клиент-собственик автоматично от историята на заявките/продажбите (само където е поръчван от точно един клиент)">👥 Попълни клиентите</button>
+      <button class="btn btn-small" id="erp-prod-whereused" title="Обратна справка: избери възел/детайл и виж в кои продукти се влага (директно и до кои крайни стига)">🔎 Къде се влага?</button>
       <span class="spacer"></span>
       <span class="erp-count" id="erp-prod-count"></span>
       <button class="btn btn-primary" id="erp-prod-add">🛠 Създай технология</button>
@@ -157,6 +226,8 @@ function erpRenderProducts() {
   if (clientSel) clientSel.addEventListener("change", e => { erpProdClient = e.target.value; erpProdFillRows(); });
   const fillBtn = document.getElementById("erp-prod-fillclients");
   if (fillBtn) fillBtn.addEventListener("click", erpFillProductClients);
+  const wuBtn = document.getElementById("erp-prod-whereused");
+  if (wuBtn) wuBtn.addEventListener("click", () => erpWhereUsedDialog());
   document.getElementById("erp-prod-add").addEventListener("click", erpNewProduct);
 
   // Един слушател за цялата таблица (вместо по 4 на ред — хиляди при много продукти).
@@ -165,6 +236,7 @@ function erpRenderProducts() {
     const b = e.target.closest("button");
     if (b && b.dataset.editp) { e.stopPropagation(); erpEditProduct(Number(b.dataset.editp)); return; }
     if (b && b.dataset.stree) { e.stopPropagation(); if (typeof erpStockTree === "function") erpStockTree(Number(b.dataset.stree)); return; }
+    if (b && b.dataset.wu) { e.stopPropagation(); erpWhereUsedDialog(Number(b.dataset.wu)); return; }
     if (b && b.dataset.open) { e.stopPropagation(); erpRenderRecipe(Number(b.dataset.open)); return; }
     const tr = e.target.closest("tr[data-prod]");
     if (tr) erpRenderRecipe(Number(tr.dataset.prod));
