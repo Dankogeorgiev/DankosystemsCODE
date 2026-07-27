@@ -102,6 +102,8 @@ function applyAccess() {
   if (fin) fin.style.display = financeAllowed() ? "" : "none";
   const pulse = document.getElementById("btn-pulse");
   if (pulse) pulse.style.display = pulseAllowed() ? "" : "none";
+  const pulseErp = document.getElementById("erp-pulse-btn");
+  if (pulseErp) pulseErp.style.display = pulseAllowed() ? "" : "none";
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
   const lvBtn = document.getElementById("btn-leaves-main");
   if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
