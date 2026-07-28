@@ -105,6 +105,7 @@ const NIT_OP_PRODUCTS = {
     from: "заготовка 100949",
     single: true,   // страната (ляв/десен) е В САМОТО изделие → едно поле за брой
     list: [
+      ["101007", "Механизъм Asia - десен"],
       ["101008", "Механизъм Asia - ляв"],
       ["101010", "Механизъм BG M19 - ляв"],
       ["101018", "Механизъм MECCANICA BLG ART.E-WHEEL(BG-M20)DA - ляв"],
@@ -131,6 +132,29 @@ const NIT_OP_PRODUCTS = {
     ],
   },
 };
+/* Складова връзка ЗА ИЗБРАНО ИЗДЕЛИЕ (операции с падащ списък): какво
+   заприходява (самия избран код) и какво влага — по рецептата на изделието.
+   Изделие без ред тук се отчита само като бройка (без складово движение),
+   докато не му пратим рецептата. */
+const NIT_PICK_RULES = {
+  "Италия затваряне на крак": {
+    // ASIA (по рецептите на 101007/101008): крак + заготовка (кръстосани
+    // страни) + 2× нит 8х26 + 2× шайби АМ8.
+    "101007": { consume: [
+      { code: "100971", per: 1 },              // Италия Asia 14.5 крак - десен
+      { code: "100950", per: 1 },              // Заготовка Италия - ЛЯВА (така е по рецепта)
+      { code: "100175", per: 2, mat: true },   // Нит 8 х 26
+      { code: "100188", per: 2, mat: true },   // Подложна шайба DIN 125 АМ 8
+    ] },
+    "101008": { consume: [
+      { code: "100972", per: 1 },              // Италия Asia 14.5 крак - ляв
+      { code: "100949", per: 1 },              // Заготовка Италия - ДЯСНА
+      { code: "100175", per: 2, mat: true },
+      { code: "100188", per: 2, mat: true },
+    ] },
+  },
+};
+
 // Ключ на запис: „операция" или „операция¦код на изделие".
 function nitOpBase(key) { return String(key || "").split("¦")[0]; }
 function nitOpPick(key) { const p = String(key || "").split("¦"); return p.length > 1 ? p[1] : ""; }
@@ -265,9 +289,12 @@ const NIT_COMBINE = [
   { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)", extra: [{ code: "100622", per: 2 }] },   // + 2 пружини L=90
   // ММ04: десен + ляв → цял механизъм 101157 + 2 огънати и 2 прави спирачки
   { a: "101866", b: "101867", to: "101157", label: "Потапящ малък ММ04 (десен + ляв)", extra: [{ code: "100638", per: 2 }, { code: "100639", per: 2 }] },
+  // ASIA: десен + ляв → цял 101137 + 2 спирачки Италия + 2 болта M8x60 (мат.) + 2 степенчати колела (мат.)
+  { a: "101007", b: "101008", to: "101137", label: "Механизъм Италия ASIA (десен + ляв)", extra: [{ code: "100640", per: 2 }, { code: "100128", per: 2, mat: true }, { code: "100194", per: 2, mat: true }] },
 ];
 async function nitCombineStock() {
   const ids = await nitStockIds();
+  const mids = await nitMatIds();
   // Бройки, РЕЗЕРВИРАНИ от пуснати заявки (кръстосано нетване) — не се комбинират:
   // те са обещани на заявка, която ще ги вложи при своето сглобяване.
   const reserved = {};
@@ -299,11 +326,19 @@ async function nitCombineStock() {
         { product_id: ib, kind: "изписване", quantity: -q, ref, note },
         { product_id: it, kind: "заприходяване", quantity: q, ref, note },
       ];
+      const matRows = [];
       (c.extra || []).forEach(x => {
-        const xp = ids[x.code];
-        if (xp) rows.push({ product_id: xp, kind: "изписване", quantity: -q * (Number(x.per) || 1), ref, note: note + " · влага " + x.code });
+        if (x.mat) {
+          // Добавка от Склад материали (болтове, колела…)
+          const mid = mids[x.code];
+          if (mid) matRows.push({ material_id: mid, kind: "изписване", quantity: -q * (Number(x.per) || 1), ref, note: note + " · влага " + x.code });
+        } else {
+          const xp = ids[x.code];
+          if (xp) rows.push({ product_id: xp, kind: "изписване", quantity: -q * (Number(x.per) || 1), ref, note: note + " · влага " + x.code });
+        }
       });
       await sb.from("product_movements").insert(rows);
+      if (matRows.length) { try { await sb.from("stock_movements").insert(matRows); } catch (e) { /* следващия отчет */ } }
     } catch (e) { /* при грешка ще се сглоби при следващия отчет */ }
   }
 }
@@ -317,7 +352,10 @@ async function nitStockIds() {
       ...Object.values(NIT_STOCK_MAP).flatMap(m => [m.l, m.d]),
       ...NIT_COMBINE.flatMap(c => [c.a, c.b, c.to]),
       ...Object.values(NIT_CONSUME).flat().flatMap(it => it.mat ? [] : (it.side ? [it.side.l, it.side.d] : [it.code])),
-      ...NIT_COMBINE.flatMap(c => (c.extra || []).map(x => x.code)),
+      ...NIT_COMBINE.flatMap(c => (c.extra || []).filter(x => !x.mat).map(x => x.code)),
+      // Операции с избор на изделие: самите изделия + детайлните им съставки
+      ...Object.values(NIT_PICK_RULES).flatMap(rules => Object.entries(rules).flatMap(([code, r]) =>
+        [code, ...((r.consume || []).filter(i => !i.mat).map(i => i.code))])),
     ].filter(Boolean))];
     const { data, error } = await sb.from("products").select("id,code").in("code", codes);
     if (error) throw error;
@@ -331,7 +369,11 @@ async function nitMatIds() {
   if (NIT_MID) return NIT_MID;
   const out = {};
   try {
-    const codes = [...new Set(Object.values(NIT_CONSUME).flat().filter(it => it.mat).map(it => it.code))];
+    const codes = [...new Set([
+      ...Object.values(NIT_CONSUME).flat().filter(it => it.mat).map(it => it.code),
+      ...NIT_COMBINE.flatMap(c => (c.extra || []).filter(x => x.mat).map(x => x.code)),
+      ...Object.values(NIT_PICK_RULES).flatMap(rules => Object.values(rules).flatMap(r => (r.consume || []).filter(i => i.mat).map(i => i.code))),
+    ])];
     if (!codes.length) { NIT_MID = out; return out; }
     const { data, error } = await sb.from("materials").select("id,code").in("code", codes);
     if (error) throw error;
@@ -387,6 +429,40 @@ async function nitSyncStock(rec) {
       });
       applied.push({ key, now, op, sk, code, delta });
     });
+  });
+  // Операции с ИЗБРАНО ИЗДЕЛИЕ (ключ „операция¦код"): заприходяват самия
+  // избран код и влагат по неговата рецепта (NIT_PICK_RULES). Изделие без
+  // правило се отчита само като бройка — без складово движение.
+  Object.keys(rec.ops || {}).forEach(key => {
+    const base = nitOpBase(key), pick = nitOpPick(key);
+    if (!pick) return;
+    const rule = NIT_PICK_RULES[base] && NIT_PICK_RULES[base][pick];
+    if (!rule) return;
+    const now = nitOpTotal(rec.ops[key]);
+    const done = Number(rec.stocked[key]) || 0;
+    const delta = now - done;
+    if (!delta) return;
+    const pid = ids[pick];
+    if (!pid) { if (delta > 0) missing.push(pick + " (" + base + ")"); return; }
+    const ref = `нит:${rec.worker}|${rec.date}|${key}`;
+    moves.push({
+      product_id: pid, kind: "заприходяване", quantity: delta, ref,
+      note: `Занитване · ${rec.worker} · ${base} (${pick})` + (delta < 0 ? " · корекция" : ""),
+    });
+    (rule.consume || []).forEach(item => {
+      const q = delta * (Number(item.per) || 1);
+      const cnote = `Занитване · ${rec.worker} · ${base} (${pick}) — влага ${item.code}` + (delta < 0 ? " · корекция" : "");
+      if (item.mat) {
+        const mid = mids[item.code];
+        if (mid) matMoves.push({ material_id: mid, kind: "изписване", quantity: -q, ref, note: cnote, created_by: rec.worker || null });
+        else if (delta > 0) missing.push(item.code + " (материал при " + base + ")");
+      } else {
+        const cpid = ids[item.code];
+        if (cpid) moves.push({ product_id: cpid, kind: "изписване", quantity: -q, ref, note: cnote });
+        else if (delta > 0) missing.push(item.code + " (влагане при " + base + ")");
+      }
+    });
+    applied.push({ key, now, op: base, sk: "d", code: pick, delta });
   });
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
   if (!moves.length && !matMoves.length) return true;
@@ -602,7 +678,7 @@ function nitRenderOps(v) {
             <div class="rog-inputs nit-pickwrap">
               <select class="nit-pick" id="${selId}">
                 <option value="">— избери изделие —</option>
-                ${opts.map(([c, n]) => `<option value="${escapeAttr(c)}">${escapeHtml(n)} · ${escapeHtml(c)}</option>`).join("")}
+                ${opts.map(([c, n]) => { const wired = NIT_PICK_RULES[o.n] && NIT_PICK_RULES[o.n][c]; return `<option value="${escapeAttr(c)}">${escapeHtml(n)} · ${escapeHtml(c)}${wired ? " ✓" : ""}</option>`; }).join("")}
               </select>
               ${inputHtml}
             </div>
