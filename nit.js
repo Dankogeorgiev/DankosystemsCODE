@@ -316,21 +316,10 @@ const NIT_LEG_BOM_CODES = ["100971", "100972", "100986"];
 /* ---------- 📜 История на механизъм (само за офиса/админ) ----------
    Всички кодове по веригата на механизма: наличност сега + последните
    движения (продукти от Склад детайли, материали от Склад материали).
-   Нов механизъм = нов ред тук. */
-const NIT_HISTORY_SETS = {
-  "ММ04": {
-    products: [
-      ["101864", "Заготовка потапящ ММ04 — дясна"], ["101865", "Заготовка потапящ ММ04 — лява"],
-      ["101866", "Механизъм потапящ ММ04 — десен"], ["101867", "Механизъм потапящ ММ04 — ляв"],
-      ["101157", "Потапящ малък механизъм /ММ04/ — комплект"],
-      ["100461", "Винкел потапящ малък"], ["100514", "Късо ММ03"], ["100488", "Дълго ММ04"], ["100644", "Стик — ММ04"],
-      ["100638", "Спирачка огъната ММ03-04"], ["100639", "Спирачка права ММ03-04"],
-    ],
-    materials: [
-      ["100170", "Нит 8 х 12"], ["100175", "Нит 8 х 26"], ["100188", "Подложна шайба DIN 125 АМ 8"],
-    ],
-  },
-};
+   Наборите се СТРОЯТ АВТОМАТИЧНО от складовата конфигурация (NIT_STOCK_MAP,
+   NIT_CONSUME, NIT_PICK_RULES, NIT_COMBINE) — виж NIT_HISTORY_SETS по-долу,
+   след дефинициите. Механизъм без складова връзка няма бутон. Липсващите
+   имена се допълват от базата при отваряне. */
 
 async function nitHistoryView(setName) {
   const cfg = NIT_HISTORY_SETS[setName]; if (!cfg) return;
@@ -345,9 +334,9 @@ async function nitHistoryView(setName) {
   try {
     // Продукти: id-та, наличности, движения.
     const pCodes = cfg.products.map(x => x[0]);
-    const { data: prods } = await sb.from("products").select("id,code").in("code", pCodes);
-    const pid2code = {}, code2pid = {};
-    (prods || []).forEach(p => { pid2code[p.id] = String(p.code).trim(); code2pid[String(p.code).trim()] = p.id; });
+    const { data: prods } = await sb.from("products").select("id,code,name").in("code", pCodes);
+    const pid2code = {}, code2pid = {}, pid2name = {};
+    (prods || []).forEach(p => { pid2code[p.id] = String(p.code).trim(); code2pid[String(p.code).trim()] = p.id; pid2name[p.id] = p.name || ""; });
     const pids = Object.keys(pid2code).map(Number);
     const pStock = {};
     if (pids.length) {
@@ -357,14 +346,14 @@ async function nitHistoryView(setName) {
     const pMoves = {};
     if (pids.length) {
       const { data } = await sb.from("product_movements").select("product_id,kind,quantity,ref,note,created_at")
-        .in("product_id", pids).order("created_at", { ascending: false }).limit(600);
+        .in("product_id", pids).order("created_at", { ascending: false }).limit(1000);
       (data || []).forEach(m => { (pMoves[m.product_id] = pMoves[m.product_id] || []).push(m); });
     }
     // Материали: id-та, наличности, движения.
     const mCodes = cfg.materials.map(x => x[0]);
-    const { data: mats } = await sb.from("materials").select("id,code").in("code", mCodes);
-    const mid2code = {};
-    (mats || []).forEach(m => { mid2code[m.id] = String(m.code).trim(); });
+    const { data: mats } = await sb.from("materials").select("id,code,name").in("code", mCodes);
+    const mid2code = {}, mid2name = {};
+    (mats || []).forEach(m => { mid2code[m.id] = String(m.code).trim(); mid2name[m.id] = m.name || ""; });
     const mids = Object.keys(mid2code).map(Number);
     const mStock = {};
     if (mids.length) {
@@ -374,7 +363,7 @@ async function nitHistoryView(setName) {
     const mMoves = {};
     if (mids.length) {
       const { data } = await sb.from("stock_movements").select("material_id,kind,quantity,ref,note,created_at")
-        .in("material_id", mids).order("created_at", { ascending: false }).limit(400);
+        .in("material_id", mids).order("created_at", { ascending: false }).limit(800);
       (data || []).forEach(m => { (mMoves[m.material_id] = mMoves[m.material_id] || []).push(m); });
     }
     const movesTbl = list => list && list.length ? `<table class="nit-hist-tbl">
@@ -390,8 +379,8 @@ async function nitHistoryView(setName) {
         <summary><b>${escapeHtml(code)}</b> ${escapeHtml(name)} · <span class="${(stock || 0) < 0 ? "erp-warn" : "dsnm-stock"}">${erpNum(stock || 0)}</span> <span class="erp-muted">${kind}</span> <span class="erp-muted">(${(list || []).length} движ.)</span></summary>
         ${movesTbl(list)}
       </details>`;
-    const prodBlocks = cfg.products.map(([c, n]) => { const pid = code2pid[c]; return pid ? block(c, n, pStock[pid], pMoves[pid], "· Склад детайли") : `<p class="erp-warn">${escapeHtml(c)} — не е намерен в Продукти</p>`; }).join("");
-    const matBlocks = cfg.materials.map(([c, n]) => { const mid = Object.keys(mid2code).find(id => mid2code[id] === c); return mid ? block(c, n, mStock[mid], mMoves[mid], "· Склад материали") : `<p class="erp-warn">${escapeHtml(c)} — не е намерен в Материали</p>`; }).join("");
+    const prodBlocks = cfg.products.map(([c, n]) => { const pid = code2pid[c]; return pid ? block(c, n || pid2name[pid] || "", pStock[pid], pMoves[pid], "· Склад детайли") : `<p class="erp-warn">${escapeHtml(c)} — не е намерен в Продукти</p>`; }).join("");
+    const matBlocks = cfg.materials.map(([c, n]) => { const mid = Object.keys(mid2code).find(id => mid2code[id] === c); return mid ? block(c, n || mid2name[mid] || "", mStock[mid], mMoves[mid], "· Склад материали") : `<p class="erp-warn">${escapeHtml(c)} — не е намерен в Материали</p>`; }).join("");
     wrap.innerHTML = `<div class="dsnm-box">
       <div class="dsnm-top-bar">
         <h3>📜 ${escapeHtml(setName)} — движение и история на всички кодове</h3>
@@ -728,6 +717,57 @@ const NIT_COMBINE = [
   //  ще се върне при масовото връзване на механизмите, заедно с extra:
   //  2× 100640 спирачка + 2× 100128 болт (мат.) + 2× 100194 степенчато колело (мат.))
 ];
+
+/* 📜 Наборите за „движения" — по един за ВСЕКИ механизъм със складова връзка.
+   Кодовете се събират от цялата конфигурация на операциите му; имената идват
+   от списъците (Италия/МПК) и от ръчната карта, останалите — от базата. */
+const NIT_HISTORY_SETS = (() => {
+  const NAMES = {
+    "101864": "Заготовка потапящ ММ04 — дясна", "101865": "Заготовка потапящ ММ04 — лява",
+    "101866": "Механизъм потапящ ММ04 — десен", "101867": "Механизъм потапящ ММ04 — ляв",
+    "101157": "Потапящ малък механизъм /ММ04/ — комплект",
+    "100461": "Винкел потапящ малък", "100514": "Късо ММ03", "100488": "Дълго ММ04", "100644": "Стик — ММ04",
+    "100638": "Спирачка огъната ММ03-04", "100639": "Спирачка права ММ03-04",
+    "100170": "Нит 8 х 12", "100175": "Нит 8 х 26", "100188": "Подложна шайба DIN 125 АМ 8",
+    "100949": "Заготовка Италия — дясна", "100950": "Заготовка Италия — лява",
+    "100959": "Заготовка потапящ — дясна", "100960": "Заготовка потапящ — лява",
+  };
+  [...NIT_ITALY_LEGS_L, ...NIT_ITALY_LEGS_R, ...NIT_MPK_LEGS_L, ...NIT_MPK_LEGS_R]
+    .forEach(([c, n]) => { NAMES[c] = NAMES[c] || n; });
+  [...NIT_ITALY_FINALS, ...NIT_MPK_FINALS].forEach(f => { NAMES[f.code] = NAMES[f.code] || f.name; });
+  const sets = {};
+  NIT_MECHANISMS.forEach(me => {
+    const prod = new Set(), mat = new Set();
+    me.ops.forEach(o => {
+      const op = o.n;
+      const m = NIT_STOCK_MAP[op];
+      if (m) { if (m.d) prod.add(m.d); if (m.l) prod.add(m.l); }
+      (NIT_CONSUME[op] || []).forEach(it => {
+        if (it.mat) mat.add(it.code);
+        else if (it.side) { if (it.side.d) prod.add(it.side.d); if (it.side.l) prod.add(it.side.l); }
+        else if (it.code) prod.add(it.code);
+      });
+      const rules = NIT_PICK_RULES[op];
+      if (rules) Object.entries(rules).forEach(([code, r]) => {
+        prod.add(code);
+        (r.consume || []).forEach(it => { if (it.mat) mat.add(it.code); else if (it.code) prod.add(it.code); });
+      });
+    });
+    // Авто-комплектоването на неговите половини: целите + екстрите също влизат.
+    NIT_COMBINE.forEach(c => {
+      if (prod.has(c.a) || prod.has(c.b)) {
+        prod.add(c.a); prod.add(c.b); prod.add(c.to);
+        (c.extra || []).forEach(x => { if (x.mat) mat.add(x.code); else prod.add(x.code); });
+      }
+    });
+    if (!prod.size && !mat.size) return;   // без складова връзка → без бутон
+    sets[me.name] = {
+      products: [...prod].sort().map(c => [c, NAMES[c] || ""]),
+      materials: [...mat].sort().map(c => [c, NAMES[c] || ""]),
+    };
+  });
+  return sets;
+})();
 async function nitCombineStock() {
   const ids = await nitStockIds();
   const mids = await nitMatIds();
