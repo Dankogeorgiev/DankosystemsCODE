@@ -266,6 +266,82 @@ function nitPickActive(op, code) {
   return false;
 }
 
+/* ---------- ДИНАМИЧНА консумация по живата рецепта („всички като ASIA") ----------
+   Вместо ръчни таблици за всеки механизъм, при запис четем рецептата от базата:
+   • „Крак колела" (🔩 P): намираме крак-BOM възела на P (детето, което не е
+     заготовка 100949/100950) и влагаме неговите ЧАСТИ (тръба, планка…) и
+     МАТЕРИАЛИ (колела, оси) — по бройките от рецептата.
+   • „Италия крак затваряне" (краен F): влагаме двата 🔩 (цели), заготовките и
+     директните материали от рецептите на 🔩-те (нитове/шайби), плюс екстрите
+     на F (спирачки, болтове, степенчати колела…).
+   Статичните правила (ASIA, BG M19) остават като резервен път при мрежова
+   грешка. Промяна на рецепта се отразява от следващия запис — без пипане тук. */
+const NIT_ZAG_CODES = new Set(["100949", "100950"]);
+async function nitLines(pids) {
+  if (!pids.length) return {};
+  const { data, error } = await sb.from("recipe_lines")
+    .select("product_id,child_product_id,material_id,quantity").in("product_id", pids);
+  if (error) throw error;
+  const by = {};
+  (data || []).forEach(l => { (by[l.product_id] = by[l.product_id] || []).push(l); });
+  return by;
+}
+async function nitProdCodes(ids) {
+  if (!ids.length) return {};
+  const { data, error } = await sb.from("products").select("id,code").in("id", ids);
+  if (error) throw error;
+  const m = {}; (data || []).forEach(p => { m[p.id] = String(p.code || "").trim(); });
+  return m;
+}
+// Връща { items: [{pid?|mid?, qty за 1 бр.}], legCode } или null (непълна рецепта).
+async function nitDynamicConsume(base, pick, ids) {
+  const pid = ids[pick]; if (!pid) return null;
+  const L1 = await nitLines([pid]);
+  const lines = L1[pid] || [];
+  if (!lines.length) return null;
+  const childIds = lines.filter(l => l.child_product_id).map(l => l.child_product_id);
+  const codes = await nitProdCodes(childIds);
+  const items = [];
+  if (/^Крак колела/.test(base)) {
+    const legLine = lines.find(l => l.child_product_id && !NIT_ZAG_CODES.has(codes[l.child_product_id]));
+    if (!legLine) return null;
+    const K = legLine.child_product_id;
+    const L2 = await nitLines([K]);
+    (L2[K] || []).forEach(l => {
+      const per = Number(l.quantity) || 1;
+      if (l.child_product_id) items.push({ pid: l.child_product_id, qty: per });
+      else if (l.material_id) items.push({ mid: l.material_id, qty: per });
+    });
+    if (!items.length) return null;
+    return { items, legCode: codes[K] || "" };
+  }
+  // Крак затваряне: краен механизъм F
+  const fin = (typeof NIT_ITALY_FINALS !== "undefined") ? NIT_ITALY_FINALS.find(f => f.code === pick) : null;
+  if (!fin) return null;
+  const halfCodes = new Set([fin.left, fin.right]);
+  const halves = lines.filter(l => l.child_product_id && halfCodes.has(codes[l.child_product_id]));
+  if (halves.length !== 2) return null;
+  // 1) двата 🔩 като цели + 2) екстрите на F (други деца и директни материали)
+  lines.forEach(l => {
+    const per = Number(l.quantity) || 1;
+    if (l.child_product_id) items.push({ pid: l.child_product_id, qty: per });
+    else if (l.material_id) items.push({ mid: l.material_id, qty: per });
+  });
+  // 3) от рецептите на 🔩-те: заготовката + директните им материали (нитове/
+  //    шайби); крак-BOM възелът се пропуска (влиза чрез самия 🔩).
+  const hIds = halves.map(l => l.child_product_id);
+  const L2 = await nitLines(hIds);
+  const c2ids = hIds.flatMap(h => (L2[h] || []).filter(l => l.child_product_id).map(l => l.child_product_id));
+  const codes2 = await nitProdCodes(c2ids);
+  hIds.forEach(h => (L2[h] || []).forEach(l => {
+    const per = Number(l.quantity) || 1;
+    if (l.child_product_id) {
+      if (NIT_ZAG_CODES.has(codes2[l.child_product_id])) items.push({ pid: l.child_product_id, qty: per });
+    } else if (l.material_id) items.push({ mid: l.material_id, qty: per });
+  }));
+  return { items, legCode: "" };
+}
+
 // Ключ на запис: „операция" или „операция¦код на изделие".
 function nitOpBase(key) { return String(key || "").split("¦")[0]; }
 function nitOpPick(key) { const p = String(key || "").split("¦"); return p.length > 1 ? p[1] : ""; }
@@ -537,39 +613,57 @@ async function nitSyncStock(rec) {
     });
   });
   // Операции с ИЗБРАНО ИЗДЕЛИЕ (ключ „операция¦код"): заприходяват самия
-  // избран код и влагат по неговата рецепта (NIT_PICK_RULES). Изделие без
-  // правило се отчита само като бройка — без складово движение.
-  Object.keys(rec.ops || {}).forEach(key => {
+  // избран код и влагат ПО ЖИВАТА РЕЦЕПТА (nitDynamicConsume); статичното
+  // правило е резервен път при мрежова грешка. Изделие без правило се
+  // отчита само като бройка — без складово движение.
+  for (const key of Object.keys(rec.ops || {})) {
     const base = nitOpBase(key), pick = nitOpPick(key);
-    if (!pick) return;
+    if (!pick) continue;
     const rule = NIT_PICK_RULES[base] && NIT_PICK_RULES[base][pick];
-    if (!rule) return;
+    if (!rule) continue;
     const now = nitOpTotal(rec.ops[key]);
     const done = Number(rec.stocked[key]) || 0;
     const delta = now - done;
-    if (!delta) return;
+    if (!delta) continue;
     const pid = ids[pick];
-    if (!pid) { if (delta > 0) missing.push(pick + " (" + base + ")"); return; }
+    if (!pid) { if (delta > 0) missing.push(pick + " (" + base + ")"); continue; }
     const ref = `нит:${rec.worker}|${rec.date}|${key}`;
     moves.push({
       product_id: pid, kind: "заприходяване", quantity: delta, ref,
       note: `Занитване · ${rec.worker} · ${base} (${pick})` + (delta < 0 ? " · корекция" : ""),
     });
-    (rule.consume || []).forEach(item => {
-      const q = delta * (Number(item.per) || 1);
-      const cnote = `Занитване · ${rec.worker} · ${base} (${pick}) — влага ${item.code}` + (delta < 0 ? " · корекция" : "");
-      if (item.mat) {
-        const mid = mids[item.code];
-        if (mid) matMoves.push({ material_id: mid, kind: "изписване", quantity: -q, ref, note: cnote, created_by: rec.worker || null });
-        else if (delta > 0) missing.push(item.code + " (материал при " + base + ")");
-      } else {
-        const cpid = ids[item.code];
-        if (cpid) moves.push({ product_id: cpid, kind: "изписване", quantity: -q, ref, note: cnote });
-        else if (delta > 0) missing.push(item.code + " (влагане при " + base + ")");
-      }
-    });
+    // 1) Динамично: рецептата от базата, в момента на записа.
+    let dyn = null;
+    try { dyn = await nitDynamicConsume(base, pick, ids); } catch (e) { dyn = null; }
+    if (dyn && dyn.items.length) {
+      const cnote = `Занитване · ${rec.worker} · ${base} (${pick}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
+      dyn.items.forEach(it => {
+        const q = delta * (Number(it.qty) || 1);
+        if (it.mid) matMoves.push({ material_id: it.mid, kind: "изписване", quantity: -q, ref, note: cnote, created_by: rec.worker || null });
+        else if (it.pid) moves.push({ product_id: it.pid, kind: "изписване", quantity: -q, ref, note: cnote });
+      });
+      // Голият крак-BOM код влиза в предпазителя (потокът да не го складира).
+      if (dyn.legCode && typeof erpNitManagedCode === "function" && erpNitManagedCode._set) erpNitManagedCode._set.add(String(dyn.legCode));
+    } else if ((rule.consume || []).length) {
+      // 2) Резервен път: статичното правило (кодове).
+      (rule.consume || []).forEach(item => {
+        const q = delta * (Number(item.per) || 1);
+        const cnote = `Занитване · ${rec.worker} · ${base} (${pick}) — влага ${item.code}` + (delta < 0 ? " · корекция" : "");
+        if (item.mat) {
+          const mid = mids[item.code];
+          if (mid) matMoves.push({ material_id: mid, kind: "изписване", quantity: -q, ref, note: cnote, created_by: rec.worker || null });
+          else if (delta > 0) missing.push(item.code + " (материал при " + base + ")");
+        } else {
+          const cpid = ids[item.code];
+          if (cpid) moves.push({ product_id: cpid, kind: "изписване", quantity: -q, ref, note: cnote });
+          else if (delta > 0) missing.push(item.code + " (влагане при " + base + ")");
+        }
+      });
+    } else if (delta > 0) {
+      missing.push(pick + " (влагане по рецепта неуспешно — само заприходено)");
+    }
     applied.push({ key, now, op: base, sk: "d", code: pick, delta });
-  });
+  }
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
   if (!moves.length && !matMoves.length) return true;
   if (moves.length) {
