@@ -994,7 +994,7 @@ async function nitSyncStock(rec) {
       moves.push({
         product_id: pid, kind: "заприходяване", quantity: delta,
         ref: `нит:${rec.worker}|${rec.date}|${op}|${tag}`,
-        note: `Занитване · ${rec.worker} · ${op} (${word})` + (delta < 0 ? " · корекция" : ""),
+        note: `${rec.__ws || "Занитване"} · ${rec.worker} · ${op} (${word})` + (delta < 0 ? " · корекция" : ""),
       });
       // Операцията ВЛАГА съставките си (детайли и материали) — огледално на делтата.
       if (NIT_CONSUME[op]) {
@@ -1003,7 +1003,7 @@ async function nitSyncStock(rec) {
           if (!ccode) return;
           const q = delta * (Number(item.per) || 1);
           const cref = `нит:${rec.worker}|${rec.date}|${op}|${tag}`;
-          const cnote = `Занитване · ${rec.worker} · ${op} (${word}) — влага ${ccode}` + (delta < 0 ? " · корекция" : "");
+          const cnote = `${rec.__ws || "Занитване"} · ${rec.worker} · ${op} (${word}) — влага ${ccode}` + (delta < 0 ? " · корекция" : "");
           if (item.mat) {
             const mid = mids[ccode];
             if (mid) matMoves.push({ material_id: mid, kind: "изписване", quantity: -q, ref: cref, note: cnote, created_by: rec.worker || null });
@@ -1021,7 +1021,7 @@ async function nitSyncStock(rec) {
         try { dynLD = await nitLDDynamic(pid); } catch (e) { dynLD = null; }
         if (dynLD && dynLD.length) {
           const cref = `нит:${rec.worker}|${rec.date}|${op}|${tag}`;
-          const cnote = `Занитване · ${rec.worker} · ${op} (${word}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
+          const cnote = `${rec.__ws || "Занитване"} · ${rec.worker} · ${op} (${word}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
           dynLD.forEach(it => {
             const q = delta * (Number(it.qty) || 1);
             if (it.mid) matMoves.push({ material_id: it.mid, kind: "изписване", quantity: -q, ref: cref, note: cnote, created_by: rec.worker || null });
@@ -1072,12 +1072,12 @@ async function nitSyncStock(rec) {
         const sref = `нит:${rec.worker}|${rec.date}|${key}|${tag}`;
         moves.push({
           product_id: hpid, kind: "заприходяване", quantity: delta, ref: sref,
-          note: `Занитване · ${rec.worker} · ${base} (${pick} · ${word} половина)` + (delta < 0 ? " · корекция" : ""),
+          note: `${rec.__ws || "Занитване"} · ${rec.worker} · ${base} (${pick} · ${word} половина)` + (delta < 0 ? " · корекция" : ""),
         });
         let side = null;
         try { side = await nitCloseSide(hpid, zagClose); } catch (e) { side = null; }
         if (side && side.items.length) {
-          const cnote = `Занитване · ${rec.worker} · ${base} (${pick} · ${word}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
+          const cnote = `${rec.__ws || "Занитване"} · ${rec.worker} · ${base} (${pick} · ${word}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
           side.items.forEach(it => {
             const q = delta * (Number(it.qty) || 1);
             if (it.mid) matMoves.push({ material_id: it.mid, kind: "изписване", quantity: -q, ref: sref, note: cnote, created_by: rec.worker || null });
@@ -1114,13 +1114,13 @@ async function nitSyncStock(rec) {
     const ref = `нит:${rec.worker}|${rec.date}|${key}`;
     moves.push({
       product_id: creditPid, kind: "заприходяване", quantity: delta, ref,
-      note: `Занитване · ${rec.worker} · ${base} (${pick}${creditCode !== pick ? " → крак " + creditCode : ""})` + (delta < 0 ? " · корекция" : ""),
+      note: `${rec.__ws || "Занитване"} · ${rec.worker} · ${base} (${pick}${creditCode !== pick ? " → крак " + creditCode : ""})` + (delta < 0 ? " · корекция" : ""),
     });
     // 1) Динамично: рецептата от базата, в момента на записа.
     let dyn = null;
     try { dyn = await nitDynamicConsume(base, pick, ids); } catch (e) { dyn = null; }
     if (dyn && dyn.items.length) {
-      const cnote = `Занитване · ${rec.worker} · ${base} (${pick}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
+      const cnote = `${rec.__ws || "Занитване"} · ${rec.worker} · ${base} (${pick}) — влага по рецепта` + (delta < 0 ? " · корекция" : "");
       dyn.items.forEach(it => {
         const q = delta * (Number(it.qty) || 1);
         if (it.mid) matMoves.push({ material_id: it.mid, kind: "изписване", quantity: -q, ref, note: cnote, created_by: rec.worker || null });
@@ -1132,7 +1132,7 @@ async function nitSyncStock(rec) {
       // 2) Резервен път: статичното правило (кодове).
       (rule.consume || []).forEach(item => {
         const q = delta * (Number(item.per) || 1);
-        const cnote = `Занитване · ${rec.worker} · ${base} (${pick}) — влага ${item.code}` + (delta < 0 ? " · корекция" : "");
+        const cnote = `${rec.__ws || "Занитване"} · ${rec.worker} · ${base} (${pick}) — влага ${item.code}` + (delta < 0 ? " · корекция" : "");
         if (item.mat) {
           const mid = mids[item.code];
           if (mid) matMoves.push({ material_id: mid, kind: "изписване", quantity: -q, ref, note: cnote, created_by: rec.worker || null });

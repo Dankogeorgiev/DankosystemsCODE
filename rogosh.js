@@ -5,12 +5,15 @@
    Ползва глобалния sb и MY_ACCESS/amWorker/escapeHtml/escapeAttr. */
 
 const ROGOSH_WORKERS = ["Илияна Колева", "Лилия Атанасова", "Румяна Сулакова"];
+/* Операциите са ТОЧНО нит-операциите (имената от NIT_STOCK_MAP) — складовата
+   връзка е същата като в Занитване (nitSyncStock): заприходяване по разликата,
+   влагане на частите/материалите, авто-комплект, прогрес по заявките.
+   В Рогош се правят заготовки/половини на трите механизма (28.07.2026, Данко):
+   „Зачистване от боя" и „Потапящ заготовка" са махнати по негово искане. */
 const ROGOSH_OPS = [
-  "Зачистване от боя",
-  "Малък бял заготовка", "Малък бял затваряне",
-  "Италия заготовка", "Италия затваряне (нож)",
-  "45 градуса заготовка", "45 градуса затваряне",
-  "Потащящ заготовка",
+  "Италия 2ка 3ка", "Италия само нож", "Италия нож на готова заготовка",
+  "Малък бял заготовка", "Малък бял затваряне", "Малък бял цял",
+  "45 градуса заготовка", "45 градуса затваряне", "45 градуса цял",
 ];
 
 let ROGOSH = { records: {} };
@@ -25,15 +28,17 @@ function rogKey(w, d) { return w + "|" + d; }
 function rogNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isNaN(n) ? 0 : n; }
 function rogFmtDate(s) { if (!s) return ""; const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : s; }
 function rogNowHM() { const d = new Date(); const p = n => String(n).padStart(2, "0"); return p(d.getHours()) + ":" + p(d.getMinutes()); }
-const ROGOSH_VARIANTS = ["комплект", "леви", "десни"];
-// Стойност за операция: { q, v }. Съвместимо със стар формат (само число).
-function rogCell(rec, op) {
-  const c = rec && rec.ops ? rec.ops[op] : undefined;
-  if (c == null) return { q: "", v: "комплект" };
-  if (typeof c === "object") return { q: c.q != null ? c.q : "", v: c.v || "комплект" };
-  return { q: c, v: "комплект" };
+/* Стойност за операция → {l, d}. Съвместимост със СТАРИЯ формат:
+   {q, v: "леви"|"десни"|"комплект"} (комплект = ляв + десен) или голо число. */
+function rogLD(c) {
+  if (c == null) return { l: 0, d: 0 };
+  if (typeof c === "object" && (c.l != null || c.d != null)) return { l: rogNum(c.l), d: rogNum(c.d) };
+  const q = rogNum(typeof c === "object" ? c.q : c);
+  const v = (typeof c === "object" && c.v) || "комплект";
+  if (v === "леви") return { l: q, d: 0 };
+  if (v === "десни") return { l: 0, d: q };
+  return { l: q, d: q };   // комплект = ляв + десен
 }
-function rogVShort(v) { return v === "леви" ? "Л" : v === "десни" ? "Д" : "К"; }
 
 async function rogLoad() {
   try {
@@ -83,7 +88,8 @@ function rogRenderPicker(v) {
   v.querySelectorAll(".rog-id-btn").forEach(b => b.addEventListener("click", () => { rogWorker = b.dataset.w; rogRender(); }));
 }
 
-/* Дневен отчет: попълва брой + вид (леви/десни/комплект) по операции. */
+/* Дневен отчет: Л/Д полета като в Занитване — пишат се само НОВИТЕ бройки
+   (добавят се към днешните; минус вади). Складът върви през nitSyncStock. */
 function rogRenderEntry(v) {
   const isW = rogIsWorker();
   const worker = rogWorker || ROGOSH_WORKERS[0];
@@ -95,12 +101,16 @@ function rogRenderEntry(v) {
     : `<label class="erp-inline">Служител <select id="rog-worker">${ROGOSH_WORKERS.map(n => `<option ${n === worker ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select></label>`;
 
   const rowHtml = op => {
-    const c = rogCell(rec, op);
+    const map = (typeof NIT_STOCK_MAP !== "undefined" && NIT_STOCK_MAP[op]) || null;
+    const ld = rogLD((rec.ops || {})[op]);
     return `<div class="rog-row">
-      <div class="rog-op">${escapeHtml(op)}</div>
-      <div class="rog-inputs">
-        <input type="number" class="rog-q" min="0" step="any" inputmode="decimal" value="${c.q !== "" ? escapeAttr(String(c.q)) : ""}" placeholder="брой" aria-label="брой ${escapeAttr(op)}" />
-        <select class="rog-v" aria-label="вид ${escapeAttr(op)}">${ROGOSH_VARIANTS.map(x => `<option ${x === c.v ? "selected" : ""}>${x}</option>`).join("")}</select>
+      <div class="rog-op">${escapeHtml(op)}
+        ${map ? `<div class="nit-opcodes">код: Л <b>${escapeHtml(map.l || "—")}</b> · Д <b>${escapeHtml(map.d || "—")}</b></div>` : `<div class="nit-opcodes nit-opcodes-none">без складов код</div>`}
+        ${(ld.l || ld.d) ? `<div class="nit-today">днес: Л <b>${ld.l}</b> · Д <b>${ld.d}</b></div>` : ""}
+      </div>
+      <div class="rog-inputs rog-ld">
+        <label class="nit-ldl">Л <input type="number" class="rog-q" data-op="${escapeAttr(op)}" data-side="l" step="any" inputmode="decimal" value="" placeholder="${map && map.l ? "ляв → " + escapeAttr(map.l) : "ляв"}" /></label>
+        <label class="nit-ldl">Д <input type="number" class="rog-q" data-op="${escapeAttr(op)}" data-side="d" step="any" inputmode="decimal" value="" placeholder="${map && map.d ? "десен → " + escapeAttr(map.d) : "десен"}" /></label>
       </div>
     </div>`;
   };
@@ -111,35 +121,26 @@ function rogRenderEntry(v) {
       <label class="erp-inline">Дата <input type="date" id="rog-date" value="${escapeAttr(rogDate)}" /></label>
       ${!isW ? `<button class="btn btn-small" id="rog-summary">📊 Обобщение (седмица/месец)</button>` : ""}
     </div>
-    <p class="hint">Запиши колко <b>сглоби днес</b> по всяка операция и избери <b>леви / десни / комплект</b>.</p>
+    <p class="hint">Пишеш само <b>НОВИТЕ бройки</b> — добавят се към днешните. Сгрешено? Въведи с минус (напр. -50).
+      Складът се обновява сам, точно както в Занитване.</p>
     <div class="rog-rows">
-      <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">брой</span><span class="rog-hv">вид</span></div></div>
+      <div class="rog-row rog-head"><div class="rog-op">Операция</div><div class="rog-inputs"><span class="rog-hq">НОВИ бройки · Л = ляв, Д = десен</span></div></div>
       ${ROGOSH_OPS.map(rowHtml).join("")}
     </div>
     <div class="rog-tot-line" id="rog-tot"></div>
     <label class="rog-note-lbl">Забележка <input type="text" id="rog-note" value="${escapeAttr(rec.note || "")}" placeholder="по желание" /></label>
     <div class="rog-actions">
       <span class="rog-status" id="rog-status"></span>
-      <button class="btn btn-primary rog-save-btn" id="rog-save">💾 Запиши деня</button>
+      <button class="btn btn-primary rog-save-btn" id="rog-save">💾 Запиши</button>
     </div>`;
 
-  const collect = () => {
-    const ops = {};
-    v.querySelectorAll(".rog-rows .rog-row:not(.rog-head)").forEach((row, i) => {
-      const qi = row.querySelector(".rog-q"), vi = row.querySelector(".rog-v");
-      const q = rogNum(qi.value); if (q > 0) ops[ROGOSH_OPS[i]] = { q, v: vi.value || "комплект" };
-    });
-    return ops;
-  };
+  const dayTot = ROGOSH_OPS.reduce((s, op) => { const ld = rogLD((rec.ops || {})[op]); return s + ld.l + ld.d; }, 0);
   const recalc = () => {
-    const ops = collect();
-    const by = { "леви": 0, "десни": 0, "комплект": 0 }; let tot = 0;
-    Object.values(ops).forEach(c => { by[c.v] = (by[c.v] || 0) + c.q; tot += c.q; });
+    let t = 0; v.querySelectorAll(".rog-q").forEach(i => t += rogNum(i.value));
     const el = v.querySelector("#rog-tot");
-    if (el) el.innerHTML = `Общо: <b>${Math.round(tot * 100) / 100}</b> · Л ${by["леви"] || 0} · Д ${by["десни"] || 0} · Компл. ${by["комплект"] || 0}`;
+    if (el) el.innerHTML = `Добавяш сега: <b>${Math.round(t * 100) / 100}</b> · вече записани днес: <b>${Math.round(dayTot * 100) / 100}</b>`;
   };
   v.querySelectorAll(".rog-q").forEach(i => i.addEventListener("input", recalc));
-  v.querySelectorAll(".rog-v").forEach(i => i.addEventListener("change", recalc));
   recalc();
 
   const dateEl = v.querySelector("#rog-date");
@@ -152,15 +153,52 @@ function rogRenderEntry(v) {
   if (sum) sum.addEventListener("click", () => { rogView = "summary"; rogRender(); });
 
   v.querySelector("#rog-save").addEventListener("click", async () => {
-    const ops = collect();
-    const note = (v.querySelector("#rog-note").value || "").trim();
-    const btn = v.querySelector("#rog-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // Свеж документ преди записа — да не стъпчем запис от друга сесия.
+    try { await rogLoad(); } catch (e) {}
     const key = rogKey(worker, rogDate);
-    if (!Object.keys(ops).length && !note) delete ROGOSH.records[key];
-    else ROGOSH.records[key] = { worker, date: rogDate, ops, note, at: new Date().toISOString() };
+    const r = ROGOSH.records[key] || { worker, date: rogDate, ops: {}, note: "" };
+    r.worker = worker; r.date = rogDate; r.ops = r.ops || {};
+    // СТАР запис (формат {q,v} отпреди складовата връзка): конвертираме към
+    // {l,d} и ЗАМРАЗЯВАМЕ вече записаното (stocked = текущото) — старите
+    // бройки не се заприходяват със задна дата, само новите делти.
+    if (!r.v2) {
+      const conv = {};
+      Object.keys(r.ops).forEach(op => { conv[op] = rogLD(r.ops[op]); });
+      r.ops = conv; r.stocked = r.stocked || {};
+      Object.keys(conv).forEach(op => {
+        if (r.stocked[op + "¦Л"] == null) r.stocked[op + "¦Л"] = conv[op].l;
+        if (r.stocked[op + "¦Д"] == null) r.stocked[op + "¦Д"] = conv[op].d;
+      });
+      r.v2 = true;
+    }
+    // Добавяме новите бройки към днешните (и нулираме полетата веднага —
+    // повторно „Запиши" след паднала връзка да не ги удвои).
+    v.querySelectorAll(".rog-q").forEach(inp => {
+      const op = inp.dataset.op, sk = inp.dataset.side;
+      const q = rogNum(inp.value); if (!q) return;
+      const cur = rogLD(r.ops[op]);
+      cur[sk] = Math.max(0, cur[sk] + q);
+      if (cur.l > 0 || cur.d > 0) r.ops[op] = { l: cur.l, d: cur.d }; else delete r.ops[op];
+    });
+    v.querySelectorAll(".rog-q").forEach(inp => { inp.value = ""; });
+    recalc();
+    r.note = (v.querySelector("#rog-note").value || "").trim();
+    r.at = new Date().toISOString();
+    const btn = v.querySelector("#rog-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // Складова връзка — СЪЩАТА като в Занитване (nitSyncStock работи по
+    // NIT_STOCK_MAP/NIT_CONSUME; бележките казват „Рогош").
+    if (typeof nitSyncStock === "function") {
+      r.__ws = "Рогош";
+      try { await nitSyncStock(r); } catch (e) { console.warn("Рогош→склад:", e); }
+      delete r.__ws;
+      try { if (typeof nitCombineStock === "function") await nitCombineStock(); } catch (e) {}
+    }
+    const hasAny = Object.keys(r.ops).length || r.note || (r.stocked && Object.values(r.stocked).some(x => Number(x) > 0));
+    if (hasAny) ROGOSH.records[key] = r; else delete ROGOSH.records[key];
     const ok = await rogSave();
-    btn.disabled = false; btn.textContent = "💾 Запиши деня";
+    btn.disabled = false; btn.textContent = "💾 Запиши";
     const st = v.querySelector("#rog-status"); if (st) st.textContent = ok ? "✓ Записано " + rogNowHM() : "⚠ грешка";
+    if (ok) rogRender();
   });
 }
 
@@ -202,10 +240,10 @@ function rogSummaryData(from, to) {
     const w = r.worker; if (!opAgg[w]) return;
     let any = false;
     Object.entries(r.ops || {}).forEach(([op, c]) => {
-      const obj = (typeof c === "object") ? c : { q: c, v: "комплект" };
-      const q = rogNum(obj.q); if (!q) return; any = true;
+      const ld = rogLD(c);   // старият „комплект" се брои като ляв + десен
+      const q = ld.l + ld.d; if (!q) return; any = true;
       opAgg[w][op] = (opAgg[w][op] || 0) + q;
-      const vv = obj.v || "комплект"; vAgg[w][vv] = (vAgg[w][vv] || 0) + q; vAgg[w].total += q;
+      vAgg[w]["леви"] += ld.l; vAgg[w]["десни"] += ld.d; vAgg[w].total += q;
     });
     if (any) vAgg[w].days.add(r.date);
   });
@@ -225,7 +263,7 @@ function rogRenderSummary(v) {
     return `<div class="rog-card">
       <div class="rog-card-name">${escapeHtml(w)}</div>
       <div class="rog-card-tot">${a.total || 0}</div>
-      <div class="rog-card-sub">Л ${a["леви"] || 0} · Д ${a["десни"] || 0} · К ${a["комплект"] || 0}</div>
+      <div class="rog-card-sub">Л ${a["леви"] || 0} · Д ${a["десни"] || 0}</div>
       <div class="rog-card-days">${a.days.size} ${a.days.size === 1 ? "работен ден" : "работни дни"}</div>
     </div>`;
   }).join("") + `<div class="rog-card rog-card-grand"><div class="rog-card-name">ВСИЧКИ</div><div class="rog-card-tot">${grand || 0}</div><div class="rog-card-sub">общо за периода</div></div>`;
@@ -244,8 +282,8 @@ function rogRenderSummary(v) {
     <div class="rog-table-wrap"><table class="report-table rog-sum-table">
       <thead><tr><th>Операция</th>${ROGOSH_WORKERS.map(w => `<th class="num">${escapeHtml(w.split(" ")[0])}</th>`).join("")}<th class="num">Общо</th></tr></thead>
       <tbody>
-        ${ROGOSH_OPS.map(op => `<tr>
-          <td>${escapeHtml(op)}</td>
+        ${[...new Set([...ROGOSH_OPS, ...ROGOSH_WORKERS.flatMap(w => Object.keys(opAgg[w]))])].map(op => `<tr>
+          <td>${escapeHtml(op)}${ROGOSH_OPS.includes(op) ? "" : ' <span class="erp-muted">(архивна)</span>'}</td>
           ${ROGOSH_WORKERS.map(w => `<td class="num">${opAgg[w][op] || "—"}</td>`).join("")}
           <td class="num"><b>${opTotal(op) || "—"}</b></td>
         </tr>`).join("")}
