@@ -83,9 +83,18 @@ async function dsRefreshStock(force) {
   const fresh = ERP._stockAt && (Date.now() - ERP._stockAt) < 20000;
   if (fresh && !force) return;
   try {
-    const { data, error } = await erpSelectAll("v_product_stock", "id,stock");
-    if (error) return;
-    const byId = {}; (data || []).forEach(r => { byId[r.id] = Number(r.stock) || 0; });
+    // Теглим САМО ненулевите наличности (те са малцинство) — базата така или
+    // иначе смята целия изглед, но пращаме в мрежата стотици реда вместо
+    // хиляди нули, и почти винаги стигаме с една страница.
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("v_product_stock").select("id,stock")
+        .neq("stock", 0).order("id", { ascending: true }).range(from, from + 999);
+      if (error) return;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    const byId = {}; rows.forEach(r => { byId[r.id] = Number(r.stock) || 0; });
     (ERP.products || []).forEach(p => { p.stock = byId[p.id] != null ? byId[p.id] : 0; });
     ERP._stockAt = Date.now();
   } catch (e) { /* при грешка оставаме на кешираните стойности */ }
@@ -113,18 +122,22 @@ async function erpRenderDetailStockInner() {
   catch (e) { erpView().innerHTML = `<div class="erp-error"><h3>Грешка</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
   await dsRefreshStock();   // винаги свежи наличности (готовото от цеха се вижда веднага)
 
-  // Проверка дали складът за детайли е създаден.
-  const probe = await sb.from("product_movements").select("id").limit(1);
-  if (probe.error) {
-    erpView().innerHTML = `
-      <div class="erp-error">
-        <h3>📦 Склад за детайли — още не е включен</h3>
-        <p>За да следим наличности и на детайлите/възлите (не само суровините), пусни веднъж
-        файла <code>erp-detail-stock.sql</code> в Supabase → SQL Editor.</p>
-        <p><a href="https://supabase.com/dashboard/project/hwbblteomrrahfrsyuow/sql/new" target="_blank" class="btn btn-small btn-primary">Отвори SQL Editor</a></p>
-        <p class="hint">След това презареди страницата и се върни тук.</p>
-      </div>`;
-    return;
+  // Проверка дали складът за детайли е създаден — веднъж на сесия (пестим
+  // една заявка при всяко отваряне).
+  if (!window.DS_PROBED) {
+    const probe = await sb.from("product_movements").select("id").limit(1);
+    window.DS_PROBED = !probe.error;
+    if (probe.error) {
+      erpView().innerHTML = `
+        <div class="erp-error">
+          <h3>📦 Склад за детайли — още не е включен</h3>
+          <p>За да следим наличности и на детайлите/възлите (не само суровините), пусни веднъж
+          файла <code>erp-detail-stock.sql</code> в Supabase → SQL Editor.</p>
+          <p><a href="https://supabase.com/dashboard/project/hwbblteomrrahfrsyuow/sql/new" target="_blank" class="btn btn-small btn-primary">Отвори SQL Editor</a></p>
+          <p class="hint">След това презареди страницата и се върни тук.</p>
+        </div>`;
+      return;
+    }
   }
 
   const totalWith = ERP.products.filter(dsIsDetail).filter(p => (Number(p.stock) || 0) > 0).length;

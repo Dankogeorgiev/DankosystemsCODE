@@ -113,6 +113,11 @@ async function erpCountRows(table, eqCol, eqVal) {
    белег truncated — екранът показва предупреждение, вместо тихо да работи с
    непълни данни. Точно това криеше задачи преди. */
 async function erpSelectAll(table, cols, eqCol, eqVal) {
+  // ИЗГЛЕДИТЕ (v_*) се прескачат от сверката: count върху изглед кара базата
+  // да преизчисли ЦЕЛИЯ изглед втори път (напр. v_product_stock сумира всички
+  // движения) — двойна работа при всяко отваряне на екран. Сверката пази
+  // срещу отрязване на ГОЛЕМИ таблици; изгледите са с размера на номенклатурата.
+  if (/^v_/.test(String(table))) return erpSelectAllOnce(table, cols, eqCol, eqVal);
   const [res, cnt] = await Promise.all([
     erpSelectAllOnce(table, cols, eqCol, eqVal),
     erpCountRows(table, eqCol, eqVal),
