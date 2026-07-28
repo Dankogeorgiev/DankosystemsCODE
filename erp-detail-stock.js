@@ -195,6 +195,7 @@ async function erpRenderDetailStockInner() {
       <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
       <button type="button" class="btn btn-small${DS_ONLY_NEG ? " btn-danger" : ""}" id="ds-neg" title="Показва само детайлите, чиято наличност е под нулата (изписано е повече, отколкото е заприходено)">⚠ Отрицателни наличности</button>
+      <button type="button" class="btn btn-small" id="ds-acc" title="Наличностите на аксесоарите (спирачки, пружини, болтове, степенчати колела) — изписват се при продажбата, не при сглобяването">🔩 Аксесоари</button>
       <button type="button" class="btn btn-small" id="ds-nodemap" title="Цял екран: къде се включва изделието (нагоре) и кои ВЪЗЛИ влизат в него (надолу) — само кодовете на възлите, без дребните части">🌳 Структура (възли)</button>
       <span id="ds-count" class="erp-muted"></span>
       <span class="spacer"></span>
@@ -225,6 +226,8 @@ async function erpRenderDetailStockInner() {
     neg.classList.toggle("btn-danger", DS_ONLY_NEG);
     dsFillRows();
   });
+  const acc = document.getElementById("ds-acc");
+  if (acc) acc.addEventListener("click", dsAccessoriesDialog);
   const exp = document.getElementById("ds-export");
   if (exp) exp.addEventListener("click", dsExportTemplate);
   const db = document.getElementById("ds-draw-bulk");
@@ -307,6 +310,60 @@ function dsFillRowsInner(tbody) {
     if (typeof erpNodeDrawings === "function") erpNodeDrawings(Number(b.dataset.id));
     else alert("Модулът за чертежи не е зареден. Презареди страницата.");
   }));
+}
+
+// 🔩 Аксесоари: наличностите на кодовете от NIT_ACCESSORY_* (спирачки,
+// пружини, болтове, степенчати колела). Изписват се при продажбата, затова
+// тук се вижда „реалната кутия на рафта" — с бърз достъп до историята.
+async function dsAccessoriesDialog() {
+  try {
+    await dsRefreshStock(true);
+    const pc = (typeof NIT_ACCESSORY_CODES !== "undefined") ? [...NIT_ACCESSORY_CODES].sort() : [];
+    const mc = (typeof NIT_ACCESSORY_MAT_CODES !== "undefined") ? [...NIT_ACCESSORY_MAT_CODES].sort() : [];
+    if (!pc.length && !mc.length) { alert("Няма зададени аксесоарни кодове (списъкът е в nit.js)."); return; }
+    let mats = [];
+    try {
+      const { data } = await sb.from("v_material_stock").select("id,code,name,stock").in("code", mc);
+      mats = data || [];
+    } catch (e) { /* показваме поне продуктите */ }
+    const row = (code, name, stock, kind, extra) => `<tr>
+      <td data-label="Код"><b>${escapeHtml(code)}</b></td><td data-label="Аксесоар">${escapeHtml(name || "")}</td>
+      <td class="num" data-label="Наличност"><b class="${stock < 0 ? "erp-warn" : stock > 0 ? "" : "erp-muted"}">${erpNum(stock)}</b></td>
+      <td data-label="Склад">${kind}</td><td>${extra || ""}</td></tr>`;
+    const pRows = pc.map(c => {
+      const p = (ERP.products || []).find(x => String(x.code || "").trim() === c);
+      if (!p) return row(c, "— не е намерен в Продукти", 0, "детайли", "");
+      const blocked = Math.min(Math.max(Number(p.stock) || 0, 0), Number((typeof DS_BLOCKED !== "undefined" && DS_BLOCKED[p.id]) || 0));
+      return row(c, p.name, Number(p.stock) || 0, "детайли",
+        `${blocked ? `🔒 ${erpNum(blocked)} блок. ` : ""}<button type="button" class="btn btn-small ds-acc-log" data-id="${p.id}">история</button>`);
+    }).join("");
+    const mRows = mc.map(c => {
+      const m = mats.find(x => String(x.code || "").trim() === c);
+      return m ? row(c, m.name, Number(m.stock) || 0, "материали", "")
+               : row(c, "— не е намерен в Материали", 0, "материали", "");
+    }).join("");
+    let wrap = document.getElementById("ds-acc-modal");
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.id = "ds-acc-modal"; wrap.className = "overlay dsnm-overlay";
+      document.body.appendChild(wrap);
+    }
+    wrap.innerHTML = `<div class="dsnm-box">
+      <div class="dsnm-top-bar">
+        <h3>🔩 Аксесоари — наличности</h3>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-small" id="ds-acc-close">✕ Затвори</button>
+      </div>
+      <p class="hint">Аксесоарите се слагат на палета преди експедиция: сглобяването в Занитване НЕ ги изписва —
+        изписват се при осчетоводяване на Продажба. Минус тук = продадено повече, отколкото е отчетено
+        произведено/купено. Списъкът с кодовете се допълва в nit.js.</p>
+      <table class="report-table erp-table">
+        <thead><tr><th>Код</th><th>Аксесоар</th><th class="num">Наличност</th><th>Склад</th><th></th></tr></thead>
+        <tbody>${pRows}${mRows}</tbody>
+      </table></div>`;
+    wrap.querySelector("#ds-acc-close").addEventListener("click", () => wrap.remove());
+    wrap.querySelectorAll(".ds-acc-log").forEach(b => b.addEventListener("click", () => dsHistory(Number(b.dataset.id))));
+  } catch (e) { alert("Аксесоари: " + ((e && e.message) || e)); }
 }
 
 // Пуска детайл за производство ЗА СКЛАД (без заявка) — минава по цеховете и
