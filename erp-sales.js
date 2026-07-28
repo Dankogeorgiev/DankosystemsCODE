@@ -567,6 +567,17 @@ async function erpPostSale(o) {
       const dp = ERP.prodById[l.refId];
       if (dp && typeof erpNitManagedCode === "function" && erpNitManagedCode(dp.code)
           && typeof NIT_ACCESSORY_CODES !== "undefined") {
+        // Директните материали излизат ВСИЧКИТЕ само при продажба на КОМПЛЕКТ
+        // (сваляеми колела и т.н. — никой друг не ги изписва). При продажба на
+        // ПОЛОВИНА/заготовка директните ѝ нитове са вложени още при
+        // затварянето в Занитване — там важи само аксесоарният списък.
+        const isFinal = (() => {
+          const c = String(dp.code || "").trim();
+          if (typeof NIT_COMBINE !== "undefined" && NIT_COMBINE.some(x => String(x.to) === c)) return true;
+          if (typeof NIT_ITALY_FINALS !== "undefined" && NIT_ITALY_FINALS.some(f => String(f.code) === c)) return true;
+          if (typeof NIT_MPK_FINALS !== "undefined" && NIT_MPK_FINALS.some(f => String(f.code) === c)) return true;
+          return false;
+        })();
         const walkAcc = (pid, mult, seen, depth) => {
           if (seen.has(pid)) return;
           seen.add(pid);
@@ -582,7 +593,7 @@ async function erpPostSale(o) {
               // изписва (сваляеми колела, болтове…) — излизат ВСИЧКИ тук;
               // по-дълбоко — само обявените аксесоари (монтираните са изписани
               // при операциите в Занитване).
-              if (m && (depth === 0 || NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim()))) addNeed(rl.material_id, qty * per);
+              if (m && ((depth === 0 && isFinal) || NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim()))) addNeed(rl.material_id, qty * per);
             }
           });
         };

@@ -448,8 +448,9 @@ function recvAddDays(dateStr, days) {
 
 /* ---------- Печат на списък за събиране ---------- */
 function erpRecvPrint(items) {
-  const tot = items.reduce((s, p) => s + recvNum(p.amount), 0);
-  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.client || "")}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${recvFmt(p.dueDate)}</td><td class="r">${recvMoney(p.amount)}</td></tr>`).join("");
+  // Показват се ОСТАТЪЦИТЕ (частичните плащания са приспаднати).
+  const tot = items.reduce((s, p) => s + recvOutstanding(p), 0);
+  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.client || "")}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${recvFmt(p.dueDate)}</td><td class="r">${recvMoney(recvOutstanding(p))}${recvPaidPart(p) > 0 ? ` <small>(от ${recvMoney(p.amount)})</small>` : ""}</td></tr>`).join("");
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>За събиране</title>
     <style>body{font-family:Arial,"DejaVu Sans",sans-serif;margin:18px;color:#111}h1{font-size:18px;color:#0f766e}
     table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;text-align:left}th{background:#ecfdf5}
