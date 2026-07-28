@@ -227,6 +227,38 @@ const NIT_PICK_RULES = (() => {
   return rules;
 })();
 
+/* Кодове с ПУСНАТИ (незавършени) заявки в момента — падащите списъци показват
+   само тях, за да е лесно на жените. Кракът се смята за активен и когато
+   активен е крайният му механизъм. При грешка/празно — показваме всички. */
+let NIT_ACTIVE = null;
+let NIT_PICK_ALL = false;   // „покажи всички изделия" (ръчен превключвател)
+async function nitLoadActiveCodes() {
+  const out = new Set();
+  try {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("tasks")
+        .select("code:data->>code,qty:data->>qty,produced:data->>produced")
+        .eq("data->source->>flow", "true").order("id", { ascending: true }).range(from, from + 999);
+      if (error) throw error;
+      (data || []).forEach(r => {
+        const q = Number(r.qty) || 0, p = Number(r.produced) || 0;
+        if (r.code && !(q > 0 && p >= q)) out.add(String(r.code).trim());
+      });
+      if (!data || data.length < 1000) break;
+    }
+    NIT_ACTIVE = out;
+  } catch (e) { NIT_ACTIVE = null; }
+}
+function nitPickActive(op, code) {
+  if (!NIT_ACTIVE) return true;
+  if (NIT_ACTIVE.has(String(code))) return true;
+  // Крак: активен, ако крайният му механизъм има пусната заявка.
+  if (typeof NIT_ITALY_FINALS !== "undefined" && /^Крак колела/.test(op)) {
+    return NIT_ITALY_FINALS.some(f => (f.left === code || f.right === code) && NIT_ACTIVE.has(f.code));
+  }
+  return false;
+}
+
 // Ключ на запис: „операция" или „операция¦код на изделие".
 function nitOpBase(key) { return String(key || "").split("¦")[0]; }
 function nitOpPick(key) { const p = String(key || "").split("¦"); return p.length > 1 ? p[1] : ""; }
@@ -645,6 +677,8 @@ async function openNit() {
   // Винаги свежи данни при отваряне — вторa отворена сесия (офис + таблет)
   // иначе презаписваше чуждите записи със стар кеш (last-writer-wins).
   await nitLoad(); NIT_LOADED = true;
+  // Активните заявки (за кратките падащи списъци) — на заден фон.
+  nitLoadActiveCodes().then(() => { const v = document.getElementById("nit-view"); if (v && nitMech != null) nitRender(); }).catch(() => {});
   if (!nitDate) nitDate = nitToday();
   nitRender();
 }
@@ -729,7 +763,14 @@ function nitRenderOps(v) {
         const pick = NIT_OP_PRODUCTS[o.n];
         if (pick) {
           const selId = "nit-pick-" + oi;
-          const opts = pick.list.slice().sort((a, b) => a[1].localeCompare(b[1], "bg"));
+          let opts = pick.list.slice();
+          // Кратък списък: само изделията с пуснати заявки (освен при „всички").
+          let filtered = false;
+          if (!NIT_PICK_ALL && NIT_ACTIVE && NIT_ACTIVE.size) {
+            const act = opts.filter(([c]) => nitPickActive(o.n, c));
+            if (act.length) { opts = act; filtered = true; }
+          }
+          opts.sort((a, b) => a[1].localeCompare(b[1], "bg"));
           // Днешните бройки по изделия. Записите с избор пазят обща бройка
           // (страната е в изделието); старите записи без избор — Л/Д.
           const todays = Object.keys(rec.ops || {})
@@ -740,7 +781,7 @@ function nitRenderOps(v) {
               return `${escapeHtml(code)}: <b>${nitOpTotal(rec.ops[k])}</b>`;
             });
           const inputHtml = pick.single
-            ? `<input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="брой за избраното изделие" />`
+            ? `<input type="number" class="nit-q nit-pickqty" data-op="${escapeAttr(o.n)}" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="брой" />`
             : `<span class="rog-ld">
                 <label class="nit-ldl">Л <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="l" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="ляв" /></label>
                 <label class="nit-ldl">Д <input type="number" class="nit-q" data-op="${escapeAttr(o.n)}" data-side="d" data-pickref="${selId}" step="any" inputmode="decimal" value="" placeholder="десен" /></label>
@@ -748,11 +789,13 @@ function nitRenderOps(v) {
           return `<div class="rog-row">
             <div class="rog-op">${escapeHtml(o.n)}
               <div class="nit-opcodes">код: <b>по избраното изделие</b> <span class="nit-opcodes-none">(влага ${escapeHtml(pick.from || "")})</span></div>
+              ${filtered ? `<div class="nit-opcodes-none">само с пуснати заявки (${opts.length}) · <label class="nit-showall"><input type="checkbox" class="nit-allchk" /> покажи всички</label></div>`
+                        : (NIT_PICK_ALL ? `<div class="nit-opcodes-none">всички изделия · <label class="nit-showall"><input type="checkbox" class="nit-allchk" checked /> покажи всички</label></div>` : "")}
               ${todays.length ? `<div class="nit-today">днес: ${todays.join(" &nbsp;|&nbsp; ")}</div>` : ""}
             </div>
             <div class="rog-inputs nit-pickwrap">
               <select class="nit-pick" id="${selId}">
-                <option value="">— избери изделие —</option>
+                <option value="">— избери —</option>
                 ${opts.map(([c, n]) => { const wired = NIT_PICK_RULES[o.n] && NIT_PICK_RULES[o.n][c]; return `<option value="${escapeAttr(c)}">${escapeHtml(n)} · ${escapeHtml(c)}${wired ? " ✓" : ""}</option>`; }).join("")}
               </select>
               ${inputHtml}
@@ -786,6 +829,7 @@ function nitRenderOps(v) {
   const recalc = () => { let t = 0; v.querySelectorAll(".nit-q").forEach(i => t += nitNum(i.value)); const el = v.querySelector("#nit-tot"); if (el) el.innerHTML = `Добавяш сега: <b>${Math.round(t * 100) / 100}</b> · вече записани днес: <b>${Math.round(dayTot * 100) / 100}</b><br><span class="nit-hint">Пишеш само НОВИТЕ бройки — добавят се към днешните. Сгрешено? Въведи с минус (напр. -50), за да извадиш.</span>`; };
   v.querySelectorAll(".nit-q").forEach(i => i.addEventListener("input", recalc));
   recalc();
+  v.querySelectorAll(".nit-allchk").forEach(chk => chk.addEventListener("change", () => { NIT_PICK_ALL = chk.checked; nitRender(); }));
   v.querySelector("#nit-back").addEventListener("click", () => { nitMech = null; nitRender(); });
   v.querySelector("#nit-save").addEventListener("click", async () => {
     // Свеж документ точно преди записа — да не стъпчем запис от друга сесия
