@@ -518,6 +518,7 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
         <button class="btn btn-small" id="co-matsubs" title="Смени материал САМО за тази поръчка (напр. Щрипс → Шина). Рецептата не се пипа; изписването тегли заместителя.">🔁 Смени материал${o.matSubs && Object.keys(o.matSubs).length ? ` (${Object.keys(o.matSubs).length})` : ""}</button>
         ${(typeof produceAllowed !== "function" || produceAllowed()) ? `<button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>` : ""}
+        <button class="btn btn-small" id="co-nitplan" title="Праща продуктите на заявката като приоритети в „План за седмицата" на Занитване">🗓 В плана на Занитване</button>
         ${o.production ? '<button class="btn btn-small" id="co-live-status" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
         <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
@@ -580,6 +581,8 @@ async function erpRenderCOForm(o) {
   });
   const coProduceBtn = document.getElementById("co-produce");
   if (coProduceBtn) coProduceBtn.addEventListener("click", () => erpCOProduce(o));
+  const coNitPlan = document.getElementById("co-nitplan");
+  if (coNitPlan) coNitPlan.addEventListener("click", () => erpCOToNitPlan(o));
   const msBtn = document.getElementById("co-matsubs");
   if (msBtn) msBtn.addEventListener("click", () => erpCOMatSubsDialog(o));
   const stBtn = document.getElementById("co-live-status");
@@ -897,6 +900,32 @@ function erpCOMaterials(o) {
           <td class="num" data-label="Недостиг">${r.shortage > 0 ? `<span class="erp-warn">${erpNum(r.shortage)} ⚠</span>` : "0"}</td>
         </tr>`).join("")}</tbody>
     </table>`;
+}
+
+/* ---------- 🗓 В плана на Занитване ----------
+   Праща продуктовите редове на заявката като приоритети в „План за
+   седмицата" (app_config nit_week_plan). Подреждането става в Занитване. */
+async function erpCOToNitPlan(o) {
+  const lines = (o.lines || []).filter(l => l.productId);
+  if (!lines.length) { alert("Заявката няма продуктови редове."); return; }
+  let plan = { items: [] };
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "nit_week_plan").maybeSingle();
+    if (data && data.data && Array.isArray(data.data.items)) plan = data.data;
+  } catch (e) {}
+  const note = "заявка №" + (o.ourNo || "—") + (o.clientName ? " · " + o.clientName : "");
+  let added = 0;
+  lines.forEach(l => {
+    const p = (typeof ERP !== "undefined" && ERP.prodById && ERP.prodById[l.productId]) || {};
+    const code = String(p.code || "").trim();
+    if (plan.items.some(it => (it.code || "") === code && (it.note || "") === note)) return;   // без дубли от същата заявка
+    plan.items.push({ code, name: p.name || l.name || "", qty: erpToNum(l.qty) || 0, note, done: false });
+    added++;
+  });
+  if (!added) { alert("Тези редове вече са в плана (от същата заявка)."); return; }
+  const { error } = await sb.from("app_config").upsert({ id: "nit_week_plan", data: plan, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на плана: " + error.message); return; }
+  alert(`Добавени ${added} позиции в „План за седмицата" на Занитване.\nПодреди приоритетите от прозореца на Занитване → 🗓 План за седмицата (стрелките ↑↓).`);
 }
 
 /* ---------- Пускане в производство (поточно, серии между поръчки) ---------- */

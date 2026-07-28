@@ -1398,3 +1398,4 @@ tr.times-click:hover td { background: #ecfdf5; }
 .nit-hist-tbl th { background: #eef2f7; color: #334155; text-align: left; padding: 5px 8px; border-bottom: 2px solid #cbd5e1; }
 .nit-hist-tbl td { padding: 4px 8px; border-bottom: 1px dashed #e2e8f0; }
 .nit-hist-note { color: #64748b; font-size: 12.5px; }
+.nit-plan-done td { text-decoration: line-through; color: #64748b; background: #f8fafc; }
