@@ -29,6 +29,9 @@ function recvMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLoca
 function recvEndOfWeek() { const d = new Date(); const off = (7 - d.getDay()) % 7; d.setDate(d.getDate() + off); return recvIso(d); }
 function recvEndOfMonth() { const d = new Date(); return recvIso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
 function recvDaysLeft(due) { if (!due) return null; const a = new Date(due + "T00:00:00"), b = new Date(recvToday() + "T00:00:00"); return Math.round((a - b) / 864e5); }
+// Частични плащания: p.payments = [{date, amount, note?}]. Остатък = сума − платеното.
+function recvPaidPart(p) { return (p.payments || []).reduce((s, x) => s + recvNum(x.amount), 0); }
+function recvOutstanding(p) { return recvNum(p.amount) - recvPaidPart(p); }
 
 async function erpRecvLoad() {
   try { const { data } = await sb.from("app_config").select("data").eq("id", "receivables").maybeSingle(); RECEIVABLES = (data && data.data && data.data.list) || []; }
@@ -47,7 +50,8 @@ async function erpRenderReceivables() {
   if (!RECEIVABLES) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpRecvLoad(); }
   const eow = recvEndOfWeek(), eom = recvEndOfMonth();
   const unpaid = (RECEIVABLES || []).filter(p => !p.paid);
-  const sum = arr => arr.reduce((s, p) => s + recvNum(p.amount), 0);
+  // Сборовете за неплатените са ОСТАТЪЦИТЕ (частичните плащания са приспаднати).
+  const sum = arr => arr.reduce((s, p) => s + (p.paid ? recvNum(p.amount) : recvOutstanding(p)), 0);
   const weekItems = unpaid.filter(p => p.dueDate && p.dueDate <= eow);
   const monthItems = unpaid.filter(p => p.dueDate && p.dueDate <= eom);
   const overdueItems = unpaid.filter(p => { const d = recvDaysLeft(p.dueDate); return d != null && d < 0; });
@@ -103,11 +107,11 @@ async function erpRenderReceivables() {
         <td>${escapeHtml(p.invoiceNo || "")}</td>
         <td>${recvFmt(p.docDate)}</td>
         <td>${escapeHtml(p.docType || "Фактура")}</td>
-        <td class="num ${neg ? "pay-neg" : ""}"><b>${recvMoney(p.amount)}</b></td>
+        <td class="num ${neg ? "pay-neg" : ""}"><b>${recvMoney(p.paid ? p.amount : recvOutstanding(p))}</b>${(!p.paid && recvPaidPart(p) > 0) ? `<br><small class="erp-muted" title="Частично платени">платени ${recvMoney(recvPaidPart(p))} от ${recvMoney(p.amount)}</small>` : ""}</td>
         <td>${escapeHtml(p.payMethod || "Банка")}</td>
         ${recvFilter === "paid"
           ? `<td>${recvFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
-          : `<td class="erp-row-actions"><button class="btn btn-small" data-fix="${p.id}" title="Корекция на сумата/падежа (при грешка от импорта)">✎ Корекция</button><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена">✓ Платена</button></td>`}
+          : `<td class="erp-row-actions"><button class="btn btn-small" data-part="${p.id}" title="Впиши частично плащане от клиента">± Частично</button><button class="btn btn-small" data-fix="${p.id}" title="Корекция на сумата/падежа (при грешка от импорта)">✎ Корекция</button><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена изцяло">✓ Платена</button></td>`}
       </tr>`;
     }).join("");
     return groupHead + invRows;
@@ -157,6 +161,7 @@ async function erpRenderReceivables() {
     erpRenderReceivables();
   }));
   v.querySelectorAll("[data-paid1]").forEach(b => b.addEventListener("click", () => erpRecvMarkPaid([Number(b.dataset.paid1)])));
+  v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpRecvPartialDialog(Number(b.dataset.part))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
   v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
   erpRecvBar();
@@ -166,7 +171,7 @@ async function erpRenderReceivables() {
 function erpRecvBar() {
   const bar = document.getElementById("recv-paybar"); if (!bar) return;
   const sel = (RECEIVABLES || []).filter(p => recvSelected.has(p.id) && !p.paid);
-  const tot = sel.reduce((s, p) => s + recvNum(p.amount), 0);
+  const tot = sel.reduce((s, p) => s + recvOutstanding(p), 0);
   if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Избери фактури с отметка, за да ги отбележиш като платени.</span>`; return; }
   bar.innerHTML = `
     <span class="pay-sel-info">Избрани: <b>${sel.length}</b> · сума: <b>${recvMoney(tot)} EUR</b></span>
@@ -202,6 +207,61 @@ async function erpRecvEdit(id) {
     p.client = wrap.querySelector("#rce-client").value.trim();
     wrap.querySelector("#rce-status").textContent = "Записва…";
     if (await erpRecvSave()) { close(); erpRenderReceivables(); }
+  });
+}
+
+/* ---------- ± Частично плащане ---------- */
+async function erpRecvPartialDialog(id) {
+  const p = (RECEIVABLES || []).find(x => x.id === id); if (!p) return;
+  p.payments = Array.isArray(p.payments) ? p.payments : [];
+  const listHtml = () => p.payments.length
+    ? `<table class="report-table"><thead><tr><th>Дата</th><th class="num">Сума (EUR)</th><th></th></tr></thead><tbody>
+        ${p.payments.map((x, i) => `<tr><td>${recvFmt(x.date)}</td><td class="num">${recvMoney(x.amount)}</td><td><button class="btn btn-small btn-danger" data-rmp="${i}" title="Изтрий това плащане">✕</button></td></tr>`).join("")}
+      </tbody></table>`
+    : `<p class="erp-muted">Още няма вписани плащания.</p>`;
+  const { wrap, close } = erpDialog(`
+    <h3>± Частично плащане</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(p.client || "")}</b> · ${escapeHtml(p.docType || "Фактура")} №${escapeHtml(p.invoiceNo || "—")} · сума <b>${recvMoney(p.amount)} EUR</b></p>
+    <div id="rcp-list">${listHtml()}</div>
+    <p>Остатък за плащане: <b id="rcp-rest">${recvMoney(recvOutstanding(p))}</b> EUR</p>
+    <div class="erp-co-grid">
+      <label>Дата на плащането <input type="date" id="rcp-date" value="${escapeAttr(recvToday())}" /></label>
+      <label>Платена сума (EUR) <input type="number" id="rcp-amount" step="any" min="0" placeholder="напр. 500" /></label>
+    </div>
+    <p class="hint">Щом плащанията покрият цялата сума, фактурата се затваря сама (отива в „✓ Платени"). Остатъкът се вижда в списъка и влиза в сборовете и Пулса.</p>
+    <div class="erp-dialog-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="rcp-cancel">Затвори</button>
+      <button class="btn btn-primary" id="rcp-add">＋ Впиши плащането</button>
+    </div>
+    <p class="save-status" id="rcp-status"></p>`);
+  const refresh = () => {
+    wrap.querySelector("#rcp-list").innerHTML = listHtml();
+    wrap.querySelector("#rcp-rest").textContent = recvMoney(recvOutstanding(p));
+    wire();
+  };
+  const wire = () => {
+    wrap.querySelectorAll("[data-rmp]").forEach(b => b.addEventListener("click", async () => {
+      p.payments.splice(Number(b.dataset.rmp), 1);
+      if (p.paid && recvOutstanding(p) > 0.005) { p.paid = false; p.paidDate = ""; }
+      await erpRecvSave(); refresh(); erpRenderReceivables();
+    }));
+  };
+  wire();
+  wrap.querySelector("#rcp-cancel").addEventListener("click", () => { close(); erpRenderReceivables(); });
+  wrap.querySelector("#rcp-add").addEventListener("click", async () => {
+    const amt = recvNum(wrap.querySelector("#rcp-amount").value);
+    const date = wrap.querySelector("#rcp-date").value || recvToday();
+    if (!(amt > 0)) { alert("Въведи платената сума."); return; }
+    p.payments.push({ date, amount: amt });
+    // Пълно покритие → фактурата се затваря сама.
+    if (recvOutstanding(p) <= 0.005) { p.paid = true; p.paidDate = date; }
+    wrap.querySelector("#rcp-status").textContent = "Записва…";
+    const ok = await erpRecvSave();
+    wrap.querySelector("#rcp-status").textContent = ok ? "✓ Записано" : "⚠ грешка при запис";
+    wrap.querySelector("#rcp-amount").value = "";
+    if (p.paid) { close(); erpRenderReceivables(); return; }
+    refresh(); erpRenderReceivables();
   });
 }
 

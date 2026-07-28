@@ -349,6 +349,18 @@ async function erpInvOpenFromSales(salesArr) {
   } catch (e) {}
   const today = new Date().toISOString().slice(0, 10);
   const isExport = Number(s0.vatRate) === 0 || (cl.country && !/бълг|bulgaria|^bg$/i.test(String(cl.country).trim()));
+  // Order No/Date: номерът на ПОРЪЧКАТА НА КЛИЕНТА (от заявката), не на
+  // продажбата. Взима се от заявките, от които идват продажбите.
+  const orderRefs = [];
+  for (const s of salesArr) {
+    if (!s.fromOrderId) continue;
+    try {
+      const { data } = await sb.from("customer_orders").select("id,data").eq("id", s.fromOrderId).maybeSingle();
+      const d = (data && data.data) || {};
+      const no = d.clientNo || d.ourNo;
+      if (no) orderRefs.push(`${no}${d.date ? " " + d.date : ""}`);
+    } catch (e) {}
+  }
   const lines = [];
   salesArr.forEach(s => (s.lines || []).forEach(l => lines.push({
     code: l.code || "", clientCode: l.clientCode || "", name: l.name || "",
@@ -357,11 +369,12 @@ async function erpInvOpenFromSales(salesArr) {
   const o = {
     kind: "invoice", seriesKey: isExport ? "1" : "2",
     issueDate: today, taxDate: today,
-    orderRef: "Продажба № " + salesArr.map(s => s.saleNo || "—").join(", "),
+    orderRef: [...new Set(orderRefs)].join(", ") || ("Продажба № " + salesArr.map(s => s.saleNo || "—").join(", ")),
     client: cl, clientId: s0.clientId || null,
     currency: s0.currency || "EUR",
     vatRate: (s0.vatRate != null && s0.vatRate !== "") ? Number(s0.vatRate) : (isExport ? 0 : 20),
-    vatBasis: "", paymentMethod: "по банка", termDays: 0, dueDate: "", note: "",
+    vatBasis: (isExport && typeof INV_VAT_EXEMPT_EU !== "undefined") ? INV_VAT_EXEMPT_EU : "",
+    paymentMethod: isExport ? "Bank transfer" : "по банка", termDays: 0, dueDate: "", note: "",
     refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
     compiledBy: "",
     fromSaleIds: salesArr.map(s => s.id).filter(Boolean),
@@ -518,8 +531,14 @@ async function erpInvForm(o) {
           <select id="inv-kind" ${locked ? "disabled" : ""}>${Object.entries(INV_KINDS).map(([kk, x]) => `<option value="${kk}" ${kk === o.kind ? "selected" : ""}>${x.label}</option>`).join("")}</select></label>
         <label>Дата на издаване <input type="date" id="inv-date" value="${escapeAttr(o.issueDate || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Дата на данъчно събитие <input type="date" id="inv-taxdate" value="${escapeAttr(o.taxDate || "")}" ${locked ? "disabled" : ""} /></label>
-        <label>№/дата на поръчка <input type="text" id="inv-orderref" value="${escapeAttr(o.orderRef || "")}" ${locked ? "disabled" : ""} placeholder="реф. към заявката" /></label>
+        <label>№/дата на ПОРЪЧКАТА на клиента <input type="text" id="inv-orderref" value="${escapeAttr(o.orderRef || "")}" ${locked ? "disabled" : ""} placeholder="напр. 10.436 17-04-2026" /></label>
         <label>Начин на плащане <input type="text" id="inv-pay" value="${escapeAttr(o.paymentMethod || "")}" ${locked ? "disabled" : ""} /></label>
+        <label>Условия на плащане (износ)
+          <select id="inv-paycond" ${locked ? "disabled" : ""}>
+            <option value="">—</option>
+            ${(typeof INV_PAY_CONDITIONS !== "undefined" ? INV_PAY_CONDITIONS : []).map(pc => `<option value="${escapeAttr(pc.key)}" ${o.payCond === pc.key ? "selected" : ""}>${escapeHtml(pc.key)}</option>`).join("")}
+          </select></label>
+        <label>Тарифен код (износ) <input type="text" id="inv-tariff" value="${escapeAttr(o.tariffCode || "")}" ${locked ? "disabled" : ""} placeholder="напр. 83024200" /></label>
         <label>Разсрочено — срок (дни) <input type="number" id="inv-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" ${locked ? "disabled" : ""} placeholder="0 = веднага" /></label>
         <label>Падеж (дата за плащане) <input type="date" id="inv-due" value="${escapeAttr(o.dueDate || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Валута <select id="inv-cur" ${locked ? "disabled" : ""}>${["EUR", "BGN"].map(c => `<option ${c === cur ? "selected" : ""}>${c}</option>`).join("")}</select></label>
@@ -546,6 +565,18 @@ async function erpInvForm(o) {
         <label>Държава <input type="text" id="inv-ccountry" value="${escapeAttr(o.client.country || "")}" ${locked ? "disabled" : ""} /></label>
       </div>
 
+      <h4 class="erp-group-head">Получател на стоката (CONSIGNEE — за износ, ако е различен от купувача)</h4>
+      <div class="erp-co-grid">
+        <label>Име <input type="text" id="inv-gname" value="${escapeAttr((o.consignee || {}).name || "")}" ${locked ? "disabled" : ""} placeholder="празно = купувача" /></label>
+        <label>Адрес <input type="text" id="inv-gstreet" list="inv-cons-addr" value="${escapeAttr((o.consignee || {}).street || "")}" ${locked ? "disabled" : ""} />
+          <datalist id="inv-cons-addr">${[...new Set((erpInvoices || []).filter(x => x.consignee && x.consignee.street && x.client && (x.client.name || "") === (o.client.name || "")).map(x => x.consignee.street))].map(a => `<option value="${escapeAttr(a)}"></option>`).join("")}</datalist></label>
+        <label>Град <input type="text" id="inv-gcity" value="${escapeAttr((o.consignee || {}).city || "")}" ${locked ? "disabled" : ""} /></label>
+        <label>Държава <input type="text" id="inv-gcountry" value="${escapeAttr((o.consignee || {}).country || "")}" ${locked ? "disabled" : ""} /></label>
+        <label>ДДС № <input type="text" id="inv-gvat" value="${escapeAttr((o.consignee || {}).vat || "")}" ${locked ? "disabled" : ""} /></label>
+        <label>Лице за контакт <input type="text" id="inv-gperson" value="${escapeAttr((o.consignee || {}).person || "")}" ${locked ? "disabled" : ""} /></label>
+      </div>
+      ${locked ? "" : '<div class="erp-co-actions"><button class="btn btn-small" id="inv-cons-copy" title="Копира данните на купувача в получателя">⇒ като купувача</button></div>'}
+
       <h4 class="erp-group-head">Редове</h4>
       <table class="report-table erp-table inv-lines-tbl" id="inv-lines">
         <thead><tr><th>Код</th><th>Наименование</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Стойност</th><th></th></tr></thead>
@@ -561,6 +592,9 @@ async function erpInvForm(o) {
         <button class="btn btn-small" id="inv-doc-packing">📦 Packing List</button>
         <button class="btn btn-small" id="inv-doc-cmr">🚚 ЧМР (CMR)</button>
         <button class="btn btn-small" id="inv-doc-pallets">🧱 Палет опис</button>
+        <button class="btn btn-small" id="inv-doc-desc" title="Description of goods — митница, камион, маршрут и опис на детайлите">📄 Description of goods</button>
+        <button class="btn btn-small" id="inv-doc-decl-bg" title="Декларация за произход (български) — номерът на фактурата и камионът се попълват сами">📜 Декларация произход</button>
+        <button class="btn btn-small" id="inv-doc-decl-en" title="Declaration by the exporter (English)">📜 Declaration (EN)</button>
         <span class="spacer"></span>
         ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="inv-mail-transport" title="Запитване за транспорт до превозвач (маршрут/палети/тегло се попълват сами)">🚚 Запитване за транспорт</button>' : ""}
         <button class="btn btn-small" id="inv-edit-transport" ${locked ? "disabled" : ""}>✎ Транспорт</button>
@@ -591,6 +625,33 @@ async function erpInvForm(o) {
   g("inv-taxdate", e => o.taxDate = e.target.value);
   g("inv-orderref", e => o.orderRef = e.target.value);
   g("inv-pay", e => o.paymentMethod = e.target.value);
+  // Условия на плащане (износ): изборът смята срока и падежа автоматично
+  // (30 days EOM = 30 дни, после до края на месеца; advanced = веднага).
+  const pcSel = document.getElementById("inv-paycond");
+  if (pcSel && !locked) pcSel.addEventListener("change", () => {
+    o.payCond = pcSel.value;
+    const pc = (typeof INV_PAY_CONDITIONS !== "undefined" ? INV_PAY_CONDITIONS : []).find(x => x.key === o.payCond);
+    if (pc && o.issueDate) {
+      o.termDays = pc.days;
+      const d = new Date(o.issueDate + "T00:00:00");
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + pc.days);
+        if (pc.eom) d.setMonth(d.getMonth() + 1, 0);   // края на месеца след срока
+        o.dueDate = d.toISOString().slice(0, 10);
+      }
+      const te = document.getElementById("inv-term"); if (te) te.value = String(o.termDays);
+      const de = document.getElementById("inv-due"); if (de) de.value = o.dueDate;
+    }
+  });
+  g("inv-tariff", e => o.tariffCode = e.target.value);
+  const gc = (id, key) => g(id, e => { o.consignee = o.consignee || {}; o.consignee[key] = e.target.value; });
+  gc("inv-gname", "name"); gc("inv-gstreet", "street"); gc("inv-gcity", "city");
+  gc("inv-gcountry", "country"); gc("inv-gvat", "vat"); gc("inv-gperson", "person");
+  const ccp = document.getElementById("inv-cons-copy");
+  if (ccp) ccp.addEventListener("click", () => {
+    o.consignee = { name: o.client.name || "", street: o.client.street || "", city: o.client.city || "", country: o.client.country || "", vat: o.client.vat || "", person: (o.consignee || {}).person || "" };
+    erpInvForm(o);
+  });
   g("inv-term", e => { o.termDays = Number(e.target.value) || 0; if (Number(o.termDays) > 0 && !o.dueDate && o.issueDate) { const el = document.getElementById("inv-due"); const d = new Date(o.issueDate + "T00:00:00"); if (!isNaN(d.getTime())) { d.setDate(d.getDate() + o.termDays); if (el) el.value = d.toISOString().slice(0, 10); o.dueDate = el ? el.value : o.dueDate; } } });
   g("inv-due", e => o.dueDate = e.target.value);
   g("inv-cur", e => { o.currency = e.target.value; erpInvTotalsBox(o); });
@@ -616,9 +677,12 @@ async function erpInvForm(o) {
   const ap = document.getElementById("inv-add-prod"); if (ap) ap.addEventListener("click", () => erpInvAddProduct(o));
   const af = document.getElementById("inv-add-free"); if (af) af.addEventListener("click", () => { o.lines.push({ code: "", name: "", clientCode: "", unit: "бр.", qty: 1, unitPrice: "" }); erpInvLinesRefresh(o); });
   const dg = document.getElementById("inv-doc-goods"); if (dg) dg.addEventListener("click", () => erpInvPrintGoodsNote(o));
-  const dp = document.getElementById("inv-doc-packing"); if (dp) dp.addEventListener("click", () => erpInvPrintPacking(o));
-  const dc = document.getElementById("inv-doc-cmr"); if (dc) dc.addEventListener("click", () => erpInvPrintCMR(o));
+  const dp = document.getElementById("inv-doc-packing"); if (dp) dp.addEventListener("click", () => (typeof erpInvPrintPackingEx === "function" ? erpInvPrintPackingEx(o) : erpInvPrintPacking(o)));
+  const dc = document.getElementById("inv-doc-cmr"); if (dc) dc.addEventListener("click", () => (typeof erpInvPrintCMREx === "function" ? erpInvPrintCMREx(o) : erpInvPrintCMR(o)));
   const dl = document.getElementById("inv-doc-pallets"); if (dl) dl.addEventListener("click", () => erpInvPrintPallets(o));
+  const dd = document.getElementById("inv-doc-desc"); if (dd) dd.addEventListener("click", () => erpInvPrintDescGoods(o));
+  const db1 = document.getElementById("inv-doc-decl-bg"); if (db1) db1.addEventListener("click", () => erpInvPrintDeclaration(o, "bg"));
+  const db2 = document.getElementById("inv-doc-decl-en"); if (db2) db2.addEventListener("click", () => erpInvPrintDeclaration(o, "en"));
   const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o));
   const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", () => erpMailTransportInquiry(o));
   const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o));
@@ -747,6 +811,9 @@ async function erpInvIssue(o) {
 function erpInvPrint(o) {
   const ser = (erpInvSeries && erpInvSeries[o.seriesKey]) || { lang: "bg" };
   const en = ser.lang === "en";
+  // Износна серия (EN): новият печат по образеца — само ORIGINAL, всичко на
+  // английски, CONSIGNEE + BUYER/IMPORTER, транспортен блок, Art. 138(1).
+  if (en && typeof erpInvPrintExport === "function") { erpInvPrintExport(o); return; }
   const k = INV_KINDS[o.kind] || {};
   const title = en ? (k.en || "INVOICE") : (k.bg || "ФАКТУРА");
   const t = erpInvTotals(o); const cur = erpInvCur(o);
