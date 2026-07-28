@@ -138,27 +138,35 @@ async function renderPulse() {
   const eomD = new Date(); const eom = `${eomD.getFullYear()}-${String(eomD.getMonth() + 1).padStart(2, "0")}-${String(new Date(eomD.getFullYear(), eomD.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
   const payMonthItems = payUnpaid.filter(p => p.dueDate && p.dueDate <= eom);
   const payMonthSum = payMonthItems.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
+  // Задължения СЛЕДВАЩ месец (с ДДС): падеж след края на този месец, до края на следващия.
+  const nmEndD = new Date(eomD.getFullYear(), eomD.getMonth() + 2, 0);
+  const nmEom = `${nmEndD.getFullYear()}-${String(nmEndD.getMonth() + 1).padStart(2, "0")}-${String(nmEndD.getDate()).padStart(2, "0")}`;
+  const payNextItems = payUnpaid.filter(p => p.dueDate && p.dueDate > eom && p.dueDate <= nmEom);
+  const payNextSum = payNextItems.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
 
-  const card = (label, value, cls) => `<div class="pulse-card ${cls || ""}"><div class="pulse-val">${value}</div><div class="pulse-lbl">${label}</div></div>`;
+  // Всяка карта е ВРАТА към модула, от който идват числата ѝ (go = ЕРП раздел
+  // или "tasks" за Цехове) — клик = отиваш там.
+  const card = (label, value, cls, go) => `<div class="pulse-card ${cls || ""}${go ? " pulse-go" : ""}"${go ? ` data-go="${go}" title="Отвори: ${escapeHtml(pulseGoLabel(go))}"` : ""}><div class="pulse-val">${value}</div><div class="pulse-lbl">${label}</div></div>`;
 
   v.innerHTML = `
     <div class="pulse-cards">
-      ${card("фактурирано месец (без ДДС)", money(invMonth, "EUR"), "money")}
-      ${card("разходи месец (без ДДС)", money(purchMonth, "EUR"), "money")}
-      ${card("вземания от клиенти (с ДДС)", money(recvSum, "EUR"), recvOver.length ? "warn" : "money")}
-      ${card("от тях просрочени", money(recvOverSum, "EUR") + " · " + recvOver.length + " бр.", recvOver.length ? "danger" : "")}
-      ${card("общо задължения (с ДДС)", money(paySum, "EUR"), "")}
-      ${card("дължимо до края на месеца (с ДДС)", money(payMonthSum, "EUR") + " · " + payMonthItems.length + " бр.", payMonthItems.length ? "warn" : "")}
-      ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money")}
-      ${card("платени заплати месец (банка + 005)", money(salMonth, "EUR"), "money")}
-      ${card(vatDue >= 0 ? "ДДС за внасяне (месец)" : "ДДС за възстановяване (месец)", money(Math.abs(vatDue), "EUR"), vatDue >= 0 ? "warn" : "ok")}
-      ${card("произведено днес (бр.)", erpNum(todayQty), "ok")}
-      ${card("работници днес", workersToday.size, "")}
-      ${card("активни заявки", activeOrders.length, "")}
-      ${card("в производство", inProd.length, "info")}
-      ${card("закъснели заявки", overdue.length, overdue.length ? "danger" : "")}
-      ${card("незавършени задачи", totalWip, "")}
-      ${card("материали под минимум", lowMat.length, lowMat.length ? "warn" : "")}
+      ${card("фактурирано месец (без ДДС)", money(invMonth, "EUR"), "money", "invoices")}
+      ${card("разходи месец (без ДДС)", money(purchMonth, "EUR"), "money", "purchases")}
+      ${card("вземания от клиенти (с ДДС)", money(recvSum, "EUR"), recvOver.length ? "warn" : "money", "receivables")}
+      ${card("от тях просрочени", money(recvOverSum, "EUR") + " · " + recvOver.length + " бр.", recvOver.length ? "danger" : "", "receivables")}
+      ${card("общо задължения (с ДДС)", money(paySum, "EUR"), "", "payables")}
+      ${card("дължимо до края на месеца (с ДДС)", money(payMonthSum, "EUR") + " · " + payMonthItems.length + " бр.", payMonthItems.length ? "warn" : "", "payables")}
+      ${card("задължения следващ месец (с ДДС)", money(payNextSum, "EUR") + " · " + payNextItems.length + " бр.", payNextItems.length ? "info" : "", "payables")}
+      ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money", "customer")}
+      ${card("платени заплати месец (банка + 005)", money(salMonth, "EUR"), "money", "finance")}
+      ${card(vatDue >= 0 ? "ДДС за внасяне (месец)" : "ДДС за възстановяване (месец)", money(Math.abs(vatDue), "EUR"), vatDue >= 0 ? "warn" : "ok", "invoices")}
+      ${card("произведено днес (бр.)", erpNum(todayQty), "ok", "tasks")}
+      ${card("работници днес", workersToday.size, "", "tasks")}
+      ${card("активни заявки", activeOrders.length, "", "customer")}
+      ${card("в производство", inProd.length, "info", "customer")}
+      ${card("закъснели заявки", overdue.length, overdue.length ? "danger" : "", "customer")}
+      ${card("незавършени задачи", totalWip, "", "tasks")}
+      ${card("материали под минимум", lowMat.length, lowMat.length ? "warn" : "", "materials")}
     </div>
     <div class="pulse-grid">
       <div class="pulse-panel">
@@ -187,6 +195,29 @@ async function renderPulse() {
       </div>
     </div>
     <p class="erp-muted pulse-ts">Днес: ${today} · ${todayEntries} записа · обновено ${new Date().toLocaleTimeString("bg-BG")}</p>`;
+
+  v.querySelectorAll(".pulse-go").forEach(c => c.addEventListener("click", () => pulseGoto(c.dataset.go)));
+}
+
+/* Клик върху карта → модулът-източник. "tasks" отваря Цехове; всичко друго
+   е ЕРП раздел (erpSetTab имената от erpDispatchTab). */
+const PULSE_GO_LABELS = {
+  invoices: "Фактуриране", purchases: "Покупки", receivables: "Вземания",
+  payables: "Задължения", customer: "Заявки", finance: "Финанси",
+  materials: "Склад материали", tasks: "Производство · Цехове",
+};
+function pulseGoLabel(go) { return PULSE_GO_LABELS[go] || go; }
+function pulseGoto(go) {
+  if (!go) return;
+  closePulse();
+  if (go === "tasks") {
+    if (typeof openTasks === "function") openTasks();
+    return;
+  }
+  if (typeof openErp === "function") {
+    if (typeof ERP !== "undefined") ERP.tab = go;
+    openErp();
+  }
 }
 
 function pulseInit() {

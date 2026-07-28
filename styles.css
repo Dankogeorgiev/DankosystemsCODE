@@ -169,6 +169,10 @@ body {
 .pulse-card.danger .pulse-val { color: #dc2626; }
 .pulse-card.warn { background: #fffbeb; border-color: #fde68a; }
 .pulse-card.warn .pulse-val { color: #b45309; }
+/* Кликаема карта — врата към модула-източник */
+.pulse-card.pulse-go { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+.pulse-card.pulse-go:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.12); border-color: #94a3b8; }
+.pulse-card.pulse-go:active { transform: translateY(0); }
 .pulse-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
 .pulse-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
 .pulse-panel h4 { margin: 0 0 8px; }
