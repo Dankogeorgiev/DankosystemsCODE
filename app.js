@@ -107,8 +107,9 @@ function produceAllowed() {
 function applyAccess() {
   const fin = document.getElementById("btn-finance");
   if (fin) fin.style.display = financeAllowed() ? "" : "none";
+  // Пулс на НАЧАЛНИЯ екран — само за Данко (в ЕРП остава по PULSE_EMAILS).
   const pulse = document.getElementById("btn-pulse");
-  if (pulse) pulse.style.display = pulseAllowed() ? "" : "none";
+  if (pulse) pulse.style.display = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com" ? "" : "none";
   const pulseErp = document.getElementById("erp-pulse-btn");
   if (pulseErp) pulseErp.style.display = pulseAllowed() ? "" : "none";
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
