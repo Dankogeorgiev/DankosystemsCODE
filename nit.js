@@ -269,8 +269,8 @@ const NIT_OP_PRODUCTS = {
   "Крак колела — десни": { from: "заварения крак + колела/оси", single: true, list: NIT_ITALY_LEGS_R },
   "Крак колела — леви":  { from: "заварения крак + колела/оси", single: true, list: NIT_ITALY_LEGS_L },
   "Италия крак затваряне": {
-    from: "кръстосаната заготовка + крака с колела → ПОЛОВИНАТА (Л = лява, Д = дясна)",
-    single: false,   // Л/Д: всяка страна прави своята половина-механизъм
+    from: "Л = леви крака, Д = десни крака (+ кръстосаните заготовки); ЧИФТОВЕТЕ стават готови механизми, нечифтеното остава като половина",
+    single: false,   // Л/Д: брой вкарани леви/десни крака
     list: NIT_ITALY_FINALS.map(f => [f.code, f.name]),
   },
   "МПК колело на крак — десни": { from: "голия крак + колела/оси (по рецептата на крака)", single: true, list: NIT_MPK_LEGS_R },
@@ -847,10 +847,15 @@ const NIT_ACCESSORY_WATCH_MATS = new Set(["100182"]);    // материали: 
    Пример: 101117 (2ка3ка ляв) 100 бр + 101115 (нож ляв) 100 бр →
    −100/−100 и +100 бр 100950 (Италия цял ляв). Пуска се след всеки отчет.
    ⚠ Аксесоарите (спирачки/пружини) НЕ се изписват тук — при продажбата. */
+/* Италия: чифтовете ляв+десен от ОТЧЕТЕНИЯ модел се комплектоват веднага след
+   записа (жената е избрала модела от пикъра — затова и двусмислените NEW MAXI
+   са еднозначни). Двойката се добавя тук от „Италия крак затваряне" и се
+   консумира еднократно от nitCombineStock. */
+const NIT_PENDING_COMBINE = [];
+
 const NIT_COMBINE = [
-  // Италия НЯМА авто-сглобяване (по изрично решение): съединяването на заготовка
-  // и нож се отчита само с „Италия нож на готова заготовка" — иначе системата
-  // сглобяваше „на хартия" преди жените реално да са сложили ножа.
+  // Италия НЯМА ГЛОБАЛНО авто-сглобяване (старото изрично решение): пасването
+  // става само контекстно, при отчет „Италия крак затваряне" (виж по-горе).
   { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)" },
   // ММ04: десен + ляв → цял механизъм 101157 (спирачките — при продажбата)
   { a: "101866", b: "101867", to: "101157", label: "Потапящ малък ММ04 (десен + ляв)" },
@@ -871,7 +876,7 @@ const NIT_COMBINE = [
   // (ASIA 101007+101008→101137 беше вързан пробно и МАХНАТ по искане на Данко.)
 ];
 
-async function nitCombineStock() {
+async function nitCombineStock(extraPairs) {
   const ids = await nitStockIds();
   const mids = await nitMatIds();
   // Бройки, РЕЗЕРВИРАНИ от пуснати заявки (кръстосано нетване) — не се комбинират:
@@ -884,7 +889,7 @@ async function nitCombineStock() {
       reserved[pid] = (reserved[pid] || 0) + (Number(per[pid]) || 0);
     }));
   } catch (e) { /* без резервации при грешка */ }
-  for (const c of NIT_COMBINE) {
+  for (const c of [...NIT_COMBINE, ...(extraPairs || [])]) {
     const ia = ids[c.a], ib = ids[c.b], it = ids[c.to];
     if (!ia || !ib || !it) continue;
     let stA = 0, stB = 0;
@@ -1043,6 +1048,10 @@ async function nitSyncStock(rec) {
     if (itFin) {
       // Стар запис (кредитирал е комплекта по стария модел) — замразен.
       if (rec.stocked[key] != null) continue;
+      // След записа ЧИФТОВЕТЕ ляв+десен от този модел се комплектоват
+      // автоматично в готовия механизъм (контекстно — жената е избрала модела).
+      if (!NIT_PENDING_COMBINE.some(c => c.to === itFin.code))
+        NIT_PENDING_COMBINE.push({ a: itFin.right, b: itFin.left, to: itFin.code, label: itFin.name });
       const ldv = nitOpLD(rec.ops[key]);
       for (const [sk, tag, word] of [["l", "Л", "лява"], ["d", "Д", "дясна"]]) {
         const halfCode = sk === "d" ? itFin.right : itFin.left;
@@ -1442,8 +1451,9 @@ function nitRenderOps(v) {
     const btn = v.querySelector("#nit-save"); btn.disabled = true; btn.textContent = "Записва…";
     // Заприходяване в Склад детайли за операциите с наш код (по разликата).
     try { await nitSyncStock(r); } catch (e) {}
-    // Авто-сглобяване на двете половини в готов механизъм (мин. от двете).
-    try { await nitCombineStock(); } catch (e) {}
+    // Авто-сглобяване на двете половини в готов механизъм (мин. от двете) +
+    // контекстните Италия чифтове от този запис (NIT_PENDING_COMBINE).
+    try { await nitCombineStock(typeof NIT_PENDING_COMBINE !== "undefined" ? NIT_PENDING_COMBINE.splice(0) : null); } catch (e) {}
     const hasStocked = r.stocked && Object.values(r.stocked).some(x => Number(x) > 0);
     if (Object.keys(r.ops).length || hasStocked) NIT.records[key] = r; else delete NIT.records[key];
     const ok = await nitSave();
