@@ -594,3 +594,9 @@ img.ai-doc-content { max-width: none; }
 @media (max-width: 900px) { .erp-tabs-row { flex-direction: column; } .erp-fin-tabs { border-left: none; border-top: 1px dashed var(--line); padding: 8px 18px; } }
 /* Номерът на фактурата — отделно, едро и четимо квадратче */
 .inv-nextno { font-weight: 800; font-size: 16px; letter-spacing: .5px; background: #f0f9ff; border: 1px solid #bae6fd; color: #075985; border-radius: 8px; }
+
+/* Заглавният ред на редовете във фактурата — удебелен и по-четим */
+.inv-lines-tbl thead th {
+  font-weight: 800; color: #0f172a; font-size: 13px;
+  background: #eef2f7; border-bottom: 2px solid #cbd5e1;
+}

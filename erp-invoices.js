@@ -445,7 +445,7 @@ async function erpInvForm(o) {
       </div>
 
       <h4 class="erp-group-head">Редове</h4>
-      <table class="report-table erp-table" id="inv-lines">
+      <table class="report-table erp-table inv-lines-tbl" id="inv-lines">
         <thead><tr><th>Код</th><th>Наименование</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Стойност</th><th></th></tr></thead>
         <tbody>${erpInvLinesHtml(o, locked)}</tbody>
       </table>
