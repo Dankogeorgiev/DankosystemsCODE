@@ -238,7 +238,7 @@ async function erpRenderSaleForm(o) {
       <button class="btn btn-small" id="sa-back">← Назад към продажбите</button>
       <span class="spacer"></span>
       <button class="btn btn-small" id="sa-print">🖨 Печат</button>
-      ${typeof erpInvFromSale === "function" ? '<button class="btn btn-small" id="sa-invoice" title="Създава фактура от тази продажба (документът; складът остава от продажбата)">📄 Създай фактура</button>' : ""}
+      ${o.invoiceNo ? `<span class="erp-count" title="Фактурирана">📄 ф-ра № ${escapeHtml(o.invoiceNo)}</span>` : (typeof erpInvFromSale === "function" && o.posted && !o.imported ? '<button class="btn btn-small" id="sa-invoice" title="Създава фактура от тази продажба (документът; складът остава от продажбата)">📄 Създай фактура</button>' : "")}
       ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span> <button class="btn btn-small btn-danger" id="sa-unpost" title="Връща движенията в склада, за да осчетоводиш продажбата пак">↩ Отмени осчетоводяване</button>'
         : '<button class="btn btn-small" id="sa-save">💾 Запази</button><button class="btn btn-small btn-primary" id="sa-post">📤 Осчетоводи (изпиши от склада)</button>'}
     </div>
@@ -426,6 +426,7 @@ async function erpUnpostSale(o) {
   if (e2.error) { alert("Грешка при връщане на детайлите: " + e2.error.message); return; }
   o.posted = false; o.postedAt = null;
   try { await erpSaveSale(o); } catch (e) { alert("⚠ Движенията са върнати, но статусът не се записа: " + (e.message || e)); }
+  if (typeof erpRecvRemoveForSales === "function") { try { await erpRecvRemoveForSales([o.id]); } catch (e) {} }
   try { await erpLoadAll(); } catch {}
   try { await erpLoadSales(); } catch {}
   alert("Осчетоводяването е отменено и складът е възстановен.\n\nСега смени Вид на реда на „готов детайл“ и натисни Осчетоводи пак.");
@@ -623,6 +624,9 @@ async function erpPostSale(o) {
 
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSaveSale(o); } catch {}
+  // Продажба без фактура (само стокова): клиентът пак дължи — влиза във Вземания
+  // с тип „Стокова". При последващо фактуриране се заменя от фактурното вземане.
+  if (!o.invoiceNo && typeof erpRecvSyncFromSale === "function") { try { await erpRecvSyncFromSale(o); } catch (e) {} }
   // Заявката, от която е продажбата: добавяме доставеното; приключва само при
   // пълна доставка, иначе остава отворена с остатъка.
   let closedNote = "";

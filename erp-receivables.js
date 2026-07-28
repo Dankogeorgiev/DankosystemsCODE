@@ -330,7 +330,54 @@ async function erpRecvSyncFromInvoice(o) {
   const idx = (RECEIVABLES || []).findIndex(p => p.srcInvoiceId === o.id);
   if (idx >= 0) { if (RECEIVABLES[idx].paid) return; Object.assign(RECEIVABLES[idx], fields); }
   else RECEIVABLES.push({ id: recvNextId(), paid: false, paidDate: "", ...fields });
+  // Фактура от продажби: стоковите им вземания се ЗАМЕНЯТ от фактурното.
+  if ((o.fromSaleIds || []).length) {
+    const set = new Set(o.fromSaleIds.map(String));
+    for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
+      const p = RECEIVABLES[i];
+      if (p.srcSaleId != null && set.has(String(p.srcSaleId)) && !p.paid) RECEIVABLES.splice(i, 1);
+    }
+  }
   await erpRecvSave();
+}
+
+/* ---------- Вземане от ПРОДАЖБА БЕЗ ФАКТУРА (само стокова разписка) ----------
+   Клиентът дължи парите и без фактура — записът влиза във Вземания с тип
+   „Стокова", за да се следи (обща сума, просрочия, Пулс). При последващо
+   фактуриране на продажбата се заменя от фактурното вземане (виж по-горе). */
+async function erpRecvSyncFromSale(o) {
+  if (!o || !o.id || !o.posted || o.invoiceNo || o.imported) return;
+  await erpRecvLoad();
+  const t = (typeof erpSaleTotals === "function") ? erpSaleTotals(o) : { total: 0 };
+  const rate = (o.currency === "BGN") ? RECV_EUR_BGN : 1;
+  const amountEur = Math.round((Number(t.total) / rate) * 100) / 100;
+  if (!(amountEur > 0)) return;
+  const fields = {
+    client: o.clientName || "",
+    invoiceNo: "СР " + (o.saleNo || ""),   // стокова разписка по № на продажбата
+    docType: "Стокова",
+    docDate: o.date || "",
+    dueDate: "", termDays: 0,
+    amount: amountEur, currency: "EUR",
+    payMethod: "Банка",
+    srcSaleId: o.id,
+  };
+  const idx = (RECEIVABLES || []).findIndex(p => String(p.srcSaleId || "") === String(o.id));
+  if (idx >= 0) { if (RECEIVABLES[idx].paid) return; Object.assign(RECEIVABLES[idx], fields); }
+  else RECEIVABLES.push({ id: recvNextId(), paid: false, paidDate: "", ...fields });
+  await erpRecvSave();
+}
+// Маха стоковите вземания на дадени продажби (при отмяна на осчетоводяване).
+async function erpRecvRemoveForSales(saleIds) {
+  const set = new Set((saleIds || []).map(String));
+  if (!set.size) return;
+  await erpRecvLoad();
+  let changed = false;
+  for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
+    const p = RECEIVABLES[i];
+    if (p.srcSaleId != null && set.has(String(p.srcSaleId)) && !p.paid) { RECEIVABLES.splice(i, 1); changed = true; }
+  }
+  if (changed) await erpRecvSave();
 }
 function recvAddDays(dateStr, days) {
   if (!dateStr) return "";

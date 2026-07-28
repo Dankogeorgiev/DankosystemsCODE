@@ -258,6 +258,7 @@ async function erpRenderInvoices() {
       ${(erpInvoices || []).some(o => o.imported) ? '<button class="btn btn-small btn-danger" id="inv-clear-import" title="Изтрий импортираните фактури (ръчните остават)">🗑 Изтегли импорта</button>' : ""}
       ${(erpInvoices || []).length ? '<button class="btn btn-small btn-danger" id="inv-clear-all" title="Изтрий ВСИЧКИ документи от Фактуриране">🗑 Изчисти всичко</button>' : ""}
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
+      <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
       <button class="btn btn-small btn-primary" id="inv-new-invoice">+ Фактура</button>
     </div>
@@ -301,6 +302,8 @@ async function erpRenderInvoices() {
   if (caEl) caEl.addEventListener("click", erpInvClearAll);
   document.getElementById("inv-new-proforma").addEventListener("click", () => erpNewInvoice("proforma"));
   document.getElementById("inv-new-invoice").addEventListener("click", () => erpNewInvoice("invoice"));
+  const fsBtn = document.getElementById("inv-from-sales");
+  if (fsBtn) fsBtn.addEventListener("click", erpInvFromSalesDialog);
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenInvoice(Number(b.dataset.open)); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenInvoice(Number(tr.dataset.id))));
 }
@@ -318,6 +321,105 @@ function erpNewInvoice(kind) {
     currency: "EUR", vatRate: 20, vatBasis: "", paymentMethod: "по банка", termDays: 0, dueDate: "", note: "",
     refInvoice: null, refReason: "", lines: [], status: "чернова", posted: false,
     compiledBy: "",   // изготвилият се попълва във формата (поле „Изготвил фактурата")
+  });
+}
+
+/* ---------- Фактура от продажба(и) ----------
+   Складът НЕ се пипа тук — изписан е при осчетоводяването на Продажбата.
+   Фактурата носи документа и парите. При ИЗДАВАНЕ продажбите се маркират
+   с номера ѝ (не могат да се фактурират втори път), а стоковите им
+   вземания се заменят от фактурното (erpRecvSyncFromInvoice). */
+async function erpInvFromSale(sale) {
+  if (!sale) return;
+  if (!sale.posted) { alert("Първо осчетоводи продажбата (складът се изписва от нея), после пусни фактурата."); return; }
+  if (sale.imported) { alert("Импортирана продажба (регистър от GenCloud) — фактурата ѝ е издадена в стария процес."); return; }
+  if (sale.invoiceNo) { alert("Тази продажба вече е фактурирана с № " + sale.invoiceNo + "."); return; }
+  await erpInvOpenFromSales([sale]);
+}
+
+// Строи чернова на фактура от 1+ продажби и я отваря в таб Фактуриране.
+async function erpInvOpenFromSales(salesArr) {
+  const s0 = salesArr[0];
+  let cl = { name: s0.clientName || "", eik: "", vat: "", city: "", street: "", country: "България", person: "" };
+  try {
+    const clients = await erpLoadSaleClients();
+    const hit = clients.find(c => (s0.clientId && c.id === s0.clientId)
+      || (c.name || "").trim().toLowerCase() === (s0.clientName || "").trim().toLowerCase());
+    if (hit) cl = { name: hit.name || cl.name, eik: "", vat: hit.vat || "", city: hit.city || "", street: hit.street || "", country: hit.country || "България", person: "" };
+  } catch (e) {}
+  const today = new Date().toISOString().slice(0, 10);
+  const isExport = Number(s0.vatRate) === 0 || (cl.country && !/бълг|bulgaria|^bg$/i.test(String(cl.country).trim()));
+  const lines = [];
+  salesArr.forEach(s => (s.lines || []).forEach(l => lines.push({
+    code: l.code || "", clientCode: l.clientCode || "", name: l.name || "",
+    qty: l.qty, unit: l.unit || "бр.", unitPrice: l.unitPrice,
+  })));
+  const o = {
+    kind: "invoice", seriesKey: isExport ? "1" : "2",
+    issueDate: today, taxDate: today,
+    orderRef: "Продажба № " + salesArr.map(s => s.saleNo || "—").join(", "),
+    client: cl, clientId: s0.clientId || null,
+    currency: s0.currency || "EUR",
+    vatRate: (s0.vatRate != null && s0.vatRate !== "") ? Number(s0.vatRate) : (isExport ? 0 : 20),
+    vatBasis: "", paymentMethod: "по банка", termDays: 0, dueDate: "", note: "",
+    refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
+    compiledBy: "",
+    fromSaleIds: salesArr.map(s => s.id).filter(Boolean),
+    fromSaleNos: salesArr.map(s => s.saleNo || "—"),
+    __applyProfile: s0.clientName || "",
+  };
+  if (typeof erpSetTab === "function") erpSetTab("invoices");
+  erpInvForm(o);
+}
+
+// При ИЗДАВАНЕ: маркира продажбите с номера на фактурата (двупосочна връзка).
+async function erpInvMarkSalesInvoiced(o) {
+  for (const sid of (o.fromSaleIds || [])) {
+    try {
+      const { data } = await sb.from("sales").select("id,data,posted").eq("id", sid).maybeSingle();
+      if (!data) continue;
+      const d = data.data || {};
+      d.invoiceNo = o.docNo; d.invoiceId = o.id;
+      await sb.from("sales").update({ data: d, posted: !!data.posted, updated_at: new Date().toISOString() }).eq("id", sid);
+      const local = (typeof erpSales !== "undefined" && erpSales || []).find(x => x.id === sid);
+      if (local) { local.invoiceNo = o.docNo; local.invoiceId = o.id; }
+    } catch (e) { console.warn("маркиране на продажба", sid, e); }
+  }
+}
+
+// „От продажби…": една фактура от НЯКОЛКО осчетоводени продажби на един клиент.
+async function erpInvFromSalesDialog() {
+  try { if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales(); } catch (e) {}
+  const cand = ((typeof erpSales !== "undefined" && erpSales) || [])
+    .filter(s => s.posted && !s.imported && !s.invoiceNo);
+  if (!cand.length) { alert("Няма осчетоводени продажби без фактура.\n(Фактура се пуска само по осчетоводена продажба — складът върви с продажбата.)"); return; }
+  const clients = [...new Set(cand.map(s => (s.clientName || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  const listFor = cn => cand.filter(s => (s.clientName || "").trim() === cn)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  const rowsHtml = cn => listFor(cn).map(s => {
+    const t = (typeof erpSaleTotals === "function") ? erpSaleTotals(s) : { total: 0 };
+    return `<label class="inv-fs-row"><input type="checkbox" class="inv-fs-chk" data-id="${escapeAttr(String(s.id))}" checked />
+      <b>№ ${escapeHtml(s.saleNo || "—")}</b> · ${escapeHtml(s.date || "")} · ${erpNum(Math.round(t.total * 100) / 100)} ${escapeHtml(erpSaleCur(s))}
+      <span class="erp-muted">(${(s.lines || []).length} реда)</span></label>`;
+  }).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>📑 Една фактура от няколко продажби</h3>
+    <p class="hint">Показват се само осчетоводени продажби БЕЗ фактура. Редовете на избраните се обединяват в една фактура; продажбите се маркират с номера ѝ при издаване.</p>
+    <label>Клиент <select id="inv-fs-client">${clients.map(c => `<option>${escapeHtml(c)}</option>`).join("")}</select></label>
+    <div id="inv-fs-list" style="max-height:44vh;overflow:auto;margin:8px 0">${rowsHtml(clients[0])}</div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="inv-fs-cancel">Отказ</button>
+      <button class="btn btn-primary" id="inv-fs-go">📄 Създай фактура от избраните</button>
+    </div>`);
+  wrap.querySelector("#inv-fs-cancel").addEventListener("click", close);
+  const sel = wrap.querySelector("#inv-fs-client");
+  sel.addEventListener("change", () => { wrap.querySelector("#inv-fs-list").innerHTML = rowsHtml(sel.value); });
+  wrap.querySelector("#inv-fs-go").addEventListener("click", async () => {
+    const ids = [...wrap.querySelectorAll(".inv-fs-chk:checked")].map(c => c.dataset.id);
+    const chosen = listFor(sel.value).filter(s => ids.includes(String(s.id)));
+    if (!chosen.length) { alert("Избери поне една продажба."); return; }
+    close();
+    await erpInvOpenFromSales(chosen);
   });
 }
 
@@ -629,6 +731,8 @@ async function erpInvIssue(o) {
     await erpLoadInvoices();
     // Издадената фактура става вземане от клиента (проформата не влиза).
     try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
+    // Фактура от продажби: маркираме ги с номера (не се фактурират втори път).
+    if ((o.fromSaleIds || []).length) { try { await erpInvMarkSalesInvoiced(o); } catch (e) {} }
     erpInvForm(JSON.parse(JSON.stringify((erpInvoices || []).find(x => x.id === o.id) || o)));
     // Автоматично предлага изпращане на фактурата по имейл (готово писмо, 1 клик).
     try { if (typeof erpMailInvoice === "function") erpMailInvoice(o); } catch (e) {}

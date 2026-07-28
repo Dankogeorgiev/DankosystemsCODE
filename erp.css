@@ -616,3 +616,8 @@ img.ai-doc-content { max-width: none; }
 .dsnm-row b { font-family: Consolas, Menlo, monospace; letter-spacing: .3px; }
 .dsnm-stock { font-weight: 700; color: #0f766e; }
 .dsnm-top { margin-right: 2px; }
+
+/* Редове-отметки в диалозите „От продажби" / „Покрива стокови" */
+.inv-fs-row { display: block; padding: 6px 10px; border-bottom: 1px dashed #e2e8f0; cursor: pointer; font-size: 14px; }
+.inv-fs-row:hover { background: #eff6ff; }
+.inv-fs-row input { margin-right: 8px; }

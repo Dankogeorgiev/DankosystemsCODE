@@ -91,6 +91,7 @@ async function renderPulse() {
   let purchMonth = 0;
   purchases.forEach(o => {
     if (String(o.date || "").slice(0, 7) !== month) return;
+    if (o.docType === "goods") return;   // стоковата разписка не е разход — парите идват с покриващата фактура
     purchMonth += toEur(lineNet(o.lines), o.currency || "BGN");
   });
   // Платени заплати за месеца (Заплати седмично): От банка + CODE 005.
@@ -119,6 +120,7 @@ async function renderPulse() {
   });
   purchases.forEach(o => {
     if (String(o.date || "").slice(0, 7) !== month) return;
+    if (o.docType === "goods") return;   // ДДС кредитът идва с покриващата фактура, не със стоковата
     const rate = Number(o.vatRate != null ? o.vatRate : 20);
     vatIn += toEur(lineNet(o.lines) * rate / 100, o.currency || "BGN");
   });
