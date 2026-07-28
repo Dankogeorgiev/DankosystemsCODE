@@ -131,6 +131,11 @@ async function renderPulse() {
   const recvOverSum = recvOver.reduce((s, p) => s + (num(p.amount) || 0), 0);
   const payUnpaid = payList.filter(p => !p.paid);
   const paySum = payUnpaid.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
+  // Дължимо до края на месеца (с ДДС): неплатени фактури със срок до последния
+  // ден на текущия месец — включително вече просрочените.
+  const eomD = new Date(); const eom = `${eomD.getFullYear()}-${String(eomD.getMonth() + 1).padStart(2, "0")}-${String(new Date(eomD.getFullYear(), eomD.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
+  const payMonthItems = payUnpaid.filter(p => p.dueDate && p.dueDate <= eom);
+  const payMonthSum = payMonthItems.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
 
   const card = (label, value, cls) => `<div class="pulse-card ${cls || ""}"><div class="pulse-val">${value}</div><div class="pulse-lbl">${label}</div></div>`;
 
@@ -141,6 +146,7 @@ async function renderPulse() {
       ${card("вземания от клиенти (с ДДС)", money(recvSum, "EUR"), recvOver.length ? "warn" : "money")}
       ${card("от тях просрочени", money(recvOverSum, "EUR") + " · " + recvOver.length + " бр.", recvOver.length ? "danger" : "")}
       ${card("общо задължения (с ДДС)", money(paySum, "EUR"), "")}
+      ${card("дължимо до края на месеца (с ДДС)", money(payMonthSum, "EUR") + " · " + payMonthItems.length + " бр.", payMonthItems.length ? "warn" : "")}
       ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money")}
       ${card("платени заплати месец (банка + 005)", money(salMonth, "EUR"), "money")}
       ${card(vatDue >= 0 ? "ДДС за внасяне (месец)" : "ДДС за възстановяване (месец)", money(Math.abs(vatDue), "EUR"), vatDue >= 0 ? "warn" : "ok")}
