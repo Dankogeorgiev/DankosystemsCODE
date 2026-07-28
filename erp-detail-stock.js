@@ -8,6 +8,45 @@ let DS_TERM = "";
 let DS_ONLY_STOCK = false;
 let DS_ONLY_NEG = false;   // показва само детайли с отрицателна наличност
 let DS_HAS_DRAW = new Set();   // id-та на продукти с поне един чертеж (за оцветяване на бутона)
+let DS_BLOCKED = {};       // product_id -> блокирано от пуснати заявки (flow_netting)
+let DS_BLOCKED_TIP = {};   // product_id -> „заявка №… : брой" за подсказката
+
+// Блокираните наличности идват от резервациите на пуснатите заявки
+// (app_config → flow_netting). Заявката „пази" взетото от склад, докато
+// производството ѝ го консумира; приключилите заявки не блокират нищо.
+async function dsLoadBlocked() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (data && data.data && data.data.byOrder) || {};
+    const oids = Object.keys(byOrder);
+    // Номер и статус на заявките (малко на брой — само пуснатите).
+    const names = {}, done = {};
+    if (oids.length) {
+      try {
+        const { data: cos } = await sb.from("customer_orders").select("id,data").in("id", oids);
+        (cos || []).forEach(r => {
+          const d = r.data || {};
+          names[String(r.id)] = d.ourNo ? ("заявка №" + d.ourNo) : ("заявка #" + r.id);
+          if (d.status === "завършена" || d.status === "готова за продажба") done[String(r.id)] = true;
+        });
+      } catch (e) { /* без имена — показваме само броя */ }
+    }
+    const tot = {}, per = {};
+    oids.forEach(oid => {
+      if (done[oid]) return;                       // приключила заявка — не блокира
+      const m = byOrder[oid] || {};
+      Object.keys(m).forEach(pid => {
+        const q = Number(m[pid]) || 0;
+        if (!(q > 0)) return;
+        tot[pid] = (tot[pid] || 0) + q;
+        (per[pid] || (per[pid] = [])).push(`${names[oid] || ("поръчка " + String(oid).slice(0, 8))}: ${q}`);
+      });
+    });
+    const tips = {};
+    Object.keys(per).forEach(pid => { tips[pid] = per[pid].join(", "); });
+    DS_BLOCKED = tot; DS_BLOCKED_TIP = tips;
+  } catch (e) { /* при грешка оставаме на старите стойности */ }
+}
 
 // Чете ВСИЧКИ продукти (със странициране — Supabase връща макс. 1000 наведнъж).
 async function dsFetchAllProducts(cols) {
@@ -82,6 +121,7 @@ async function dsRefreshStock(force) {
   // на ЕРП), не ги дърпаме пак — това беше втори пълен обход при всяко влизане.
   const fresh = ERP._stockAt && (Date.now() - ERP._stockAt) < 20000;
   if (fresh && !force) return;
+  const blockedP = dsLoadBlocked();   // паралелно с наличностите (грешките са уловени вътре)
   try {
     // Теглим САМО ненулевите наличности (те са малцинство) — базата така или
     // иначе смята целия изглед, но пращаме в мрежата стотици реда вместо
@@ -98,6 +138,7 @@ async function dsRefreshStock(force) {
     (ERP.products || []).forEach(p => { p.stock = byId[p.id] != null ? byId[p.id] : 0; });
     ERP._stockAt = Date.now();
   } catch (e) { /* при грешка оставаме на кешираните стойности */ }
+  try { await blockedP; } catch (e) {}
 }
 
 // Обвивка: каквото и да се обърка вътре, екранът СЕ ОТВАРЯ и показва точната
@@ -147,7 +188,9 @@ async function erpRenderDetailStockInner() {
       <span class="erp-muted">${totalWith} детайла с наличност</span>
     </div>
     <p class="hint">Тук въвеждаш реалната наличност на готовите детайли/възли. При пускане на заявка системата
-      автоматично приспада наличното и праща в цех само недостига.</p>
+      автоматично приспада наличното и праща в цех само недостига. <b>Свободни</b> е това, което остава за
+      разполагане; <b>🔒 Блокирани</b> са пазените за вече пуснати заявки (задръж мишката върху числото, за да
+      видиш кои заявки ги държат).</p>
     <div class="erp-toolbar">
       <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
@@ -167,7 +210,7 @@ async function erpRenderDetailStockInner() {
       <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
       Може да качиш и <b>ZIP архив</b> — системата сама го разпакова и разпределя чертежите.</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Код</th><th>Детайл/възел</th><th class="num">Наличност</th><th>Движение</th></tr></thead>
+      <thead><tr><th>Код</th><th>Детайл/възел</th><th class="num" title="Наличност минус блокираното от пуснати заявки">Свободни</th><th class="num" title="Пазени за пуснати заявки — производството им ги чака">🔒 Блокирани</th><th>Движение</th></tr></thead>
       <tbody id="ds-tbody"></tbody>
     </table>`;
 
@@ -210,7 +253,7 @@ function dsFillRows() {
   try { dsFillRowsInner(tbody); }
   catch (e) {
     console.error("Склад детайли (редове):", e);
-    tbody.innerHTML = `<tr><td colspan="4" class="erp-warn">Грешка при показване на списъка: ${escapeHtml((e && e.message) || String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="erp-warn">Грешка при показване на списъка: ${escapeHtml((e && e.message) || String(e))}</td></tr>`;
   }
 }
 
@@ -226,14 +269,20 @@ function dsFillRowsInner(tbody) {
     list.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0) || (a.name || "").localeCompare(b.name || "", "bg"));
   }
 
+  const canProduce = (typeof produceAllowed !== "function" || produceAllowed());
   const shown = list.slice(0, 300);
-  tbody.innerHTML = shown.map(p => `
+  tbody.innerHTML = shown.map(p => {
+    const stock = Number(p.stock) || 0;
+    const blocked = Math.min(Math.max(stock, 0), Number(DS_BLOCKED[p.id]) || 0);
+    const free = stock - blocked;
+    return `
     <tr>
       <td data-label="Код"><b>${escapeHtml(p.code || "")}</b></td>
       <td data-label="Детайл">${escapeHtml(p.name || "")} <span class="erp-muted">#${p.id}</span>${p.is_semifinished ? ` <span class="erp-muted">възел</span>` : ""}</td>
-      <td class="num" data-label="Наличност"><b class="${(Number(p.stock) || 0) > 0 ? "" : (Number(p.stock) || 0) < 0 ? "erp-warn" : "erp-muted"}">${erpNum(Number(p.stock) || 0)}</b> ${escapeHtml(p.unit || "бр.")}</td>
+      <td class="num" data-label="Свободни"><b class="${free > 0 ? "" : free < 0 ? "erp-warn" : "erp-muted"}">${erpNum(free)}</b> ${escapeHtml(p.unit || "бр.")}</td>
+      <td class="num" data-label="Блокирани"${DS_BLOCKED_TIP[p.id] ? ` title="${escapeAttr(DS_BLOCKED_TIP[p.id])}"` : ""}>${blocked ? `🔒 <b>${erpNum(blocked)}</b>` : `<span class="erp-muted">—</span>`}</td>
       <td data-label="Движение">
-        <button type="button" class="btn btn-small btn-primary ds-prod" data-id="${p.id}" title="Пусни по цеховете; готовото влиза тук">🏭 произведи</button>
+        ${canProduce ? `<button type="button" class="btn btn-small btn-primary ds-prod" data-id="${p.id}" title="Пусни по цеховете; готовото влиза тук">🏭 произведи</button>` : ""}
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="заприходяване">＋ заприходи</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="изписване">− изпиши</button>
         <button type="button" class="btn btn-small ds-mv" data-id="${p.id}" data-k="корекция">✎ наличност</button>
@@ -242,7 +291,7 @@ function dsFillRowsInner(tbody) {
         <button type="button" class="btn btn-small ds-draw${dsHasDrawing(p) ? " ds-draw-has" : ""}" data-id="${p.id}" title="${dsHasDrawing(p) ? "Има прикачен чертеж" : "Няма чертеж"}">📎 чертежи</button>
         <button type="button" class="btn btn-small ds-log" data-id="${p.id}">история</button>
       </td>
-    </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма детайли по този филтър.</td></tr>`;
+    </tr>`; }).join("") || `<tr><td colspan="5" class="report-empty">Няма детайли по този филтър.</td></tr>`;
 
   const cnt = document.getElementById("ds-count");
   if (cnt) cnt.textContent = list.length > 300 ? `показани 300 от ${list.length}` : `${list.length} детайла`;

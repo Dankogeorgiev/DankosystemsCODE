@@ -39,7 +39,7 @@ function erpRenderOrderPanel(s) {
           <button type="button" class="btn btn-small" id="erp-op-fill">↧ Вземи материалите от рецептата</button>
           <button type="button" class="btn btn-small" id="erp-op-test" title="Провери маршрута — дали рецептата ще върви правилно, преди да пуснеш">🧪 Тест рецепта</button>
           <button type="button" class="btn btn-small" id="erp-op-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
-          <button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>
+          ${(typeof produceAllowed !== "function" || produceAllowed()) ? `<button type="button" class="btn btn-small btn-primary" id="erp-op-produce">🏭 Пусни в производство</button>` : ""}
           ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-livestatus" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small" id="erp-op-sale">🧾 Създай продажба</button>' : ""}
           ${s.production ? '<button type="button" class="btn btn-small btn-danger" id="erp-op-withdraw">⬅ Изтегли от производство</button>' : ""}
@@ -620,6 +620,20 @@ async function erpFlowApply(meta, productLines) {
       const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
       flowNet = (data && data.data && data.data.byOrder) || {};
     } catch (e) { flowNet = {}; }
+    // Резервациите на ПРИКЛЮЧИЛИ заявки (завършена / готова за продажба) са
+    // изтекли — взетото им от склад е вече консумирано в производството. Ако
+    // останат, блокират наличност за новите заявки завинаги. Чистим ги тук
+    // (записът по-долу така или иначе презаписва целия обект).
+    try {
+      const oids = Object.keys(flowNet).filter(k => String(k) !== sid);
+      if (oids.length) {
+        const { data: cos } = await sb.from("customer_orders").select("id,data").in("id", oids);
+        (cos || []).forEach(r => {
+          const st = (r.data && r.data.status) || "";
+          if (st === "завършена" || st === "готова за продажба") delete flowNet[String(r.id)];
+        });
+      }
+    } catch (e) { /* при грешка оставаме консервативни — не чистим */ }
     const reserved = {};
     Object.keys(flowNet).forEach(oid => {
       if (String(oid) === sid) return;                       // нашата стара резервация не се брои срещу нас
@@ -1112,6 +1126,7 @@ function erpFlowMatNeeded(tasks) {
 // Пуска детайл за производство ЗА СКЛАД (без заявка). Минава по цеховете и щом
 // последната операция се отчете, готовите бройки влизат в Склад детайли.
 async function erpProduceToStock(productId, qty) {
+  if (typeof produceAllowed === "function" && !produceAllowed()) { alert("Пускането в производство към момента е позволено само на Данко и Григор."); return { error: true }; }
   try { await erpEnsureLoaded(); } catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return { error: true }; }
   const p = ERP.prodById[productId] || {};
   const q = erpToNum(qty) || 0;
@@ -1147,6 +1162,7 @@ async function erpWithdrawProduction(s) {
 }
 
 async function erpProduce(s) {
+  if (typeof produceAllowed === "function" && !produceAllowed()) { alert("Пускането в производство към момента е позволено само на Данко и Григор."); return; }
   try { await erpEnsureLoaded(); }
   catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return; }
   if (!s.erpProductId) { alert("Първо свържи продукт от ЕРП."); return; }

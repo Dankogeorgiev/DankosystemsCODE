@@ -517,7 +517,7 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-test" title="Провери маршрута — дали рецептите ще вървят правилно, преди да пуснеш">🧪 Тест рецепта</button>
         <button class="btn btn-small" id="co-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
         <button class="btn btn-small" id="co-matsubs" title="Смени материал САМО за тази поръчка (напр. Щрипс → Шина). Рецептата не се пипа; изписването тегли заместителя.">🔁 Смени материал${o.matSubs && Object.keys(o.matSubs).length ? ` (${Object.keys(o.matSubs).length})` : ""}</button>
-        <button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>
+        ${(typeof produceAllowed !== "function" || produceAllowed()) ? `<button class="btn btn-small btn-primary" id="co-produce">🏭 Пусни в производство</button>` : ""}
         ${o.production ? '<button class="btn btn-small" id="co-live-status" title="Жив статус — докъде е стигнало, къде е спряло и какво чака">📊 Статус на поръчката</button>' : ""}
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
         <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
@@ -578,7 +578,8 @@ async function erpRenderCOForm(o) {
     if (!items.length) { alert("Добави поне един продукт от каталога, за да симулираш."); return; }
     if (typeof erpSimulateProduction === "function") erpSimulateProduction(items, { title: o.ourNo ? ("заявка №" + o.ourNo) : "", stockTop: true });
   });
-  document.getElementById("co-produce").addEventListener("click", () => erpCOProduce(o));
+  const coProduceBtn = document.getElementById("co-produce");
+  if (coProduceBtn) coProduceBtn.addEventListener("click", () => erpCOProduce(o));
   const msBtn = document.getElementById("co-matsubs");
   if (msBtn) msBtn.addEventListener("click", () => erpCOMatSubsDialog(o));
   const stBtn = document.getElementById("co-live-status");
@@ -900,6 +901,7 @@ function erpCOMaterials(o) {
 
 /* ---------- Пускане в производство (поточно, серии между поръчки) ---------- */
 async function erpCOProduce(o) {
+  if (typeof produceAllowed === "function" && !produceAllowed()) { alert("Пускането в производство към момента е позволено само на Данко и Григор."); return; }
   if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
   // Първо запазваме, за да има № и id за връзката към задачите.
   try { await erpSaveCO(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }

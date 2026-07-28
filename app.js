@@ -96,6 +96,13 @@ function pulseAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return PULSE_EMAILS.map(x => x.toLowerCase()).includes(e);
 }
+// Пускане в производство (заявки, поръчки, производство за склад) — само за
+// изрично изброените имейли. Останалите виждат всичко, но без бутона.
+const PRODUCE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];  // Данко + Григор
+function produceAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return PRODUCE_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
 
 function applyAccess() {
   const fin = document.getElementById("btn-finance");
