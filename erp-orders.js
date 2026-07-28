@@ -1009,6 +1009,8 @@ function erpNitManagedCode(code) {
     if (typeof NIT_COMBINE !== "undefined") NIT_COMBINE.forEach(c => { if (c) { s.add(String(c.a)); s.add(String(c.b)); s.add(String(c.to)); } });
     // Операциите с избор на изделие (крака, крайни механизми) — също нит-управлявани.
     if (typeof NIT_PICK_RULES !== "undefined") Object.values(NIT_PICK_RULES).forEach(rules => Object.keys(rules || {}).forEach(c => s.add(String(c))));
+    // Голите BOM-крака: нямат складов живот — потокът не бива да ги заприходява.
+    if (typeof NIT_LEG_BOM_CODES !== "undefined") NIT_LEG_BOM_CODES.forEach(c => s.add(String(c)));
     erpNitManagedCode._set = s;
   }
   return erpNitManagedCode._set.has(String(code).trim());
