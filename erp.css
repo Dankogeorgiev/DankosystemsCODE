@@ -611,6 +611,7 @@ img.ai-doc-content { max-width: none; }
 .dsnm-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
 @media (max-width: 900px) { .dsnm-cols { grid-template-columns: 1fr; } }
 .dsnm-col h4 { margin: 4px 0 8px; color: #0f766e; font-size: 15px; }
+.dsnm-subh { margin: 12px 0 6px; color: #334155; font-size: 13.5px; text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; }
 .dsnm-row { padding: 8px 12px; margin: 4px 0; border-left: 4px solid #93c5fd; background: #f8fafc; border-radius: 8px; cursor: pointer; font-size: 15px; }
 .dsnm-row:hover { background: #eff6ff; border-left-color: #2563eb; }
 .dsnm-acts { float: right; display: inline-flex; gap: 4px; margin-left: 8px; }
