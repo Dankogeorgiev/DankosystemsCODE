@@ -1090,7 +1090,19 @@ function dsNodeMapRender(pid) {
         </div>
         <div class="dsnm-col">
           <h4>⬆ Влиза в <span class="erp-muted">(${up.length})</span></h4>
-          ${up.map(it => row(it, "up")).join("") || `<p class="erp-muted">Не се влага никъде — краен продукт.</p>`}
+          ${(() => {
+            // Разделено: първо междинните ВЪЗЛИ (с йерархията), после
+            // КРАЙНИТЕ продукти (плоско, без повторения).
+            const upNodes = up.filter(it => !it.top);
+            const seen = new Set();
+            const upTops = up.filter(it => it.top && !seen.has(it.p.id) && seen.add(it.p.id));
+            if (!upNodes.length && !upTops.length) return `<p class="erp-muted">Не се влага никъде — краен продукт.</p>`;
+            return `
+              <h5 class="dsnm-subh">🔩 Възли <span class="erp-muted">(${upNodes.length})</span></h5>
+              ${upNodes.map(it => row(it, "up")).join("") || `<p class="erp-muted">Няма междинни възли — влиза направо в крайни продукти.</p>`}
+              <h5 class="dsnm-subh">🧾 Крайни продукти <span class="erp-muted">(${upTops.length})</span></h5>
+              ${upTops.map(it => row({ p: it.p, qty: it.qty, depth: 0, top: true }, "up")).join("") || `<p class="erp-muted">Не стига до краен продукт.</p>`}`;
+          })()}
         </div>
       </div>`;
   } else {
