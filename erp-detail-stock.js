@@ -318,8 +318,13 @@ function dsFillRowsInner(tbody) {
 async function dsAccessoriesDialog() {
   try {
     await dsRefreshStock(true);
-    const pc = (typeof NIT_ACCESSORY_CODES !== "undefined") ? [...NIT_ACCESSORY_CODES].sort() : [];
-    const mc = (typeof NIT_ACCESSORY_MAT_CODES !== "undefined") ? [...NIT_ACCESSORY_MAT_CODES].sort() : [];
+    const accP = (typeof NIT_ACCESSORY_CODES !== "undefined") ? [...NIT_ACCESSORY_CODES] : [];
+    const accM = (typeof NIT_ACCESSORY_MAT_CODES !== "undefined") ? [...NIT_ACCESSORY_MAT_CODES] : [];
+    const watchP = (typeof NIT_ACCESSORY_WATCH_CODES !== "undefined") ? [...NIT_ACCESSORY_WATCH_CODES] : [];
+    const watchM = (typeof NIT_ACCESSORY_WATCH_MATS !== "undefined") ? [...NIT_ACCESSORY_WATCH_MATS] : [];
+    const isWatch = new Set([...watchP, ...watchM]);
+    const pc = [...accP, ...watchP].sort();
+    const mc = [...accM, ...watchM].sort();
     if (!pc.length && !mc.length) { alert("Няма зададени аксесоарни кодове (списъкът е в nit.js)."); return; }
     let mats = [];
     try {
@@ -329,7 +334,9 @@ async function dsAccessoriesDialog() {
     const row = (code, name, stock, kind, extra) => `<tr>
       <td data-label="Код"><b>${escapeHtml(code)}</b></td><td data-label="Аксесоар">${escapeHtml(name || "")}</td>
       <td class="num" data-label="Наличност"><b class="${stock < 0 ? "erp-warn" : stock > 0 ? "" : "erp-muted"}">${erpNum(stock)}</b></td>
-      <td data-label="Склад">${kind}</td><td>${extra || ""}</td></tr>`;
+      <td data-label="Склад">${kind}</td>
+      <td data-label="Изписва се">${isWatch.has(code) ? '<span class="erp-muted">при монтажа (Занитване/колела)</span>' : "при продажбата"}</td>
+      <td>${extra || ""}</td></tr>`;
     const pRows = pc.map(c => {
       const p = (ERP.products || []).find(x => String(x.code || "").trim() === c);
       if (!p) return row(c, "— не е намерен в Продукти", 0, "детайли", "");
@@ -355,10 +362,11 @@ async function dsAccessoriesDialog() {
         <button type="button" class="btn btn-small" id="ds-acc-close">✕ Затвори</button>
       </div>
       <p class="hint">Аксесоарите се слагат на палета преди експедиция: сглобяването в Занитване НЕ ги изписва —
-        изписват се при осчетоводяване на Продажба. Минус тук = продадено повече, отколкото е отчетено
-        произведено/купено. Списъкът с кодовете се допълва в nit.js.</p>
+        изписват се при осчетоводяване на Продажба. Осите са тук само за следене — те се монтират и изписват
+        при самата операция. Минус = изписано повече, отколкото е отчетено произведено/купено.
+        Списъкът с кодовете се допълва в nit.js.</p>
       <table class="report-table erp-table">
-        <thead><tr><th>Код</th><th>Аксесоар</th><th class="num">Наличност</th><th>Склад</th><th></th></tr></thead>
+        <thead><tr><th>Код</th><th>Аксесоар</th><th class="num">Наличност</th><th>Склад</th><th>Изписва се</th><th></th></tr></thead>
         <tbody>${pRows}${mRows}</tbody>
       </table></div>`;
     wrap.querySelector("#ds-acc-close").addEventListener("click", () => wrap.remove());
