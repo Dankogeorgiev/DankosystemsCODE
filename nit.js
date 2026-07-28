@@ -241,6 +241,8 @@ let NIT_ACTIVE = null;
 let NIT_PICK_ALL = false;   // „покажи всички изделия" (ръчен превключвател)
 async function nitLoadActiveCodes() {
   const out = new Set();
+  let okTasks = false, okOrders = false;
+  // 1) Пуснати в производство (незавършени поточни задачи).
   try {
     for (let from = 0; ; from += 1000) {
       const { data, error } = await sb.from("tasks")
@@ -253,8 +255,32 @@ async function nitLoadActiveCodes() {
       });
       if (!data || data.length < 1000) break;
     }
-    NIT_ACTIVE = out;
-  } catch (e) { NIT_ACTIVE = null; }
+    okTasks = true;
+  } catch (e) { /* продължаваме с поръчките */ }
+  // 2) ПОРЪЧАНИ от клиенти (отворени заявки) — дори още да не са пуснати в цех.
+  //    Изключваме завършените и готовите за продажба (по тях не се работи).
+  try {
+    const pids = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("customer_orders").select("id,data")
+        .order("id", { ascending: true }).range(from, from + 999);
+      if (error) throw error;
+      (data || []).forEach(r => {
+        const d = (r && r.data) || {};
+        const st = d.status || "нова";
+        if (st === "завършена" || st === "готова за продажба") return;
+        (d.lines || []).forEach(l => { if (l.productId) pids.push(Number(l.productId)); });
+      });
+      if (!data || data.length < 1000) break;
+    }
+    const ids = [...new Set(pids)];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await sb.from("products").select("id,code").in("id", ids.slice(i, i + 200));
+      (data || []).forEach(p => { if (p.code) out.add(String(p.code).trim()); });
+    }
+    okOrders = true;
+  } catch (e) { /* при грешка — каквото е събрано */ }
+  NIT_ACTIVE = (okTasks || okOrders) ? out : null;
 }
 function nitPickActive(op, code) {
   if (!NIT_ACTIVE) return true;
