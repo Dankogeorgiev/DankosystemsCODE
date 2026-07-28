@@ -175,7 +175,7 @@ function erpProdFillRows() {
             <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
             <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
             <td class="num cost-cell" data-label="Себестойност">${erpManualCostOf(p.id) !== null ? erpEur(p.cost_eur) + ' <span class="erp-tag erp-tag-manual" title="Ръчно зададена цена (екран Рецепта → ✎ Цена)">✋</span>' : (p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur))}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button>${ERP.childIds && ERP.childIds.has(Number(p.id)) ? `<button class="btn btn-small" data-wu="${p.id}" title="Къде се влага този възел/детайл (директно и в кои крайни продукти)">↥ влага се в</button>` : ""}<button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button>${ERP.childIds && ERP.childIds.has(Number(p.id)) ? `<button class="btn btn-small" data-wu="${p.id}" title="Къде се влага този възел/детайл (директно и в кои крайни продукти)">↥ влага се в</button>` : ""}${(ERP.linesByProduct && (ERP.linesByProduct[p.id] || []).length) ? `<button class="btn btn-small" data-dlrec="${p.id}" title="Свали рецептата като Excel файл (дървото с количества и цени)">⤓ рецепта</button>` : ""}<button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
     `<tr><td colspan="7" class="report-empty">Няма продукти по този филтър.</td></tr>`;
   const cnt = document.getElementById("erp-prod-count");
@@ -242,6 +242,12 @@ function erpRenderProducts() {
     if (b && b.dataset.editp) { e.stopPropagation(); erpEditProduct(Number(b.dataset.editp)); return; }
     if (b && b.dataset.stree) { e.stopPropagation(); if (typeof erpStockTree === "function") erpStockTree(Number(b.dataset.stree)); return; }
     if (b && b.dataset.wu) { e.stopPropagation(); erpWhereUsedDialog(Number(b.dataset.wu)); return; }
+    if (b && b.dataset.dlrec) {
+      e.stopPropagation();
+      if (typeof erpRecipeDownload === "function") erpRecipeDownload(Number(b.dataset.dlrec));
+      else alert("Модулът Рецепти не е зареден. Презареди страницата.");
+      return;
+    }
     if (b && b.dataset.open) { e.stopPropagation(); erpRenderRecipe(Number(b.dataset.open)); return; }
     const tr = e.target.closest("tr[data-prod]");
     if (tr) erpRenderRecipe(Number(tr.dataset.prod));
