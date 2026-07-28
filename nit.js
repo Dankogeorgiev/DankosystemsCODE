@@ -1266,6 +1266,8 @@ function nitIsWorker() { return (typeof amWorker === "function") && amWorker(); 
 
 function nitRender() {
   const v = document.getElementById("nit-view"); if (!v) return;
+  if (nitView === "tasks") { nitRenderAllTasks(v); return; }
+  if (nitView === "plan") { nitRenderWeekPlan(v); return; }
   if (nitIsWorker() && !nitWorker) { nitRenderPicker(v); return; }
   if (nitView === "summary" && !nitIsWorker()) { nitRenderSummary(v); return; }
   if (nitMech != null) { nitRenderOps(v); return; }
@@ -1316,6 +1318,134 @@ function nitRenderMechanisms(v) {
   const sum = v.querySelector("#nit-summary");
   if (sum) sum.addEventListener("click", () => { nitView = "summary"; nitRender(); });
   v.querySelectorAll(".nit-mech-btn").forEach(b => b.addEventListener("click", () => { nitMech = Number(b.dataset.i); nitRender(); }));
+}
+
+/* ---------- 📋 Всички задачи — поточните задачи на цех Занитване ----------
+   Само за гледане: прогресът им се движи от отчетите тук (Вариант Б). */
+async function nitRenderAllTasks(v) {
+  v.innerHTML = `<p class="erp-loading">Зареждам задачите на Занитване…</p>`;
+  let rows = [];
+  try {
+    if (typeof erpSelectAll === "function") {
+      const { data, error } = await erpSelectAll("tasks", "id,data,done");
+      if (error) throw error;
+      rows = data || [];
+    } else {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("tasks").select("id,data,done").order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+    }
+  } catch (e) {
+    v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml((e && e.message) || String(e))}</p><button class="btn btn-small" id="nit-t-back">← Назад</button></div>`;
+    const b = v.querySelector("#nit-t-back"); if (b) b.addEventListener("click", () => { nitView = "entry"; nitRender(); });
+    return;
+  }
+  const mine = rows.map(r => ({ id: r.id, done: !!r.done, t: r.data || {} })).filter(x => (x.t.workshop || "") === "Занитване");
+  const open = mine.filter(x => !x.done && (Number(x.t.qty) || 0) > (Number(x.t.produced) || 0));
+  const doneCnt = mine.length - open.length;
+  open.sort((a, b) => String(a.t.due || "9999").localeCompare(String(b.t.due || "9999"))
+    || String(a.t.code || "").localeCompare(String(b.t.code || "")));
+  const body = open.map(x => {
+    const t = x.t;
+    const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
+    const pct = q > 0 ? Math.round(pr / q * 100) : 0;
+    return `<tr>
+      <td><b>${escapeHtml(t.code || "")}</b></td>
+      <td>${escapeHtml(t.product || "")}</td>
+      <td>${escapeHtml(t.operation || "")}</td>
+      <td>${escapeHtml(t.client || "")}</td>
+      <td class="num"><b>${nitNum(pr)}</b> / ${nitNum(q)} <span class="erp-muted">(${pct}%)</span></td>
+      <td class="num"><b>${Math.max(0, q - pr)}</b></td>
+      <td>${t.due ? nitFmtDate(t.due) : ""}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" class="report-empty">Няма отворени задачи за Занитване. 🎉</td></tr>`;
+  v.innerHTML = `
+    <div class="rog-toolbar">
+      <button class="btn btn-small" id="nit-t-back">← Назад</button>
+      <span class="rog-who">📋 <b>Всички задачи на Занитване</b> · отворени: ${open.length}${doneCnt ? ` · готови: ${doneCnt}` : ""}</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="nit-t-refresh">↻ Опресни</button>
+    </div>
+    <p class="hint">Това са задачите от Цехове за нашия цех. Не се отчита тук — бройките вървят сами от дневния запис по механизмите.</p>
+    <div class="rog-table-wrap"><table class="report-table erp-table">
+      <thead><tr><th>Код</th><th>Детайл</th><th>Операция</th><th>Клиент</th><th class="num">Готово / Общо</th><th class="num">Остава</th><th>Срок</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
+  v.querySelector("#nit-t-back").addEventListener("click", () => { nitView = "entry"; nitRender(); });
+  v.querySelector("#nit-t-refresh").addEventListener("click", () => nitRenderAllTasks(v));
+}
+
+/* ---------- 🗓 План за седмицата ----------
+   Приоритетите се слагат от офиса (тук или с бутона „В плана на Занитване"
+   в заявката). Жените ги виждат подредени; редът = приоритет. */
+async function nitPlanLoad() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "nit_week_plan").maybeSingle();
+    return (data && data.data && Array.isArray(data.data.items)) ? data.data : { items: [] };
+  } catch (e) { return { items: [] }; }
+}
+async function nitPlanSave(plan) {
+  const { error } = await sb.from("app_config").upsert({ id: "nit_week_plan", data: plan, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на плана: " + error.message); return false; }
+  return true;
+}
+async function nitRenderWeekPlan(v) {
+  v.innerHTML = `<p class="erp-loading">Зареждам плана…</p>`;
+  const plan = await nitPlanLoad();
+  const isW = nitIsWorker();
+  const rowsHtml = plan.items.map((it, i) => `
+    <tr class="${it.done ? "nit-plan-done" : ""}">
+      <td class="num"><b>${i + 1}</b></td>
+      <td><b>${escapeHtml(it.code || "")}</b></td>
+      <td>${escapeHtml(it.name || "")}${it.note ? ` <span class="erp-muted">· ${escapeHtml(it.note)}</span>` : ""}</td>
+      <td class="num">${nitNum(it.qty) || ""}</td>
+      <td>${it.done ? "✅ готово" : ""}</td>
+      ${isW ? "" : `<td class="erp-row-actions">
+        <button class="btn btn-small" data-up="${i}" title="По-висок приоритет">↑</button>
+        <button class="btn btn-small" data-dn="${i}" title="По-нисък приоритет">↓</button>
+        <button class="btn btn-small" data-done="${i}" title="Готово / върни">${it.done ? "↩" : "✓"}</button>
+        <button class="btn btn-small btn-danger" data-del="${i}">✕</button>
+      </td>`}
+    </tr>`).join("") || `<tr><td colspan="${isW ? 5 : 6}" class="report-empty">Планът е празен — офисът ще сложи приоритетите от заявките.</td></tr>`;
+  v.innerHTML = `
+    <div class="rog-toolbar">
+      <button class="btn btn-small" id="nit-p-back">← Назад</button>
+      <span class="rog-who">🗓 <b>План за седмицата</b> — редът е приоритетът</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="nit-p-refresh">↻ Опресни</button>
+    </div>
+    ${isW ? `<p class="hint">Работи се отгоре надолу. Готовото офисът го отмята.</p>` : ""}
+    <div class="rog-table-wrap"><table class="report-table erp-table">
+      <thead><tr><th class="num">№</th><th>Код</th><th>Изделие</th><th class="num">Брой</th><th></th>${isW ? "" : "<th></th>"}</tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>
+    ${isW ? "" : `
+    <div class="erp-co-actions" style="margin-top:10px">
+      <input type="text" id="nit-p-code" placeholder="код" style="width:100px" />
+      <input type="text" id="nit-p-name" placeholder="изделие" style="min-width:220px" />
+      <input type="number" id="nit-p-qty" placeholder="брой" style="width:90px" step="any" />
+      <input type="text" id="nit-p-note" placeholder="бележка (заявка №…)" style="min-width:160px" />
+      <button class="btn btn-small btn-primary" id="nit-p-add">＋ Добави в плана</button>
+    </div>
+    <p class="hint">По-удобно: отвори заявката и натисни „🗓 В плана на Занитване" — редовете ѝ влизат тук сами.</p>`}`;
+  v.querySelector("#nit-p-back").addEventListener("click", () => { nitView = "entry"; nitRender(); });
+  v.querySelector("#nit-p-refresh").addEventListener("click", () => nitRenderWeekPlan(v));
+  if (isW) return;
+  const redo = async () => { if (await nitPlanSave(plan)) nitRenderWeekPlan(v); };
+  v.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => { const i = Number(b.dataset.up); if (i > 0) { [plan.items[i - 1], plan.items[i]] = [plan.items[i], plan.items[i - 1]]; redo(); } }));
+  v.querySelectorAll("[data-dn]").forEach(b => b.addEventListener("click", () => { const i = Number(b.dataset.dn); if (i < plan.items.length - 1) { [plan.items[i + 1], plan.items[i]] = [plan.items[i], plan.items[i + 1]]; redo(); } }));
+  v.querySelectorAll("[data-done]").forEach(b => b.addEventListener("click", () => { const i = Number(b.dataset.done); plan.items[i].done = !plan.items[i].done; redo(); }));
+  v.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => { plan.items.splice(Number(b.dataset.del), 1); redo(); }));
+  const addBtn = v.querySelector("#nit-p-add");
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const g = id => (v.querySelector("#" + id) || {}).value || "";
+    const it = { code: g("nit-p-code").trim(), name: g("nit-p-name").trim(), qty: nitNum(g("nit-p-qty")), note: g("nit-p-note").trim(), done: false };
+    if (!it.code && !it.name) { alert("Въведи код или име."); return; }
+    plan.items.push(it); redo();
+  });
 }
 
 /* Операции на избрания механизъм (нитовете НЕ се показват) */
@@ -1562,6 +1692,8 @@ function nitInit() {
   const wire = (id, fn) => { const el = document.getElementById(id); if (el && !el._nitWired) { el._nitWired = true; el.addEventListener("click", fn); } };
   wire("tasks-nit", openNit);
   wire("nit-close", closeNit);
+  wire("nit-alltasks", () => { nitView = "tasks"; nitRender(); });
+  wire("nit-weekplan", () => { nitView = "plan"; nitRender(); });
   const lo = document.getElementById("nit-logout");
   if (lo && !lo._nitWired) { lo._nitWired = true; lo.addEventListener("click", () => { if (typeof sb !== "undefined" && sb) sb.auth.signOut(); }); }
 }
