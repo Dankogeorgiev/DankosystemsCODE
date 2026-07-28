@@ -1384,3 +1384,13 @@ tr.times-click:hover td { background: #ecfdf5; }
   font-size: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
 .tasks-incomplete .btn { border-color: #dc2626; }
+
+/* 📜 История на механизъм в Занитване (админ) */
+.nit-hist-blk { border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 12px; margin: 6px 0; background: #f8fafc; }
+.nit-hist-blk summary { cursor: pointer; font-size: 15px; user-select: none; }
+.nit-hist-blk summary b { font-family: Consolas, Menlo, monospace; letter-spacing: .3px; }
+.nit-hist-blk[open] { background: #fff; }
+.nit-hist-tbl { border-collapse: collapse; width: 100%; margin: 8px 0 4px; font-size: 13px; }
+.nit-hist-tbl th { background: #eef2f7; color: #334155; text-align: left; padding: 5px 8px; border-bottom: 2px solid #cbd5e1; }
+.nit-hist-tbl td { padding: 4px 8px; border-bottom: 1px dashed #e2e8f0; }
+.nit-hist-note { color: #64748b; font-size: 12.5px; }
