@@ -557,7 +557,28 @@ async function erpPostSale(o) {
   const addDetail = (pid, qty) => { if (!pid || !(qty > 0)) return; detailNeed[pid] = (detailNeed[pid] || 0) + qty; };
   for (const l of (o.lines || [])) {
     const qty = erpToNum(l.qty) || 0; if (qty <= 0) continue;
-    if (l.writeoffKind === "detail") { addDetail(l.refId, qty); continue; }
+    if (l.writeoffKind === "detail") {
+      addDetail(l.refId, qty);
+      // Нит-комплект (складът му се води от Занитване): АКСЕСОАРИТЕ (спирачки,
+      // пружини, болтове, степенчати колела) не са изписани при сглобяването —
+      // слагат се на палета преди експедиция. Заминават с продажбата, по
+      // рецептата на комплекта (същия ref → отмяната ги връща).
+      const dp = ERP.prodById[l.refId];
+      if (dp && typeof erpNitManagedCode === "function" && erpNitManagedCode(dp.code)
+          && typeof NIT_ACCESSORY_CODES !== "undefined") {
+        ((ERP.linesByProduct && ERP.linesByProduct[l.refId]) || []).forEach(rl => {
+          const per = Number(rl.quantity) || 1;
+          if (rl.child_product_id) {
+            const c = ERP.prodById[rl.child_product_id];
+            if (c && NIT_ACCESSORY_CODES.has(String(c.code || "").trim())) addDetail(rl.child_product_id, qty * per);
+          } else if (rl.material_id) {
+            const m = ERP.matById[rl.material_id];
+            if (m && NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim())) addNeed(rl.material_id, qty * per);
+          }
+        });
+      }
+      continue;
+    }
     if (l.itemKind === "material") { addNeed(l.refId, qty); continue; }
     const { data, error } = await sb.rpc("bom_requirements", { p_id: l.refId, p_qty: qty });
     if (error) { alert("Грешка при разбивката на продукт " + (l.name || "") + ": " + error.message); return; }
