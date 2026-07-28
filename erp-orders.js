@@ -375,7 +375,12 @@ async function erpAssembleFromParts(pid, qty, refLbl, _depth) {
   const out = { made: 0, missing: [] };
   if (!(qty > 0)) return out;
   const depth = _depth || 0;
-  const comps = erpDirectStockComponents(pid);
+  let comps = erpDirectStockComponents(pid);
+  // АКСЕСОАРИТЕ (спирачки, пружини, уши…) не се влагат при опаковката — те се
+  // изписват при осчетоводяването на продажбата (erp-sales.js), иначе излизат
+  // двойно. Опаковката сглобява само конструктивните части (половините).
+  if (typeof NIT_ACCESSORY_CODES !== "undefined" && ERP.prodById)
+    comps = comps.filter(c => { const p = ERP.prodById[c.pid]; return !(p && NIT_ACCESSORY_CODES.has(String(p.code || "").trim())); });
   if (!comps.length) return out;   // няма части по рецепта — няма какво да сглобим
   const stock = {};
   try {
