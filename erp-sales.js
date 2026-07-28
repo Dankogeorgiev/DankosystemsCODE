@@ -567,7 +567,7 @@ async function erpPostSale(o) {
       const dp = ERP.prodById[l.refId];
       if (dp && typeof erpNitManagedCode === "function" && erpNitManagedCode(dp.code)
           && typeof NIT_ACCESSORY_CODES !== "undefined") {
-        const walkAcc = (pid, mult, seen) => {
+        const walkAcc = (pid, mult, seen, depth) => {
           if (seen.has(pid)) return;
           seen.add(pid);
           ((ERP.linesByProduct && ERP.linesByProduct[pid]) || []).forEach(rl => {
@@ -575,14 +575,18 @@ async function erpPostSale(o) {
             if (rl.child_product_id) {
               const c = ERP.prodById[rl.child_product_id];
               if (c && NIT_ACCESSORY_CODES.has(String(c.code || "").trim())) addDetail(rl.child_product_id, qty * per);
-              else walkAcc(rl.child_product_id, per, seen);
+              else walkAcc(rl.child_product_id, per, seen, depth + 1);
             } else if (rl.material_id) {
               const m = ERP.matById[rl.material_id];
-              if (m && NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim())) addNeed(rl.material_id, qty * per);
+              // ДИРЕКТНИТЕ материали на продавания комплект никой друг не ги
+              // изписва (сваляеми колела, болтове…) — излизат ВСИЧКИ тук;
+              // по-дълбоко — само обявените аксесоари (монтираните са изписани
+              // при операциите в Занитване).
+              if (m && (depth === 0 || NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim()))) addNeed(rl.material_id, qty * per);
             }
           });
         };
-        walkAcc(l.refId, 1, new Set());
+        walkAcc(l.refId, 1, new Set(), 0);
       }
       continue;
     }
