@@ -891,17 +891,22 @@ async function nitCombineStock(extraPairs) {
       reserved[pid] = (reserved[pid] || 0) + (Number(per[pid]) || 0);
     }));
   } catch (e) { /* без резервации при грешка */ }
-  for (const c of [...NIT_COMBINE, ...(extraPairs || [])]) {
-    const ia = ids[c.a], ib = ids[c.b], it = ids[c.to];
-    if (!ia || !ib || !it) continue;
-    let stA = 0, stB = 0;
-    try {
-      const { data, error } = await sb.from("v_product_stock").select("id,stock").in("id", [ia, ib]);
-      if (error) continue;
-      (data || []).forEach(r => { if (r.id === ia) stA = Number(r.stock) || 0; if (r.id === ib) stB = Number(r.stock) || 0; });
-    } catch (e) { continue; }
-    stA = Math.max(0, stA - (reserved[ia] || 0));
-    stB = Math.max(0, stB - (reserved[ib] || 0));
+  // Наличностите на ВСИЧКИ двойки се четат с ЕДНА заявка (преди беше по една
+  // на комбинация — 7+ заявки след всеки запис).
+  const pairs = [...NIT_COMBINE, ...(extraPairs || [])]
+    .map(c => ({ c, ia: ids[c.a], ib: ids[c.b], it: ids[c.to] }))
+    .filter(x => x.ia && x.ib && x.it);
+  if (!pairs.length) return;
+  const stockBy = {};
+  try {
+    const allIds = [...new Set(pairs.flatMap(x => [x.ia, x.ib]))];
+    const { data, error } = await sb.from("v_product_stock").select("id,stock").in("id", allIds);
+    if (error) return;
+    (data || []).forEach(r => { stockBy[r.id] = Number(r.stock) || 0; });
+  } catch (e) { return; }
+  for (const { c, ia, ib, it } of pairs) {
+    const stA = Math.max(0, (stockBy[ia] || 0) - (reserved[ia] || 0));
+    const stB = Math.max(0, (stockBy[ib] || 0) - (reserved[ib] || 0));
     const q = Math.floor(Math.min(stA, stB));
     if (!(q > 0)) continue;
     const note = `Авто-сглобяване: ${c.a} + ${c.b} → ${c.to} (${c.label})`;
@@ -925,6 +930,9 @@ async function nitCombineStock(extraPairs) {
       });
       await sb.from("product_movements").insert(rows);
       if (matRows.length) { try { await sb.from("stock_movements").insert(matRows); } catch (e) { /* следващия отчет */ } }
+      // Локалният кеш се сваля — ако две комбинации делят половина, втората
+      // да не преброи същата наличност.
+      stockBy[ia] -= q; stockBy[ib] -= q;
     } catch (e) { /* при грешка ще се сглоби при следващия отчет */ }
   }
 }
@@ -1326,13 +1334,15 @@ async function nitRenderAllTasks(v) {
   v.innerHTML = `<p class="erp-loading">Зареждам задачите на Занитване…</p>`;
   let rows = [];
   try {
+    // Филтърът по цех е В БАЗАТА — теглим само задачите на Занитване,
+    // не цялата таблица.
     if (typeof erpSelectAll === "function") {
-      const { data, error } = await erpSelectAll("tasks", "id,data,done");
+      const { data, error } = await erpSelectAll("tasks", "id,data,done", "data->>workshop", "Занитване");
       if (error) throw error;
       rows = data || [];
     } else {
       for (let from = 0; ; from += 1000) {
-        const { data, error } = await sb.from("tasks").select("id,data,done").order("id", { ascending: true }).range(from, from + 999);
+        const { data, error } = await sb.from("tasks").select("id,data,done").eq("data->>workshop", "Занитване").order("id", { ascending: true }).range(from, from + 999);
         if (error) throw error;
         rows.push(...(data || []));
         if (!data || data.length < 1000) break;
