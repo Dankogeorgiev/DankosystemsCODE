@@ -30,7 +30,8 @@ const NIT_MECHANISMS = [
   ] },
   { name: "МПК", ops: [
     { n: "МПК заготовка", r: 2, t: "обикн" },                    // → 100959 (Д) / 100960 (Л)
-    { n: "МПК колело на крак", r: 1, t: "колела" },              // само бройка (междинното няма код)
+    { n: "МПК колело на крак — десни", r: 1, t: "колела" },      // → кракът с колело (от рецептата на половината)
+    { n: "МПК колело на крак — леви", r: 1, t: "колела" },
     { n: "МПК затваряне с крак — десни", r: 2, t: "обикн" },     // → десните 🔩 половини
     { n: "МПК затваряне с крак — леви", r: 2, t: "обикн" },      // → левите 🔩 половини
   ] },
@@ -179,9 +180,12 @@ const NIT_ITALY_FINALS = [
 /* ---------- МПК: половини и крайни продукти ----------
    От структурния износ на 100959/100960 (28.07.2026, от Данко):
    заготовка ДЯСНА (100959) влиза в ЛЕВИТЕ 🔩 половини и обратно.
-   Веригата: „МПК заготовка" (Л/Д) → „МПК колело на крак" (само бройка —
-   междинният крак с колело няма складов код) → „МПК затваряне с крак"
-   (заготовка + крак с колело → 🔩 половина, влагане по живата рецепта).
+   Веригата: „МПК заготовка" (Л/Д → 100959/100960, влагане по рецептата) →
+   „МПК колело на крак — десни/леви" (избира се ПОЛОВИНАТА; заприходява се
+   НЕЙНИЯТ КРАК-възел от рецептата, влагат се частите му — гол крак, колела,
+   оси) → „МПК затваряне с крак — десни/леви" (заготовката + кракът като ЦЯЛ
+   от склада + директните материали → 🔩 половината). Крак без колела не
+   минава през колело-опа: кракът му идва готов от потока (заваръчното).
    Комплектите (🧾) НЕ се правят в Занитване — сглобяват се при продажба/опаковка. */
 const NIT_MPK_LEGS_L = [
   ["101046", "Механизъм МПК 61 + 6 см Литва - ляв"],
@@ -248,8 +252,10 @@ const NIT_OP_PRODUCTS = {
     single: true,
     list: NIT_ITALY_FINALS.map(f => [f.code, f.name]),
   },
-  "МПК затваряне с крак — десни": { from: "лява заготовка 100960 + крак с колело (по рецептата)", single: true, list: NIT_MPK_LEGS_R },
-  "МПК затваряне с крак — леви":  { from: "дясна заготовка 100959 + крак с колело (по рецептата)", single: true, list: NIT_MPK_LEGS_L },
+  "МПК колело на крак — десни": { from: "голия крак + колела/оси (по рецептата на крака) — избери МЕХАНИЗМА, за който е кракът", single: true, list: NIT_MPK_LEGS_R },
+  "МПК колело на крак — леви":  { from: "голия крак + колела/оси (по рецептата на крака) — избери МЕХАНИЗМА, за който е кракът", single: true, list: NIT_MPK_LEGS_L },
+  "МПК затваряне с крак — десни": { from: "лява заготовка 100960 + крака с колело (цял, от склада)", single: true, list: NIT_MPK_LEGS_R },
+  "МПК затваряне с крак — леви":  { from: "дясна заготовка 100959 + крака с колело (цял, от склада)", single: true, list: NIT_MPK_LEGS_L },
 };
 
 /* Складова връзка ЗА ИЗБРАНО ИЗДЕЛИЕ: какво заприходява (самия избран код)
@@ -258,16 +264,18 @@ const NIT_OP_PRODUCTS = {
 const NIT_PICK_RULES = (() => {
   const rules = {
     "Крак колела — десни": {}, "Крак колела — леви": {}, "Италия крак затваряне": {},
+    "МПК колело на крак — десни": {}, "МПК колело на крак — леви": {},
     "МПК затваряне с крак — десни": {}, "МПК затваряне с крак — леви": {},
   };
   // Всички крака се заприходяват при „Крак колела".
   NIT_ITALY_LEGS_R.forEach(([code]) => { rules["Крак колела — десни"][code] = { consume: [] }; });
   NIT_ITALY_LEGS_L.forEach(([code]) => { rules["Крак колела — леви"][code] = { consume: [] }; });
-  // МПК половините се заприходяват при „затваряне с крак"; влагането е
+  // МПК: и двете операции избират ПОЛОВИНАТА (механизма); влагането е
   // ДИНАМИЧНО по живата рецепта (nitDynamicConsume) — тук само ги обявяваме,
   // за да са нит-управлявани (erpNitManagedCode) и разпознати от пикъра.
-  NIT_MPK_LEGS_R.forEach(([code]) => { rules["МПК затваряне с крак — десни"][code] = { consume: [] }; });
-  NIT_MPK_LEGS_L.forEach(([code]) => { rules["МПК затваряне с крак — леви"][code] = { consume: [] }; });
+  // „Колело на крак" заприходява НЕ половината, а нейния крак (от рецептата).
+  NIT_MPK_LEGS_R.forEach(([code]) => { rules["МПК колело на крак — десни"][code] = { consume: [] }; rules["МПК затваряне с крак — десни"][code] = { consume: [] }; });
+  NIT_MPK_LEGS_L.forEach(([code]) => { rules["МПК колело на крак — леви"][code] = { consume: [] }; rules["МПК затваряне с крак — леви"][code] = { consume: [] }; });
   // Колела/оси — където имаме рецептата: ASIA по 2, BG M19 по 1 (100160 колело Ф42, 100182 ос къса).
   const WHEELS = { "101007": 2, "101008": 2, "101009": 1, "101010": 1 };
   Object.entries(WHEELS).forEach(([code, n]) => {
@@ -457,8 +465,9 @@ function nitPickActive(op, code) {
   if (typeof NIT_ITALY_FINALS !== "undefined" && /^Крак колела/.test(op)) {
     return NIT_ITALY_FINALS.some(f => (f.left === code || f.right === code) && NIT_ACTIVE.has(f.code));
   }
-  // МПК половина: активна, ако комплектът ѝ (🧾) има пусната заявка.
-  if (typeof NIT_MPK_FINALS !== "undefined" && /^МПК затваряне/.test(op)) {
+  // МПК половина (затваряне И колело на крак): активна, ако комплектът ѝ
+  // (🧾) има пусната заявка.
+  if (typeof NIT_MPK_FINALS !== "undefined" && /^МПК /.test(op)) {
     return NIT_MPK_FINALS.some(f => (f.left === code || f.right === code) && NIT_ACTIVE.has(f.code));
   }
   return false;
@@ -492,6 +501,19 @@ async function nitProdCodes(ids) {
   const m = {}; (data || []).forEach(p => { m[p.id] = String(p.code || "").trim(); });
   return m;
 }
+// Кракът (възелът) на МПК половина: детето в рецептата ѝ, което НЕ е
+// заготовка 100959/100960. Връща { pid, code } или null.
+async function nitMpkLegNode(halfPid) {
+  const L1 = await nitLines([halfPid]);
+  const lines = L1[halfPid] || [];
+  const childIds = lines.filter(l => l.child_product_id).map(l => l.child_product_id);
+  if (!childIds.length) return null;
+  const codes = await nitProdCodes(childIds);
+  const kid = childIds.find(id => !NIT_MPK_ZAG.has(codes[id]));
+  if (!kid) return null;
+  return { pid: kid, code: codes[kid] || "" };
+}
+
 // Влагане за Л/Д операция БЕЗ статична таблица: директната рецепта на
 // заприходявания код — децата (части) + материалите, по бройките от нея.
 async function nitLDDynamic(pid) {
@@ -514,8 +536,11 @@ async function nitDynamicConsume(base, pick, ids) {
   const childIds = lines.filter(l => l.child_product_id).map(l => l.child_product_id);
   const codes = await nitProdCodes(childIds);
   const items = [];
-  if (/^Крак колела/.test(base)) {
-    const legLine = lines.find(l => l.child_product_id && !NIT_ZAG_CODES.has(codes[l.child_product_id]));
+  if (/^Крак колела|^МПК колело на крак/.test(base)) {
+    // Избраното е 🔩 (Италия крак / МПК половина); кракът-възел е детето,
+    // което не е заготовка. Влагат се ЧАСТИТЕ и МАТЕРИАЛИТЕ на крака-възел.
+    const zag = /^МПК/.test(base) ? NIT_MPK_ZAG : NIT_ZAG_CODES;
+    const legLine = lines.find(l => l.child_product_id && !zag.has(codes[l.child_product_id]));
     if (!legLine) return null;
     const K = legLine.child_product_id;
     const L2 = await nitLines([K]);
@@ -529,28 +554,17 @@ async function nitDynamicConsume(base, pick, ids) {
   }
   if (/^МПК затваряне/.test(base)) {
     // 🔩 половина (заготовка + крак с колело): заготовката (складова) се влага
-    // директно; крак-възелът се РАЗГЪВА — влагат се неговите части и материали
-    // (голият крак от потока, колела, оси), защото междинният крак с колело
-    // няма складов живот. Директните материали на 🔩 (нитове/шайби) — също.
-    let legCode = "";
+    // директно; кракът-възел се влага като ЦЯЛ код — той е заприходен от
+    // „МПК колело на крак" (ако е с колела) или от потока (голият заварен
+    // крак, ако е без). Така затварянето не прескача слагането на колелото.
+    // Директните материали на 🔩 (нитове/шайби) — също.
     for (const l of lines) {
       const per = Number(l.quantity) || 1;
       if (l.material_id) { items.push({ mid: l.material_id, qty: per }); continue; }
-      if (!l.child_product_id) continue;
-      if (NIT_MPK_ZAG.has(codes[l.child_product_id])) { items.push({ pid: l.child_product_id, qty: per }); continue; }
-      const K = l.child_product_id;
-      const L2 = await nitLines([K]);
-      const sub = L2[K] || [];
-      if (!sub.length) { items.push({ pid: K, qty: per }); continue; }   // възел без рецепта — влагаме самия код (потокът го заприходява)
-      sub.forEach(x => {
-        const p2 = Number(x.quantity) || 1;
-        if (x.child_product_id) items.push({ pid: x.child_product_id, qty: per * p2 });
-        else if (x.material_id) items.push({ mid: x.material_id, qty: per * p2 });
-      });
-      legCode = codes[K] || "";
+      if (l.child_product_id) items.push({ pid: l.child_product_id, qty: per });
     }
     if (!items.length) return null;
-    return { items, legCode };
+    return { items, legCode: "" };   // кракът НЕ се гардва тук — гардва се само когато колело-опът го произвежда
   }
   // Крак затваряне: краен механизъм F
   const fin = (typeof NIT_ITALY_FINALS !== "undefined") ? NIT_ITALY_FINALS.find(f => f.code === pick) : null;
@@ -623,6 +637,7 @@ const NIT_OP_RENAME = {
   "ММ02 затваряне": "ММ04 затваряне",
   "ММ02 цял": "ММ04 цял",
   "МПК затваряне с крак": "МПК затваряне с крак — десни",
+  "МПК колело на крак": "МПК колело на крак — десни",
 };
 /* Консумация: какво ВЛАГА всяка операция за 1 брой (по рецептата на 101102).
    { code } = общ детайл (еднакъв за Л и Д); { side: {d, l} } = по страна;
@@ -884,10 +899,25 @@ async function nitSyncStock(rec) {
     if (!delta) continue;
     const pid = ids[pick];
     if (!pid) { if (delta > 0) missing.push(pick + " (" + base + ")"); continue; }
+    // „МПК колело на крак": избира се ПОЛОВИНАТА (механизмът), но се
+    // заприходява НЕЙНИЯТ КРАК — възелът от рецептата ѝ. Кракът с колело има
+    // складов живот: тук влиза, при „затваряне с крак" излиза като цял.
+    let creditPid = pid, creditCode = pick;
+    if (/^МПК колело на крак/.test(base)) {
+      let leg = null;
+      try { leg = await nitMpkLegNode(pid); } catch (e) { leg = null; }
+      if (!leg) {
+        if (delta > 0) missing.push(pick + " (" + base + " — кракът не е намерен в рецептата, нищо не е записано в склада)");
+        continue;
+      }
+      creditPid = leg.pid; creditCode = leg.code || pick;
+      // Кракът е нит-управляван — потокът не бива да го складира втори път.
+      if (leg.code && typeof erpNitManagedCode === "function" && erpNitManagedCode._set) erpNitManagedCode._set.add(String(leg.code));
+    }
     const ref = `нит:${rec.worker}|${rec.date}|${key}`;
     moves.push({
-      product_id: pid, kind: "заприходяване", quantity: delta, ref,
-      note: `Занитване · ${rec.worker} · ${base} (${pick})` + (delta < 0 ? " · корекция" : ""),
+      product_id: creditPid, kind: "заприходяване", quantity: delta, ref,
+      note: `Занитване · ${rec.worker} · ${base} (${pick}${creditCode !== pick ? " → крак " + creditCode : ""})` + (delta < 0 ? " · корекция" : ""),
     });
     // 1) Динамично: рецептата от базата, в момента на записа.
     let dyn = null;
@@ -919,7 +949,9 @@ async function nitSyncStock(rec) {
     } else if (delta > 0) {
       missing.push(pick + " (влагане по рецепта неуспешно — само заприходено)");
     }
-    applied.push({ key, now, op: base, sk: "d", code: pick, delta });
+    // creditCode: при „МПК колело на крак" прогресът по заявките върви по
+    // кода на КРАКА (него заприходяваме), не по избраната половина.
+    applied.push({ key, now, op: base, sk: "d", code: creditCode, delta });
   }
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
   if (!moves.length && !matMoves.length) return true;
