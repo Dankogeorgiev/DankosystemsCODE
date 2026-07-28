@@ -613,6 +613,10 @@ img.ai-doc-content { max-width: none; }
 .dsnm-col h4 { margin: 4px 0 8px; color: #0f766e; font-size: 15px; }
 .dsnm-row { padding: 8px 12px; margin: 4px 0; border-left: 4px solid #93c5fd; background: #f8fafc; border-radius: 8px; cursor: pointer; font-size: 15px; }
 .dsnm-row:hover { background: #eff6ff; border-left-color: #2563eb; }
+.dsnm-acts { float: right; display: inline-flex; gap: 4px; margin-left: 8px; }
+.dsnm-rec-panel { margin: 2px 0 10px 26px; padding: 8px 12px; border: 1px solid #e2e8f0; border-left: 4px solid #0f766e; border-radius: 8px; background: #fff; }
+.dsnm-rec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.dsnm-rec-panel .report-table { font-size: 13px; }
 .dsnm-row b { font-family: Consolas, Menlo, monospace; letter-spacing: .3px; }
 .dsnm-stock { font-weight: 700; color: #0f766e; }
 .dsnm-top { margin-right: 2px; }

@@ -1058,18 +1058,23 @@ function dsNodeMapRender(pid) {
   const wrap = document.getElementById("ds-nodemap-dlg"); if (!wrap) return;
   const p = pid ? (ERP.prodById[pid] || null) : null;
   const stockTxt = x => `<span class="dsnm-stock ${(Number(x.stock) || 0) < 0 ? "erp-warn" : ""}">${erpNum(Number(x.stock) || 0)} ${escapeHtml(x.unit || "бр.")}</span>`;
+  const recBtns = id => `<span class="dsnm-acts">
+      <button type="button" class="btn btn-small dsnm-rec" data-rec="${id}" title="Покажи рецептата на този възел тук">📋 рецепта</button>
+      <button type="button" class="btn btn-small dsnm-dl" data-dl="${id}" title="Свали рецептата като Excel файл">⤓</button>
+    </span>`;
   const row = (it, dir) => `
     <div class="dsnm-row" data-go="${it.p.id}" style="margin-left:${it.depth * 26}px" title="Клик — покажи структурата на този възел">
       ${dir === "up" && it.top ? `<span class="dsnm-top" title="Краен продукт">🧾</span>` : "🔩"}
       <b>${escapeHtml(it.p.code || "")}</b> ${escapeHtml(it.p.name || "")}
       <span class="erp-muted">× ${erpNum(it.qty)}</span> · ${stockTxt(it.p)}
+      ${recBtns(it.p.id)}
     </div>`;
   let body = "";
   if (p) {
     const down = dsNodeMapDown(p.id, 0, new Set([p.id]));
     const up = dsNodeMapUp(p.id, 0, new Set([p.id]));
     body = `
-      <div class="dsnm-head-prod">🔩 <b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} · на склад: ${stockTxt(p)}</div>
+      <div class="dsnm-head-prod">🔩 <b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} · на склад: ${stockTxt(p)} ${recBtns(p.id)}</div>
       <div class="dsnm-cols">
         <div class="dsnm-col">
           <h4>⬇ Възли в него <span class="erp-muted">(${down.length})</span></h4>
@@ -1107,7 +1112,61 @@ function dsNodeMapRender(pid) {
     cand.querySelectorAll("[data-pick]").forEach(r => r.addEventListener("click", () => dsNodeMapRender(Number(r.dataset.pick))));
   });
   wrap.querySelectorAll("[data-go]").forEach(r => r.addEventListener("click", () => dsNodeMapRender(Number(r.dataset.go))));
+  // 📋 рецепта — разгъва състава на възела под реда; ⤓ — сваля я като Excel.
+  wrap.querySelectorAll(".dsnm-dl").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    if (typeof erpRecipeDownload === "function") erpRecipeDownload(Number(b.dataset.dl));
+    else alert("Модулът Рецепти не е зареден. Презареди страницата.");
+  }));
+  wrap.querySelectorAll(".dsnm-rec").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    const rowEl = b.closest(".dsnm-row, .dsnm-head-prod"); if (!rowEl) return;
+    const nxt = rowEl.nextElementSibling;
+    const same = nxt && nxt.classList && nxt.classList.contains("dsnm-rec-panel");
+    if (same) { nxt.remove(); if (nxt.dataset.for === String(b.dataset.rec)) return; }
+    rowEl.insertAdjacentHTML("afterend", dsNodeRecipePanel(Number(b.dataset.rec)));
+    const panel = rowEl.nextElementSibling;
+    const dlb = panel && panel.querySelector(".dsnm-panel-dl");
+    if (dlb) dlb.addEventListener("click", () => {
+      if (typeof erpRecipeDownload === "function") erpRecipeDownload(Number(dlb.dataset.dl));
+      else alert("Модулът Рецепти не е зареден. Презареди страницата.");
+    });
+  }));
   if (!p) q.focus();
+}
+
+// Пълната рецепта на възел (дървото: възли/детайли, материали, операции с
+// количества за 1 родител) — за панела „📋 рецепта" в Структурата.
+function dsNodeRecipePanel(pid) {
+  const rows = [];
+  (function walk(id, depth, anc) {
+    if (rows.length > 400) return;
+    ((ERP.linesByProduct && ERP.linesByProduct[id]) || []).forEach(l => {
+      const qty = erpNum(Number(l.quantity) || 1);
+      const ind = depth * 20;
+      if (l.material_id) {
+        const m = ERP.matById[l.material_id] || {};
+        rows.push(`<tr><td style="padding-left:${ind}px">🧱 материал</td><td><b>${escapeHtml(m.code || "")}</b></td><td>${escapeHtml(m.name || "")}</td><td class="num">${qty} ${escapeHtml(l.unit || m.unit || "")}</td></tr>`);
+      } else if (l.operation_id) {
+        const op = (ERP.opById && ERP.opById[l.operation_id]) || {};
+        rows.push(`<tr><td style="padding-left:${ind}px">⚙ операция</td><td>${escapeHtml(op.code || "")}</td><td>${escapeHtml((op.name || "") + (op.workshop ? " · " + op.workshop : ""))}</td><td class="num">${qty}</td></tr>`);
+      } else if (l.child_product_id) {
+        const cp = ERP.prodById[l.child_product_id] || {};
+        rows.push(`<tr><td style="padding-left:${ind}px">${dsIsAssembly(l.child_product_id) ? "🔩 възел" : "▪ детайл"}</td><td><b>${escapeHtml(cp.code || "")}</b></td><td>${escapeHtml(cp.name || "")}</td><td class="num">${qty} ${escapeHtml(l.unit || cp.unit || "бр.")}</td></tr>`);
+        if (!anc.has(l.child_product_id)) walk(l.child_product_id, depth + 1, new Set([...anc, l.child_product_id]));
+      }
+    });
+  })(pid, 0, new Set([pid]));
+  const p = ERP.prodById[pid] || {};
+  return `<div class="dsnm-rec-panel" data-for="${pid}">
+    <div class="dsnm-rec-head">📋 Рецепта на <b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")}
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-small dsnm-panel-dl" data-dl="${pid}">⤓ Свали (Excel)</button>
+    </div>
+    ${rows.length
+      ? `<table class="report-table erp-table"><thead><tr><th>Тип</th><th>Код</th><th>Име</th><th class="num">К-во за 1 родител</th></tr></thead><tbody>${rows.join("")}</tbody></table>${rows.length > 400 ? `<p class="erp-muted">…показани първите 400 реда</p>` : ""}`
+      : `<p class="erp-muted">Този възел няма рецепта.</p>`}
+  </div>`;
 }
 
 /* ---------- „Опаковка" — сглобяване на артикул от наличните му части ----------
