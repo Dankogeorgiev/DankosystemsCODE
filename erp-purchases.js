@@ -125,6 +125,7 @@ function erpPuMonthCards() {
   let net = 0, vat = 0, n = 0;
   (erpPurchases || []).forEach(o => {
     if (String(o.date || "").slice(0, 7) !== m) return;
+    if (o.docType === "goods") return;   // стоковата не е разход — парите идват с фактурата
     const t = erpPuTotals(o);
     const k = (o.currency === "BGN") ? 1 / RATE : 1;
     net += t.base * k; vat += t.vat * k; n++;
@@ -209,7 +210,7 @@ function erpPuFillRows() {
     const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
     return `<tr class="erp-clickable" data-id="${o.id}">
       <td data-label="Дата">${escapeHtml(o.date || "")}</td>
-      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
+      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b>${o.docType === "goods" ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e">СР${o.coveredByNo ? " ✓ф. " + escapeHtml(o.coveredByNo) : ""}</span>` : ((o.coversIds || []).length ? ` <span class="erp-co-status" style="background:#e0e7ff;color:#3730a3">покрива ${(o.coversIds || []).length} СР</span>` : "")}</td>
       <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
       <td data-label="Класификация">${o.expenseType ? `<b>${erpPuTypeIsMat(o.expenseType) ? "🧱 " : ""}${escapeHtml(o.expenseType)}</b>${cls ? " · " : ""}` : ""}${escapeHtml(cls || (o.expenseType ? "" : "—"))}</td>
       <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
@@ -253,7 +254,7 @@ async function erpRenderPurchaseForm(o) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад</button>
-      <span class="erp-count">${escapeHtml(o.invoiceNo ? "Фактура № " + o.invoiceNo : "Нова фактура")}${st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}</span>
+      <span class="erp-count">${escapeHtml((o.docType === "goods" ? "Стокова разписка № " : "Фактура № ") + (o.invoiceNo || "")) || "Нов документ"}${o.docType !== "goods" && st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}${(o.coversIds || []).length ? ` · <span class="erp-muted">покрива ${(o.coversIds || []).length} стокови</span>` : ""}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-save">💾 Запази</button>
       ${locked
@@ -264,7 +265,11 @@ async function erpRenderPurchaseForm(o) {
       <div class="erp-co-grid">
         <label>Доставчик <input type="text" id="pu-supplier" list="pu-suppliers" value="${escapeAttr(o.supplierName || "")}" placeholder="избери или въведи" />
           <datalist id="pu-suppliers">${suppliers.map(s => `<option value="${escapeAttr(s.name)}"></option>`).join("")}</datalist></label>
-        <label>№ Фактура <input type="text" id="pu-invoice" value="${escapeAttr(o.invoiceNo || "")}" /></label>
+        <label>Документ <select id="pu-doctype">
+          <option value="invoice" ${o.docType !== "goods" ? "selected" : ""}>Фактура</option>
+          <option value="goods" ${o.docType === "goods" ? "selected" : ""}>Стокова разписка (доставка)</option>
+        </select></label>
+        <label>№ ${o.docType === "goods" ? "Стокова" : "Фактура"} <input type="text" id="pu-invoice" value="${escapeAttr(o.invoiceNo || "")}" /></label>
         <label>Дата <input type="date" id="pu-date" value="${escapeAttr(o.date || "")}" /></label>
         <label>Плащане <select id="pu-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${st === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
         <label id="pu-term-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pu-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" placeholder="напр. 30" /></label>
@@ -274,6 +279,9 @@ async function erpRenderPurchaseForm(o) {
         <label>ДДС ставка % <select id="pu-vat">${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
         <label>Вид разход <select id="pu-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === o.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
       </div>
+      ${o.docType === "goods"
+        ? '<p class="hint" style="margin:4px 0">📦 <b>Стокова разписка:</b> заприходява склада ВЕДНАГА, но НЕ влиза в разходите и плащанията — парите идват с месечната фактура, която я покрива.</p>'
+        : `<div class="erp-co-actions" style="margin:4px 0"><button class="btn btn-small" id="pu-covers" title="Фактура в края на месеца, покриваща доставени със стокови разписки количества: складът НЕ се пипа втори път — само сумата за плащане">🧾 Покрива стокови… ${(o.coversIds || []).length ? "(" + (o.coversIds || []).length + ")" : ""}</button>${(o.coversIds || []).length ? '<span class="erp-muted">складът е вдигнат от стоковите — тази фактура носи само парите</span>' : ""}</div>`}
       <label class="erp-co-note">Забележка <textarea id="pu-note" rows="2">${escapeHtml(o.note || "")}</textarea></label>
 
       <h4 class="erp-group-head">📎 Файл на фактурата</h4>
@@ -297,6 +305,10 @@ async function erpRenderPurchaseForm(o) {
       <p class="hint">„Материал (склад)" се брои при заприходяване (вдига наличност + средна цена). „Разход/услуга" се класифицира и плаща, но не влиза в склада. Средните цени се водят в EUR — BGN се превръща авт.</p>
     </div>`;
 
+  const dtSel = document.getElementById("pu-doctype");
+  if (dtSel) dtSel.addEventListener("change", () => { o.docType = dtSel.value === "goods" ? "goods" : "invoice"; erpRenderPurchaseForm(o); });
+  const cvBtn = document.getElementById("pu-covers");
+  if (cvBtn) cvBtn.addEventListener("click", () => erpPuCoversDialog(o));
   const bind = (id, k, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("input", () => { o[k] = el.value; if (fn) fn(); }); };
   bind("pu-invoice", "invoiceNo"); bind("pu-date", "date", () => erpPuSyncDue(o)); bind("pu-note", "note");
   bind("pu-term", "termDays", () => erpPuSyncDue(o)); bind("pu-due", "dueDate");
@@ -761,8 +773,66 @@ function erpPuTypesReport() {
 }
 
 /* ---------- Заприходяване (само материалните редове; BGN→EUR за средната цена) ---------- */
+/* ---------- Фактура ↔ стокови разписки (месечно фактуриране на доставчик) ---------- */
+// Избор кои осчетоводени стокови покрива тази фактура (същия доставчик).
+function erpPuCoversDialog(o) {
+  const sup = (o.supplierName || "").trim().toLowerCase();
+  if (!sup) { alert("Първо въведи доставчика — стоковите се търсят по него."); return; }
+  const cand = (erpPurchases || []).filter(g =>
+    g.docType === "goods" && g.posted
+    && (g.supplierName || "").trim().toLowerCase() === sup
+    && (!g.coveredByNo || (o.coversIds || []).map(String).includes(String(g.id))));
+  if (!cand.length) { alert("Няма осчетоводени стокови разписки от доставчика без покриваща фактура."); return; }
+  const sel = new Set((o.coversIds || []).map(String));
+  const rows = cand.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    .map(g => { const t = erpPuTotals(g); return `<label class="inv-fs-row"><input type="checkbox" class="pu-cv-chk" data-id="${escapeAttr(String(g.id))}" ${sel.has(String(g.id)) ? "checked" : ""} />
+      <b>СР № ${escapeHtml(g.invoiceNo || "—")}</b> · ${escapeHtml(g.date || "")} · ${erpPuMoney(t.total, erpPuCur(g))}</label>`; }).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>🧾 Кои стокови покрива фактурата?</h3>
+    <p class="hint">Осчетоводени стокови разписки от <b>${escapeHtml(o.supplierName)}</b> без покриваща фактура. Складът е вдигнат от тях — фактурата ще носи само сумата за плащане. Системата сверява сумите при осчетоводяване.</p>
+    <div style="max-height:44vh;overflow:auto;margin:8px 0">${rows}</div>
+    <div class="erp-dialog-actions"><button class="btn" id="pu-cv-cancel">Отказ</button><button class="btn btn-primary" id="pu-cv-ok">✔ Запиши избора</button></div>`);
+  wrap.querySelector("#pu-cv-cancel").addEventListener("click", close);
+  wrap.querySelector("#pu-cv-ok").addEventListener("click", async () => {
+    o.coversIds = [...wrap.querySelectorAll(".pu-cv-chk:checked")].map(c => c.dataset.id);
+    try { await erpSavePurchase(o); } catch (e) {}
+    close();
+    erpRenderPurchaseForm(o);
+  });
+}
+// Осчетоводяване на покриваща фактура: БЕЗ складови движения — само парите.
+async function erpPostCoveringInvoice(o) {
+  const RATE = PU_EUR_BGN;
+  const eur = x => { const t = erpPuTotals(x); return (erpPuCur(x) === "BGN" ? t.total / RATE : t.total); };
+  const goods = (o.coversIds || []).map(cid => (erpPurchases || []).find(x => String(x.id) === String(cid))).filter(Boolean);
+  const sumGoods = goods.reduce((s, g) => s + eur(g), 0);
+  const sumInv = eur(o);
+  const diff = Math.round((sumInv - sumGoods) * 100) / 100;
+  let msg = `Фактура № ${o.invoiceNo || "—"} покрива ${goods.length} стокови разписки.\n`
+    + `Σ стокови (с ДДС): ${erpPuMoney(Math.round(sumGoods * 100) / 100, "EUR")}\n`
+    + `Σ фактура (с ДДС): ${erpPuMoney(Math.round(sumInv * 100) / 100, "EUR")}\n`;
+  msg += Math.abs(diff) > 0.02 ? `\n⚠ РАЗЛИКА: ${erpPuMoney(diff, "EUR")} — провери преди да продължиш!\n` : `\n✓ Сумите съвпадат.\n`;
+  const matCount = (o.lines || []).filter(l => l.materialId).length;
+  if (matCount) msg += `\n(Фактурата има ${matCount} материални реда — те НЯМА да пипат склада: заприходен е от стоковите.)\n`;
+  msg += `\nОсчетоводявам само сумата (разход + плащане). Продължавам?`;
+  if (!confirm(msg)) return;
+  try { await erpSavePurchase(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
+  for (const g of goods) {
+    g.coveredByNo = o.invoiceNo || "—"; g.coveredById = o.id;
+    try { await erpSavePurchase(g); } catch (e) {}
+  }
+  o.posted = true; o.postedAt = new Date().toISOString();
+  try { await erpSavePurchase(o); } catch (e) {}
+  await erpLoadPurchases();
+  alert(`Готово! Фактурата е осчетоводена (само парите).\nПокрити стокови: ${goods.map(g => "№ " + (g.invoiceNo || "—")).join(", ")}.`);
+  erpRenderPurchaseForm(o);
+}
+
 async function erpPostPurchase(o) {
   if (o.posted) { alert("Вече е заприходена."); return; }
+  // Фактура, ПОКРИВАЩА стокови разписки: складът е вдигнат от стоковите —
+  // тук се осчетоводяват само парите (сумата отива в разходите/плащането).
+  if (o.docType !== "goods" && (o.coversIds || []).length) { await erpPostCoveringInvoice(o); return; }
   const matLines = (o.lines || []).filter(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
   if (!matLines.length) { alert("Няма материални редове за заприходяване. Само редове, добавени с бутона Материал (склад), влизат в склада."); return; }
   if (!confirm(`Да заприходя ли ${matLines.length} материала в склада? Наличностите се вдигат и средните цени се обновяват (веднъж).`)) return;
@@ -805,6 +875,18 @@ async function erpPostPurchase(o) {
    После фактурата се заприходява наново с верните данни. */
 async function erpUnpostPurchase(o) {
   if (!o.posted) return;
+  if (o.docType !== "goods" && (o.coversIds || []).length) {
+    if (!confirm("Да върна ли покриващата фактура за редакция? Складът не се пипа (вдигнат е от стоковите); маркировките по стоковите се махат.")) return;
+    for (const cid of o.coversIds) {
+      const g = (erpPurchases || []).find(x => String(x.id) === String(cid));
+      if (g) { delete g.coveredByNo; delete g.coveredById; try { await erpSavePurchase(g); } catch (e) {} }
+    }
+    o.posted = false; o.postedAt = null;
+    try { await erpSavePurchase(o); } catch (e) {}
+    await erpLoadPurchases();
+    erpRenderPurchaseForm(o);
+    return;
+  }
   // Обръщането ползва ЗАПИСАНАТА версия (точно каквото е било заприходено),
   // не евентуално току-що променените стойности на екрана.
   const saved = (erpPurchases || []).find(x => String(x.id) === String(o.id)) || o;
