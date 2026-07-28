@@ -301,12 +301,8 @@ const NIT_PICK_RULES = (() => {
       { code: "100175", per: 4, mat: true },   // Нит 8 х 26
       { code: "100188", per: 4, mat: true },   // Подложна шайба DIN 125 АМ 8
     ];
-    // ASIA носи и спирачки/болтове/степенчати колела (по рецептата на 101137).
-    if (f.code === "101137") consume.push(
-      { code: "100640", per: 2 },              // Спирачка Италия
-      { code: "100128", per: 2, mat: true },   // Болт DIN 912 M8x60
-      { code: "100194", per: 2, mat: true },   // Степенчато колело
-    );
+    // (Спирачките/болтовете/степенчатите колела на ASIA са АКСЕСОАРИ — слагат
+    //  се преди експедиция и се изписват при продажбата, не тук.)
     rules["Италия крак затваряне"][f.code] = { consume };
   });
   return rules;
@@ -411,6 +407,13 @@ async function nitProdCodes(ids) {
   const m = {}; (data || []).forEach(p => { m[p.id] = String(p.code || "").trim(); });
   return m;
 }
+async function nitMatCodes(ids) {
+  if (!ids.length) return {};
+  const { data, error } = await sb.from("materials").select("id,code").in("id", ids);
+  if (error) throw error;
+  const m = {}; (data || []).forEach(x => { m[x.id] = String(x.code || "").trim(); });
+  return m;
+}
 // Влагане за Л/Д операция БЕЗ статична таблица: директната рецепта на
 // заприходявания код — децата (части) + материалите, по бройките от нея.
 async function nitLDDynamic(pid) {
@@ -460,23 +463,31 @@ async function nitDynamicConsume(base, pick, ids) {
   const halfCodes = new Set([fin.left, fin.right]);
   const halves = lines.filter(l => l.child_product_id && halfCodes.has(codes[l.child_product_id]));
   if (halves.length !== 2) return null;
-  // 1) двата 🔩 като цели + 2) екстрите на F (други деца и директни материали)
-  lines.forEach(l => {
-    const per = Number(l.quantity) || 1;
-    if (l.child_product_id) items.push({ pid: l.child_product_id, qty: per });
-    else if (l.material_id) items.push({ mid: l.material_id, qty: per });
-  });
-  // 3) от рецептите на 🔩-те: заготовката + директните им материали (нитове/
-  //    шайби); крак-BOM възелът се пропуска (влиза чрез самия 🔩).
   const hIds = halves.map(l => l.child_product_id);
   const L2 = await nitLines(hIds);
   const c2ids = hIds.flatMap(h => (L2[h] || []).filter(l => l.child_product_id).map(l => l.child_product_id));
   const codes2 = await nitProdCodes(c2ids);
+  // Кодовете на материалите — за да пропуснем АКСЕСОАРИТЕ (болтове, степенчати
+  // колела): те се слагат преди експедиция и се изписват при продажбата.
+  const matIds = [...new Set([...lines, ...hIds.flatMap(h => L2[h] || [])].filter(l => l.material_id).map(l => l.material_id))];
+  let mcodes = {};
+  try { mcodes = await nitMatCodes(matIds); } catch (e) { mcodes = {}; }
+  const accProd = (typeof NIT_ACCESSORY_CODES !== "undefined") ? NIT_ACCESSORY_CODES : new Set();
+  const accMat = (typeof NIT_ACCESSORY_MAT_CODES !== "undefined") ? NIT_ACCESSORY_MAT_CODES : new Set();
+  // 1) двата 🔩 като цели + 2) екстрите на F (други деца и директни материали),
+  //    БЕЗ аксесоарите (спирачки/пружини/болтове — при продажбата)
+  lines.forEach(l => {
+    const per = Number(l.quantity) || 1;
+    if (l.child_product_id) { if (!accProd.has(codes[l.child_product_id])) items.push({ pid: l.child_product_id, qty: per }); }
+    else if (l.material_id) { if (!accMat.has(mcodes[l.material_id])) items.push({ mid: l.material_id, qty: per }); }
+  });
+  // 3) от рецептите на 🔩-те: заготовката + директните им материали (нитове/
+  //    шайби); крак-BOM възелът се пропуска (влиза чрез самия 🔩).
   hIds.forEach(h => (L2[h] || []).forEach(l => {
     const per = Number(l.quantity) || 1;
     if (l.child_product_id) {
       if (zagSet.has(codes2[l.child_product_id])) items.push({ pid: l.child_product_id, qty: per });
-    } else if (l.material_id) items.push({ mid: l.material_id, qty: per });
+    } else if (l.material_id) { if (!accMat.has(mcodes[l.material_id])) items.push({ mid: l.material_id, qty: per }); }
   }));
   return { items, legCode: "" };
 }
@@ -602,20 +613,28 @@ const NIT_CONSUME = {
   ],
 };
 
+/* АКСЕСОАРИ (спирачки, пружини, болтове, степенчати колела): слагат се на
+   палета / в кашоните ПРЕДИ ЕКСПЕДИЦИЯ — жените НЕ ги монтират в Занитване.
+   Затова сглобяването/затварянето тук НЕ ги изписва — изписва ги ПРОДАЖБАТА:
+   erpPostSale (erp-sales.js) чете рецептата на продадения нит-комплект и
+   смъква тези кодове със същия ref (отмяната на продажбата ги връща).
+   Нов аксесоар = нов код тук. */
+const NIT_ACCESSORY_CODES = new Set(["100622", "100638", "100639", "100640"]);   // продукти: пружина L=90, спирачки ММ03-04, спирачка Италия
+const NIT_ACCESSORY_MAT_CODES = new Set(["100128", "100194"]);                    // материали: болт DIN 912 M8x60, степенчато колело
+
 /* Авто-сглобяване: щом в склада има И от двете половини, Системата ги
    „сглобява" — изписва по-малкото от двете и заприходява същия брой готови.
    Пример: 101117 (2ка3ка ляв) 100 бр + 101115 (нож ляв) 100 бр →
-   −100/−100 и +100 бр 100950 (Италия цял ляв). Пуска се след всеки отчет. */
+   −100/−100 и +100 бр 100950 (Италия цял ляв). Пуска се след всеки отчет.
+   ⚠ Аксесоарите (спирачки/пружини) НЕ се изписват тук — при продажбата. */
 const NIT_COMBINE = [
   // Италия НЯМА авто-сглобяване (по изрично решение): съединяването на заготовка
   // и нож се отчита само с „Италия нож на готова заготовка" — иначе системата
   // сглобяваше „на хартия" преди жените реално да са сложили ножа.
-  { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)", extra: [{ code: "100622", per: 2 }] },   // + 2 пружини L=90
-  // ММ04: десен + ляв → цял механизъм 101157 + 2 огънати и 2 прави спирачки
-  { a: "101866", b: "101867", to: "101157", label: "Потапящ малък ММ04 (десен + ляв)", extra: [{ code: "100638", per: 2 }, { code: "100639", per: 2 }] },
-  // (ASIA 101007+101008→101137 беше вързан пробно и МАХНАТ по искане на Данко —
-  //  ще се върне при масовото връзване на механизмите, заедно с extra:
-  //  2× 100640 спирачка + 2× 100128 болт (мат.) + 2× 100194 степенчато колело (мат.))
+  { a: "101002", b: "101001", to: "101102", label: "Малък бял к-т (десен + ляв)" },
+  // ММ04: десен + ляв → цял механизъм 101157 (спирачките — при продажбата)
+  { a: "101866", b: "101867", to: "101157", label: "Потапящ малък ММ04 (десен + ляв)" },
+  // (ASIA 101007+101008→101137 беше вързан пробно и МАХНАТ по искане на Данко.)
 ];
 
 async function nitCombineStock() {
