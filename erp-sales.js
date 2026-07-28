@@ -560,22 +560,29 @@ async function erpPostSale(o) {
     if (l.writeoffKind === "detail") {
       addDetail(l.refId, qty);
       // Нит-комплект (складът му се води от Занитване): АКСЕСОАРИТЕ (спирачки,
-      // пружини, болтове, степенчати колела) не са изписани при сглобяването —
-      // слагат се на палета преди експедиция. Заминават с продажбата, по
-      // рецептата на комплекта (същия ref → отмяната ги връща).
+      // пружини, болтове, ухо…) не са изписани при сглобяването — слагат се на
+      // палета преди експедиция. Заминават с продажбата, по рецептата на
+      // комплекта (същия ref → отмяната ги връща). Търсенето е РЕКУРСИВНО:
+      // ухото напр. е в рецептата на заготовката, две нива под комплекта.
       const dp = ERP.prodById[l.refId];
       if (dp && typeof erpNitManagedCode === "function" && erpNitManagedCode(dp.code)
           && typeof NIT_ACCESSORY_CODES !== "undefined") {
-        ((ERP.linesByProduct && ERP.linesByProduct[l.refId]) || []).forEach(rl => {
-          const per = Number(rl.quantity) || 1;
-          if (rl.child_product_id) {
-            const c = ERP.prodById[rl.child_product_id];
-            if (c && NIT_ACCESSORY_CODES.has(String(c.code || "").trim())) addDetail(rl.child_product_id, qty * per);
-          } else if (rl.material_id) {
-            const m = ERP.matById[rl.material_id];
-            if (m && NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim())) addNeed(rl.material_id, qty * per);
-          }
-        });
+        const walkAcc = (pid, mult, seen) => {
+          if (seen.has(pid)) return;
+          seen.add(pid);
+          ((ERP.linesByProduct && ERP.linesByProduct[pid]) || []).forEach(rl => {
+            const per = (Number(rl.quantity) || 1) * mult;
+            if (rl.child_product_id) {
+              const c = ERP.prodById[rl.child_product_id];
+              if (c && NIT_ACCESSORY_CODES.has(String(c.code || "").trim())) addDetail(rl.child_product_id, qty * per);
+              else walkAcc(rl.child_product_id, per, seen);
+            } else if (rl.material_id) {
+              const m = ERP.matById[rl.material_id];
+              if (m && NIT_ACCESSORY_MAT_CODES.has(String(m.code || "").trim())) addNeed(rl.material_id, qty * per);
+            }
+          });
+        };
+        walkAcc(l.refId, 1, new Set());
       }
       continue;
     }
