@@ -139,6 +139,7 @@ async function erpRenderDetailStockInner() {
       <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
       <button type="button" class="btn btn-small${DS_ONLY_NEG ? " btn-danger" : ""}" id="ds-neg" title="Показва само детайлите, чиято наличност е под нулата (изписано е повече, отколкото е заприходено)">⚠ Отрицателни наличности</button>
+      <button type="button" class="btn btn-small" id="ds-nodemap" title="Цял екран: къде се включва изделието (нагоре) и кои ВЪЗЛИ влизат в него (надолу) — само кодовете на възлите, без дребните части">🌳 Структура (възли)</button>
       <span id="ds-count" class="erp-muted"></span>
       <span class="spacer"></span>
       <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
@@ -180,6 +181,8 @@ async function erpRenderDetailStockInner() {
   if (dd) dd.addEventListener("click", dsFindDuplicates);
   const rs = document.getElementById("ds-reset");
   if (rs) rs.addEventListener("click", dsResetTestMovements);
+  const nm = document.getElementById("ds-nodemap");
+  if (nm) nm.addEventListener("click", () => dsNodeMapOpen(null));
   dsFillRows();
   if (q) q.focus();
   // Чертежите се дозареждат отзад — таблицата вече е на екрана и НЕ я чака.
@@ -887,6 +890,105 @@ async function dsImportFill(file) {
   await erpLoadAll();
   erpRenderDetailStock();
   alert(`Готово! Обновени ${moves.length} детайла.` + (unknown.length ? `\n${unknown.length} реда не бяха намерени по код/име.` : ""));
+}
+
+/* ---------- 🌳 Структура (възли) — цял екран ----------
+   Показва САМО възлите (продукти, чиято рецепта съдържа други продукти) —
+   без дребните съставни части, материали и операции. Пример: за 101137 ASIA
+   излизат 101007/101008, а под тях 100971/100972 (крак) и 100949/100950
+   (заготовка) — Нож/Двойка/Тройка и т.н. НЕ се показват (те са детайли).
+   Нагоре: къде се включва изделието, чак до крайните продукти. */
+function dsIsAssembly(pid) {
+  return ((ERP.linesByProduct && ERP.linesByProduct[pid]) || []).some(l => l.child_product_id);
+}
+// Надолу: възлите в рецептата (рекурсивно), с бройка за 1 родител.
+function dsNodeMapDown(pid, depth, anc) {
+  const out = [];
+  ((ERP.linesByProduct && ERP.linesByProduct[pid]) || []).forEach(l => {
+    if (!l.child_product_id || anc.has(l.child_product_id)) return;
+    if (!dsIsAssembly(l.child_product_id)) return;   // детайл без свои възли — не се показва
+    const cp = ERP.prodById[l.child_product_id]; if (!cp) return;
+    out.push({ p: cp, qty: Number(l.quantity) || 1, depth });
+    out.push(...dsNodeMapDown(l.child_product_id, depth + 1, new Set([...anc, l.child_product_id])));
+  });
+  return out;
+}
+// Нагоре: родителите (рекурсивно), с бройка „влиза ×N в 1".
+function dsNodeMapUp(pid, depth, anc) {
+  const out = [];
+  if (depth > 7) return out;
+  (ERP.lines || []).forEach(l => {
+    if (Number(l.child_product_id) !== Number(pid) || anc.has(Number(l.product_id))) return;
+    const pp = ERP.prodById[l.product_id]; if (!pp) return;
+    out.push({ p: pp, qty: Number(l.quantity) || 1, depth, top: !(ERP.childIds && ERP.childIds.has(Number(pp.id))) });
+    out.push(...dsNodeMapUp(l.product_id, depth + 1, new Set([...anc, Number(l.product_id)])));
+  });
+  return out;
+}
+function dsNodeMapOpen(pid) {
+  let wrap = document.getElementById("ds-nodemap-dlg");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "ds-nodemap-dlg";
+    wrap.className = "overlay dsnm-overlay";
+    document.body.appendChild(wrap);
+  }
+  dsNodeMapRender(pid);
+}
+function dsNodeMapRender(pid) {
+  const wrap = document.getElementById("ds-nodemap-dlg"); if (!wrap) return;
+  const p = pid ? (ERP.prodById[pid] || null) : null;
+  const stockTxt = x => `<span class="dsnm-stock ${(Number(x.stock) || 0) < 0 ? "erp-warn" : ""}">${erpNum(Number(x.stock) || 0)} ${escapeHtml(x.unit || "бр.")}</span>`;
+  const row = (it, dir) => `
+    <div class="dsnm-row" data-go="${it.p.id}" style="margin-left:${it.depth * 26}px" title="Клик — покажи структурата на този възел">
+      ${dir === "up" && it.top ? `<span class="dsnm-top" title="Краен продукт">🧾</span>` : "🔩"}
+      <b>${escapeHtml(it.p.code || "")}</b> ${escapeHtml(it.p.name || "")}
+      <span class="erp-muted">× ${erpNum(it.qty)}</span> · ${stockTxt(it.p)}
+    </div>`;
+  let body = "";
+  if (p) {
+    const down = dsNodeMapDown(p.id, 0, new Set([p.id]));
+    const up = dsNodeMapUp(p.id, 0, new Set([p.id]));
+    body = `
+      <div class="dsnm-head-prod">🔩 <b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} · на склад: ${stockTxt(p)}</div>
+      <div class="dsnm-cols">
+        <div class="dsnm-col">
+          <h4>⬇ Възли в него <span class="erp-muted">(${down.length})</span></h4>
+          ${down.map(it => row(it, "down")).join("") || `<p class="erp-muted">Няма възли — това е детайл (само материали/операции) или няма рецепта.</p>`}
+        </div>
+        <div class="dsnm-col">
+          <h4>⬆ Влиза в <span class="erp-muted">(${up.length})</span></h4>
+          ${up.map(it => row(it, "up")).join("") || `<p class="erp-muted">Не се влага никъде — краен продукт.</p>`}
+        </div>
+      </div>`;
+  } else {
+    body = `<p class="hint" style="font-size:15px">Напиши код или име на изделие горе — ще видиш възлите му (без дребните части) и къде се включва.</p>`;
+  }
+  wrap.innerHTML = `
+    <div class="dsnm-box">
+      <div class="dsnm-top-bar">
+        <h3>🌳 Структура — само възлите</h3>
+        <input type="search" id="dsnm-q" placeholder="🔎 код или име на изделие…" autocomplete="off" />
+        <span class="spacer"></span>
+        <button class="btn btn-small" id="dsnm-close">✕ Затвори</button>
+      </div>
+      <div id="dsnm-cand"></div>
+      ${body}
+    </div>`;
+  wrap.querySelector("#dsnm-close").addEventListener("click", () => wrap.remove());
+  const q = wrap.querySelector("#dsnm-q");
+  const cand = wrap.querySelector("#dsnm-cand");
+  q.addEventListener("input", () => {
+    const t = q.value.trim().toLowerCase();
+    if (t.length < 2) { cand.innerHTML = ""; return; }
+    const hits = (ERP.products || [])
+      .filter(x => ((x.code || "") + " " + (x.name || "")).toLowerCase().includes(t))
+      .slice(0, 20);
+    cand.innerHTML = hits.map(x => `<div class="dsnm-row" data-pick="${x.id}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml(x.name || "")}</div>`).join("");
+    cand.querySelectorAll("[data-pick]").forEach(r => r.addEventListener("click", () => dsNodeMapRender(Number(r.dataset.pick))));
+  });
+  wrap.querySelectorAll("[data-go]").forEach(r => r.addEventListener("click", () => dsNodeMapRender(Number(r.dataset.go))));
+  if (!p) q.focus();
 }
 
 /* ---------- „Опаковка" — сглобяване на артикул от наличните му части ----------
