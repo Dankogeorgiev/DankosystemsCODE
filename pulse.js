@@ -127,10 +127,12 @@ async function renderPulse() {
   const vatDue = vatOut - vatIn;   // >0 → за внасяне; <0 → за възстановяване
 
   const recvUnpaid = recvList.filter(p => !p.paid);
-  const recvSum = recvUnpaid.reduce((s, p) => s + (num(p.amount) || 0), 0);
+  // Остатък = сума − частичните плащания (p.payments).
+  const recvRest = p => (num(p.amount) || 0) - (p.payments || []).reduce((s, x) => s + (num(x.amount) || 0), 0);
+  const recvSum = recvUnpaid.reduce((s, p) => s + recvRest(p), 0);
   const recvOver = recvUnpaid.filter(p => p.dueDate && p.dueDate < today)
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
-  const recvOverSum = recvOver.reduce((s, p) => s + (num(p.amount) || 0), 0);
+  const recvOverSum = recvOver.reduce((s, p) => s + recvRest(p), 0);
   const payUnpaid = payList.filter(p => !p.paid);
   const paySum = payUnpaid.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
   // Дължимо до края на месеца (с ДДС): неплатени фактури със срок до последния
