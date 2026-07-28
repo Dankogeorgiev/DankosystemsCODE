@@ -516,6 +516,7 @@ async function erpInvForm(o) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
       ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
+      ${o.posted && o.kind === "invoice" ? '<button class="btn btn-small" id="inv-make-credit" title="Ново кредитно известие по тази фактура (връщане/намаление)">➖ Кредитно</button><button class="btn btn-small" id="inv-make-debit" title="Ново дебитно известие по тази фактура (увеличение/допращане)">➕ Дебитно</button>' : ""}
       ${locked ? '<span class="erp-count">✓ Издадена — само преглед</span><button class="btn btn-small" id="inv-unlock" title="Отключва издадената фактура за ръчна поправка (номерът се запазва)">✎ Ръчна редакция</button>'
         : (o.posted
           ? '<span class="erp-count erp-warn">⚠ Редакция на ИЗДАДЕНА — номерът се запазва</span><button class="btn btn-small btn-primary" id="inv-save">💾 Запази промените</button>'
@@ -551,6 +552,8 @@ async function erpInvForm(o) {
         <label>Фактура № <input type="text" id="inv-refno" value="${escapeAttr((o.refInvoice && o.refInvoice.docNo) || "")}" ${locked ? "disabled" : ""} placeholder="номер на оригиналната фактура" /></label>
         <label>Дата <input type="date" id="inv-refdate" value="${escapeAttr((o.refInvoice && o.refInvoice.date) || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Основание <input type="text" id="inv-refreason" value="${escapeAttr(o.refReason || "")}" ${locked ? "disabled" : ""} placeholder="напр. връщане на стока / корекция" /></label>
+        <label class="erp-inline"><input type="checkbox" id="inv-retstock" ${o.returnStock ? "checked" : ""} ${locked ? "disabled" : ""} />
+          ${o.kind === "credit" ? "🔄 При издаване ВЪРНИ артикулите в Склад детайли (клиентът ги връща)" : "🔄 При издаване ИЗПИШИ артикулите от Склад детайли (пращаме стока)"}</label>
       </div>` : ""}
       ${o.vatRate == 0 ? `<label class="erp-co-note">Основание за 0% ДДС <input type="text" id="inv-vatbasis" value="${escapeAttr(o.vatBasis || "")}" ${locked ? "disabled" : ""} placeholder="напр. чл. 28 ЗДДС (износ) / чл. 53 (ВОД)" /></label>` : ""}
 
@@ -601,6 +604,14 @@ async function erpInvForm(o) {
         <button class="btn btn-small" id="inv-edit-pallets" ${locked ? "disabled" : ""}>✎ Палети (${(o.pallets || []).length})</button>
       </div>
       <p class="hint">Стоковата разписка е за БГ доставки; Packing List + ЧМР — за износ; Палет описът — за всички. „Транспорт" и „Палети" попълват данните за тези документи.</p>
+
+      ${((o.fromSaleNos || []).length || (o.refInvoice && o.refInvoice.docNo) || o.orderRef) ? `
+      <h4 class="erp-group-head">🔗 Свързани документи (история)</h4>
+      <div class="erp-co-actions">
+        ${(o.fromSaleNos || []).map(n => `<button class="btn btn-small" data-goto-sale="${escapeAttr(String(n))}" title="Отвори Продажби с търсене по този номер">🧾 Продажба № ${escapeHtml(String(n))}</button>`).join("")}
+        ${o.refInvoice && o.refInvoice.docNo ? `<span class="erp-count">📄 към фактура № ${escapeHtml(o.refInvoice.docNo)} / ${escapeHtml(o.refInvoice.date || "")}</span>` : ""}
+        ${o.orderRef ? `<span class="erp-count">📦 поръчка на клиента: ${escapeHtml(o.orderRef)}</span>` : ""}
+      </div>` : ""}
     </div>`;
 
   const bindClient = () => {
@@ -658,6 +669,14 @@ async function erpInvForm(o) {
   g("inv-vat", e => { o.vatRate = Number(e.target.value); erpInvForm(o); });
   g("inv-compiled", e => o.compiledBy = e.target.value);
   g("inv-vatbasis", e => o.vatBasis = e.target.value);
+  const rst = document.getElementById("inv-retstock");
+  if (rst && !locked) rst.addEventListener("change", () => { o.returnStock = rst.checked; });
+  const mkc = document.getElementById("inv-make-credit"); if (mkc) mkc.addEventListener("click", () => erpInvNoteFrom(o, "credit"));
+  const mkd = document.getElementById("inv-make-debit"); if (mkd) mkd.addEventListener("click", () => erpInvNoteFrom(o, "debit"));
+  v.querySelectorAll("[data-goto-sale]").forEach(b => b.addEventListener("click", () => {
+    try { erpSaQuery = b.dataset.gotoSale || ""; } catch (e) {}
+    if (typeof erpSetTab === "function") erpSetTab("sales", true);
+  }));
   g("inv-refno", e => { o.refInvoice = o.refInvoice || {}; o.refInvoice.docNo = e.target.value; });
   g("inv-refdate", e => { o.refInvoice = o.refInvoice || {}; o.refInvoice.date = e.target.value; });
   g("inv-refreason", e => o.refReason = e.target.value);
@@ -797,6 +816,9 @@ async function erpInvIssue(o) {
     try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
     // Фактура от продажби: маркираме ги с номера (не се фактурират втори път).
     if ((o.fromSaleIds || []).length) { try { await erpInvMarkSalesInvoiced(o); } catch (e) {} }
+    // Известие с движение на стока: кредитно ВРЪЩА артикулите в Склад детайли
+    // (клиентът ги връща), дебитно ги ИЗПИСВА (пращаме стока).
+    if ((o.kind === "credit" || o.kind === "debit") && o.returnStock) { try { await erpInvNoteStockMoves(o); } catch (e) { alert("Складовите движения по известието не минаха: " + (e.message || e)); } }
     erpInvForm(JSON.parse(JSON.stringify((erpInvoices || []).find(x => x.id === o.id) || o)));
     // Автоматично предлага изпращане на фактурата по имейл (готово писмо, 1 клик).
     try { if (typeof erpMailInvoice === "function") erpMailInvoice(o); } catch (e) {}
@@ -805,6 +827,51 @@ async function erpInvIssue(o) {
     if (btn) { btn.disabled = false; btn.textContent = "📤 Издай (вземи номер)"; }
     alert("Грешка при издаване: " + (e.message || e) + "\n(Ако номерът вече съществува — смени следващия номер в Серии.)");
   }
+}
+
+/* ---------- Известие → складови движения (връщане/изпращане на артикули) ---------- */
+async function erpInvNoteStockMoves(o) {
+  try { await erpEnsureLoaded(); } catch (e) {}
+  const credit = o.kind === "credit";
+  const rows = [], miss = [];
+  (o.lines || []).forEach(l => {
+    const q = erpToNum(l.qty) || 0; if (!(q > 0)) return;
+    const code = String(l.code || "").trim();
+    const p = code ? (ERP.products || []).find(x => String(x.code || "").trim() === code) : null;
+    if (!p) { miss.push(code || l.name || "?"); return; }
+    rows.push({
+      product_id: p.id, kind: credit ? "заприходяване" : "изписване",
+      quantity: credit ? q : -q, ref: "известие:" + (o.docNo || ""),
+      note: credit ? `Върнати от клиента — кредитно известие № ${o.docNo || ""}` : `Изпратени с дебитно известие № ${o.docNo || ""}`,
+    });
+  });
+  if (rows.length) {
+    const r = await sb.from("product_movements").insert(rows);
+    if (r.error) { alert("Известието е издадено, но СКЛАДЪТ не се обнови: " + r.error.message); return; }
+  }
+  let msg = rows.length ? `Складът е обновен: ${rows.length} артикула ${credit ? "върнати в" : "изписани от"} Склад детайли.` : "";
+  if (miss.length) msg += `\n⚠ Без складово движение (няма продукт с такъв код): ${miss.join(", ")}`;
+  if (msg) alert(msg);
+}
+
+// Ново кредитно/дебитно известие ПО издадена фактура — пренася клиента,
+// редовете, валутата и връзката (чл. 115); редовете се коригират на ръка.
+function erpInvNoteFrom(src, kind) {
+  const today = new Date().toISOString().slice(0, 10);
+  const o = {
+    kind, seriesKey: src.seriesKey, issueDate: today, taxDate: today,
+    orderRef: src.orderRef || "", client: JSON.parse(JSON.stringify(src.client || {})),
+    consignee: src.consignee ? JSON.parse(JSON.stringify(src.consignee)) : null,
+    clientId: src.clientId || null, currency: src.currency || "EUR",
+    vatRate: src.vatRate != null ? src.vatRate : 20, vatBasis: src.vatBasis || "",
+    paymentMethod: src.paymentMethod || "", termDays: 0, dueDate: "", note: "",
+    refInvoice: { docNo: src.docNo || "", date: src.issueDate || "" },
+    refReason: "", lines: (src.lines || []).map(l => ({ ...l })),
+    status: "чернова", posted: false, compiledBy: src.compiledBy || "",
+    tariffCode: src.tariffCode || "", payCond: src.payCond || "",
+    returnStock: kind === "credit",   // кредитното най-често връща стока
+  };
+  erpInvForm(o);
 }
 
 /* ---------- Печат (BG / EN, 1:1 като реалната фактура) ---------- */
