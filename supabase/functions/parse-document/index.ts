@@ -57,7 +57,7 @@ const TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      client_name: { type: ["string", "null"], description: "Името на НАСРЕЩНАТА фирма: при фактура от доставчик — ИЗДАТЕЛЯТ (доставчикът); при клиентска заявка — клиентът. НИКОГА „Данко Системс" (ЕИК 115789385) — това сме ние, получателят." },
+      client_name: { type: ["string", "null"], description: "Името на НАСРЕЩНАТА фирма: при фактура от доставчик — ИЗДАТЕЛЯТ (доставчикът); при клиентска заявка — клиентът. НИКОГА \u201eДанко Системс\u201c (ЕИК 115789385) — това сме ние, получателят." },
       order_no: { type: ["string", "null"], description: "Номер на заявката/документа на клиента." },
       order_date: { type: ["string", "null"], description: "Дата на документа, YYYY-MM-DD или null." },
       due_date: { type: ["string", "null"], description: "Срок за доставка (при заявка) или падеж за плащане (при фактура), YYYY-MM-DD или null." },
@@ -118,7 +118,7 @@ Deno.serve(async (req: Request) => {
     ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }
     : { type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: b64 } };
   const kind = body.doc_type === "фактура_доставчик" ? "фактура от доставчик" : "заявка от клиент";
-  const userText = `Това е ${kind}. Разчети я дословно и извикай record_document с извлечените данни. Всеки артикул от таблицата е отделен ред в lines. Ако код на артикул е напъхан в описанието — извади го в client_code.${body.doc_type === "фактура_доставчик" ? " ВАЖНО: в client_name запиши ИЗДАТЕЛЯ на фактурата (доставчика), НЕ получателя „Данко Системс" (ЕИК 115789385) — получателят сме ние." : ""}`;
+  const userText = `Това е ${kind}. Разчети я дословно и извикай record_document с извлечените данни. Всеки артикул от таблицата е отделен ред в lines. Ако код на артикул е напъхан в описанието — извади го в client_code.${body.doc_type === "фактура_доставчик" ? " ВАЖНО: в client_name запиши ИЗДАТЕЛЯ на фактурата (доставчика), НЕ получателя \u201eДанко Системс\u201c (ЕИК 115789385) — получателят сме ние." : ""}`;
 
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
