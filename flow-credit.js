@@ -99,6 +99,107 @@
     }
   }
 
+  /* ---------- Поточен гейт (порт на erpSeriesProduced/erpFlowAvailable/
+     erpFlowGatePending от erp-orders.js) — СЪЩАТА проверка като в Цехове:
+     не може да се отчете повече, отколкото предната операция е дала. ---------- */
+  function seriesProduced(tasks) {
+    const map = {};
+    (tasks || []).forEach(t => {
+      const src = t && t.source;
+      if (!src || !src.flow || !src.seriesKey) return;
+      const m = map[src.seriesKey] || (map[src.seriesKey] = { produced: 0, qty: 0 });
+      m.produced += n(t.produced); m.qty += n(t.qty);
+    });
+    return map;
+  }
+  function flowAvailable(t, map) {
+    const src = t && t.source;
+    const qty = n(t.qty), prod = n(t.produced);
+    if (!src || !src.flow) return Math.max(0, qty - prod);
+    let gateLimit = Infinity;
+    if (Array.isArray(src.gate) && src.gate.length) {
+      src.gate.forEach(entry => {
+        const k = (typeof entry === "string") ? entry : (entry && entry.key);
+        const fromStock = (typeof entry === "string") ? 0 : (n(entry && entry.stock));
+        const per = (typeof entry === "object" && entry && entry.per != null) ? Number(entry.per) : null;
+        const g = map[k];
+        if (!g) return;
+        const produced = n(g.produced);
+        if (per != null) {
+          const have = fromStock + produced;
+          const covers = per > 0 ? Math.floor(have / per) : (have > 0 ? qty : 0);
+          gateLimit = Math.min(gateLimit, covers);
+          return;
+        }
+        const need = (typeof entry === "string") ? null : (n(entry && entry.need));
+        if (need == null || need <= 0) { if (produced < n(g.qty)) gateLimit = 0; return; }
+        const total = need + fromStock;
+        const perL = qty > 0 ? total / qty : total;
+        const have = fromStock + produced;
+        const covers = perL > 0 ? Math.floor(have / perL) : (have >= total ? qty : 0);
+        gateLimit = Math.min(gateLimit, covers);
+      });
+    }
+    let avail;
+    if (src.prevKey) {
+      const brak = n(t.brak);
+      const up = map[src.prevKey];
+      avail = Math.max(0, (up ? up.produced : 0) - prod - brak);
+    } else {
+      avail = Math.max(0, qty - prod);
+    }
+    if (gateLimit !== Infinity) avail = Math.min(avail, Math.max(0, gateLimit - prod));
+    return avail;
+  }
+  function gatePending(t, map) {
+    const src = t && t.source;
+    if (!src || !Array.isArray(src.gate)) return [];
+    const out = [];
+    const tqty = n(t && t.qty);
+    src.gate.forEach(entry => {
+      const k = (typeof entry === "string") ? entry : (entry && entry.key);
+      const fromStock = (typeof entry === "string") ? 0 : n(entry && entry.stock);
+      const per = (typeof entry === "object" && entry && entry.per != null) ? Number(entry.per) : null;
+      const g = map[k];
+      if (!g) return;
+      const producedNow = n(g.produced);
+      const p = String(k).split("¦");
+      if (per != null) {
+        const totalParts = per * tqty;
+        const haveParts = fromStock + producedNow;
+        if (totalParts > 1e-9 && haveParts < totalParts - 1e-9) out.push({ code: p[0] || "", operation: p[1] || "", produced: haveParts, qty: totalParts });
+        return;
+      }
+      const need = (typeof entry === "string") ? null : n(entry && entry.need);
+      const target = (need != null && need > 0) ? Math.min(need, n(g.qty)) : n(g.qty);
+      if (target > 0 && producedNow < target) out.push({ code: p[0] || "", operation: p[1] || "", produced: producedNow + fromStock, qty: target + fromStock });
+    });
+    return out;
+  }
+  /* Проверка ПРЕДИ отчет от изнесено приложение: matches = задачите за това
+     изделие, qty = колко искат да запишат. Връща { ok } или { ok:false, msg }
+     с точно същите съобщения като главното табло. При мрежова грешка НЕ
+     блокира (по-добре отчет, отколкото спряна работа). */
+  async function gateCheck(c, matches, qty) {
+    const isGated = t => t && t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
+    const open = (matches || []).filter(t => Math.max(0, n(t.qty) - n(t.produced)) > 0);
+    const pool = open.length ? open : (matches || []);
+    if (!pool.length || pool.some(t => !isGated(t))) return { ok: true };   // има негейтната цел → не ограничаваме
+    let rows;
+    try { rows = await selAll(c, "tasks", "id,data", "data->source->>flow", "true"); }
+    catch (e) { return { ok: true }; }
+    const map = seriesProduced(rows.map(r => r.data || {}));
+    let allowed = 0; const pend = [];
+    pool.forEach(t => { allowed += flowAvailable(t, map); gatePending(t, map).forEach(p => pend.push(p)); });
+    if (qty <= allowed) return { ok: true };
+    const seen = new Set();
+    const detail = pend.filter(p => { const k = p.code + "¦" + p.operation; if (seen.has(k)) return false; seen.add(k); return true; })
+      .map(p => `• ${p.code}${p.operation ? " · " + p.operation : ""}: готови ${p.produced}/${p.qty}`).join("\n");
+    return { ok: false, allowed, msg: allowed > 0
+      ? `Поточно производство: сега можеш да запишеш най-много ${allowed} бр. (толкова са произведени в предната операция).${detail ? "\n\nЧака да се завършат:\n" + detail : ""}`
+      : `Поточно производство: детайлите за тази стъпка още не са готови в предната операция.${detail ? "\n\nЧака да се завършат:\n" + detail : ""}\n\nИзчакай съответния цех.` };
+  }
+
   // Складовите движения по една задача. t = данните СЛЕД вдигането на produced
   // (същият обект, който току-що е записан). Мутира t.source (stocked /
   // consumedUnits / matConsumed) и презаписва задачата само ако има промяна.
@@ -192,5 +293,5 @@
     }
   }
 
-  window.FLOW_CREDIT = { afterCredit, prodLog, markOrdersReady };
+  window.FLOW_CREDIT = { afterCredit, prodLog, markOrdersReady, gateCheck };
 })();
