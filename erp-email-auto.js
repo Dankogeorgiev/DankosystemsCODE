@@ -108,38 +108,56 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent }) {
   });
 }
 
-/* ---------- Фактура към клиента ---------- */
+/* ---------- Фактура към клиента ----------
+   Износна фактура (серия 1) → целият имейл е НА АНГЛИЙСКИ (тема, текст,
+   таблица, банкови данни от ERP_SELLER_EN); вътрешна → на български. */
+function erpMailInvoiceExport(o) { return String(o.seriesKey || "") === "1"; }
 function erpMailInvoiceHtml(o) {
-  const t = erpInvTotals(o); const cur = erpInvCur(o); const s = ERP_SELLER || {};
+  const en = erpMailInvoiceExport(o);
+  const t = erpInvTotals(o); const cur = erpInvCur(o);
+  const s = (en && typeof ERP_SELLER_EN !== "undefined") ? ERP_SELLER_EN : (ERP_SELLER || {});
+  const L = en
+    ? { date: "Date", to: "Customer", no: "No", code: "Code", name: "Description", qty: "Qty", price: "Unit price", amount: "Amount", base: "Tax base", vat: "VAT", total: "Total due", due: "Maturity date", days: "days", pay: "Bank payment" }
+    : { date: "Дата", to: "Получател", no: "№", code: "Код", name: "Наименование", qty: "Кол.", price: "Ед. цена", amount: "Стойност", base: "Данъчна основа", vat: "ДДС", total: "Обща сума", due: "Падеж", days: "дни", pay: "Плащане по банка" };
+  const fmtD = d => (typeof erpDMY === "function") ? erpDMY(d) : (d || "");
   const rows = (o.lines || []).map((l, i) => `<tr>
     <td style="border:1px solid #cbd5e1;padding:5px 7px">${i + 1}</td>
     <td style="border:1px solid #cbd5e1;padding:5px 7px">${escapeHtml(l.code || "")}</td>
     <td style="border:1px solid #cbd5e1;padding:5px 7px">${escapeHtml(l.name || "")}</td>
-    <td style="border:1px solid #cbd5e1;padding:5px 7px;text-align:right">${erpNum(l.qty)} ${escapeHtml(l.unit || "")}</td>
+    <td style="border:1px solid #cbd5e1;padding:5px 7px;text-align:right">${erpNum(l.qty)} ${escapeHtml(en ? (l.unit === "бр." || !l.unit ? "pcs" : l.unit) : (l.unit || ""))}</td>
     <td style="border:1px solid #cbd5e1;padding:5px 7px;text-align:right">${erpNum(l.unitPrice)}</td>
     <td style="border:1px solid #cbd5e1;padding:5px 7px;text-align:right">${erpInvMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), cur)}</td></tr>`).join("");
   const k = INV_KINDS[o.kind] || {};
+  const vatLine = en && !t.vat
+    ? `<p style="margin:2px 0">${L.base}: <b>${erpInvMoney(t.base, cur)}</b> · ${L.vat} 0% — ${escapeHtml((typeof INV_VAT_EXEMPT_EU !== "undefined" && o.vatBasis) ? o.vatBasis : "Art. 138 (1) of VAT Act — Intra-Community supply")}</p>`
+    : `<p style="margin:2px 0">${L.base}: <b>${erpInvMoney(t.base, cur)}</b> · ${L.vat} ${t.rate}%: <b>${erpInvMoney(t.vat, cur)}</b></p>`;
   return `
-  <h2 style="color:#0f766e;margin:14px 0 4px">${escapeHtml(k.bg || "ФАКТУРА")} № ${escapeHtml(o.docNo || "")}</h2>
-  <p style="margin:2px 0">Дата: <b>${escapeHtml(o.issueDate || "")}</b> · Получател: <b>${escapeHtml((o.client && o.client.name) || "")}</b></p>
+  <h2 style="color:#0f766e;margin:14px 0 4px">${escapeHtml(en ? (k.en || "INVOICE") : (k.bg || "ФАКТУРА"))} № ${escapeHtml(o.docNo || "")}</h2>
+  <p style="margin:2px 0">${L.date}: <b>${escapeHtml(fmtD(o.issueDate))}</b> · ${L.to}: <b>${escapeHtml((o.client && o.client.name) || "")}</b></p>
   <table style="border-collapse:collapse;width:100%;margin:8px 0;font-size:13px">
-    <tr style="background:#ecfdf5;color:#065f46"><th style="border:1px solid #cbd5e1;padding:5px 7px">№</th><th style="border:1px solid #cbd5e1;padding:5px 7px">Код</th><th style="border:1px solid #cbd5e1;padding:5px 7px">Наименование</th><th style="border:1px solid #cbd5e1;padding:5px 7px">Кол.</th><th style="border:1px solid #cbd5e1;padding:5px 7px">Ед. цена</th><th style="border:1px solid #cbd5e1;padding:5px 7px">Стойност</th></tr>
+    <tr style="background:#ecfdf5;color:#065f46"><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.no}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.code}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.name}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.qty}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.price}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.amount}</th></tr>
     ${rows}
   </table>
-  <p style="margin:2px 0">Данъчна основа: <b>${erpInvMoney(t.base, cur)}</b> · ДДС ${t.rate}%: <b>${erpInvMoney(t.vat, cur)}</b></p>
-  <p style="margin:2px 0;font-size:16px">Обща сума: <b style="color:#0f766e">${erpInvMoney(t.total, cur)}</b></p>
-  ${(o.dueDate || Number(o.termDays) > 0) ? `<p style="margin:2px 0">Падеж: <b>${escapeHtml(o.dueDate || "")}</b>${Number(o.termDays) > 0 ? ` (${o.termDays} дни)` : ""}</p>` : ""}
-  ${s.iban ? `<p style="margin:8px 0 2px">Плащане по банка: <b>IBAN ${escapeHtml(s.iban)}</b>${s.bic ? " · BIC " + escapeHtml(s.bic) : ""}${s.bank ? " · " + escapeHtml(s.bank) : ""}</p>` : ""}
-  <p style="color:#64748b;font-size:12px;margin-top:12px">${escapeHtml(s.name || "Данко Системс")} · ЕИК ${escapeHtml(s.eik || "")} · ${escapeHtml([s.address, s.city].filter(Boolean).join(", "))}</p>`;
+  ${vatLine}
+  <p style="margin:2px 0;font-size:16px">${L.total}: <b style="color:#0f766e">${erpInvMoney(t.total, cur)}</b></p>
+  ${(o.dueDate || Number(o.termDays) > 0) ? `<p style="margin:2px 0">${L.due}: <b>${escapeHtml(fmtD(o.dueDate))}</b>${Number(o.termDays) > 0 ? ` (${o.termDays} ${L.days})` : ""}</p>` : ""}
+  ${s.iban ? `<p style="margin:8px 0 2px">${L.pay}: <b>IBAN ${escapeHtml(s.iban)}</b>${s.bic ? " · BIC " + escapeHtml(s.bic) : ""}${s.bank ? " · " + escapeHtml(s.bank) : ""}</p>` : ""}
+  <p style="color:#64748b;font-size:12px;margin-top:12px">${escapeHtml(s.name || "Данко Системс")} · ${en ? "VAT " + escapeHtml(s.vat || "") : "ЕИК " + escapeHtml(s.eik || "")} · ${escapeHtml([s.address, s.city, en ? s.country : ""].filter(Boolean).join(", "))}</p>`;
 }
 async function erpMailInvoice(o) {
   const rec = (typeof erpPartnerEmail === "function") ? await erpPartnerEmail("customer", o.clientId, o.client && o.client.name) : null;
   const k = INV_KINDS[o.kind] || {};
+  const en = erpMailInvoiceExport(o);
+  const fmtD = d => (typeof erpDMY === "function") ? erpDMY(d) : (d || "");
   erpMailComposeDialog({
-    title: "✉ " + (k.label || "Фактура") + (o.docNo ? " № " + o.docNo : "") + " → клиента",
+    title: "✉ " + (k.label || "Фактура") + (o.docNo ? " № " + o.docNo : "") + " → клиента" + (en ? " (EN)" : ""),
     to: (rec && rec.email) || "",
-    subject: `${k.bg || "Фактура"} № ${o.docNo || ""} — ${(ERP_SELLER && ERP_SELLER.name) || "Данко Системс"}`,
-    text: `Здравейте${rec && rec.person ? " " + rec.person : ""},\n\nПриложено изпращаме ${k.label || "фактура"} № ${o.docNo || ""} от ${o.issueDate || ""}.\n\nПоздрави,\nекип Данко Системс`,
+    subject: en
+      ? `${(k.en || "Invoice").charAt(0) + (k.en || "Invoice").slice(1).toLowerCase()} No ${o.docNo || ""} — DANKO SYSTEMS Ltd.`
+      : `${k.bg || "Фактура"} № ${o.docNo || ""} — ${(ERP_SELLER && ERP_SELLER.name) || "Данко Системс"}`,
+    text: en
+      ? `Dear${rec && rec.person ? " " + rec.person : " Sir or Madam"},\n\nPlease find attached ${(k.en || "invoice").toLowerCase()} No ${o.docNo || ""} dated ${fmtD(o.issueDate)}.\n\nShould you have any questions, please do not hesitate to contact us.\n\nBest regards,\nDANKO SYSTEMS Ltd.`
+      : `Здравейте${rec && rec.person ? " " + rec.person : ""},\n\nПриложено изпращаме ${k.label || "фактура"} № ${o.docNo || ""} от ${fmtD(o.issueDate)}.\n\nПоздрави,\nекип Данко Системс`,
     html: erpMailInvoiceHtml(o),
   });
 }
