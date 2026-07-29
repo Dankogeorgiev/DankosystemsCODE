@@ -39,6 +39,77 @@ function erpPriceListEntry(clientId, clientName, productId) {
   return d.entries[String(productId)] || d.entries[productId] || null;
 }
 
+/* ---------- Авто-попълване от издадените фактури ----------
+   Всяка ИЗДАДЕНА фактура (обикновена/дебитно; проформите и кредитните не)
+   обновява ценовата листа на клиента: продукт → последната фактурирана цена
+   (+ клиентският код от реда, ако листата няма клиентско име). Ръчно
+   въведените клиентски имена НЕ се пипат — само цената се опреснява. */
+function erpPLLineProductId(l) {
+  if (l && l.productId) return String(l.productId);
+  if (l && l.code && typeof ERP !== "undefined" && (ERP.products || []).length) {
+    const p = ERP.products.find(x => String(x.code || "") === String(l.code).trim());
+    if (p) return String(p.id);
+  }
+  return null;
+}
+// Слива редовете на една фактура в entries; връща броя реални промени.
+function erpPLMergeInvoice(entries, o) {
+  let changed = 0;
+  const cur = o.currency || "EUR";
+  (o.lines || []).forEach(l => {
+    const price = erpToNum(l.unitPrice) || 0;
+    if (!(price > 0)) return;
+    const pid = erpPLLineProductId(l);
+    if (!pid) return;
+    const e = entries[pid] || {};
+    const ne = { cname: e.cname || l.clientCode || "", price, currency: cur };
+    if (!entries[pid] || Number(e.price) !== price || (e.currency || "EUR") !== cur || (e.cname || "") !== ne.cname) changed++;
+    entries[pid] = ne;
+  });
+  return changed;
+}
+function erpPLInvClient(o, clients) {
+  if (o.clientId != null) { const c = clients.find(x => String(x.id) === String(o.clientId)); if (c) return c; }
+  const nm = String((o.client && o.client.name) || "").trim().toLowerCase();
+  return nm ? clients.find(x => String(x.company || "").trim().toLowerCase() === nm) || null : null;
+}
+// Кука при издаване на фактура (вика се от erpInvIssue).
+async function erpPLApplyInvoice(o) {
+  if (!o || !o.docNo || o.kind === "proforma" || o.kind === "credit" || !(o.lines || []).length) return;
+  const clients = await erpLoadClients();
+  const c = erpPLInvClient(o, clients);
+  if (!c) return;
+  const d = await erpPLLoad(c.id);
+  const entries = (d && d.entries) || {};
+  if (erpPLMergeInvoice(entries, o) > 0) await erpPLSave(c.id, c.company, entries);
+}
+/* Първоначално зареждане: минава ВСИЧКИ вече издадени фактури хронологично
+   (по-новата цена печели) и попълва листите. Идемпотентно — може да се пуска
+   многократно; пуска се само веднъж автоматично (маркер pricelist_backfill). */
+async function erpPLBackfillFromInvoices(statusEl) {
+  const say = t => { if (statusEl) statusEl.textContent = t; };
+  try { await erpEnsureLoaded(); } catch (e) {}
+  if (typeof erpInvoices === "undefined" || !erpInvoices) { try { await erpLoadInvoices(); } catch (e) { return null; } }
+  const clients = await erpLoadClients();
+  const inv = (erpInvoices || [])
+    .filter(o => o.docNo && o.kind !== "proforma" && o.kind !== "credit" && (o.lines || []).length)
+    .sort((a, b) => String(a.issueDate || a.date || "").localeCompare(String(b.issueDate || b.date || "")));
+  const byClient = {};
+  inv.forEach(o => { const c = erpPLInvClient(o, clients); if (c) (byClient[c.id] = byClient[c.id] || { c, list: [] }).list.push(o); });
+  let clientsTouched = 0, entriesSet = 0, invUsed = 0;
+  const keys = Object.keys(byClient);
+  for (let i = 0; i < keys.length; i++) {
+    const { c, list } = byClient[keys[i]];
+    say(`Зареждам цените от фактурите… ${i + 1}/${keys.length} (${c.company})`);
+    const d = await erpPLLoad(c.id);
+    const entries = (d && d.entries) || {};
+    let changed = 0;
+    list.forEach(o => { changed += erpPLMergeInvoice(entries, o); invUsed++; });
+    if (changed) { const ok = await erpPLSave(c.id, c.company, entries); if (ok) { clientsTouched++; entriesSet += changed; } }
+  }
+  return { clientsTouched, entriesSet, invUsed, clientsAll: keys.length };
+}
+
 /* ---------- Екран ---------- */
 async function erpRenderPriceLists() {
   try { await erpEnsureLoaded(); }
@@ -54,14 +125,33 @@ async function erpRenderPriceLists() {
         <input type="text" id="pl-client" list="pl-clients" placeholder="избери клиент" value="${escapeAttr(PL_CLIENT ? PL_CLIENT.company : "")}" autocomplete="off" />
         <datalist id="pl-clients">${clients.map(c => `<option value="${escapeAttr(c.company || "")}"></option>`).join("")}</datalist>
       </label>
+      <button class="btn btn-small" id="pl-frominv" title="Минава всички издадени фактури и опреснява цените по клиенти (по-новата фактура печели). Клиентските имена не се пипат.">⟳ Обнови от фактурите</button>
       <span id="pl-status" class="erp-muted"></span>
     </div>
     <div id="pl-body"></div>`;
   const ci = v.querySelector("#pl-client");
   ci.addEventListener("change", () => erpPLPickClient(ci.value, clients));
   ci.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); erpPLPickClient(ci.value, clients); } });
+  const runBackfill = async () => {
+    const st = document.getElementById("pl-status");
+    const btn = document.getElementById("pl-frominv"); if (btn) btn.disabled = true;
+    const r = await erpPLBackfillFromInvoices(st);
+    if (btn) btn.disabled = false;
+    if (st) st.textContent = r ? `✓ От ${r.invUsed} фактури: ${r.entriesSet} цени обновени при ${r.clientsTouched} клиенти.` : "⚠ Фактурите не се заредиха.";
+    if (PL_CLIENT) { const d = await erpPLLoad(PL_CLIENT.id); PL_ENTRIES = (d && d.entries) || {}; erpPLRenderGrid(); }
+    return r;
+  };
+  v.querySelector("#pl-frominv").addEventListener("click", runBackfill);
   if (PL_CLIENT && PL_ENTRIES) erpPLRenderGrid();
   else v.querySelector("#pl-body").innerHTML = `<p class="report-empty">Избери клиент, за да видиш/съставиш неговата ценова листа.</p>`;
+  // ЕДНОКРАТНО: първото отваряне зарежда листите от вече издадените фактури.
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "pricelist_backfill").maybeSingle();
+    if (!(data && data.data && data.data.done)) {
+      const r = await runBackfill();
+      if (r) await sb.from("app_config").upsert({ id: "pricelist_backfill", data: { done: true, at: new Date().toISOString(), ...r }, updated_at: new Date().toISOString() });
+    }
+  } catch (e) { /* при грешка ще опита при следващо отваряне */ }
 }
 
 async function erpPLPickClient(name, clients) {

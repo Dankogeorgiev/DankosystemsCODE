@@ -811,6 +811,8 @@ async function erpInvIssue(o) {
     await erpLoadInvoices();
     // Издадената фактура става вземане от клиента (проформата не влиза).
     try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
+    // Цените от фактурата попълват ценовата листа на клиента (авто).
+    try { if (typeof erpPLApplyInvoice === "function") await erpPLApplyInvoice(o); } catch (e) {}
     // Фактура от продажби: маркираме ги с номера (не се фактурират втори път).
     if ((o.fromSaleIds || []).length) { try { await erpInvMarkSalesInvoiced(o); } catch (e) {} }
     // Известие с движение на стока: кредитно ВРЪЩА артикулите в Склад детайли
