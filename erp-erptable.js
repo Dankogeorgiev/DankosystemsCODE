@@ -37,8 +37,66 @@ async function erpETSave() {
   return true;
 }
 
+/* ---------- Автопопълване всеки понеделник ----------
+   При отваряне на Системата/таблицата: ако за текущата седмица (понеделник)
+   няма ред, той се създава автоматично от данните в модулите:
+   • Задължения/Вземания — неплатените остатъци към момента;
+   • Заявки — стойността на активните (без „завършена");
+   • Материали (тон) — складът на материалите в килограми ÷ 1000;
+   • Външен/вътрешен оборот — издадените фактури за ИЗМИНАЛАТА седмица
+     (серия 1 = износ, без ДДС; останалите = вътрешен, с ДДС);
+   • Инвестиции — покупките „Инвестиции" от изминалата седмица (с ДДС).
+   Банковата наличност няма откъде да се вземе — попълва се на ръка (✎). */
+async function erpETAutoRow() {
+  if (!ET_ROWS) await erpETLoad();
+  const monday = etMondayIso();
+  if ((ET_ROWS || []).some(r => String(r.date || "").slice(0, 10) === monday)) return false;
+  const addD = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const wFrom = addD(monday, -7), wTo = addD(monday, -1);   // изминалата седмица (пн–нд)
+  const r2 = x => Math.round((Number(x) || 0) * 100) / 100;
+  const toEur = (n, cur) => cur === "BGN" ? n / 1.95583 : n;
+  // Дозареждане на модулите, които още не са отваряни в тази сесия.
+  try { if (typeof PAYABLES !== "undefined" && !PAYABLES && typeof erpPayLoad === "function") await erpPayLoad(); } catch (e) {}
+  try { if (typeof RECEIVABLES !== "undefined" && !RECEIVABLES && typeof erpRecvLoad === "function") await erpRecvLoad(); } catch (e) {}
+  try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
+  try { if (typeof erpPurchases !== "undefined" && !erpPurchases && typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}
+  try { if (typeof erpCOList !== "undefined" && !erpCOList && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  const row = { date: monday, auto: true, note: "авто · банка на ръка" };
+  try {
+    row.liabilities = r2((typeof PAYABLES !== "undefined" && PAYABLES || []).filter(p => !p.paid).reduce((s, p) => s + (Number(p.amountVat) || 0), 0));
+  } catch (e) {}
+  try {
+    row.receivables = r2((typeof RECEIVABLES !== "undefined" && RECEIVABLES || []).filter(p => !p.paid).reduce((s, p) => s + (typeof recvOutstanding === "function" ? recvOutstanding(p) : Number(p.amount) || 0), 0));
+  } catch (e) {}
+  try {
+    row.orders = r2((typeof erpCOList !== "undefined" && erpCOList || []).filter(o => (o.status || "нова") !== "завършена")
+      .reduce((s, o) => s + (o.lines || []).reduce((t, l) => t + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0), 0));
+  } catch (e) {}
+  try {
+    if (typeof ERP !== "undefined" && (ERP.materials || []).length)
+      row.materialTons = r2(ERP.materials.filter(m => /^кг/i.test(m.unit || "")).reduce((s, m) => s + (Number(m.stock) || 0), 0) / 1000);
+  } catch (e) {}
+  try {
+    const inWeek = o => { const d = String(o.issueDate || o.date || "").slice(0, 10); return d >= wFrom && d <= wTo; };
+    const issued = (typeof erpInvoices !== "undefined" && erpInvoices || []).filter(o => o.posted && o.kind !== "proforma" && inWeek(o));
+    let ext = 0, int_ = 0;
+    issued.forEach(o => { const t = erpInvTotals(o); const v = toEur(t.total, o.currency || "EUR"); if (o.seriesKey === "1") ext += v; else int_ += v; });
+    row.extTurnover = r2(ext); row.intTurnover = r2(int_);
+  } catch (e) {}
+  try {
+    row.investments = r2((typeof erpPurchases !== "undefined" && erpPurchases || [])
+      .filter(p => p.expenseType === "Инвестиции" && String(p.date || "") >= wFrom && String(p.date || "") <= wTo)
+      .reduce((s, p) => s + toEur(erpPuTotals(p).total, p.currency || "BGN"), 0));
+  } catch (e) {}
+  ET_ROWS = ET_ROWS || [];
+  ET_ROWS.push(row);
+  try { await erpETSave(); } catch (e) { return false; }
+  return true;
+}
+
 async function erpRenderETable(v) {
   if (!ET_ROWS) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpETLoad(); }
+  try { await erpETAutoRow(); } catch (e) { console.warn("ET auto", e); }
   const rows = (ET_ROWS || []).slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
   const calc = r => {
     const liab = Number(r.liabilities) || 0, recv = Number(r.receivables) || 0;
@@ -75,7 +133,7 @@ async function erpRenderETable(v) {
         </tr>`; }).join("") || `<tr><td colspan="14" class="report-empty">Още няма записи. Натисни „+ Нов ред".</td></tr>`}
       </tbody>
     </table></div>
-    <p class="hint">Съотношение = Вземания ÷ Задължения; Разлика = Вземания − Задължения (смятат се автоматично). Данните са с ДДС, в евро.</p>`;
+    <p class="hint">Съотношение = Вземания ÷ Задължения; Разлика = Вземания − Задължения (смятат се автоматично). Данните са с ДДС, в евро. Редът за текущата седмица се създава АВТОМАТИЧНО всеки понеделник от данните в Системата — само банковата наличност се въвежда на ръка (✎), а числата могат да се коригират.</p>`;
 
   v.querySelector("#et-add").addEventListener("click", () => erpETEdit(null, v));
   v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpETEdit(Number(b.dataset.edit), v); }));
