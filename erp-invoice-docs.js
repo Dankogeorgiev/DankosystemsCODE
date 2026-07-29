@@ -110,6 +110,36 @@ function invPrintWindow(title, body, lang) {
   w.document.write(html); w.document.close(); w.focus();
 }
 
+/* Опциите за Conditions of delivery (по списъка на Кристина, 29.07.2026). */
+const INV_INCOTERMS = ["CFR", "CIF", "CIP", "CPT", "DAP", "DAT", "DDP", "EXW", "FAS", "FCA", "FOB", "XXX"];
+/* ЕС ли е дестинацията? Извън ЕС (Сърбия, UK, Швейцария…) ЧМР-то добавя
+   EUR1, MRN към приложените документи. */
+const INV_EU_RX = /\b(BG|RO|GR|EL|DE|IT|FR|ES|PT|NL|BE|AT|PL|CZ|SK|HU|SI|HR|DK|SE|FI|EE|LV|LT|IE|LU|MT|CY)\b|бълга|bulgaria|romania|румън|greece|гърц|german|герман|ital|итал|france|french|франц|spain|испан|portugal|португ|netherland|holland|нидерл|холанд|belgium|белги|austria|австри|poland|полша|czech|чехи|slovak|словаш|hungar|унгар|sloven|словен|croat|хърват|denmark|дани|sweden|швеци|finland|финланд|estonia|естон|latvia|латви|lithuania|литва|ireland|ирланд|luxembourg|люксемб|malta|малта|cyprus|кипър/i;
+function invIsEU(o) {
+  const tr = o.transport || {};
+  const c = (o.consignee && o.consignee.country) || (o.client && o.client.country) || tr.destination || "";
+  return INV_EU_RX.test(String(c));
+}
+/* Стоката в ЧМР (кл. 6-9): по подразбиране SOFA BED MECHANISMS; за Хомаг —
+   Metal parts (orders №…) с номера на поръчката. Редактира се в 🚚 Транспорт. */
+function invGoodsNature(o) {
+  const tr = o.transport || {};
+  if (tr.goodsNature) return tr.goodsNature;
+  const nm = ((o.client && o.client.name) || "") + " " + ((o.consignee && o.consignee.name) || "");
+  if (/homag/i.test(nm)) return "Metal parts (orders " + (o.orderRef || "") + ")";
+  return "SOFA BED MECHANISMS";
+}
+/* Палети и бруто: бруто = нето + палети × тегло на палет (по подразб. 20 кг);
+   ръчното „Бруто тегло" в 🚚 Транспорт има превес. */
+function invPalletInfo(o, netKg) {
+  const tr = o.transport || {};
+  const n = parseInt(tr.totalPackages, 10) || 0;
+  const pk = erpToNum(tr.palletKg) || 20;
+  const manual = erpToNum(tr.totalWeightKg) || 0;
+  const gross = manual > 0 ? manual : Math.round(((netKg || 0) + n * pk) * 10) / 10;
+  return { n, pk, gross, net: Math.round((netKg || 0) * 10) / 10 };
+}
+
 /* ---------- ✎ Транспорт — диалогът, който липсваше ---------- */
 function erpInvTransportDialog(o, onSave) {
   o.transport = o.transport || {};
@@ -119,7 +149,7 @@ function erpInvTransportDialog(o, onSave) {
     <h3>🚚 Транспорт — данни за документите</h3>
     <p class="hint">Попълват износната фактура, Packing List, ЧМР, Description of goods и декларациите.</p>
     <div class="erp-co-grid">
-      ${f("tr-incoterms", "Условия на доставка (Incoterms)", tr.incoterms, "напр. DAP / EXW / FCA")}
+      <label>Условия на доставка (Incoterms)<select id="tr-incoterms"><option value="">—</option>${INV_INCOTERMS.map(x => `<option ${x === tr.incoterms ? "selected" : ""}>${x}</option>`).join("")}</select></label>
       ${f("tr-means", "Превоз (Means of transport)", tr.means || "by truck", "by truck")}
       ${f("tr-loadplace", "Място на товарене (Place of shipment)", tr.loadPlace || "Plovdiv", "Plovdiv")}
       <label>Дата на експедиция (Date of shipment)<input type="date" id="tr-shipdate" value="${escapeAttr(tr.shipDate || "")}" /></label>
@@ -130,9 +160,12 @@ function erpInvTransportDialog(o, onSave) {
       ${f("tr-driver", "Шофьор", tr.driver, "")}
       ${f("tr-route", "Маршрут (Route)", tr.route, "напр. BG-RO-HU-AT-DE-CH")}
       ${f("tr-customs", "Митница (Customs)", tr.customs, "напр. DE004101 Bietingen")}
-      <label>Общо тегло, кг (Total weight)<input type="number" step="any" id="tr-weight" value="${escapeAttr(String(tr.totalWeightKg || ""))}" /></label>
+      <label>Бруто тегло, кг — РЪЧНО<input type="number" step="any" id="tr-weight" value="${escapeAttr(String(tr.totalWeightKg || ""))}" placeholder="празно = нето + палетите" /></label>
       <label>Палети/пакети (бр.)<input type="text" id="tr-packages" value="${escapeAttr(String(tr.totalPackages || ""))}" /></label>
+      <label>Тегло на 1 палет, кг<input type="number" step="any" id="tr-palletkg" value="${escapeAttr(String(tr.palletKg || 20))}" /></label>
+      ${f("tr-goods", "Стока в ЧМР (Nature of goods)", tr.goodsNature || invGoodsNature(o), "SOFA BED MECHANISMS")}
     </div>
+    <p class="hint">Бруто = нето (от редовете) + палети × тегло на палет — освен ако не въведеш бруто на ръка.</p>
     <div class="erp-dialog-actions">
       <span class="spacer"></span>
       <button class="btn" id="tr-cancel">Отказ</button>
@@ -147,6 +180,7 @@ function erpInvTransportDialog(o, onSave) {
     tr.carrier = gv("tr-carrier"); tr.vehicleReg = gv("tr-vehicle");
     tr.driver = gv("tr-driver"); tr.route = gv("tr-route"); tr.customs = gv("tr-customs");
     tr.totalWeightKg = gv("tr-weight"); tr.totalPackages = gv("tr-packages");
+    tr.palletKg = gv("tr-palletkg"); tr.goodsNature = gv("tr-goods");
     close();
     if (typeof onSave === "function") onSave();
   });
@@ -266,7 +300,7 @@ function erpInvPrintExport(o) {
       <tbody>${rows}</tbody>
     </table>
     <div class="totbox">
-      <div class="tl"><b>Say:</b> ${escapeHtml(invAmountWords(t.total, cur, "en"))}<br><b>Payment method:</b> ${escapeHtml(o.paymentMethod || "Bank transfer")}</div>
+      <div class="tl"><b>Say:</b> ${escapeHtml(invAmountWords(t.total, cur, "en"))}<br><b>Payment method:</b> ${/каса|cash|брой/i.test(o.paymentMethod || "") ? "cash" : "bank transfer"}</div>
       <div class="tr2">
         ${Number(o.vatRate) > 0 ? `<div class="trow2"><span>Tax base:</span><b>${fm(t.base)} ${escapeHtml(cur)}</b></div><div class="trow2"><span>VAT ${t.rate}%:</span><b>${fm(t.vat)} ${escapeHtml(cur)}</b></div>` : ""}
         <div class="trow2"><span>TOTAL ${escapeHtml(cur)}:</span><b style="font-size:13px">${fm(t.total)}</b></div>
@@ -315,11 +349,11 @@ function erpInvPrintPackingEx(o) {
       <td class="r">${kg1 ? erpNum(Math.round(kg1 * 10) / 10) : ""}</td>
     </tr>`;
   }).join("") || `<tr><td colspan="7" class="c muted">—</td></tr>`;
-  const grossKg = erpToNum(tr.totalWeightKg) > 0 ? erpToNum(tr.totalWeightKg) : totW;
+  const pi = invPalletInfo(o, totW);
   const body = `
     <div class="head"><div><h1>PACKING LIST</h1></div>
-      <div style="text-align:right">INVOICE № and date: <b>${escapeHtml(invDocRef(o))}</b></div></div>
-    <div class="parties"><div class="party"><h3>Buyer/Importer/Address:</h3>${invClientBlock(o, "consignee")}</div></div>
+      <div style="text-align:right">INVOICE № and date: <b>${escapeHtml(invDocRef(o))}</b>${o.orderRef ? `<br>Order No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}</div></div>
+    <div class="parties"><div class="party"><h3>Consignee:</h3>${invClientBlock(o, "consignee")}</div></div>
     <div class="grid2">
       <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tr.means || "by truck")}</b><br>Destination: <b>${escapeHtml(tr.destination || cons.country || "")}</b></div>
       <div>Conditions of delivery:<br><b>${escapeHtml(tr.incoterms || "")}</b></div>
@@ -328,10 +362,11 @@ function erpInvPrintPackingEx(o) {
     <table>
       <thead><tr><th class="c" style="width:24px">№</th><th class="c" style="width:80px">Code</th><th>Marks and numbers</th><th class="c" style="width:84px">Order No/Date</th><th class="c" style="width:70px">Quantity</th><th class="c" style="width:70px">Net weight 1 pc (kg)</th><th class="c" style="width:76px">Net weight (kg)</th></tr></thead>
       <tbody>${rows}
-      <tr><td colspan="4" class="r"><b>Total Qty:</b></td><td class="r"><b>${erpNum(totQ)} pcs</b></td><td></td><td class="r"><b>${erpNum(Math.round(totW * 10) / 10)} kg</b></td></tr></tbody>
+      <tr><td colspan="4" class="r"><b>Total Qty:</b></td><td class="r"><b>${erpNum(totQ)} pcs</b></td><td></td><td class="r"><b>${erpNum(pi.net)} kg</b></td></tr></tbody>
     </table>
-    ${tr.totalPackages ? `<div class="kv"><b>Pallets:</b> ${escapeHtml(String(tr.totalPackages))}</div>` : ""}
-    <div class="kv"><b>Total Weight:</b> ${erpNum(grossKg)} kg</div>
+    <div class="kv"><b>Total net weight:</b> ${erpNum(pi.net)} kg</div>
+    <div class="kv"><b>Pallets:</b> ${pi.n || "—"}${pi.n ? ` × ${erpNum(pi.pk)} kg = ${erpNum(pi.n * pi.pk)} kg` : ""}</div>
+    <div class="kv"><b>Total gross weight:</b> ${erpNum(pi.gross)} kg</div>
     <div class="kv">Place: <b>${escapeHtml(tr.loadPlace || "Plovdiv")}</b> · Date: <b>${invFmtD(tr.shipDate || o.issueDate || o.date)}</b></div>
     <div class="foot"><div>Signature: ${escapeHtml(o.compiledBy || "")}</div><div>Received</div></div>`;
   invPrintWindow("Packing List " + (o.docNo || ""), body, "en");
@@ -362,37 +397,96 @@ function erpInvPrintDescGoods(o) {
   invPrintWindow("Description of Goods " + (o.docNo || ""), body, "en");
 }
 
-/* ---------- ЧМР / CMR (пълният международен формуляр — полета 1-24 съкратено) ---------- */
+/* ---------- ЧМР / CMR — ОФИЦИАЛНИЯТ пълен формуляр (полета 1-24) ----------
+   По образците от GenCloud (29.07.2026): едър, на цяла страница; кл. 5 носи
+   фактура + пакинг лист (+ EUR1, MRN за извън ЕС); стоката (кл. 9) е
+   SOFA BED MECHANISMS, а за Хомаг — Metal parts (orders №…); кл. 11 бруто =
+   нето + палети × тегло на палет. */
 function erpInvPrintCMREx(o) {
   const s = ERP_SELLER_EN; const tr = o.transport || {};
   const cons = (o.consignee && (o.consignee.name || o.consignee.city)) ? o.consignee : (o.client || {});
-  const recipeKg = (o.lines || []).reduce((sum, l) => sum + ((typeof erpDocLineKg === "function" && erpDocLineKg(o, l)) || 0), 0);
-  const grossKg = erpToNum(tr.totalWeightKg) > 0 ? erpToNum(tr.totalWeightKg) : Math.round(recipeKg * 10) / 10;
-  const cell = (label, val, cs) => `<td${cs ? ` colspan="${cs}"` : ""}><span style="display:block;font-size:9px;color:#555">${label}</span>${val || ""}</td>`;
+  const netKg = (o.lines || []).reduce((sum, l) => sum + ((typeof erpDocLineKg === "function" && erpDocLineKg(o, l)) || 0), 0);
+  const pi = invPalletInfo(o, netKg);
+  const eu = invIsEU(o);
+  const docsAttached = `INVOICE No.: <b>${escapeHtml(o.docNo || "")}</b> / ${invFmtD(o.issueDate)}<br>PACKING LIST No.: ${escapeHtml(o.docNo || "")} / ${invFmtD(o.issueDate)}${o.orderRef ? `<br>ORDER No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}${eu ? "" : "<br><b>EUR1, MRN</b>"}`;
+  const bx = (cls, label, val, mh) => `<div class="cbx ${cls || ""}" style="min-height:${mh || 46}px"><div class="cbl">${label}</div><div class="cbv">${val || ""}</div></div>`;
   const body = `
-    <div class="head"><div><h1>CMR · INTERNATIONAL CONSIGNMENT NOTE</h1><div class="muted">Международна товарителница</div></div>
-      <div style="text-align:right">No <b>${escapeHtml(o.docNo || "")}</b></div></div>
-    <table class="cmr">
-      <tr>${cell("1 Изпращач / Sender (name, address, country)", `<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.vat)}<br>${escapeHtml(s.address)}<br>${escapeHtml(s.city)}, ${escapeHtml(s.country)} BG`)}
-          ${cell("16 Превозвач / Carrier", escapeHtml(tr.carrier || "") + (tr.vehicleReg ? `<br>Vehicle: <b>${escapeHtml(tr.vehicleReg)}</b>` : "") + (tr.driver ? `<br>Driver: ${escapeHtml(tr.driver)}` : ""))}</tr>
-      <tr>${cell("2 Получател / Consignee (name, address, country)", `<b>${escapeHtml(cons.name || "")}</b><br>${[cons.street, cons.city, cons.country].filter(Boolean).map(escapeHtml).join("<br>")}`)}
-          ${cell("17 Следващи превозвачи / Successive carriers", "")}</tr>
-      <tr>${cell("3 Доставка на стоката / Delivery of the goods (place, country)", escapeHtml(tr.unloadPlace || [cons.street, cons.city, cons.country].filter(Boolean).join(", ")))}
-          ${cell("18 Резерви и бележки на превозвача / Carrier's reservations", "")}</tr>
-      <tr>${cell("4 Място и дата на товарене / Taking over the goods", `${escapeHtml(tr.loadPlace || s.address + ", " + s.city)}, Bulgaria BG<br>Date: <b>${invFmtD(tr.shipDate || o.issueDate)}</b>`)}
-          ${cell("19 Специални споразумения / Special agreements", "")}</tr>
-      <tr>${cell("5 Приложени документи / Documents attached", `INVOICE No.: <b>${escapeHtml(o.docNo || "")}</b> / ${invFmtD(o.issueDate)}<br>PACKING LIST No.: ${escapeHtml(o.docNo || "")} / ${invFmtD(o.issueDate)}${o.orderRef ? `<br>ORDER No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}`, 2)}</tr>
-      <tr>${cell("6-12 Марки, брой, опаковка, стока / Marks, packages, nature of the goods", `<b>${escapeHtml(tr.goodsNature || "SOFA BED MECHANISMS")}</b><br>Pallets: <b>${escapeHtml(String(tr.totalPackages || ""))}</b>`)}
-          ${cell("13 Инструкции на изпращача / Sender's instructions", escapeHtml(tr.route ? "Route: " + tr.route : "") + (tr.customs ? `<br>Митница: ${escapeHtml(tr.customs)}` : ""))}</tr>
-      <tr>${cell("14 Бруто тегло, кг / Gross weight in kg", grossKg ? `<b>${erpNum(grossKg)}</b>` : "")}
-          ${cell("15 Обем m³ / Volume in m³", "")}</tr>
-      <tr>${cell("20 Условия на доставка / Conditions of delivery", escapeHtml(tr.incoterms || ""))}
-          ${cell("21 Съставена в / Established in — on", `${escapeHtml(tr.loadPlace || "Plovdiv")} · ${invFmtD(tr.shipDate || o.issueDate)}`)}</tr>
-      <tr>${cell("22 Подпис и печат на изпращача / Signature and stamp of the sender", "<br><br>")}
-          ${cell("23 Подпис и печат на превозвача / Signature and stamp of the carrier", "<br><br>")}</tr>
-      <tr>${cell("24 Стоката получена / Goods received — place, date, signature and stamp of the consignee", "<br><br>", 2)}</tr>
+    <div class="cmr-top">
+      <div class="cmr-copy">Екземпляр за изпращача<br><i>Copy for sender</i><br><span class="cmr-fill">1 – 5, 9 – 16, 18 + 22</span></div>
+      <div class="cmr-title"><b>МЕЖДУНАРОДНА<br>ТОВАРИТЕЛНИЦА</b><div class="cmr-big">CMR</div><i>INTERNATIONAL CONSIGNMENT NOTE</i></div>
+      <div class="cmr-no">No <b>${escapeHtml(o.docNo || "..........")}</b><br><span class="cmr-fill">...................... Държава / Country</span></div>
+    </div>
+    <div class="cmr-note">За попълване на отговорност на изпращача · To be completed on the sender's responsibility · Очертаните графи с дебели линии се попълват от превозвача / The space framed with heavy lines must be filled in by the carrier</div>
+    <div class="cmrgrid">
+      <div class="cmrcol">
+        ${bx("", "1 Изпращач (име, адрес, държава) / Sender (name, address, country)", `<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.vat)}<br>${escapeHtml(s.address)}<br>${escapeHtml(s.city)}, ${escapeHtml(s.country)} BG`, 74)}
+        ${bx("", "2 Получател (име, адрес, държава) / Consignee (name, address, country)", `<b>${escapeHtml(cons.name || "")}</b><br>${[cons.street, cons.city, cons.country].filter(Boolean).map(escapeHtml).join("<br>")}${cons.vat ? "<br>" + escapeHtml(cons.vat) : ""}`, 74)}
+        ${bx("", "3 Място на разтоварване на стоката / Place of delivery of the goods (place, country)", escapeHtml(tr.unloadPlace || [cons.city, cons.country].filter(Boolean).join(", ")), 52)}
+        ${bx("", "4 Място и дата на натоварване / Place and date of taking over the goods (place, country, date)", `${escapeHtml(tr.loadPlace || s.address + ", " + s.city)}, Bulgaria BG<br>Date: <b>${invFmtD(tr.shipDate || o.issueDate)}</b>`, 52)}
+        ${bx("", "5 Приложени документи / Documents attached", docsAttached, 62)}
+      </div>
+      <div class="cmrcol">
+        ${bx("hv", "16 Превозвач (име, адрес, държава) / Carrier (name, address, country)", escapeHtml(tr.carrier || "") + (tr.vehicleReg ? `<br>Vehicle Plate No.: <b>${escapeHtml(tr.vehicleReg)}</b>` : "") + (tr.driver ? `<br>Driver: ${escapeHtml(tr.driver)}` : ""), 74)}
+        ${bx("hv", "17 Последващи превозвачи / Successive carriers", "", 52)}
+        ${bx("hv", "18 Резерви и бележки на превозвача / Carrier's reservations and observations on taking over the goods", "", 74)}
+        ${bx("", "13 Инструкции на изпращача / Sender's instructions", (tr.route ? "Route: <b>" + escapeHtml(tr.route) + "</b>" : "") + (tr.customs ? `<br>Customs: <b>${escapeHtml(tr.customs)}</b>` : ""), 62)}
+        ${bx("", "14 Условия на доставка / Conditions of delivery", `<b>${escapeHtml(tr.incoterms || "")}</b>`, 34)}
+      </div>
+    </div>
+    <table class="cmr-goods">
+      <thead><tr>
+        <th style="width:20%">6 Марки и номера<br><i>Marks and numbers</i></th>
+        <th style="width:14%">7 Брой на пакетите<br><i>Number of packages</i></th>
+        <th style="width:16%">8 Начин на опаковане<br><i>Method of packing</i></th>
+        <th>9 Вид на стоката<br><i>Nature of the goods</i></th>
+        <th style="width:12%">10 Статистически №<br><i>Statistical number</i></th>
+        <th style="width:12%">11 Тегло бруто, kg<br><i>Gross weight in kg</i></th>
+        <th style="width:9%">12 Обем m³<br><i>Volume in m³</i></th>
+      </tr></thead>
+      <tbody><tr style="height:84px">
+        <td>Pallets: <b>${pi.n || ""}</b></td>
+        <td class="c"><b>${pi.n || ""}</b></td>
+        <td class="c">${pi.n ? "pallets" : ""}</td>
+        <td><b>${escapeHtml(invGoodsNature(o))}</b></td>
+        <td class="c">${escapeHtml(o.tariffCode || "")}</td>
+        <td class="c"><b>${pi.gross ? erpNum(pi.gross) : ""}</b></td>
+        <td></td>
+      </tr></tbody>
     </table>
-    <p class="muted" style="font-size:9.5px">This carriage is subject, notwithstanding any clause to the contrary, to the Convention on the Contract for the International Carriage of Goods by Road (CMR).</p>`;
+    <div class="cmrgrid">
+      <div class="cmrcol">
+        ${bx("", "19 Специални споразумения / Special agreements", "", 36)}
+        ${bx("", "21 Съставена в / Established in — на / on", `${escapeHtml(tr.loadPlace || "Plovdiv")} · ${invFmtD(tr.shipDate || o.issueDate)}`, 36)}
+        ${bx("", "22 Подпис и печат на изпращача / Signature and stamp of the sender", `<br><br>${escapeHtml(s.name)}`, 72)}
+      </div>
+      <div class="cmrcol">
+        ${bx("hv", "20 Разни / Miscellaneous", "", 36)}
+        ${bx("hv", "23 Подпис и печат на превозвача / Signature and stamp of the carrier", "<br><br><br>", 72)}
+        ${bx("", "24 Стоката получена / Goods received — място / place ............... дата / date ...............<br>Подпис и печат на получателя / Signature and stamp of the consignee", "<br><br>", 72)}
+      </div>
+    </div>
+    <p class="muted" style="font-size:9.5px;margin-top:4px">Този превоз се подчинява, независимо от всяка противна клауза, на Конвенцията за договора за международен автомобилен превоз на стоки (CMR). · This carriage is subject, notwithstanding any clause to the contrary, to the Convention on the Contract for the International Carriage of Goods by Road (CMR).</p>
+    <style>
+      .cmr-top{display:flex;gap:10px;align-items:stretch;border:2px solid #000;padding:6px 10px;margin-bottom:4px}
+      .cmr-copy{font-size:10px;flex:1}
+      .cmr-title{text-align:center;flex:1.4;font-size:12px;line-height:1.25}
+      .cmr-big{font-size:30px;font-weight:800;letter-spacing:4px}
+      .cmr-no{text-align:right;flex:1;font-size:11px}
+      .cmr-fill{color:#555;font-size:9px}
+      .cmr-note{font-size:8.5px;color:#333;margin:0 0 6px;border-bottom:1px solid #000;padding-bottom:3px}
+      .cmrgrid{display:grid;grid-template-columns:1.12fr 1fr;gap:0 6px}
+      .cbx{border:1.4px solid #000;margin-bottom:4px;padding:3px 6px}
+      .cbx.hv{border-width:2.6px}
+      .cbl{font-size:8.5px;color:#333;line-height:1.15;margin-bottom:2px}
+      .cbl i{color:#555}
+      .cbv{font-size:11.5px;line-height:1.3}
+      table.cmr-goods{width:100%;border-collapse:collapse;margin:0 0 4px}
+      table.cmr-goods th,table.cmr-goods td{border:1.4px solid #000;font-size:10.5px;padding:3px 6px;vertical-align:top}
+      table.cmr-goods th{font-size:8.5px;font-weight:400;color:#333;text-align:left}
+      table.cmr-goods th i{color:#555}
+      table.cmr-goods td.c{text-align:center}
+      @media print{ body{font-size:11px} }
+    </style>`;
   invPrintWindow("CMR " + (o.docNo || ""), body, "bg");
 }
 
