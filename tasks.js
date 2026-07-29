@@ -766,8 +766,9 @@ function renderTasks() {
     if (ws === "__mine") { if (!myWorkshops().includes(t.workshop)) return false; }
     else if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) {
-      // моите + незаетите задачи; чуждите се скриват (виждам я, ако съм сред отговорниците)
-      const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false;
+      // Цеховият изглед показва ВСИЧКИ задачи на цеха — същото, което вижда
+      // офисът (преди чуждите се криеха и списъците се разминаваха).
+      // Чуждите само се избледняват (клас task-foreign в рендера).
     } else if (worker && !taskHasWorker(t, worker)) {
       return false;
     }
@@ -901,6 +902,8 @@ function renderTasks() {
 
     const tr = document.createElement("tr");
     tr.className = "task-" + st + (pi.cls ? " " + pi.cls : "");
+    // Чужда задача (възложена на друг) в цеховия изглед — вижда се, но бледа.
+    if (isW) { const asg = taskAssignees(t); if (asg.length && !asg.includes(MY_WORKER)) tr.classList.add("task-foreign"); }
     tr.innerHTML = `
       ${prioCell}
       <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () {
