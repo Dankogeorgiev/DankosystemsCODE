@@ -132,7 +132,9 @@ function rogRenderEntry(v) {
     <div class="rog-actions">
       <span class="rog-status" id="rog-status"></span>
       <button class="btn btn-primary rog-save-btn" id="rog-save">💾 Запиши</button>
-    </div>`;
+    </div>
+    <div id="rog-stockrep">${typeof NIT_FLASH !== "undefined" && NIT_FLASH ? NIT_FLASH : ""}</div>`;
+  if (typeof NIT_FLASH !== "undefined") NIT_FLASH = "";
 
   const dayTot = ROGOSH_OPS.reduce((s, op) => { const ld = rogLD((rec.ops || {})[op]); return s + ld.l + ld.d; }, 0);
   const recalc = () => {
@@ -198,6 +200,8 @@ function rogRenderEntry(v) {
     const ok = await rogSave();
     btn.disabled = false; btn.textContent = "💾 Запиши";
     const st = v.querySelector("#rog-status"); if (st) st.textContent = ok ? "✓ Записано " + rogNowHM() : "⚠ грешка";
+    // Същият отчет като в Занитване: операция → код → бройка в Склад детайли.
+    if (ok && typeof nitStockReportHtml === "function") NIT_FLASH = nitStockReportHtml();
     if (ok) rogRender();
   });
 }
@@ -278,18 +282,19 @@ function rogRenderSummary(v) {
       <span class="rog-who">📊 <b>${escapeHtml(range.label)}</b></span>
     </div>
     <div class="rog-cards">${cards}</div>
-    <h4 class="erp-group-head">Разбивка по операции</h4>
+    <h4 class="erp-group-head">Разбивка по операции — кодове към Склад детайли</h4>
     <div class="rog-table-wrap"><table class="report-table rog-sum-table">
-      <thead><tr><th>Операция</th>${ROGOSH_WORKERS.map(w => `<th class="num">${escapeHtml(w.split(" ")[0])}</th>`).join("")}<th class="num">Общо</th></tr></thead>
+      <thead><tr><th>Операция</th><th>Код</th>${ROGOSH_WORKERS.map(w => `<th class="num">${escapeHtml(w.split(" ")[0])}</th>`).join("")}<th class="num">Общо</th></tr></thead>
       <tbody>
-        ${[...new Set([...ROGOSH_OPS, ...ROGOSH_WORKERS.flatMap(w => Object.keys(opAgg[w]))])].map(op => `<tr>
+        ${[...new Set([...ROGOSH_OPS, ...ROGOSH_WORKERS.flatMap(w => Object.keys(opAgg[w]))])].map(op => { const map = (typeof NIT_STOCK_MAP !== "undefined" && NIT_STOCK_MAP[op]) || null; return `<tr>
           <td>${escapeHtml(op)}${ROGOSH_OPS.includes(op) ? "" : ' <span class="erp-muted">(архивна)</span>'}</td>
+          <td class="nsr-code-cell">${map ? escapeHtml([map.l ? "Л " + map.l : "", map.d ? "Д " + map.d : ""].filter(Boolean).join(" · ")) : "—"}</td>
           ${ROGOSH_WORKERS.map(w => `<td class="num">${opAgg[w][op] || "—"}</td>`).join("")}
           <td class="num"><b>${opTotal(op) || "—"}</b></td>
-        </tr>`).join("")}
+        </tr>`; }).join("")}
       </tbody>
       <tfoot><tr class="rog-total">
-        <td>ОБЩО</td>${ROGOSH_WORKERS.map(w => `<td class="num"><b>${vAgg[w].total || "—"}</b></td>`).join("")}<td class="num"><b>${grand || "—"}</b></td>
+        <td>ОБЩО</td><td></td>${ROGOSH_WORKERS.map(w => `<td class="num"><b>${vAgg[w].total || "—"}</b></td>`).join("")}<td class="num"><b>${grand || "—"}</b></td>
       </tr></tfoot>
     </table></div>`;
   v.querySelector("#rog-back").addEventListener("click", () => { rogView = "entry"; rogRender(); });

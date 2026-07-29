@@ -879,6 +879,7 @@ const NIT_COMBINE = [
 ];
 
 async function nitCombineStock(extraPairs) {
+  nitCombineStock.last = [];   // сглобените комплекти при ТОЗИ запис (за отчета)
   const ids = await nitStockIds();
   const mids = await nitMatIds();
   // Бройки, РЕЗЕРВИРАНИ от пуснати заявки (кръстосано нетване) — не се комбинират:
@@ -929,6 +930,7 @@ async function nitCombineStock(extraPairs) {
         }
       });
       await sb.from("product_movements").insert(rows);
+      nitCombineStock.last.push({ op: `Авто-сглобяване Л+Д (${c.label})`, code: c.to, delta: q });
       if (matRows.length) { try { await sb.from("stock_movements").insert(matRows); } catch (e) { /* следващия отчет */ } }
       // Локалният кеш се сваля — ако две комбинации делят половина, втората
       // да не преброи същата наличност.
@@ -978,6 +980,7 @@ async function nitMatIds() {
 }
 
 async function nitSyncStock(rec) {
+  nitSyncStock.last = [];   // какво влезе в Склад детайли при ТОЗИ запис (за отчета)
   const ids = await nitStockIds();
   const mids = await nitMatIds();
   const matMoves = [];
@@ -1158,6 +1161,7 @@ async function nitSyncStock(rec) {
     // КРАКА (него заприходяваме), не по избраната половина.
     applied.push({ key, now, op: base, sk: "d", code: creditCode, delta });
   }
+  nitSyncStock.last = applied.filter(a => a.delta).map(a => ({ op: a.op, code: a.code, delta: a.delta }));
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
   if (!moves.length && !matMoves.length) return true;
   if (moves.length) {
@@ -1542,7 +1546,9 @@ function nitRenderOps(v) {
     <div class="rog-actions">
       <span class="rog-status" id="nit-status"></span>
       <button class="btn btn-primary rog-save-btn" id="nit-save">💾 Запиши</button>
-    </div>`;
+    </div>
+    <div id="nit-stockrep">${NIT_FLASH || ""}</div>`;
+  NIT_FLASH = "";
 
   const dayTot = me.ops.reduce((s, o) => s + nitOpSum(rec, o.n), 0);
   const recalc = () => { let t = 0; v.querySelectorAll(".nit-q").forEach(i => t += nitNum(i.value)); const el = v.querySelector("#nit-tot"); if (el) el.innerHTML = `Добавяш сега: <b>${Math.round(t * 100) / 100}</b> · вече записани днес: <b>${Math.round(dayTot * 100) / 100}</b><br><span class="nit-hint">Пишеш само НОВИТЕ бройки — добавят се към днешните. Сгрешено? Въведи с минус (напр. -50), за да извадиш.</span>`; };
@@ -1606,8 +1612,29 @@ function nitRenderOps(v) {
     const ok = await nitSave();
     btn.disabled = false; btn.textContent = "💾 Запиши";
     const st = v.querySelector("#nit-status"); if (st) st.textContent = ok ? "✓ Записано " + nitNowHM() : "⚠ грешка";
-    if (ok) setTimeout(() => { nitMech = null; nitRender(); }, 500);
+    // Показваме ЯСНО какво влезе в Склад детайли (операция → код → бройка) —
+    // екранът остава, служителят се връща с „←" когато е готов.
+    if (ok) { NIT_FLASH = nitStockReportHtml(); nitRender(); }
   });
+}
+
+/* ---------- Отчет „какво влезе в Склад детайли" (общ за Занитване и Рогош) ----------
+   След всеки запис показва ясно: операция → код → бройка, вкл. авто-сглобените
+   комплекти. NIT_FLASH се пълни при запис и се показва еднократно при рендер. */
+let NIT_FLASH = "";
+function nitStockReportHtml() {
+  const st = nitSyncStock.last || [];
+  const cb = (typeof nitCombineStock === "function" && nitCombineStock.last) || [];
+  const row = x => `<div class="nsr-row${x.delta < 0 ? " nsr-neg" : ""}"><span class="nsr-op">${escapeHtml(x.op)}</span><span class="nsr-code">${escapeHtml(String(x.code || "—"))}</span><span class="nsr-qty">${x.delta > 0 ? "+" : ""}${x.delta}</span></div>`;
+  if (!st.length && !cb.length)
+    return `<div class="nit-stockrep"><div class="nsr-head">✓ Записано ${nitNowHM()} · 📦 Склад детайли</div><div class="nsr-empty">Нищо ново не е заприходено от този запис.</div></div>`;
+  return `<div class="nit-stockrep">
+    <div class="nsr-head">✓ Записано ${nitNowHM()} · 📦 В Склад детайли влезе:</div>
+    <div class="nsr-cols"><span class="nsr-op">Операция</span><span class="nsr-code">Код</span><span class="nsr-qty">Бройка</span></div>
+    ${st.map(row).join("")}
+    ${cb.length ? `<div class="nsr-head nsr-head2">🔧 Авто-сглобени комплекти (ляв + десен):</div>${cb.map(row).join("")}` : ""}
+    <div class="nsr-note">Минус = корекция (извадено от склада).</div>
+  </div>`;
 }
 
 /* ---------- Период ---------- */
@@ -1675,6 +1702,21 @@ function nitRenderSummary(v) {
     ${NIT_WORKERS.map(w => `<td class="num">${mechAgg[w][me.name] || "—"}</td>`).join("")}
     <td class="num"><b>${mechTotal(me)}</b></td></tr>` : "").join("") || `<tr><td colspan="${NIT_WORKERS.length + 2}" class="report-empty">Няма записи за периода.</td></tr>`;
 
+  // Разбивка по операции с КОДА, който влиза в Склад детайли (еднаква с Рогош).
+  const opKeys = [...new Set(NIT_WORKERS.flatMap(w => Object.keys(opAgg[w])))].sort((a, b) => a.localeCompare(b, "bg"));
+  const opLabel = k => { const b = nitOpBase(k); const pick = k.includes("¦") ? k.slice(k.indexOf("¦") + 1) : ""; return b + (pick ? " — " + pick : ""); };
+  const opCode = k => {
+    const pick = k.includes("¦") ? k.slice(k.indexOf("¦") + 1) : "";
+    if (pick) return pick;
+    const map = (typeof NIT_STOCK_MAP !== "undefined" && NIT_STOCK_MAP[nitOpBase(k)]) || null;
+    return map ? [map.l ? "Л " + map.l : "", map.d ? "Д " + map.d : ""].filter(Boolean).join(" · ") : "—";
+  };
+  const opTot = k => NIT_WORKERS.reduce((s, w) => s + (opAgg[w][k] || 0), 0);
+  const opRows = opKeys.map(k => `<tr>
+    <td>${escapeHtml(opLabel(k))}</td><td class="nsr-code-cell">${escapeHtml(opCode(k))}</td>
+    ${NIT_WORKERS.map(w => `<td class="num">${opAgg[w][k] || "—"}</td>`).join("")}
+    <td class="num"><b>${opTot(k) || "—"}</b></td></tr>`).join("") || `<tr><td colspan="${NIT_WORKERS.length + 3}" class="report-empty">Няма записи за периода.</td></tr>`;
+
   v.innerHTML = `
     <div class="rog-toolbar">
       <button class="btn btn-small" id="nit-back">← Отчет</button>
@@ -1689,6 +1731,11 @@ function nitRenderSummary(v) {
     <div class="rog-table-wrap"><table class="report-table rog-sum-table">
       <thead><tr><th>Механизъм</th>${NIT_WORKERS.map(w => `<th class="num">${escapeHtml(w.split(" ")[0])}</th>`).join("")}<th class="num">Общо</th></tr></thead>
       <tbody>${mechRows}</tbody>
+    </table></div>
+    <h4 class="erp-group-head">Разбивка по операции — кодове към Склад детайли</h4>
+    <div class="rog-table-wrap"><table class="report-table rog-sum-table">
+      <thead><tr><th>Операция</th><th>Код</th>${NIT_WORKERS.map(w => `<th class="num">${escapeHtml(w.split(" ")[0])}</th>`).join("")}<th class="num">Общо</th></tr></thead>
+      <tbody>${opRows}</tbody>
     </table></div>`;
   v.querySelector("#nit-back").addEventListener("click", () => { nitView = "entry"; nitRender(); });
   v.querySelectorAll("[data-period]").forEach(b => b.addEventListener("click", () => { nitPeriod = b.dataset.period; nitRender(); }));
