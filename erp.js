@@ -165,6 +165,7 @@ async function openErp() {
   }
   erpSetTab(ERP.tab || "materials");
   if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяване на таба при липса
+  if (typeof erpETAutoRow === "function") erpETAutoRow().catch(() => {});     // понеделнишкият ред на Таблица ЕРП
 }
 
 function closeErp() { document.getElementById("erp-modal").hidden = true; }
