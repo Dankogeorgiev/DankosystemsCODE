@@ -124,6 +124,24 @@ async function erpSaveCO(o) {
   }
 }
 
+/* ---------- Частична завършеност ----------
+   Доставени бройки (l.delivered) спрямо поръчаните — за процента в списъка
+   и формата. Заявка „в производство" с частични доставки носи ДВА баджа:
+   статуса + „частично · N%" с лента на прогреса. */
+function erpCOPct(o) {
+  let tot = 0, del = 0;
+  (o.lines || []).forEach(l => { const q = erpToNum(l.qty) || 0; tot += q; del += Math.min(Number(l.delivered) || 0, q); });
+  return { tot, del, pct: tot > 0 ? Math.round(del / tot * 100) : 0 };
+}
+function erpCOStatusCell(o) {
+  const st = o.status || "нова";
+  const p = erpCOPct(o);
+  const badge = `<span class="erp-co-status s-${escapeAttr(st)}">${escapeHtml(st)}</span>`;
+  if (!(p.del > 0 && p.pct < 100 && st !== "завършена")) return badge;
+  return `${badge}<span class="erp-co-status co-partial" title="доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр.">частично · ${p.pct}%</span>
+    <div class="co-progress" title="доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр."><div class="co-progress-fill" style="width:${p.pct}%"></div></div>`;
+}
+
 /* ---------- Печат на заявка ---------- */
 function erpPrintCO(o) {
   // Цените се крият за „само производство" достъп (както в списъка).
@@ -338,7 +356,7 @@ async function erpRenderCustomerOrders() {
             <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
             <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
-            <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
+            <td data-label="Статус">${erpCOStatusCell(o)}</td>
             <td data-label="Файл">${erpCOFileCell(o)}</td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`).join("") ||
@@ -386,7 +404,7 @@ async function erpRenderCustomerOrders() {
         <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
         <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
         <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
-        <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(o.status || "нова")}">${escapeHtml(o.status || "нова")}</span></td>
+        <td data-label="Статус">${erpCOStatusCell(o)}</td>
         <td data-label="Файл">${erpCOFileCell(o)}</td>
         <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
       </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
@@ -494,7 +512,8 @@ async function erpRenderCOForm(o) {
         <label>Статус
           <select id="co-status">
             ${["нова", "в производство", "готова за продажба", "частично завършена", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
-          </select></label>
+          </select>
+          ${(function () { const p = erpCOPct(o); return p.del > 0 ? `<span class="co-pct-info" title="по доставените бройки от редовете">✔ доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр. — <b>${p.pct}%</b></span><div class="co-progress"><div class="co-progress-fill" style="width:${p.pct}%"></div></div>` : ""; })()}</label>
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
 
