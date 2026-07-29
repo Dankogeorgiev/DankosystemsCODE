@@ -254,9 +254,6 @@ async function erpRenderInvoices() {
         <select id="inv-fstatus"><option value="">Всички</option>${["чернова", "издадена", "платена", "сторнирана"].map(s => `<option ${s === erpInvStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <span class="spacer"></span>
       ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
-      <label class="btn btn-small co-attach-btn" title="Импорт на издадени фактури от GenCloud (xlsx) — регистър. При съвпадащ № импортът ПРЕЗАПИСВА записа (тестовете се заместват).">⤓ Импорт (GenCloud)<input type="file" id="inv-import" accept=".xlsx,.xls" hidden /></label>
-      ${(erpInvoices || []).some(o => o.imported) ? '<button class="btn btn-small btn-danger" id="inv-clear-import" title="Изтрий импортираните фактури (ръчните остават)">🗑 Изтегли импорта</button>' : ""}
-      ${(erpInvoices || []).length ? '<button class="btn btn-small btn-danger" id="inv-clear-all" title="Изтрий ВСИЧКИ документи от Фактуриране">🗑 Изчисти всичко</button>' : ""}
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>

@@ -76,9 +76,6 @@ async function erpRenderPayables() {
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="pyb-q" placeholder="🔎 доставчик / № / артикул…" value="${escapeAttr(pybQuery)}" style="min-width:190px" autocomplete="off" />
       <span class="spacer"></span>
-      <label class="btn btn-small co-attach-btn">⤓ Импорт (GenCloud)<input type="file" id="pay-file" accept=".xlsx,.xls" hidden /></label>
-      ${(PAYABLES || []).some(p => !p.srcPurchaseId) ? '<button class="btn btn-small btn-danger" id="pay-clear-import" title="Изтрий импортираните задължения (тези от въведена фактура-разход остават)">🗑 Изтегли импорта</button>' : ""}
-      ${(PAYABLES || []).length ? '<button class="btn btn-small btn-danger" id="pay-clear-all" title="Изтрий ВСИЧКИ задължения (пълно изчистване)">🗑 Изчисти всичко</button>' : ""}
     </div>
     <div class="pay-cards">
       ${card("📅 Тази седмица", weekItems, "pay-card-week")}
