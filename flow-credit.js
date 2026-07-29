@@ -30,10 +30,82 @@
     return out;
   }
 
+  /* ---------- Последователни вериги (мостри / производство за склад) ----------
+     Порт на erpSeqTask/erpAdvanceSeq/erpMaybeStartFinal от erp-orders.js.
+     Без него отчет от масите/роботите завършваше стъпката, но НЕ пускаше
+     следващата операция — веригата спираше и следващият цех не получаваше
+     задача. Повтаря главната логика 1:1 (advanced флаг, дубъл-проверка). */
+  function seqTask(step, i, meta) {
+    const src = {
+      kind: meta.kind || "order", sampleId: meta.sampleId, sampleType: meta.sampleType || "order",
+      seq: true, group: meta.group, chainId: meta.chainId, step: i, total: meta.steps.length, steps: meta.steps,
+      role: meta.role || "part",
+    };
+    if (meta.finalChainId) { src.finalChainId = meta.finalChainId; src.finalSteps = meta.finalSteps; }
+    return {
+      client: meta.clientName || "", product: step.product || "", code: step.code || "",
+      operation: step.operation || "", workshop: step.workshop || "",
+      qty: step.qty, opsPerUnit: step.opsPerUnit || 1, produced: 0, due: meta.deadline || "", thickness: "", files: [], logs: [],
+      source: src,
+    };
+  }
+  async function advanceSeq(c, rowId, t) {
+    const src = t && t.source;
+    if (!src || !src.seq) return;
+    const steps = src.steps || [];
+    const qty = n(t.qty), prod = n(t.produced);
+    if (!(qty > 0 && prod >= qty)) return;             // стъпката още не е готова
+    const next = (Number(src.step) || 0) + 1;
+    if (next < steps.length) {
+      if (src.advanced) return;
+      src.advanced = true;
+      await c.from("tasks").update({ data: t, done: true, updated_at: new Date().toISOString() }).eq("id", rowId);
+      try {
+        const { data } = await c.from("tasks").select("data").eq("data->source->>sampleId", String(src.sampleId));
+        const exists = (data || []).some(r => {
+          const s2 = r.data && r.data.source;
+          return s2 && String(s2.chainId) === String(src.chainId) && (Number(s2.step) || 0) === next;
+        });
+        if (exists) return;
+      } catch (e) { /* по-добре дубъл, отколкото спряна верига */ }
+      const nt = seqTask(steps[next], next, {
+        clientName: t.client || "", deadline: t.due || "", kind: src.kind, sampleId: src.sampleId,
+        sampleType: src.sampleType, group: src.group, chainId: src.chainId, steps,
+        role: src.role, finalChainId: src.finalChainId, finalSteps: src.finalSteps,
+      });
+      await c.from("tasks").insert({ data: nt });
+      return;
+    }
+    // Възелът приключи → ако всички възли от групата са готови, пусни финала.
+    if (src.role === "part" && src.finalChainId && (src.finalSteps || []).length) {
+      let rows = [];
+      try { const { data } = await c.from("tasks").select("data,done").eq("data->source->>sampleId", String(src.sampleId)); rows = data || []; } catch (e) { return; }
+      if (rows.some(r => { const s = r.data && r.data.source; return s && String(s.chainId) === String(src.finalChainId); })) return;
+      const parts = {};
+      rows.forEach(r => {
+        const s = r.data && r.data.source;
+        if (!s || s.role !== "part" || String(s.group) !== String(src.group)) return;
+        const g = parts[s.chainId] || (parts[s.chainId] = { done: false });
+        const stepN = Number(s.step) || 0, len = (s.steps || []).length;
+        if (stepN === len - 1) g.done = !!r.done;
+      });
+      const ids = Object.keys(parts);
+      if (!ids.length || !ids.every(id => parts[id].done)) return;
+      const nt = seqTask(src.finalSteps[0], 0, {
+        clientName: t.client || "", deadline: t.due || "", kind: src.kind, sampleId: src.sampleId,
+        sampleType: src.sampleType, group: src.group, chainId: src.finalChainId, steps: src.finalSteps, role: "final",
+      });
+      await c.from("tasks").insert({ data: nt });
+    }
+  }
+
   // Складовите движения по една задача. t = данните СЛЕД вдигането на produced
   // (същият обект, който току-що е записан). Мутира t.source (stocked /
   // consumedUnits / matConsumed) и презаписва задачата само ако има промяна.
   async function afterCredit(c, rowId, t) {
+    // Последователна верига (мостра / производство за склад): готова стъпка →
+    // пусни следващата операция (порт на erpAdvanceSeq, липсваше тук).
+    try { await advanceSeq(c, rowId, t); } catch (e) { console.warn("seq advance", e); }
     const src = t && t.source;
     if (!src || !src.flow) return;   // стар модел / ръчна задача — няма складова логика
     const produced = n(t.produced);
