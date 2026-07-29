@@ -412,6 +412,14 @@ function openReport(product,tableId){
   w.querySelector('#rp-save').addEventListener('click',async()=>{
     const qty=Number(String(w.querySelector('#rp-qty').value).replace(',','.'));
     if(!qty||qty<=0){alert('Въведи брой заварени сега.');return;}
+    // Поточен гейт — СЪЩАТА проверка като в Цехове: не повече от наличното
+    // от предната операция. Проверява се ПРЕДИ каквото и да е записване.
+    if(window.FLOW_CREDIT&&FLOW_CREDIT.gateCheck&&window.__sbxRachno){
+      const btn0=w.querySelector('#rp-save');btn0.disabled=true;btn0.textContent='Проверява…';
+      const g=await FLOW_CREDIT.gateCheck(window.__sbxRachno,WELDING.filter(t=>(t.product||'').trim()===product&&t.id),qty).catch(()=>null);
+      btn0.disabled=false;btn0.textContent='Запиши';
+      if(g&&!g.ok){alert(g.msg);return;}
+    }
     const readT=(vid,uid)=>{const v=Number(String(w.querySelector(vid).value).replace(',','.'));const u=w.querySelector(uid).value;const mult=u==='hour'?3600:(u==='min'?60:1);const sec=v>0?Math.round(v*mult):0;return sec?{v,unit:u,sec}:null;};
     const tOrder=readT('#rp-order-v','#rp-order-u');
     const consumables=(w.querySelector('#rp-cons').value||'').trim();
@@ -659,7 +667,7 @@ else loadWeldingTasks();
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
 <script src="../ui-guards.js?v=1"></script>
-<script src="../flow-credit.js?v=2"></script>
+<script src="../flow-credit.js?v=3"></script>
 <script src="sync.js?v=3"></script>
 </body>
 </html>
