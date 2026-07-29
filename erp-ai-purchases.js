@@ -128,7 +128,22 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
     let unit = l.unit || "бр.";
     let unitPrice = l.unit_price != null ? l.unit_price : "";
     let conv = null;
-    if (/^\s*(кг|kg)\.?\s*$/i.test(unit)) {
+    // ⚖ МЕТАЛИ (Тисен и др.): редът има и БРОЙ, и КИЛОГРАМИ, а цената често е
+    // за 1000 кг. Складът на металите е в кг → заприходяваме КИЛОГРАМИТЕ,
+    // с цена на кг, сметната от стойността на реда (тя е меродавна).
+    if (erpToNum(l.quantity_kg) > 0) {
+      const kg = erpToNum(l.quantity_kg);
+      const per = erpToNum(l.price_per) || 1;
+      const lineTotal = l.total != null ? Number(l.total)
+        : Math.round(kg * ((erpToNum(unitPrice) || 0) / per) * 100) / 100;
+      conv = { kgMode: true, pcs: qty, pcsUnit: unit, kg, kgTotal: lineTotal };
+      qty = kg; unit = "кг";
+      unitPrice = kg ? Math.round((lineTotal / kg) * 1e8) / 1e8 : 0;
+    } else if (erpToNum(l.price_per) > 1 && unitPrice !== "") {
+      // Цена „за 1000" без второ количество → свеждаме я до цена за 1 единица.
+      unitPrice = Math.round((erpToNum(unitPrice) / erpToNum(l.price_per)) * 1e8) / 1e8;
+    }
+    if (!conv && /^\s*(кг|kg)\.?\s*$/i.test(unit)) {
       const matName = (m.materialId && ERP.matById && ERP.matById[m.materialId]) ? (ERP.matById[m.materialId].name || "") : "";
       if (/нит|rivet/i.test(desc + " " + matName)) {
         const per = PU_NIT_PER_KG[puNitKey(desc + " " + matName)];
@@ -257,7 +272,9 @@ function erpPuAIRowHtml(r) {
   const sugg = (!r.materialId && r.suggestions.length)
     ? `<div class="ai-sugg">Предложения: ${r.suggestions.map(x => `<button type="button" class="ai-sugg-btn" data-i="${r.i}" data-mid="${x.materialId}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml((x.name || "").slice(0, 26))}</button>`).join("")}</div>` : "";
   return `<div class="ai-row" data-i="${r.i}">
-    <div class="ai-row-top"><span class="ai-dot ai-c-${r.confidence}">●</span><span class="ai-cn">${escapeHtml(r.desc || "")}</span>${r.supplierCode ? `<span class="ai-cc">${escapeHtml(r.supplierCode)}</span>` : ""}${r.conv ? `<span class="ai-cc" title="фактурата е в килограми — превърнато в бройки; цената на брой е сметната от стойността на реда">⚖ ${escapeHtml(String(r.conv.kg))} кг × ${r.conv.per} бр/кг = ${erpNum(r.conv.kgTotal)}</span>` : ""}</div>
+    <div class="ai-row-top"><span class="ai-dot ai-c-${r.confidence}">●</span><span class="ai-cn">${escapeHtml(r.desc || "")}</span>${r.supplierCode ? `<span class="ai-cc">${escapeHtml(r.supplierCode)}</span>` : ""}${r.conv ? (r.conv.kgMode
+      ? `<span class="ai-cc" title="металът се заприходява в КИЛОГРАМИ; цената на кг е сметната от стойността на реда">⚖ ${escapeHtml(String(r.conv.pcs))} ${escapeHtml(r.conv.pcsUnit || "бр.")} → ${escapeHtml(String(r.conv.kg))} кг = ${erpNum(r.conv.kgTotal)}</span>`
+      : `<span class="ai-cc" title="фактурата е в килограми — превърнато в бройки; цената на брой е сметната от стойността на реда">⚖ ${escapeHtml(String(r.conv.kg))} кг × ${r.conv.per} бр/кг = ${erpNum(r.conv.kgTotal)}</span>`) : ""}</div>
     <div class="ai-row-map"><div class="ai-prod" id="pai-map-${r.i}">${erpPuAIMatLabel(r)}</div><button type="button" class="btn btn-small pai-pick" data-i="${r.i}">🔎 Материал</button></div>
     ${sugg}
     <div class="ai-row-fields">
