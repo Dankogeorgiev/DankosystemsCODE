@@ -201,7 +201,7 @@ async function erpRenderDetailStockInner() {
       <span class="spacer"></span>
       <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
       <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
-      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip" multiple hidden />
+      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip,application/x-zip-compressed,.dwg,.dxf,.step,.stp,.igs,.iges" multiple hidden />
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
       <button type="button" class="btn btn-small" id="ds-fixcls" title="Намира продукти, ползвани като части в рецепти, но маркирани като артикул — и ги оправя, за да влязат тук">🔧 Провери класификацията</button>
       <button type="button" class="btn btn-small" id="ds-dedup" title="Открива продукти с еднакъв код, заведени два пъти (наличността на единия, рецептата на другия) — и ги обединява">🔗 Дублирани по код</button>
@@ -721,28 +721,40 @@ function dsMatchProductByFilename(base, idx) {
 // Предполага MIME по разширението (за файлове извадени от архив).
 function dsGuessMime(name) {
   const e = String(name).toLowerCase().split(".").pop();
-  return ({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", svg: "image/svg+xml" })[e] || "";
+  return ({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", svg: "image/svg+xml" })[e] || "application/octet-stream";
 }
-const DS_DRAW_EXT = /\.(pdf|png|jpe?g|gif|webp|bmp|tiff?|svg)$/i;
+const DS_DRAW_EXT = /\.(pdf|png|jpe?g|gif|webp|bmp|tiff?|svg|dwg|dxf|step|stp|igs|iges)$/i;   // + CAD формати
 
 // Разгъва избраните файлове: ZIP архивите се разпакова́т на отделни чертежи.
+// Диагностика: казва ЯСНО какво е намерено в архива и защо нещо е прескочено.
 async function dsExpandFiles(files) {
   const out = [];
   for (const f of files) {
-    if (/\.zip$/i.test(f.name)) {
-      if (typeof JSZip === "undefined") { alert("Библиотеката за архиви не е заредена. Презареди страницата и опитай пак."); continue; }
+    if (/\.(rar|7z)$/i.test(f.name)) {
+      alert(`„${f.name}" е ${/\.rar$/i.test(f.name) ? "RAR" : "7z"} архив — браузърът може да разпакова само ZIP.\n\nОтвори го на компютъра и го пре-запиши като ZIP (или качи файловете директно).`);
+      continue;
+    }
+    if (/\.zip$/i.test(f.name) || /zip/i.test(f.type || "")) {
+      if (typeof JSZip === "undefined") { alert("Библиотеката за архиви не е заредена. Презареди страницата (Ctrl+Shift+R) и опитай пак."); continue; }
       try {
         const zip = await JSZip.loadAsync(await f.arrayBuffer());
+        let entries = 0, skippedExt = 0;
+        const skippedNames = new Set();
         for (const name of Object.keys(zip.files)) {
           const entry = zip.files[name];
           if (entry.dir) continue;
           if (/(^|\/)__MACOSX\//.test(name) || /(^|\/)\./.test(name)) continue;   // системни/скрити
+          entries++;
           const bn = name.split("/").pop();
-          if (!bn || !DS_DRAW_EXT.test(bn)) continue;
+          if (!bn || !DS_DRAW_EXT.test(bn)) { skippedExt++; const m = String(bn || "").match(/\.[^.]+$/); if (m) skippedNames.add(m[0].toLowerCase()); continue; }
           const blob = await entry.async("blob");
           out.push(new File([blob], bn, { type: blob.type || dsGuessMime(bn) }));
         }
-      } catch (e) { alert("Не мога да разчета архива „" + f.name + "“: " + (e.message || e)); }
+        if (!entries) alert(`Архивът „${f.name}" изглежда празен (0 файла вътре).`);
+        else if (skippedExt) alert(`От архива „${f.name}": взети ${entries - skippedExt} от ${entries} файла.\nПрескочени ${skippedExt} с неподдържано разширение: ${[...skippedNames].join(", ") || "без разширение"}.\nПоддържат се: PDF, снимки, DWG, DXF, STEP.`);
+      } catch (e) {
+        alert(`Не мога да разчета архива „${f.name}": ${e.message || e}\n\nАко е много голям (стотици MB), раздели чертежите на няколко по-малки ZIP-а (напр. по 300-400 файла) и ги качи един по един — качването прескача вече качените, нищо няма да се дублира.`);
+      }
     } else {
       out.push(f);
     }
