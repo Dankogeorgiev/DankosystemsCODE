@@ -1288,7 +1288,7 @@ async function dsHistory(pid) {
     <div class="erp-lp-list">
       ${rows.length ? `<table class="report-table erp-table"><thead><tr><th>Дата</th><th>Тип</th><th class="num">Кол.</th><th>Бележка</th></tr></thead>
         <tbody>${rows.map(m => `<tr>
-          <td>${escapeHtml((m.created_at || "").slice(0, 10))}</td>
+          <td>${erpDMY((m.created_at || "").slice(0, 10))}</td>
           <td>${escapeHtml(m.kind || "")}</td>
           <td class="num ${Number(m.quantity) < 0 ? "erp-warn" : ""}">${Number(m.quantity) > 0 ? "+" : ""}${erpNum(Number(m.quantity) || 0)}</td>
           <td>${escapeHtml(m.note || m.ref || "")}</td>

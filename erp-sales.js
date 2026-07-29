@@ -159,7 +159,7 @@ function erpSaFillRows() {
     return `
     <tr class="erp-clickable" data-id="${o.id}">
       <td data-label="№ Продажба"><b>${escapeHtml(o.saleNo || "—")}</b></td>
-      <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+      <td data-label="Дата">${erpDMY(o.date)}</td>
       <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
       <td class="num" data-label="Редове">${(o.lines || []).length}</td>
       <td class="num" data-label="Сума">${erpSaleMoney(t.total, erpSaleCur(o))}</td>
@@ -775,7 +775,7 @@ function erpPrintSale(o) {
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат</button></div>
     <div class="head">
       <div><h1>ПРОДАЖБА</h1><div>№ <b>${escapeHtml(o.saleNo || "____")}</b></div></div>
-      <div class="meta">Дата на издаване: <b>${escapeHtml(o.date || "")}</b><br>Дата на данъчно събитие: <b>${escapeHtml(o.taxDate || o.date || "")}</b></div>
+      <div class="meta">Дата на издаване: <b>${erpDMY(o.date)}</b><br>Дата на данъчно събитие: <b>${erpDMY(o.taxDate || o.date)}</b></div>
     </div>
     <div class="parties">
       <div class="party"><h3>Продавач</h3><b>${escapeHtml(s.name || "")}</b><br>${sellerLines || '<span class="muted">— попълни данните на фирмата —</span>'}</div>

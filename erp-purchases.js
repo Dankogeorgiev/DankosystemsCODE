@@ -206,7 +206,7 @@ function erpPuFillRows() {
     const t = erpPuTotals(o);
     const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
     return `<tr class="erp-clickable" data-id="${o.id}">
-      <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+      <td data-label="Дата">${erpDMY(o.date)}</td>
       <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b>${o.docType === "goods" ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e">СР${o.coveredByNo ? " ✓ф. " + escapeHtml(o.coveredByNo) : ""}</span>` : ((o.coversIds || []).length ? ` <span class="erp-co-status" style="background:#e0e7ff;color:#3730a3">покрива ${(o.coversIds || []).length} СР</span>` : "")}</td>
       <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
       <td data-label="Класификация">${o.expenseType ? `<b>${erpPuTypeIsMat(o.expenseType) ? "🧱 " : ""}${escapeHtml(o.expenseType)}</b>${cls ? " · " : ""}` : ""}${escapeHtml(cls || (o.expenseType ? "" : "—"))}</td>
@@ -749,7 +749,7 @@ function erpPuTypesReport() {
         { label: "Основа", num: true }, { label: "ДДС", num: true }, { label: "С ДДС", num: true },
         { label: "Валута" }, { label: "Плащане" }, { label: "Статус" }],
       rows: rows.map(p => { const t = erpPuTotals(p); return [
-        p.date || "", p.invoiceNo || "", p.supplierName || "", (erpPuTypeIsMat(p.expenseType) ? "[М] " : "") + (p.expenseType || ""),
+        erpDMY(p.date), p.invoiceNo || "", p.supplierName || "", (erpPuTypeIsMat(p.expenseType) ? "[М] " : "") + (p.expenseType || ""),
         Math.round(t.base * 100) / 100, Math.round(t.vat * 100) / 100, Math.round(t.total * 100) / 100,
         erpPuCur(p), erpPuPayLabel(p), p.posted ? "заприходена" : "въведена",
       ]; }),
