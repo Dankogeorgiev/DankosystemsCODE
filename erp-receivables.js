@@ -126,9 +126,6 @@ async function erpRenderReceivables() {
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="recv-q" placeholder="🔎 клиент / № фактура…" value="${escapeAttr(recvQuery)}" style="min-width:180px" autocomplete="off" />
       <span class="spacer"></span>
-      <label class="btn btn-small co-attach-btn">⤓ Импорт (GenCloud)<input type="file" id="recv-file" accept=".xlsx,.xls" hidden /></label>
-      ${(RECEIVABLES || []).some(p => p.imported) ? '<button class="btn btn-small btn-danger" id="recv-clear-import" title="Изтрий импортираните вземания (тези от издадена фактура остават)">🗑 Изтегли импорта</button>' : ""}
-      ${(RECEIVABLES || []).length ? '<button class="btn btn-small btn-danger" id="recv-clear-all" title="Изтрий ВСИЧКИ вземания (пълно изчистване)">🗑 Изчисти всичко</button>' : ""}
     </div>
     <div class="pay-cards">
       ${card("Σ Общо за събиране", unpaid, "pay-card-total")}

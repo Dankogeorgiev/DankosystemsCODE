@@ -164,9 +164,6 @@ async function erpRenderPurchases() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
-      <label class="btn btn-small co-attach-btn" title="Импорт на разходи от GenCloud (xlsx) — сумите се вкарват положителни">⤓ Импорт (GenCloud)<input type="file" id="pu-import" accept=".xlsx,.xls" hidden /></label>
-      ${(erpPurchases || []).some(p => p.imported) ? '<button class="btn btn-small btn-danger" id="pu-clear-import" title="Изтрий всички импортирани фактури (ръчно въведените остават)">🗑 Изтегли импорта</button>' : ""}
-      ${(erpPurchases || []).length ? '<button class="btn btn-small btn-danger" id="pu-clear-all" title="Изтрий ВСИЧКИ фактури от Покупки (и ръчните, и импортираните)">🗑 Изчисти всичко</button>' : ""}
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>

@@ -131,8 +131,6 @@ async function erpRenderSales() {
       <span class="erp-count" id="sa-count"></span>
       <input type="search" id="sa-q" placeholder="🔎 № / клиент / код / продукт…" value="${escapeAttr(erpSaQuery || "")}" style="min-width:220px" autocomplete="off" />
       <span class="spacer"></span>
-      <label class="btn btn-small co-attach-btn" title="Импорт на продажби от GenCloud (xlsx) — регистър/архив. При съвпадащ № фактура импортът ПРЕЗАПИСВА записа в Системата (тестовете се заместват).">⤓ Импорт (GenCloud)<input type="file" id="sa-import" accept=".xlsx,.xls" hidden /></label>
-      ${(erpSales || []).some(o => o.imported) ? '<button class="btn btn-small btn-danger" id="sa-clear-import" title="Изтрий импортираните продажби (ръчните/тестовете остават)">🗑 Изтегли импорта</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-sa-new">+ Нова продажба</button>
     </div>
     <table class="report-table erp-table">
