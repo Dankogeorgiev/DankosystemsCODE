@@ -571,6 +571,23 @@ function toggleTake(p,tid){
   else { const at=new Date().toISOString(); list.push({t:tid,w:tname,at}); plog.push({kind:'start',date:todayStr(),table:tid,product:p,worker:tname,at}); }
   if(list.length)taken[p]=list; else delete taken[p];
   saveState();
+  // Синхронизация с Цех Заваръчно: взелите масите стават ОТГОВОРНИЦИ на
+  // задачите за това изделие (вижда се от всички профили в Цехове).
+  syncTakenToTasks(p,list.map(x=>x.w).filter(Boolean)).catch(e=>console.warn('отговорник → Цех',e));
+}
+async function syncTakenToTasks(product,names){
+  const c=window.__sbxRachno; if(!c)return;
+  const rows=WELDING.filter(t=>(t.product||'').trim()===product&&t.id);
+  for(const w of rows){
+    try{
+      const {data}=await c.from('tasks').select('*').eq('id',w.id).maybeSingle();
+      if(!data||!data.data)continue;
+      const t={...data.data};
+      const a=[...new Set(names)];
+      t.assignees=a; t.assignee=a[0]||'';
+      await c.from('tasks').update({data:t,updated_at:new Date().toISOString()}).eq('id',w.id);
+    }catch(e){/* следващата задача */}
+  }
 }
 // Добавя/маха маса от разпределението на изделие (може няколко маси).
 function toggleAssign(p,tid){
@@ -642,7 +659,7 @@ else loadWeldingTasks();
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
 <script src="../ui-guards.js?v=1"></script>
-<script src="../flow-credit.js?v=1"></script>
+<script src="../flow-credit.js?v=2"></script>
 <script src="sync.js?v=3"></script>
 </body>
 </html>
