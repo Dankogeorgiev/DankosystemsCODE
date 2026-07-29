@@ -197,12 +197,13 @@ function weldingProducts(){
   WELDING.forEach(t=>{const p=(t.product||'').trim();if(!p)return;
     const o=m.get(p)||{product:p,ordered:0,orders:0};
     o.ordered+=Number(t.qty)||0;o.orders++;m.set(p,o);});
-  // включи и изделия, които вече са разпределени, но в момента ги няма в задачите
-  Object.keys(assign).forEach(p=>{if(!m.has(p))m.set(p,{product:p,ordered:0,orders:0});});
+  // Показват се САМО изделия с активна задача в Цех Заваръчно —
+  // списъкът тук е ОГЛЕДАЛО на цеха (старите разпределения се пазят тихо).
   return [...m.values()].sort((a,b)=>a.product.localeCompare(b.product,'bg'));
 }
 const orderedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.qty)||0;});return s;};
-const remainOf=p=>Math.max(0,orderedOf(p)-(prod[p]||0));
+const producedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.produced)||0;});return s;};
+const remainOf=p=>Math.max(0,orderedOf(p)-producedOf(p));
 const productsOfRobot=id=>weldingProducts().filter(o=>assign[o.product]===id);
 const unassignedCount=()=>weldingProducts().filter(o=>!assign[o.product]).length;
 
@@ -272,7 +273,7 @@ function renderDist(){
           <td class="prod-nm">${esc(o.product)}</td>
           <td class="num">${o.orders||0}</td>
           <td class="num">${num(o.ordered)}</td>
-          <td class="num">${num(prod[o.product]||0)}</td>
+          <td class="num">${num(producedOf(o.product))}</td>
           <td class="num">${num(rem)}</td>
           <td><select class="rsel" data-assign="${esc(o.product)}">
             <option value="0"${a?'':' selected'}>— избери —</option>${opts(a)}
@@ -290,7 +291,7 @@ function renderDetail(id){
   $('rdSub').innerHTML=`<span class="rdot" style="background:${p.dot}"></span>клетка №${r.id} · ${p.label}`;
   const items=productsOfRobot(id);
   const tOrd=items.reduce((s,o)=>s+orderedOf(o.product),0);
-  const tProd=items.reduce((s,o)=>s+(prod[o.product]||0),0);
+  const tProd=items.reduce((s,o)=>s+(producedOf(o.product)),0);
   const tRem=items.reduce((s,o)=>s+remainOf(o.product),0);
   $('rdStats').innerHTML=
     `<div class="stat"><div class="k">Изделия</div><div class="v">${items.length}</div></div>
@@ -305,7 +306,7 @@ function renderDetail(id){
         return `<tr class="${done?'done':''}">
           <td class="prod-nm">${esc(o.product)}</td>
           <td class="num">${num(o.ordered)}</td>
-          <td class="num"><b>${num(prod[o.product]||0)}</b></td>
+          <td class="num"><b>${num(producedOf(o.product))}</b></td>
           <td class="num">${done?'<span class="pill">✓ готово</span>':num(rem)}</td>
           <td><button class="btn pri" data-report="${escAttr(o.product)}">⏱ Отчети</button></td></tr>`;}).join('')}</tbody></table>`
       : '<div class="empty">Този робот още няма изделия. Добави му от <a href="#razpredelenie">Разпределение</a>.</div>');
@@ -495,7 +496,10 @@ async function loadWeldingTasks(){
     const c=window.__sbxRoboti||(window.__sbxRoboti=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
     const {data,error}=await c.from('tasks').select('*');
     if(error)throw error;
-    WELDING=(data||[]).map(r=>({...r.data,id:r.id})).filter(t=>(t.workshop||'')==='Заваръчно');
+    WELDING=(data||[]).map(r=>({...r.data,id:r.id}))
+      .filter(t=>(t.workshop||'')==='Заваръчно')
+      // както в Цехове: изпълнените задачи не влизат в списъка
+      .filter(t=>!((Number(t.qty)||0)>0&&(Number(t.produced)||0)>=(Number(t.qty)||0)));
     await loadOperators(c);
     tasksLoaded=true;route();
   }catch(e){console.warn('Заваръчно роботи: задачи',e);tasksLoaded=true;route();}
