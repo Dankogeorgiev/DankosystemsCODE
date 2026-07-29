@@ -118,7 +118,7 @@ async function erpRenderMargin(v) {
           <tr class="fin-row erp-clickable" data-id="${escapeAttr(o.id)}">
             <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
             <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-            <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+            <td data-label="Дата">${erpDMY(o.date)}</td>
             <td class="num" data-label="Приходи">${erpEur(c.rev)}${c.missing ? ` <span class="fin-warn" title="${c.missing} реда без цена">⚠</span>` : ""}</td>
             <td class="num" data-label="Себестойност">${erpEur(c.cost)}</td>
             <td class="num ${erpFinPctCls(c.pct, c.rev)}" data-label="Маржин">${erpEur(c.margin)}</td>
@@ -161,7 +161,7 @@ function erpFinDetailHtml(c) {
 
 function erpFinExportCsv(list, calc) {
   const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const rows = list.map(o => { const c = calc[o.id]; return [o.ourNo || "", o.clientName || "", o.date || "", n(c.rev), n(c.cost), n(c.margin), c.rev > 0 ? n(c.pct) + "%" : ""]; });
+  const rows = list.map(o => { const c = calc[o.id]; return [o.ourNo || "", o.clientName || "", erpDMY(o.date), n(c.rev), n(c.cost), n(c.margin), c.rev > 0 ? n(c.pct) + "%" : ""]; });
   const T = list.reduce((a, o) => { const c = calc[o.id]; a.rev += c.rev; a.cost += c.cost; a.margin += c.margin; return a; }, { rev: 0, cost: 0, margin: 0 });
   rows.push(["ОБЩО", "", "", n(T.rev), n(T.cost), n(T.margin), T.rev > 0 ? n(T.margin / T.rev * 100) + "%" : ""]);
   reportExportXls("marjin-po-poruchka", "Маржин по поръчка", [{

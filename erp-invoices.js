@@ -272,7 +272,7 @@ async function erpRenderInvoices() {
           <td data-label="№"><b>${escapeHtml(o.docNo || "—")}</b></td>
           <td data-label="Тип">${escapeHtml(k.label || o.kind)}</td>
           <td data-label="Клиент">${escapeHtml((o.client && o.client.name) || "")}</td>
-          <td data-label="Дата">${escapeHtml(o.issueDate || "")}</td>
+          <td data-label="Дата">${erpDMY(o.issueDate)}</td>
           <td class="num" data-label="Сума">${erpInvMoney(t.total, erpInvCur(o))}</td>
           <td data-label="Вал.">${escapeHtml(erpInvCur(o))}</td>
           <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(status)}">${escapeHtml(status)}</span></td>
@@ -1064,7 +1064,7 @@ function erpInvPrintGoodsNote(o) {
   }).join("") || `<tr><td colspan="6" class="c muted">—</td></tr>`;
   const grossKg = (o.transport && erpToNum(o.transport.totalWeightKg) > 0) ? erpToNum(o.transport.totalWeightKg) : totKg;
   const body = `
-    <div class="head"><div><h1>СТОКОВА РАЗПИСКА</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || o.date || "")}</b></div></div>
+    <div class="head"><div><h1>СТОКОВА РАЗПИСКА</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${erpDMY(o.issueDate || o.date)}</b></div></div>
     <div class="parties"><div class="party"><h3>Получател</h3>${invClientBlock(o)}</div><div class="party"><h3>Предал (Доставчик)</h3>${invSellerBlock()}</div></div>
     <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th>Кол.</th><th>МЕ</th><th>Тегло (кг)</th></tr></thead><tbody>${rows}</tbody>
       ${grossKg ? `<tfoot><tr><td colspan="5" class="r"><b>Общо тегло</b></td><td class="r"><b>${erpNum(grossKg)} кг</b></td></tr></tfoot>` : ""}</table>
@@ -1096,7 +1096,7 @@ function erpInvPrintPallets(o) {
   const totW = pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
   const rows = pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="r">${erpNum(p.qty)}</td><td class="r">${p.weightKg ? erpNum(p.weightKg) : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="c muted">—</td></tr>`;
   const body = `
-    <div class="head"><div><h1>ПАЛЕТ ОПИС / PALLET LIST</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${escapeHtml(o.issueDate || o.date || "")}</b></div></div>
+    <div class="head"><div><h1>ПАЛЕТ ОПИС / PALLET LIST</h1><div>към ${escapeHtml(o.__ref || invDocRef(o))}</div></div><div style="text-align:right">Дата: <b>${erpDMY(o.issueDate || o.date)}</b></div></div>
     <div class="parties"><div class="party"><h3>Получател / Consignee</h3>${invClientBlock(o)}</div><div class="party"><h3>Доставчик / Shipper</h3>${invSellerBlock()}</div></div>
     <table><thead><tr><th>Палет №</th><th>Съдържание / Contents</th><th>Кол. / Qty</th><th>Тегло / Weight (kg)</th></tr></thead><tbody>${rows}</tbody>
       <tfoot><tr><td class="r"><b>Общо / Total</b></td><td></td><td class="r"><b>${erpNum(totQ)}</b></td><td class="r"><b>${erpNum(totW)}</b></td></tr></tfoot></table>
@@ -1115,7 +1115,7 @@ function erpInvPrintCMR(o) {
     <div class="head"><div><h1>ЧМР · CMR</h1><div class="muted">Международна товарителница / International consignment note</div></div><div style="text-align:right">${escapeHtml(invDocRef(o))}</div></div>
     <table class="cmr">
       <tr>${cell("1 Изпращач / Sender", invSellerBlock())}${cell("2 Получател / Consignee", invClientBlock(o))}</tr>
-      <tr>${cell("3 Място на разтоварване / Place of delivery", escapeHtml(tr.unloadPlace || [c.city, c.country].filter(Boolean).join(", ")))}${cell("4 Място и дата на товарене / Place & date of taking over", escapeHtml([tr.loadPlace || s.city, tr.loadDate].filter(Boolean).join(" · ")))}</tr>
+      <tr>${cell("3 Място на разтоварване / Place of delivery", escapeHtml(tr.unloadPlace || [c.city, c.country].filter(Boolean).join(", ")))}${cell("4 Място и дата на товарене / Place & date of taking over", escapeHtml([tr.loadPlace || s.city, erpDMY(tr.loadDate)].filter(Boolean).join(" · ")))}</tr>
       <tr>${cell("5 Приложени документи / Documents attached", escapeHtml(invDocRef(o)) + (tr.incoterms ? " · " + escapeHtml(tr.incoterms) : ""))}</tr>
       <tr>${cell("6-9 Маркировка, брой, вид, стока / Marks, packages, nature of goods", goods)}</tr>
       <tr>${cell("11 Бруто тегло / Gross weight (kg)", grossKg ? erpNum(grossKg) : "")}${cell("Брой пакети / Packages", escapeHtml(tr.totalPackages || ""))}</tr>

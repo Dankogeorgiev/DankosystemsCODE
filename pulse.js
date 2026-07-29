@@ -180,7 +180,7 @@ async function renderPulse() {
       <div class="pulse-panel">
         <h4>💵 Просрочени вземания (${recvOver.length})</h4>
         ${recvOver.length
-          ? `<table class="report-table"><thead><tr><th>Клиент</th><th>Фактура</th><th>Падеж</th><th class="num">EUR</th></tr></thead><tbody>${recvOver.slice(0, 15).map(p => `<tr><td>${escapeHtml(p.client || "")}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td class="pulse-danger">${escapeHtml(p.dueDate || "")}</td><td class="num">${money(num(p.amount) || 0, "EUR")}</td></tr>`).join("")}</tbody></table>${recvOver.length > 15 ? `<p class="erp-muted">…и още ${recvOver.length - 15}</p>` : ""}`
+          ? `<table class="report-table"><thead><tr><th>Клиент</th><th>Фактура</th><th>Падеж</th><th class="num">EUR</th></tr></thead><tbody>${recvOver.slice(0, 15).map(p => `<tr><td>${escapeHtml(p.client || "")}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td class="pulse-danger">${erpDMY(p.dueDate)}</td><td class="num">${money(num(p.amount) || 0, "EUR")}</td></tr>`).join("")}</tbody></table>${recvOver.length > 15 ? `<p class="erp-muted">…и още ${recvOver.length - 15}</p>` : ""}`
           : `<p class="erp-muted">Няма просрочени вземания. 🎉</p>`}
       </div>
       <div class="pulse-panel">

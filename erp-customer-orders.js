@@ -175,7 +175,7 @@ function erpPrintCO(o) {
     <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат</button></div>
     <div class="head">
       <div><h1>ЗАЯВКА</h1><div>№ <b>${escapeHtml(o.ourNo || "____")}</b>${o.clientNo ? ` · клиентски № <b>${escapeHtml(o.clientNo)}</b>` : ""}</div></div>
-      <div class="meta">Дата: <b>${escapeHtml(o.date || "")}</b><br>Срок за изпълнение: <b>${escapeHtml(o.deadline || "—")}</b><br>Статус: <b>${escapeHtml(o.status || "нова")}</b></div>
+      <div class="meta">Дата: <b>${erpDMY(o.date)}</b><br>Срок за изпълнение: <b>${erpDMY(o.deadline) || "—"}</b><br>Статус: <b>${escapeHtml(o.status || "нова")}</b></div>
     </div>
     <div class="parties">
       <div class="party"><h3>Доставчик</h3><b>${escapeHtml(s.name || "")}</b>${sellerLines ? "<br>" + sellerLines : ""}</div>
@@ -334,7 +334,7 @@ async function erpRenderCustomerOrders() {
             <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
             <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
             <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-            <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+            <td data-label="Дата">${erpDMY(o.date)}</td>
             <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
             <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
@@ -382,7 +382,7 @@ async function erpRenderCustomerOrders() {
         <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
         <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
         <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-        <td data-label="Дата">${escapeHtml(o.date || "")}</td>
+        <td data-label="Дата">${erpDMY(o.date)}</td>
         <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
         <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
         <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
@@ -441,7 +441,7 @@ async function erpRenderArchive() {
         <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
         <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
         <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-        <td data-label="Приключена">${escapeHtml((o.closedAt || "").slice(0, 10) || o.date || "")}</td>
+        <td data-label="Приключена">${erpDMY((o.closedAt || "").slice(0, 10) || o.date)}</td>
         <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
         ${prod ? "" : `<td class="num sell-cell" data-label="Стойност">${erpEur(val(o))}</td><td data-label="Продажба">${saleCell}</td>`}
         <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>

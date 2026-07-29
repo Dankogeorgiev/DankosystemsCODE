@@ -203,7 +203,7 @@ function erpPuAIDraw() {
           <label>Валута <select id="pai-cur"><option ${s.currency === "BGN" ? "selected" : ""}>BGN</option><option ${s.currency === "EUR" ? "selected" : ""}>EUR</option></select></label>
           <label>Вид разход <select id="pai-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === s.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
           <label>Плащане <select id="pai-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${s.payStatus === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
-          <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${escapeHtml(s.dueDate)}</span>` : ""}</label>
+          <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${erpDMY(s.dueDate)}</span>` : ""}</label>
         </div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход. Класификацията идва от избрания Вид разход. Плащането се въвежда на следващата стъпка.</p>
         <div id="pai-rows">${s.rows.map(erpPuAIRowHtml).join("")}</div>

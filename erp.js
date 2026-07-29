@@ -39,6 +39,8 @@ function erpEur(n) {
   return v.toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 }
 // Форматиране на количество (до 3 знака, без излишни нули).
+// Дата за ПОКАЗВАНЕ: ГГГГ-ММ-ДД → ДД.ММ.ГГГГ (полетата за въвеждане остават ISO).
+function erpDMY(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ""); }
 function erpNum(n) {
   const v = Number(n) || 0;
   return v.toLocaleString("bg-BG", { maximumFractionDigits: 3 });
