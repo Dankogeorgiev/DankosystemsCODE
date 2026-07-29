@@ -247,8 +247,9 @@ async function erpRenderPurchaseForm(o) {
   const v = erpView();
   const suppliers = await erpLoadSuppliers();
   const locked = !!o.posted;   // заключва само редовете за склад (заприходените)
-  const groups = [...new Set((erpPurchases || []).flatMap(p => (p.lines || []).map(l => l.groupName)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
   const articles = [...new Set((erpPurchases || []).flatMap(p => (p.lines || []).map(l => l.article)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  const hasType = !!o.expenseType;                 // видът разход определя редовете
+  const matType = erpPuTypeIsMat(o.expenseType);
   const due = erpPuDueDate(o);
   const st = erpPuPayStatus(o);
   v.innerHTML = `
@@ -289,17 +290,18 @@ async function erpRenderPurchaseForm(o) {
         <label class="btn btn-small co-attach-btn">⬆ Прикачи файл<input type="file" id="pu-file-input" multiple hidden /></label>
         <span class="erp-muted" id="pu-file-status"></span></div>
 
-      <h4 class="erp-group-head">Редове (класификация)</h4>
-      <table class="report-table erp-table" id="pu-lines">
-        <thead><tr><th>Група</th><th>Артикул</th><th>Код</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Сума</th><th></th></tr></thead>
+      <h4 class="erp-group-head">Редове${hasType ? ` <span class="erp-muted">— ${matType ? "🧱 " : ""}${escapeHtml(o.expenseType)}</span>` : ""}</h4>
+      ${hasType ? "" : '<p class="hint">⬆ Първо избери <b>Вид разход</b> — той определя редовете: 🧱 материален вид → редове с нашите кодове от склада (заприходяват се); останалите → редове разход/услуга.</p>'}
+      ${(hasType || (o.lines || []).length) ? `<table class="report-table erp-table" id="pu-lines">
+        <thead><tr><th>Артикул</th><th>Код</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Сума</th><th></th></tr></thead>
         <tbody>${erpPuLinesHtml(o, locked)}</tbody>
-      </table>
-      <div class="erp-co-actions">
-        <button class="btn btn-small" id="pu-add-mat">+ Материал (склад)</button>
-        <button class="btn btn-small" id="pu-add-exp">+ Разход / услуга</button>
-      </div>
+      </table>` : ""}
+      ${hasType ? `<div class="erp-co-actions">
+        ${matType
+          ? '<button class="btn btn-small btn-primary" id="pu-add-mat">+ Материал — наш код (склад)</button><button class="btn btn-small" id="pu-add-exp" title="Ред от фактурата, който не влиза в склада (услуга, транспорт по нея и т.н.)">+ Друг ред (без склад)</button>'
+          : '<button class="btn btn-small btn-primary" id="pu-add-exp">+ Ред (разход/услуга)</button><button class="btn btn-small" id="pu-add-mat" title="Ако по изключение фактурата носи и стока за склада">+ Материал (склад)</button>'}
+      </div>` : ""}
       ${erpPuProfileChipsHtml(o)}
-      <datalist id="pu-groups">${groups.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
       <datalist id="pu-articles">${articles.map(a => `<option value="${escapeAttr(a)}"></option>`).join("")}</datalist>
       <div class="erp-sale-totals" id="pu-totals"></div>
       <p class="hint">„Материал (склад)" се брои при заприходяване (вдига наличност + средна цена). „Разход/услуга" се класифицира и плаща, но не влиза в склада. Средните цени се водят в EUR — BGN се превръща авт.</p>
@@ -323,17 +325,17 @@ async function erpRenderPurchaseForm(o) {
   document.getElementById("pu-cur").addEventListener("change", e => { o.currency = e.target.value; erpPuTotalsBox(o); });
   document.getElementById("pu-vat").addEventListener("change", e => { o.vatRate = Number(e.target.value); erpPuTotalsBox(o); });
   document.getElementById("pu-etype").addEventListener("change", e => {
-    o.expenseType = e.target.value;
-    // Материален вид без материални редове → подсказка (да не се забрави заприходяването).
-    if (erpPuTypeIsMat(o.expenseType) && !(o.lines || []).some(l => l.materialId))
-      alert("🧱 " + o.expenseType + " е материален разход — добави редовете с бутона + Материал (склад), за да влязат в склада при заприходяване.");
+    const old = o.expenseType; o.expenseType = e.target.value;
+    // Класификацията на нематериалните редове следва вида разход.
+    (o.lines || []).forEach(l => { if (!l.materialId && (!l.groupName || l.groupName === old)) l.groupName = o.expenseType; });
+    erpRenderPurchaseForm(o);   // редовете/бутоните се пренареждат според вида
   });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
   const postBtn = document.getElementById("pu-post"); if (postBtn) postBtn.addEventListener("click", () => erpPostPurchase(o));
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
-  document.getElementById("pu-add-mat").addEventListener("click", () => erpPuAddMaterial(o));
-  document.getElementById("pu-add-exp").addEventListener("click", () => { o.lines.push({ groupName: "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
+  const addMat = document.getElementById("pu-add-mat"); if (addMat) addMat.addEventListener("click", () => erpPuAddMaterial(o));
+  const addExp = document.getElementById("pu-add-exp"); if (addExp) addExp.addEventListener("click", () => { o.lines.push({ groupName: o.expenseType || "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
   const fi = document.getElementById("pu-file-input"); if (fi) fi.addEventListener("change", e => erpPuAttachFiles(o, e.target.files));
   const fl = document.getElementById("pu-files-list"); if (fl) fl.addEventListener("click", e => { const rm = e.target.closest("[data-pufrm]"); if (rm) { e.preventDefault(); erpPuRemoveFile(o, Number(rm.dataset.pufrm)); } });
   erpPuWireLines(o, locked);
@@ -350,7 +352,6 @@ function erpPuLinesHtml(o, locked) {
     const isMat = !!l.materialId;
     const ro = locked && isMat;   // заприходените материални редове са заключени
     return `<tr>
-      <td data-label="Група">${ro ? escapeHtml(l.groupName || "") : `<input type="text" class="pu-grp" data-i="${i}" list="pu-groups" value="${escapeAttr(l.groupName || "")}" style="width:120px" />`}</td>
       <td data-label="Артикул">${ro ? escapeHtml(l.article || l.name || "") : `<input type="text" class="pu-art" data-i="${i}" list="pu-articles" value="${escapeAttr(l.article || l.name || "")}" style="width:150px" />`}</td>
       <td data-label="Код">${escapeHtml(l.code || "")}${isMat ? ' <span class="erp-muted">склад</span>' : ""}</td>
       <td class="num" data-label="Кол.">${ro ? erpNum(l.qty) : `<input type="number" class="pu-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
@@ -358,12 +359,11 @@ function erpPuLinesHtml(o, locked) {
       <td class="num" data-label="Ед. цена">${ro ? erpNum(l.unitPrice) : `<input type="number" class="pu-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="—" />`}</td>
       <td class="num" data-label="Сума">${erpPuMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), erpPuCur(o))}</td>
       <td class="erp-row-actions">${ro ? "" : `<button class="btn btn-small" data-rm="${i}">×</button>`}</td>
-    </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма редове. Добави материал или разход.</td></tr>`;
+    </tr>`; }).join("") || `<tr><td colspan="7" class="report-empty">Няма редове. Добави материал или разход.</td></tr>`;
 }
 function erpPuWireLines(o, locked) {
   const body = document.querySelector("#pu-lines tbody"); if (!body) return;
   const line = el => o.lines[Number(el.dataset.i)];
-  body.querySelectorAll(".pu-grp").forEach(el => el.addEventListener("input", () => line(el).groupName = el.value));
   body.querySelectorAll(".pu-art").forEach(el => el.addEventListener("input", () => line(el).article = el.value));
   body.querySelectorAll(".pu-unit").forEach(el => el.addEventListener("input", () => line(el).unit = el.value));
   body.querySelectorAll(".pu-qty").forEach(el => el.addEventListener("input", () => { line(el).qty = erpToNum(el.value); erpPuLineSums(o); }));
@@ -457,7 +457,7 @@ function erpPuAddMaterial(o) {
     listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">${escapeHtml(m.unit || "")}${m.avg_cost ? " · " + erpEur(m.avg_cost) : ""}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
       const m = ERP.matById[Number(b.dataset.id)];
-      o.lines.push({ materialId: m.id, code: m.code, name: m.name, article: m.name, groupName: m.group_name || "", unit: m.unit, qty: 1, unitPrice: "" });
+      o.lines.push({ materialId: m.id, code: m.code, name: m.name, article: m.name, groupName: m.group_name || o.expenseType || "", unit: m.unit, qty: 1, unitPrice: "" });
       close(); erpPuRefreshFull(o);
     }));
   };
