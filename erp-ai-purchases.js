@@ -133,9 +133,13 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
       if (/нит|rivet/i.test(desc + " " + matName)) {
         const per = PU_NIT_PER_KG[puNitKey(desc + " " + matName)];
         if (per) {
-          conv = { kg: qty, per };
+          // Меродавна е СТОЙНОСТТА на реда по фактурата (кг × цена/кг, 2 знака) —
+          // цената на брой се смята от нея, за да няма разлика при заприходяване.
+          const kgTotal = l.total != null ? Number(l.total)
+            : Math.round((erpToNum(qty) || 0) * (erpToNum(unitPrice) || 0) * 100) / 100;
+          conv = { kg: qty, per, kgPrice: unitPrice, kgTotal };
           qty = Math.round(qty * per);
-          if (unitPrice !== "") unitPrice = Math.round((unitPrice / per) * 10000) / 10000;
+          if (unitPrice !== "" && qty) unitPrice = Math.round((kgTotal / qty) * 1e8) / 1e8;
           unit = "бр.";
         }
       }
@@ -152,7 +156,16 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
     rows.forEach(r => { const g = r.groupName; if (g && PU_EXPENSE_TYPES.some(t => t.k === g)) cnt[g] = (cnt[g] || 0) + 1; });
     etype = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || "";
   }
-  PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: /eur|евро|€/i.test(parsed.currency || "") ? "EUR" : "BGN", expenseType: etype, rows };
+  // Плащане: по подразбиране отложено по банка. Срокът (дни) идва от падежа
+  // на самата фактура (падеж − дата) или от историята на доставчика.
+  let termDays = 0, dueDate = "";
+  if (parsed.due_date && parsed.order_date) {
+    const dd = Math.round((new Date(parsed.due_date) - new Date(parsed.order_date)) / 86400000);
+    if (dd > 0 && dd <= 180) { termDays = dd; dueDate = parsed.due_date; }
+  }
+  if (!termDays && prof && prof.payStatus === "deferred" && prof.termDays) termDays = prof.termDays;
+  const payStatus = (!termDays && prof && prof.payStatus) ? prof.payStatus : "deferred";
+  PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: /eur|евро|€/i.test(parsed.currency || "") ? "EUR" : "BGN", expenseType: etype, payStatus, termDays, dueDate, rows };
   erpPuAIDraw();
 }
 
@@ -189,9 +202,12 @@ function erpPuAIDraw() {
           <label>Дата <input type="date" id="pai-date" value="${escapeAttr(s.date)}" /></label>
           <label>Валута <select id="pai-cur"><option ${s.currency === "BGN" ? "selected" : ""}>BGN</option><option ${s.currency === "EUR" ? "selected" : ""}>EUR</option></select></label>
           <label>Вид разход <select id="pai-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === s.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
+          <label>Плащане <select id="pai-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${s.payStatus === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
+          <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${escapeHtml(s.dueDate)}</span>` : ""}</label>
         </div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход. Класификацията идва от избрания Вид разход. Плащането се въвежда на следващата стъпка.</p>
         <div id="pai-rows">${s.rows.map(erpPuAIRowHtml).join("")}</div>
+        <div class="erp-sale-totals" id="pai-totals"></div>
         <p class="save-status" id="pai-cstatus"></p>
       </div>
     </div>`;
@@ -209,10 +225,29 @@ function erpPuAIDraw() {
   document.getElementById("pai-date").addEventListener("input", e => s.date = e.target.value);
   document.getElementById("pai-cur").addEventListener("change", e => s.currency = e.target.value);
   document.getElementById("pai-etype").addEventListener("change", e => s.expenseType = e.target.value);
+  document.getElementById("pai-pay").addEventListener("change", e => { s.payStatus = e.target.value; const w = document.getElementById("pai-term-wrap"); if (w) w.style.display = s.payStatus === "deferred" ? "" : "none"; });
+  document.getElementById("pai-term").addEventListener("input", e => s.termDays = Number(e.target.value) || 0);
   if (typeof erpAISetupViewer === "function") erpAISetupViewer();
   erpPuAIWireRows();
+  erpPuAITotalsBox();
 }
 
+/* Сверка на сумите: сборът на редовете срещу тоталите, ПРОЧЕТЕНИ от документа.
+   Пази от заприходяване на фактура с по-малка/по-голяма стойност. */
+function erpPuAITotalsBox() {
+  const box = document.getElementById("pai-totals"); if (!box || !PAI) return;
+  const s = PAI, p = s.parsed || {};
+  const base = Math.round(s.rows.reduce((t, r) => t + (erpToNum(r.qty) || 0) * (erpToNum(r.unitPrice) || 0), 0) * 100) / 100;
+  const doc = p.net_total != null ? Math.round(Number(p.net_total) * 100) / 100 : null;
+  const diff = doc != null ? Math.round((base - doc) * 100) / 100 : null;
+  const cur = s.currency || "BGN";
+  const ok = diff != null && Math.abs(diff) <= 0.02;
+  box.innerHTML = `<table class="erp-sale-sum">
+    <tr><td>Сбор на редовете (основа)</td><td class="num">${erpNum(base)} ${cur}</td></tr>
+    ${doc != null ? `<tr><td>Основа по документа</td><td class="num">${erpNum(doc)} ${cur}</td></tr>
+    <tr class="grand"><td><b>${ok ? "✓ Сумите съвпадат" : "⚠ РАЗЛИКА"}</b></td><td class="num"><b>${ok ? "" : (diff > 0 ? "+" : "") + erpNum(diff) + " " + cur}</b></td></tr>` : `<tr><td colspan="2"><span class="erp-muted">Документът няма прочетени тотали за сверка (стар разчитач) — провери сумата на ръка.</span></td></tr>`}
+    ${p.grand_total != null ? `<tr><td>Общо с ДДС по документа</td><td class="num">${erpNum(p.grand_total)} ${cur}</td></tr>` : ""}</table>`;
+}
 function erpPuAIMatLabel(r) {
   if (r.materialId && ERP.matById[r.materialId]) { const m = ERP.matById[r.materialId]; return `<b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">склад</span>`; }
   if (r.code) return `<b>${escapeHtml(r.code)}</b> ${escapeHtml(r.article || "")} <span class="erp-muted">разход</span>`;
@@ -222,7 +257,7 @@ function erpPuAIRowHtml(r) {
   const sugg = (!r.materialId && r.suggestions.length)
     ? `<div class="ai-sugg">Предложения: ${r.suggestions.map(x => `<button type="button" class="ai-sugg-btn" data-i="${r.i}" data-mid="${x.materialId}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml((x.name || "").slice(0, 26))}</button>`).join("")}</div>` : "";
   return `<div class="ai-row" data-i="${r.i}">
-    <div class="ai-row-top"><span class="ai-dot ai-c-${r.confidence}">●</span><span class="ai-cn">${escapeHtml(r.desc || "")}</span>${r.supplierCode ? `<span class="ai-cc">${escapeHtml(r.supplierCode)}</span>` : ""}${r.conv ? `<span class="ai-cc" title="фактурата е в килограми — превърнато в бройки">⚖ ${escapeHtml(String(r.conv.kg))} кг × ${r.conv.per} бр/кг</span>` : ""}</div>
+    <div class="ai-row-top"><span class="ai-dot ai-c-${r.confidence}">●</span><span class="ai-cn">${escapeHtml(r.desc || "")}</span>${r.supplierCode ? `<span class="ai-cc">${escapeHtml(r.supplierCode)}</span>` : ""}${r.conv ? `<span class="ai-cc" title="фактурата е в килограми — превърнато в бройки; цената на брой е сметната от стойността на реда">⚖ ${escapeHtml(String(r.conv.kg))} кг × ${r.conv.per} бр/кг = ${erpNum(r.conv.kgTotal)}</span>` : ""}</div>
     <div class="ai-row-map"><div class="ai-prod" id="pai-map-${r.i}">${erpPuAIMatLabel(r)}</div><button type="button" class="btn btn-small pai-pick" data-i="${r.i}">🔎 Материал</button></div>
     ${sugg}
     <div class="ai-row-fields">
@@ -237,11 +272,11 @@ function erpPuAIWireRows() {
   const box = document.getElementById("pai-rows");
   const rowOf = el => PAI.rows.find(r => r.i === Number(el.dataset.i));
   box.querySelectorAll(".pai-art").forEach(el => el.addEventListener("input", () => rowOf(el).article = el.value));
-  box.querySelectorAll(".pai-qty").forEach(el => el.addEventListener("input", () => rowOf(el).qty = erpToNum(el.value)));
-  box.querySelectorAll(".pai-price").forEach(el => el.addEventListener("input", () => rowOf(el).unitPrice = erpToNum(el.value)));
+  box.querySelectorAll(".pai-qty").forEach(el => el.addEventListener("input", () => { rowOf(el).qty = erpToNum(el.value); erpPuAITotalsBox(); }));
+  box.querySelectorAll(".pai-price").forEach(el => el.addEventListener("input", () => { rowOf(el).unitPrice = erpToNum(el.value); erpPuAITotalsBox(); }));
   box.querySelectorAll(".pai-pick").forEach(el => el.addEventListener("click", () => erpPuAIPick(rowOf(el))));
   box.querySelectorAll(".ai-sugg-btn").forEach(el => el.addEventListener("click", () => { const r = PAI.rows.find(x => x.i === Number(el.dataset.i)); const m = ERP.matById[Number(el.dataset.mid)]; if (m) { r.materialId = m.id; r.code = m.code; r.article = m.name; r.groupName = m.group_name || r.groupName; r.confidence = "high"; erpPuAIRedrawRow(r); } }));
-  box.querySelectorAll(".pai-rm").forEach(el => el.addEventListener("click", () => { const i = Number(el.dataset.i); PAI.rows = PAI.rows.filter(r => r.i !== i); const n = box.querySelector(`.ai-row[data-i="${i}"]`); if (n) n.remove(); }));
+  box.querySelectorAll(".pai-rm").forEach(el => el.addEventListener("click", () => { const i = Number(el.dataset.i); PAI.rows = PAI.rows.filter(r => r.i !== i); const n = box.querySelector(`.ai-row[data-i="${i}"]`); if (n) n.remove(); erpPuAITotalsBox(); }));
 }
 function erpPuAIRedrawRow(r) {
   const node = document.querySelector(`#pai-rows .ai-row[data-i="${r.i}"]`); if (!node) return;
@@ -276,12 +311,19 @@ async function erpPuAIConfirm() {
   const bad = s.rows.filter(r => !(erpToNum(r.qty) > 0));
   if (bad.length) { alert("Има редове с количество ≤ 0."); return; }
   if (!s.expenseType && !confirm("Не е избран Вид разход. Да създам черновата без него? (може да се добави и после във формата)")) return;
+  // Сверка на сумите срещу документа — да не се заприходи с грешна стойност.
+  const p0 = s.parsed || {};
+  if (p0.net_total != null) {
+    const base = Math.round(s.rows.reduce((t, r) => t + (erpToNum(r.qty) || 0) * (erpToNum(r.unitPrice) || 0), 0) * 100) / 100;
+    const dif = Math.round((base - Number(p0.net_total)) * 100) / 100;
+    if (Math.abs(dif) > 0.02 && !confirm(`⚠ Сборът на редовете (${erpNum(base)}) се РАЗЛИЧАВА от основата по документа (${erpNum(p0.net_total)}) с ${erpNum(dif)}.\nПровери количествата и цените. Да продължа въпреки разликата?`)) return;
+  }
   const btn = document.getElementById("pai-confirm"); if (btn) { btn.disabled = true; btn.textContent = "Създавам…"; }
   try {
     const purchase = {
       type: "фактура", supplierName: s.supName || "", supplierId: s.supId || null, expenseType: s.expenseType || "",
       invoiceNo: s.invoiceNo || "", date: s.date || new Date().toISOString().slice(0, 10),
-      paymentMethod: "Банка", termDays: 0, dueDate: "", paid: false, paidDate: "",
+      payStatus: s.payStatus || "deferred", termDays: Number(s.termDays) || 0, dueDate: s.dueDate || "", paid: false, paidDate: "",
       currency: s.currency || "BGN", vatRate: 20, note: "", files: [s.fileInfo], aiParsed: s.parsed, posted: false,
       lines: s.rows.map(r => {
         const base = { groupName: r.groupName || s.expenseType || "", article: r.article || r.desc || "", code: r.code || "", qty: erpToNum(r.qty) || 1, unit: r.unit || "бр.", unitPrice: erpToNum(r.unitPrice) || "" };
@@ -289,6 +331,7 @@ async function erpPuAIConfirm() {
         return base;
       }),
     };
+    if (typeof erpPuApplyPay === "function") erpPuApplyPay(purchase);   // канонични полета по статуса
     await erpSavePurchase(purchase);
     const pairs = s.rows.filter(r => r.desc && (r.materialId || r.code)).map(r => ({ desc: r.desc, materialId: r.materialId, code: r.code, article: r.article, groupName: r.groupName }));
     try { await erpMatLearnAliases(s.supId, s.supName, pairs); } catch (e) { console.warn(e); }
