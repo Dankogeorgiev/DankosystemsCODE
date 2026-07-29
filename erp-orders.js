@@ -304,6 +304,57 @@ async function erpMaybeStartFinal(t, src) {
   if (error) console.error("seq final", error);
 }
 
+/* ---------- 🔧 Пускане на заседнали вериги ----------
+   Отчети от масите/роботите ПРЕДИ поправката (версия 524) завършваха
+   стъпката, но не пускаха следващата операция — веригата „засядаше".
+   Този инструмент (бутон в Цехове, само за админи) намира всички такива:
+   последна налична стъпка ГОТОВА (произведено ≥ количество), а следващата
+   задача ЛИПСВА → чисти флага и я пуска през erpAdvanceSeq (с неговата
+   дубъл-проверка). Проверява и финалните сглобявания. Идемпотентен —
+   може да се пуска колкото пъти трябва. */
+async function erpFixStuckChains() {
+  if (!confirm("Да потърся ли заседнали вериги (готова стъпка без пусната следваща операция) и да ги пусна?")) return;
+  let rows = [];
+  try {
+    const { data, error } = await erpSelectAll("tasks", "id,data,done");
+    if (error) throw error;
+    rows = (data || []).filter(r => r.data && r.data.source && r.data.source.seq);
+  } catch (e) { alert("Грешка при четене на задачите: " + (e.message || e)); return; }
+  const byChain = {};
+  rows.forEach(r => {
+    const s = r.data.source;
+    const k = String(s.sampleId) + "|" + String(s.chainId);
+    (byChain[k] = byChain[k] || []).push(r);
+  });
+  let launched = 0, finals = 0, scanned = 0;
+  const names = [];
+  for (const k of Object.keys(byChain)) {
+    const chain = byChain[k].sort((a, b) => (Number(a.data.source.step) || 0) - (Number(b.data.source.step) || 0));
+    const lastRow = chain[chain.length - 1];
+    const t = { ...lastRow.data, id: lastRow.id };
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    if (!(qty > 0 && prod >= qty)) continue;   // последната налична стъпка не е готова — не е заседнала
+    const src = t.source; const steps = src.steps || [];
+    const nextStep = (Number(src.step) || 0) + 1;
+    scanned++;
+    if (nextStep < steps.length) {
+      if (chain.some(r => (Number(r.data.source.step) || 0) === nextStep)) continue;   // следващата си я има
+      delete src.advanced;   // флагът е вдигнат, но задачата липсва → пусни наново
+      try {
+        await erpAdvanceSeq(t);
+        launched++;
+        names.push(`${t.code || t.product || "?"} → ${(steps[nextStep] || {}).operation || "следваща"} (${(steps[nextStep] || {}).workshop || "?"})`);
+      } catch (e) { console.warn("fix chain", e); }
+    } else if (src.role === "part" && src.finalChainId && (src.finalSteps || []).length) {
+      const before = rows.some(r => String(r.data.source.chainId) === String(src.finalChainId));
+      if (before) continue;
+      try { await erpAdvanceSeq(t); finals++; } catch (e) { console.warn("fix final", e); }
+    }
+  }
+  try { if (typeof tLoadTasks === "function") { await tLoadTasks(); if (typeof renderTasks === "function") renderTasks(); } } catch (e) {}
+  alert(`🔧 Проверени готови вериги: ${scanned}.\nПуснати следващи операции: ${launched}${names.length ? "\n• " + names.slice(0, 12).join("\n• ") + (names.length > 12 ? `\n…и още ${names.length - 12}` : "") : ""}\nПроверени финални сглобявания: ${finals}.\n\n${launched || finals ? "Новите задачи са в цеховете си." : "Няма заседнали вериги — всичко е пуснато."}`);
+}
+
 /* ---------- Поточно производство (стандарт за всички продукти) ----------
    Всеки детайл минава през своите операции ПОТОЧНО: колкото са отчетени като
    произведени на една операция, толкова стават налични за следващата. Всички

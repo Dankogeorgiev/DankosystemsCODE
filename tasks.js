@@ -554,6 +554,9 @@ function applyTasksAccess() {
   if (pb) pb.hidden = !(!w || MY_ACCESS.workshop === "Бояджийно");
   const pbm = document.getElementById("tasks-painting-manual");
   if (pbm) pbm.hidden = !(!w || MY_ACCESS.workshop === "Бояджийно");
+  // „🔧 Пусни заседнали вериги" — само за админи (ремонтен инструмент).
+  const fxc = document.getElementById("tasks-fix-chains");
+  if (fxc) fxc.hidden = w;
   // „Заваръчно роботи“ — за админи и за служители от цех Заваръчно
   const wr = document.getElementById("tasks-welding-roboti");
   if (wr) wr.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
