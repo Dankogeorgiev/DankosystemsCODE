@@ -32,6 +32,13 @@ const PU_EXPENSE_TYPES = [
   { k: "Други разходи" },
 ];
 function erpPuTypeIsMat(t) { const x = PU_EXPENSE_TYPES.find(e => e.k === t); return !!(x && x.mat); }
+// Нормализира № на фактура / име на доставчик за сравнение (интервали, водещи нули, регистър).
+function erpPuEq(s) { return String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase(); }
+// Други ЗАПИСИ със същия № на фактура (двойно въвеждане на една и съща фактура).
+function erpPuDupsOf(o) {
+  if (!o.invoiceNo) return [];
+  return (erpPurchases || []).filter(p => String(p.id) !== String(o.id) && erpPuEq(p.invoiceNo) === erpPuEq(o.invoiceNo));
+}
 let erpPurchases = null;
 let erpPuFolder = "payable";   // payable | paid | all
 let erpPuQuery = "";
@@ -254,10 +261,10 @@ async function erpRenderPurchaseForm(o) {
       <button class="btn btn-small" id="pu-back">← Назад</button>
       <span class="erp-count">${escapeHtml((o.docType === "goods" ? "Стокова разписка № " : "Фактура № ") + (o.invoiceNo || "")) || "Нов документ"}${o.docType !== "goods" && st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}${(o.coversIds || []).length ? ` · <span class="erp-muted">покрива ${(o.coversIds || []).length} стокови</span>` : ""}</span>
       <span class="spacer"></span>
-      <button class="btn btn-small" id="pu-save">💾 Запази</button>
+      <button class="btn btn-small btn-primary" id="pu-save" title="Записва фактурата; ако има редове за склад — веднага ги и заприходява (пита за потвърждение)">${erpPuSaveLabel(o)}</button>
       ${locked
         ? '<span class="erp-count">✓ Заприходена</span> <button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
-        : '<button class="btn btn-small" id="pu-post" title="Само материалните редове вдигат склад + средна цена">📥 Заприходи материалите</button>'}
+        : ""}
     </div>
     <div class="erp-co-form">
       <div class="erp-co-grid">
@@ -329,7 +336,6 @@ async function erpRenderPurchaseForm(o) {
   });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
-  const postBtn = document.getElementById("pu-post"); if (postBtn) postBtn.addEventListener("click", () => erpPostPurchase(o));
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
   const addMat = document.getElementById("pu-add-mat"); if (addMat) addMat.addEventListener("click", () => erpPuAddMaterial(o));
   const addExp = document.getElementById("pu-add-exp"); if (addExp) addExp.addEventListener("click", () => { o.lines.push({ groupName: o.expenseType || "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
@@ -372,7 +378,7 @@ function erpPuLineSums(o) {
   body.querySelectorAll("tr").forEach((tr, i) => { const l = (o.lines || [])[i]; if (!l) return; const c = tr.querySelector('td[data-label="Сума"]'); if (c) c.textContent = erpPuMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), erpPuCur(o)); });
   erpPuTotalsBox(o);
 }
-function erpPuRefreshFull(o) { const body = document.querySelector("#pu-lines tbody"); if (body) { body.innerHTML = erpPuLinesHtml(o, !!o.posted); erpPuWireLines(o, !!o.posted); } erpPuTotalsBox(o); }
+function erpPuRefreshFull(o) { const body = document.querySelector("#pu-lines tbody"); if (body) { body.innerHTML = erpPuLinesHtml(o, !!o.posted); erpPuWireLines(o, !!o.posted); } erpPuTotalsBox(o); const sbtn = document.getElementById("pu-save"); if (sbtn && !sbtn.disabled) sbtn.textContent = erpPuSaveLabel(o); }
 function erpPuTotalsBox(o) {
   const box = document.getElementById("pu-totals"); if (!box) return;
   const t = erpPuTotals(o); const cur = erpPuCur(o);
@@ -495,16 +501,35 @@ async function erpPuRemoveFile(o, i) {
   const list = document.getElementById("pu-files-list"); if (list) list.innerHTML = erpPuFilesHtml(o);
 }
 
+/* Един бутон за запис и заприходяване: има ли редове за склад (или покривани
+   стокови) — записът продължава направо със заприходяването; иначе само пише. */
+function erpPuNeedsPost(o) {
+  if (o.posted) return false;
+  if (o.docType !== "goods" && (o.coversIds || []).length) return true;   // покриваща фактура (само парите)
+  return (o.lines || []).some(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
+}
+function erpPuSaveLabel(o) { return erpPuNeedsPost(o) ? "💾 Запази и заприходи" : "💾 Запази"; }
 async function erpPuSaveClick(o) {
   const btn = document.getElementById("pu-save");
+  // Дубликат по № на фактурата — предупреждение още при записа.
+  if (!o.posted && o.invoiceNo) {
+    const dup = erpPuDupsOf(o).find(p => erpPuEq(p.supplierName) === erpPuEq(o.supplierName)) || erpPuDupsOf(o)[0];
+    if (dup && !confirm(`⚠ Фактура № ${o.invoiceNo} ВЕЧЕ е въведена: ${dup.supplierName || "?"} · ${erpDMY(dup.date) || "?"} · ${dup.posted ? "ЗАПРИХОДЕНА" : "чернова"}.\nАко това е СЪЩАТА фактура — спри и провери в списъка.\nДа запиша ли въпреки това ВТОРИ запис?`)) return;
+  }
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
   erpPuApplyPay(o);   // синхронизира paid/срок/дата според избрания статус на плащане
   try {
     await erpSavePurchase(o); await erpLoadPurchases();
     try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
-    if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = "💾 Запази"; btn.disabled = false; } }, 1400); }
+    if (erpPuNeedsPost(o)) {
+      await erpPostPurchase(o);   // пита за потвърждение; при успех пре-рендира формата
+      const b2 = document.getElementById("pu-save");
+      if (b2) { b2.disabled = false; b2.textContent = erpPuSaveLabel(o); }
+      return;
+    }
+    if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = erpPuSaveLabel(o); btn.disabled = false; } }, 1400); }
   }
-  catch (e) { if (btn) { btn.disabled = false; btn.textContent = "💾 Запази"; } alert("Грешка при запис: " + (e.message || e)); }
+  catch (e) { if (btn) { btn.disabled = false; btn.textContent = erpPuSaveLabel(o); } alert("Грешка при запис: " + (e.message || e)); }
 }
 
 /* ---------- Импорт на разходи от GenCloud (xlsx) ----------
@@ -835,9 +860,9 @@ async function erpPostPurchase(o) {
   if (!confirm(`Да заприходя ли ${matLines.length} материала в склада? Наличностите се вдигат и средните цени се обновяват (веднъж).`)) return;
   // Предпазители срещу ДВОЙНО заприходяване: бутонът се заключва веднага
   // (бърз двоен клик), а по-долу проверяваме и базата (втора отворена сесия).
-  const postBtn = document.getElementById("pu-post");
+  const postBtn = document.getElementById("pu-save");
   if (postBtn) { postBtn.disabled = true; postBtn.textContent = "Заприходява…"; }
-  const fail = msg => { if (postBtn) { postBtn.disabled = false; postBtn.textContent = "📥 Заприходи материалите"; } if (msg) alert(msg); };
+  const fail = msg => { if (postBtn) { postBtn.disabled = false; postBtn.textContent = erpPuSaveLabel(o); } if (msg) alert(msg); };
   try { await erpSavePurchase(o); } catch (e) { fail("Грешка при запис: " + (e.message || e)); return; }
   // Втора сесия/таб може да е заприходила междувременно — четем свежия статус.
   try {
@@ -849,15 +874,20 @@ async function erpPostPurchase(o) {
       return;
     }
   } catch (e) { /* при мрежова грешка продължаваме — ref-проверката е втората мрежа */ }
-  // Има ли вече складови движения по същата фактура — не заприходяваме пак.
-  const refCheck = `Фактура ${o.invoiceNo || "—"} · ${o.supplierName || ""}`.trim();
   if (o.invoiceNo) {
+    // Друг ЗАПИС със същия № на фактура, вече заприходен → двойно въведена фактура.
+    const dups = erpPuDupsOf(o).filter(p => p.posted);
+    const sameSup = dups.find(p => erpPuEq(p.supplierName) === erpPuEq(o.supplierName));
+    if (sameSup) {
+      fail(`⚠ Фактура № ${o.invoiceNo} от ${sameSup.supplierName || "?"} ВЕЧЕ е заприходена (запис от ${erpDMY(sameSup.date) || "?"}).\nТова е ДУБЛИКАТ — не заприходявам втори път.\nАко другият запис е грешният: отвори го и ползвай „↩ Върни за редакция".`);
+      return;
+    }
+    if (dups.length && !confirm(`⚠ Вече има ЗАПРИХОДЕНА фактура № ${o.invoiceNo} (доставчик: ${dups[0].supplierName || "?"}, ${erpDMY(dups[0].date) || "?"}).\nАко е СЪЩАТА фактура с другояче изписан доставчик — спри!\nПродължавам само ако е СЛУЧАЙНО съвпадение на номера при друг доставчик. Да продължа ли?`)) { fail(); return; }
+    // Складови движения по същия № (хваща и различно изписан доставчик в ref-а).
     try {
-      const { count } = await sb.from("stock_movements").select("id", { count: "exact", head: true }).eq("ref", refCheck);
-      if (count > 0) {
-        fail(`По тази фактура ВЕЧЕ има ${count} складови движения — не заприходявам втори път.\nАко е грешка, ползвай „↩ Върни за редакция" и заприходи наново.`);
-        return;
-      }
+      const { data: mv } = await sb.from("stock_movements").select("ref").like("ref", `Фактура ${o.invoiceNo} ·%`).limit(200);
+      const refs = [...new Set((mv || []).map(x => x.ref))];
+      if (refs.length && !confirm(`⚠ По фактура № ${o.invoiceNo} ВЕЧЕ има складови движения:\n${refs.slice(0, 3).join("\n")}\nТова обикновено значи ДВОЙНО заприходяване. Наистина ли да продължа?`)) { fail(); return; }
     } catch (e) {}
   }
 

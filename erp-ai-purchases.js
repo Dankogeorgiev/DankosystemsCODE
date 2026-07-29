@@ -311,6 +311,11 @@ async function erpPuAIConfirm() {
   const bad = s.rows.filter(r => !(erpToNum(r.qty) > 0));
   if (bad.length) { alert("Има редове с количество ≤ 0."); return; }
   if (!s.expenseType && !confirm("Не е избран Вид разход. Да създам черновата без него? (може да се добави и после във формата)")) return;
+  // Дубликат: същият № на фактура вече въведен (напр. сканирана два пъти).
+  if (s.invoiceNo && typeof erpPuEq === "function") {
+    const dup = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).find(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
+    if (dup && !confirm(`⚠ Фактура № ${s.invoiceNo} ВЕЧЕ е въведена: ${dup.supplierName || "?"} · ${dup.posted ? "ЗАПРИХОДЕНА" : "чернова"}.\nАко е същата фактура — спри (има я в списъка).\nДа създам ли въпреки това ВТОРИ запис?`)) return;
+  }
   // Сверка на сумите срещу документа — да не се заприходи с грешна стойност.
   const p0 = s.parsed || {};
   if (p0.net_total != null) {
