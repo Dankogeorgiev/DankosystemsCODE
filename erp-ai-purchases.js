@@ -144,7 +144,16 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
     return { i, desc, supplierCode: l.client_code || "", qty, unit, unitPrice, conv,
       materialId: m.materialId || null, code: m.code || "", article: m.article || desc, groupName: m.groupName || "", confidence: m.confidence, suggestions: m.suggestions || [] };
   });
-  PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: /eur|евро|€/i.test(parsed.currency || "") ? "EUR" : "BGN", rows };
+  // Вид разход: от историята на доставчика или от групите на разпознатите материали.
+  let etype = "";
+  const prof = (typeof erpPuSupplierProfile === "function") ? erpPuSupplierProfile(ctx.supName) : null;
+  if (prof && prof.expenseType) etype = prof.expenseType;
+  if (!etype) {
+    const cnt = {};
+    rows.forEach(r => { const g = r.groupName; if (g && PU_EXPENSE_TYPES.some(t => t.k === g)) cnt[g] = (cnt[g] || 0) + 1; });
+    etype = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || "";
+  }
+  PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: /eur|евро|€/i.test(parsed.currency || "") ? "EUR" : "BGN", expenseType: etype, rows };
   erpPuAIDraw();
 }
 
@@ -180,18 +189,27 @@ function erpPuAIDraw() {
           <label>№ Фактура <input type="text" id="pai-no" value="${escapeAttr(s.invoiceNo)}" /></label>
           <label>Дата <input type="date" id="pai-date" value="${escapeAttr(s.date)}" /></label>
           <label>Валута <select id="pai-cur"><option ${s.currency === "BGN" ? "selected" : ""}>BGN</option><option ${s.currency === "EUR" ? "selected" : ""}>EUR</option></select></label>
+          <label>Вид разход <select id="pai-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === s.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
         </div>
-        <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход с група/артикул. Плащането се въвежда на следващата стъпка.</p>
+        <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход. Класификацията идва от избрания Вид разход. Плащането се въвежда на следващата стъпка.</p>
         <div id="pai-rows">${s.rows.map(erpPuAIRowHtml).join("")}</div>
         <p class="save-status" id="pai-cstatus"></p>
       </div>
     </div>`;
   document.getElementById("pai-back").addEventListener("click", () => { if (confirm("Да се откажа? Черновата още не е създадена.")) erpRenderPurchases(); });
   document.getElementById("pai-confirm").addEventListener("click", erpPuAIConfirm);
-  document.getElementById("pai-sup").addEventListener("input", e => { s.supName = e.target.value; const m = s.suppliers.find(x => x.name === e.target.value); s.supId = m ? m.id : null; });
+  document.getElementById("pai-sup").addEventListener("input", e => {
+    s.supName = e.target.value; const m = s.suppliers.find(x => x.name === e.target.value); s.supId = m ? m.id : null;
+    // Познат доставчик → предложи вида разход от историята му (ако още не е избран).
+    if (m && !s.expenseType && typeof erpPuSupplierProfile === "function") {
+      const p = erpPuSupplierProfile(m.name);
+      if (p && p.expenseType) { s.expenseType = p.expenseType; const el = document.getElementById("pai-etype"); if (el) el.value = p.expenseType; }
+    }
+  });
   document.getElementById("pai-no").addEventListener("input", e => s.invoiceNo = e.target.value);
   document.getElementById("pai-date").addEventListener("input", e => s.date = e.target.value);
   document.getElementById("pai-cur").addEventListener("change", e => s.currency = e.target.value);
+  document.getElementById("pai-etype").addEventListener("change", e => s.expenseType = e.target.value);
   if (typeof erpAISetupViewer === "function") erpAISetupViewer();
   erpPuAIWireRows();
 }
@@ -209,7 +227,6 @@ function erpPuAIRowHtml(r) {
     <div class="ai-row-map"><div class="ai-prod" id="pai-map-${r.i}">${erpPuAIMatLabel(r)}</div><button type="button" class="btn btn-small pai-pick" data-i="${r.i}">🔎 Материал</button></div>
     ${sugg}
     <div class="ai-row-fields">
-      <label>Група <input type="text" class="pai-grp" data-i="${r.i}" list="pu-groups" value="${escapeAttr(r.groupName)}" style="width:110px" /></label>
       <label>Артикул <input type="text" class="pai-art" data-i="${r.i}" value="${escapeAttr(r.article)}" style="width:140px" /></label>
       <label>Бр. <input type="number" class="pai-qty" data-i="${r.i}" min="0" step="any" value="${escapeAttr(String(r.qty))}" /></label>
       <label>Ед. цена <input type="number" class="pai-price" data-i="${r.i}" min="0" step="any" value="${escapeAttr(String(r.unitPrice))}" placeholder="0.00" /></label>
@@ -220,7 +237,6 @@ function erpPuAIRowHtml(r) {
 function erpPuAIWireRows() {
   const box = document.getElementById("pai-rows");
   const rowOf = el => PAI.rows.find(r => r.i === Number(el.dataset.i));
-  box.querySelectorAll(".pai-grp").forEach(el => el.addEventListener("input", () => rowOf(el).groupName = el.value));
   box.querySelectorAll(".pai-art").forEach(el => el.addEventListener("input", () => rowOf(el).article = el.value));
   box.querySelectorAll(".pai-qty").forEach(el => el.addEventListener("input", () => rowOf(el).qty = erpToNum(el.value)));
   box.querySelectorAll(".pai-price").forEach(el => el.addEventListener("input", () => rowOf(el).unitPrice = erpToNum(el.value)));
@@ -260,15 +276,16 @@ async function erpPuAIConfirm() {
   if (!s.rows.length) { st.textContent = "⚠ Няма редове."; return; }
   const bad = s.rows.filter(r => !(erpToNum(r.qty) > 0));
   if (bad.length) { alert("Има редове с количество ≤ 0."); return; }
+  if (!s.expenseType && !confirm("Не е избран Вид разход. Да създам черновата без него? (може да се добави и после във формата)")) return;
   const btn = document.getElementById("pai-confirm"); if (btn) { btn.disabled = true; btn.textContent = "Създавам…"; }
   try {
     const purchase = {
-      type: "фактура", supplierName: s.supName || "", supplierId: s.supId || null,
+      type: "фактура", supplierName: s.supName || "", supplierId: s.supId || null, expenseType: s.expenseType || "",
       invoiceNo: s.invoiceNo || "", date: s.date || new Date().toISOString().slice(0, 10),
       paymentMethod: "Банка", termDays: 0, dueDate: "", paid: false, paidDate: "",
       currency: s.currency || "BGN", vatRate: 20, note: "", files: [s.fileInfo], aiParsed: s.parsed, posted: false,
       lines: s.rows.map(r => {
-        const base = { groupName: r.groupName || "", article: r.article || r.desc || "", code: r.code || "", qty: erpToNum(r.qty) || 1, unit: r.unit || "бр.", unitPrice: erpToNum(r.unitPrice) || "" };
+        const base = { groupName: r.groupName || s.expenseType || "", article: r.article || r.desc || "", code: r.code || "", qty: erpToNum(r.qty) || 1, unit: r.unit || "бр.", unitPrice: erpToNum(r.unitPrice) || "" };
         if (r.materialId && ERP.matById[r.materialId]) { const m = ERP.matById[r.materialId]; base.materialId = m.id; base.name = m.name; base.code = m.code; }
         return base;
       }),
