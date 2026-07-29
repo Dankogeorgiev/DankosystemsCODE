@@ -304,6 +304,68 @@ async function erpMaybeStartFinal(t, src) {
   if (error) console.error("seq final", error);
 }
 
+/* ---------- 🎨 АВТО-БОЯДИСВАНЕ ----------
+   Цех Бояджийно не се отчита (по думите на Данко, 29.07.2026) — изделията
+   „потъват" там и всичко се бута ръчно. Затова: щом до Бояджийно стигнат
+   детайли (поточно: наличното от предната операция; верижно: пусната стъпка),
+   задачата му се отчита АВТОМАТИЧНО (запис „авто-боя" в дневника) и потокът
+   продължава. Складовите последствия са същите като при ръчен отчет.
+   ИЗКЛЮЧВАНЕ (когато цехът започне да се отчита реално): ред в app_config
+   id="paint_auto" с data {"on": false} — без нов деплой. */
+const PAINT_AUTO_WS = "Бояджийно";
+let erpPaintAutoOn = null;
+async function erpPaintAutoEnabled() {
+  if (erpPaintAutoOn != null) return erpPaintAutoOn;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "paint_auto").maybeSingle();
+    erpPaintAutoOn = !(data && data.data && data.data.on === false);
+  } catch (e) { erpPaintAutoOn = true; }
+  return erpPaintAutoOn;
+}
+async function erpAutoPaintSweep() {
+  const list = (typeof TASKS !== "undefined" && TASKS) || [];
+  const map = erpSeriesProduced(list);
+  let done = 0;
+  for (const t of list) {
+    if ((t.workshop || "") !== PAINT_AUTO_WS) continue;
+    const src = t.source || {};
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    let add = 0;
+    if (src.seq) add = Math.max(0, qty - prod);                    // верига: стъпката е пусната → готова
+    else if (src.flow) add = erpFlowAvailable(t, map);             // поток: колкото е дала предната операция
+    else continue;                                                 // ръчните задачи не се пипат
+    if (add <= 0) continue;
+    t.produced = prod + add;
+    t.logs = t.logs || [];
+    const entry = { date: new Date().toISOString().slice(0, 10), worker: "авто-боя", qty: add, notes: "автоматично (Бояджийно не се отчита)" };
+    if (typeof prodLogId === "function") entry.lid = prodLogId();
+    t.logs.push(entry);
+    await tSaveTask(t);
+    try { if (typeof prodLogWrite === "function") await prodLogWrite(t, entry); } catch (e) {}
+    try { await erpAdvanceSeq(t); } catch (e) {}
+    try { await erpFlowStockIn(t); } catch (e) {}
+    try { await erpFlowConsume(t); } catch (e) {}
+    try { await erpFlowMaterialConsume(t); } catch (e) {}
+    if (src.flow && src.seriesKey && map[src.seriesKey]) map[src.seriesKey].produced += add;   // храни следващите гейтове
+    done++;
+  }
+  return done;
+}
+async function erpAutoPaint() {
+  if (!(await erpPaintAutoEnabled())) return 0;
+  let total = 0;
+  // Няколко прохода: advanceSeq може да пусне НОВА Бояджийно стъпка,
+  // която следващият проход веднага да отчете.
+  for (let i = 0; i < 4; i++) {
+    let c = 0;
+    try { c = await erpAutoPaintSweep(); } catch (e) { console.warn("авто-боя", e); break; }
+    total += c;
+    if (!c) break;
+    try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) { break; }
+  }
+  return total;
+}
+
 /* ---------- 🔧 Пускане на заседнали вериги ----------
    Отчети от масите/роботите ПРЕДИ поправката (версия 524) завършваха
    стъпката, но не пускаха следващата операция — веригата „засядаше".
@@ -352,7 +414,10 @@ async function erpFixStuckChains() {
     }
   }
   try { if (typeof tLoadTasks === "function") { await tLoadTasks(); if (typeof renderTasks === "function") renderTasks(); } } catch (e) {}
-  alert(`🔧 Проверени готови вериги: ${scanned}.\nПуснати следващи операции: ${launched}${names.length ? "\n• " + names.slice(0, 12).join("\n• ") + (names.length > 12 ? `\n…и още ${names.length - 12}` : "") : ""}\nПроверени финални сглобявания: ${finals}.\n\n${launched || finals ? "Новите задачи са в цеховете си." : "Няма заседнали вериги — всичко е пуснато."}`);
+  // Авто-боята веднага поема новопуснатите Бояджийно стъпки и бута нататък.
+  let painted = 0;
+  try { painted = await erpAutoPaint(); if (painted && typeof renderTasks === "function") renderTasks(); } catch (e) {}
+  alert(`🔧 Проверени готови вериги: ${scanned}.\nПуснати следващи операции: ${launched}${names.length ? "\n• " + names.slice(0, 12).join("\n• ") + (names.length > 12 ? `\n…и още ${names.length - 12}` : "") : ""}\nПроверени финални сглобявания: ${finals}.${painted ? `\n🎨 Авто-отчетени в Бояджийно: ${painted}.` : ""}\n\n${launched || finals || painted ? "Новите задачи са в цеховете си." : "Няма заседнали вериги — всичко е пуснато."}`);
 }
 
 /* ---------- Поточно производство (стандарт за всички продукти) ----------

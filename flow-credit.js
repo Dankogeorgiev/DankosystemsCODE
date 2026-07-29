@@ -293,5 +293,48 @@
     }
   }
 
-  window.FLOW_CREDIT = { afterCredit, prodLog, markOrdersReady, gateCheck };
+  /* ---------- 🎨 Авто-боя (както в главното табло) ----------
+     Бояджийно не се отчита — щом отчет от масите/роботите отключи детайли
+     за него, задачата му се отчита автоматично („авто-боя") и потокът
+     продължава. Изключване: app_config id="paint_auto" data {"on": false}. */
+  async function autoPaint(c) {
+    try {
+      const { data } = await c.from("app_config").select("data").eq("id", "paint_auto").maybeSingle();
+      if (data && data.data && data.data.on === false) return 0;
+    } catch (e) { /* без връзка към ключа — автоматиката е включена */ }
+    let total = 0;
+    for (let pass = 0; pass < 3; pass++) {
+      let rows;
+      try { rows = await selAll(c, "tasks", "id,data,done"); } catch (e) { return total; }
+      const all = rows.map(r => ({ ...(r.data || {}), id: r.id }));
+      const map = seriesProduced(all);
+      let changed = 0;
+      for (const t of all) {
+        if ((t.workshop || "") !== "Бояджийно") continue;
+        const src = t.source || {};
+        const qty = n(t.qty), prod = n(t.produced);
+        let add = 0;
+        if (src.seq) add = Math.max(0, qty - prod);
+        else if (src.flow) add = flowAvailable(t, map);
+        else continue;
+        if (add <= 0) continue;
+        t.produced = prod + add;
+        t.logs = Array.isArray(t.logs) ? t.logs : [];
+        const entry = { date: new Date().toISOString().slice(0, 10), worker: "авто-боя", qty: add, lid: Date.now().toString(36) + "-p-" + Math.random().toString(36).slice(2, 6), notes: "автоматично (Бояджийно не се отчита)" };
+        t.logs.push(entry);
+        const done = qty > 0 && n(t.produced) >= qty;
+        const { error } = await c.from("tasks").update({ data: t, done, updated_at: new Date().toISOString() }).eq("id", t.id);
+        if (error) continue;
+        try { await afterCredit(c, t.id, t); } catch (e) {}   // склад + следваща стъпка от веригата
+        try { await prodLog(c, t.id, t, entry); } catch (e) {}
+        if (src.flow && src.seriesKey && map[src.seriesKey]) map[src.seriesKey].produced += add;
+        changed++;
+      }
+      total += changed;
+      if (!changed) break;   // нов проход хваща стъпки, пуснати от advanceSeq
+    }
+    return total;
+  }
+
+  window.FLOW_CREDIT = { afterCredit, prodLog, markOrdersReady, gateCheck, autoPaint };
 })();
