@@ -43,6 +43,7 @@ function leaveRequestDialog(opts) {
   const { wrap, close } = erpDialog(`
     <h3>${editRec ? "✎ Поправка на молбата" : admin ? "🏖 Вкарай одобрен отпуск" : "🏖 Молба за платен отпуск"}</h3>
     <p class="hint" style="margin:0 0 8px">${editRec ? "Допълни/поправи данните преди печата — служителят не винаги ги попълва всичките." : admin ? "За отпуски, разрешени преди системата — влизат директно като одобрени." : "Попълни молбата — както на хартиената бланка. Ние ще я разгледаме и ще се свържем с теб."}</p>
+    ${(!editRec && !admin) ? '<p class="lv-warn">⚠ ТОВА, ЧЕ СТЕ ПУСНАЛИ МОЛБА ЗА ОТПУСК, НЕ ОЗНАЧАВА, ЧЕ ТЯ Е ОДОБРЕНА. ДОКАТО НЕ ПОЛУЧИТЕ ОБРАТНА ВРЪЗКА ОТ ОФИСА, СТАТУСЪТ Е ПРОСТО МОЛБА.</p>' : ""}
     <label>Трите имена <input type="text" id="lv-name" value="${V("name")}" placeholder="Иван Иванов Иванов" /></label>
     <div class="erp-co-grid">
       <label>ЕГН <input type="text" id="lv-egn" inputmode="numeric" maxlength="10" value="${V("egn")}" placeholder="(за молбата)" /></label>
@@ -92,7 +93,7 @@ function leaveRequestDialog(opts) {
     if (await leavesSave()) {
       close();
       if (editRec || admin) { if (typeof erpRenderFinance === "function") erpRenderFinance(); }
-      else alert("✅ Вашето искане е прието, ще се свържем с вас за потвърждение.");
+      else alert("✅ Молбата е ИЗПРАТЕНА.\n\n⚠ ВНИМАНИЕ: Това НЕ означава, че отпускът е одобрен! Докато не получите обратна връзка от офиса, статусът е просто молба.");
     } else { btn.disabled = false; btn.textContent = editRec ? "💾 Запази поправките" : admin ? "💾 Запиши като одобрен" : "📨 Поискай отпуск"; }
   });
 }
