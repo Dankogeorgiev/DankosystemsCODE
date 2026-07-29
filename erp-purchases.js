@@ -836,10 +836,36 @@ async function erpPostPurchase(o) {
   const matLines = (o.lines || []).filter(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
   if (!matLines.length) { alert("Няма материални редове за заприходяване. Само редове, добавени с бутона Материал (склад), влизат в склада."); return; }
   if (!confirm(`Да заприходя ли ${matLines.length} материала в склада? Наличностите се вдигат и средните цени се обновяват (веднъж).`)) return;
-  try { await erpSavePurchase(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
+  // Предпазители срещу ДВОЙНО заприходяване: бутонът се заключва веднага
+  // (бърз двоен клик), а по-долу проверяваме и базата (втора отворена сесия).
+  const postBtn = document.getElementById("pu-post");
+  if (postBtn) { postBtn.disabled = true; postBtn.textContent = "Заприходява…"; }
+  const fail = msg => { if (postBtn) { postBtn.disabled = false; postBtn.textContent = "📥 Заприходи материалите"; } if (msg) alert(msg); };
+  try { await erpSavePurchase(o); } catch (e) { fail("Грешка при запис: " + (e.message || e)); return; }
+  // Втора сесия/таб може да е заприходила междувременно — четем свежия статус.
+  try {
+    const { data: fresh } = await sb.from("purchases").select("posted").eq("id", o.id).maybeSingle();
+    if (fresh && fresh.posted) {
+      o.posted = true;
+      fail("Тази фактура ВЕЧЕ е заприходена (от друга сесия/прозорец). Складът НЕ е пипнат втори път.");
+      erpRenderPurchaseForm(o);
+      return;
+    }
+  } catch (e) { /* при мрежова грешка продължаваме — ref-проверката е втората мрежа */ }
+  // Има ли вече складови движения по същата фактура — не заприходяваме пак.
+  const refCheck = `Фактура ${o.invoiceNo || "—"} · ${o.supplierName || ""}`.trim();
+  if (o.invoiceNo) {
+    try {
+      const { count } = await sb.from("stock_movements").select("id", { count: "exact", head: true }).eq("ref", refCheck);
+      if (count > 0) {
+        fail(`По тази фактура ВЕЧЕ има ${count} складови движения — не заприходявам втори път.\nАко е грешка, ползвай „↩ Върни за редакция" и заприходи наново.`);
+        return;
+      }
+    } catch (e) {}
+  }
 
   const [stk, mat] = await Promise.all([sb.from("v_material_stock").select("id,stock"), sb.from("materials").select("id,avg_cost")]);
-  if (stk.error || mat.error) { alert("Грешка: " + ((stk.error || mat.error).message)); return; }
+  if (stk.error || mat.error) { fail("Грешка: " + ((stk.error || mat.error).message)); return; }
   const stockById = {}, avgById = {};
   (stk.data || []).forEach(r => stockById[r.id] = Number(r.stock) || 0);
   (mat.data || []).forEach(r => avgById[r.id] = Number(r.avg_cost) || 0);
@@ -859,8 +885,8 @@ async function erpPostPurchase(o) {
     stockById[l.materialId] = (stockById[l.materialId] || 0) + qty;
   }
   const ins = await sb.from("stock_movements").insert(moves);
-  if (ins.error) { alert("Грешка при движенията: " + ins.error.message); return; }
-  for (const u of avgUpdates) { const { error } = await sb.from("materials").update({ avg_cost: u.avg }).eq("id", u.id); if (error) { alert("Грешка при цена: " + error.message); return; } }
+  if (ins.error) { fail("Грешка при движенията: " + ins.error.message); return; }
+  for (const u of avgUpdates) { const { error } = await sb.from("materials").update({ avg_cost: u.avg }).eq("id", u.id); if (error) { alert("Движенията са заприходени, но една средна цена не се обнови: " + error.message); break; } }
 
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSavePurchase(o); } catch {}
