@@ -775,10 +775,14 @@ function dsBulkPreview(groups, unmatched, total) {
     <h3>Преглед на чертежите за качване</h3>
     <p>Избрани файла: <b>${total}</b> · разпознати: <b>${matchedCount}</b> за <b>${groups.size}</b> детайла · <b class="${unmatched.length ? "erp-warn" : ""}">ненамерени: ${unmatched.length}</b></p>
     ${unmatched.length ? `<p class="hint">Ненамерените нямат разпознаваем код в името. Свали списъка, преименувай ги (кодът да е в името) и качи пак само тях.</p>` : ""}
+    <label class="erp-inline" style="display:block;margin:6px 0;padding:8px 10px;background:#fef9c3;border:1px solid #fde047;border-radius:8px">
+      <input type="checkbox" id="dbp-onlymissing" checked />
+      <b>Качи САМО при детайли БЕЗ чертеж</b> — където вече има какъвто и да е чертеж, не се качва нищо (нула дублиране). Махни отметката, ако искаш да ДОБАВЯШ към съществуващите (тогава се прескачат само файлове със същото име).
+    </label>
     <div class="dc-cols">
       <div class="dc-col"><h4 class="erp-group-head">✅ Разпознати (${groups.size} детайла)</h4>
-        <div class="dc-list">${gList.length ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Детайл</th><th class="num">Файла</th></tr></thead><tbody>${
-          gList.map(g => `<tr><td>${escapeHtml(g.p.code || "")}</td><td>${escapeHtml(g.p.name || "")}</td><td class="num">${g.files.length}</td></tr>`).join("")
+        <div class="dc-list">${gList.length ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Детайл</th><th class="num">Файла</th><th>Сега</th></tr></thead><tbody>${
+          gList.map(g => `<tr><td>${escapeHtml(g.p.code || "")}</td><td>${escapeHtml(g.p.name || "")}</td><td class="num">${g.files.length}</td><td>${dsHasDrawing(g.p) ? '<span title="вече има чертеж — с отметката горе ще бъде ПРЕСКОЧЕН">📎 има</span>' : '<span class="erp-muted">няма</span>'}</td></tr>`).join("")
         }</tbody></table>` : `<p class="erp-muted">Нищо разпознато.</p>`}</div>
       </div>
       <div class="dc-col"><h4 class="erp-group-head">❌ Ненамерени (${unmatched.length})</h4>
@@ -799,15 +803,17 @@ function dsBulkPreview(groups, unmatched, total) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "nenameren-chertezhi.txt"; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
-  wrap.querySelector("#dbp-go").addEventListener("click", () => dsBulkUpload(groups, wrap, close));
+  wrap.querySelector("#dbp-go").addEventListener("click", () => dsBulkUpload(groups, wrap, close, !!(wrap.querySelector("#dbp-onlymissing") || {}).checked));
 }
 
 // Стъпка 2: реалното качване (с прогрес и без дублиране на вече качени файлове).
-async function dsBulkUpload(groups, wrap, close) {
+// onlyMissing = качва САМО при детайли, които нямат никакъв чертеж (масовото
+// зареждане на Данко: 1685 файла, Системата решава кое да запази).
+async function dsBulkUpload(groups, wrap, close, onlyMissing) {
   const prog = wrap.querySelector("#dbp-prog");
   const go = wrap.querySelector("#dbp-go"); if (go) go.disabled = true;
   const total = [...groups.values()].reduce((s, g) => s + g.files.length, 0);
-  let ok = 0, dup = 0, failed = 0, saveErr = 0, idx = 0, doneFiles = 0;
+  let ok = 0, dup = 0, failed = 0, saveErr = 0, idx = 0, doneFiles = 0, skippedProducts = 0, skippedFiles = 0;
   const failedNames = [];
   prog.innerHTML = `<div class="dc-prog"><div class="dc-bar"><span id="dbp-fill"></span></div><span id="dbp-pct">0%</span></div>`;
   const tick = () => { doneFiles++; const pct = Math.round(doneFiles / total * 100); const f = wrap.querySelector("#dbp-fill"); if (f) f.style.width = pct + "%"; const t = wrap.querySelector("#dbp-pct"); if (t) t.textContent = pct + "%"; };
@@ -820,6 +826,12 @@ async function dsBulkUpload(groups, wrap, close) {
       const { data: cur } = await sb.from("products").select("drawings").eq("id", p.id).maybeSingle();
       list = (cur && Array.isArray(cur.drawings)) ? cur.drawings.slice() : [];
     } catch (e) { list = Array.isArray(p.drawings) ? p.drawings.slice() : []; }
+    if (onlyMissing && list.length > 0) {
+      // Детайлът ВЕЧЕ има чертеж → целият му пакет файлове се прескача.
+      skippedProducts++; skippedFiles += g.files.length;
+      g.files.forEach(tick);
+      continue;
+    }
     const have = new Set(list.map(d => String((d && d.name) || "").toLowerCase()));
     let changed = false;
     for (const file of g.files) {
@@ -841,7 +853,8 @@ async function dsBulkUpload(groups, wrap, close) {
   if (close) close();
   if (document.getElementById("ds-tbody")) dsFillRows();   // пре-оцветяваме бутоните
   alert(`Готово!\n✅ Качени нови: ${ok}`
-    + (dup ? `\n↩ Вече качени (прескочени): ${dup}` : "")
+    + (skippedProducts ? `\n⏭ Прескочени детайли С НАЛИЧЕН чертеж: ${skippedProducts} (файлове: ${skippedFiles})` : "")
+    + (dup ? `\n↩ Същото име, вече качено (прескочени): ${dup}` : "")
     + (failed ? `\n⚠ Неуспешни качвания (файл): ${failed}\n` + failedNames.slice(0, 15).join("\n") : "")
     + (saveErr ? `\n⚠ Детайли с грешка при запис в базата: ${saveErr}` : "")
     + `\n\n💡 Натисни „🔎 Провери чертежите", за да сверим общо колко са записани.`);
