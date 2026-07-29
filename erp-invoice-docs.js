@@ -347,7 +347,7 @@ function erpInvPrintDescGoods(o) {
     </tr>`).join("") || `<tr><td colspan="3" class="c muted">—</td></tr>`;
   const body = `
     <div class="head"><div><h1>DESCRIPTION OF GOODS</h1></div>
-      <div style="text-align:right"><b>${escapeHtml(invDocRef(o))}</b></div></div>
+      <div style="text-align:right"><b>${escapeHtml(invDocRef(o))}</b>${o.orderRef ? `<br>Order No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}</div></div>
     <div class="grid2" style="grid-template-columns:1fr 1fr">
       <div>Speditor:<br>Company: <b>${escapeHtml(tr.carrier || "")}</b></div>
       <div>Митница: <b>${escapeHtml(tr.customs || "")}</b><br>Vehicle Plate No.: <b>${escapeHtml(tr.vehicleReg || "")}</b></div>
@@ -381,7 +381,7 @@ function erpInvPrintCMREx(o) {
           ${cell("18 Резерви и бележки на превозвача / Carrier's reservations", "")}</tr>
       <tr>${cell("4 Място и дата на товарене / Taking over the goods", `${escapeHtml(tr.loadPlace || s.address + ", " + s.city)}, Bulgaria BG<br>Date: <b>${invFmtD(tr.shipDate || o.issueDate)}</b>`)}
           ${cell("19 Специални споразумения / Special agreements", "")}</tr>
-      <tr>${cell("5 Приложени документи / Documents attached", `INVOICE No.: <b>${escapeHtml(o.docNo || "")}</b> / ${invFmtD(o.issueDate)}<br>PACKING LIST No.: ${escapeHtml(o.docNo || "")} / ${invFmtD(o.issueDate)}`, 2)}</tr>
+      <tr>${cell("5 Приложени документи / Documents attached", `INVOICE No.: <b>${escapeHtml(o.docNo || "")}</b> / ${invFmtD(o.issueDate)}<br>PACKING LIST No.: ${escapeHtml(o.docNo || "")} / ${invFmtD(o.issueDate)}${o.orderRef ? `<br>ORDER No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}`, 2)}</tr>
       <tr>${cell("6-12 Марки, брой, опаковка, стока / Marks, packages, nature of the goods", `<b>${escapeHtml(tr.goodsNature || "SOFA BED MECHANISMS")}</b><br>Pallets: <b>${escapeHtml(String(tr.totalPackages || ""))}</b>`)}
           ${cell("13 Инструкции на изпращача / Sender's instructions", escapeHtml(tr.route ? "Route: " + tr.route : "") + (tr.customs ? `<br>Митница: ${escapeHtml(tr.customs)}` : ""))}</tr>
       <tr>${cell("14 Бруто тегло, кг / Gross weight in kg", grossKg ? `<b>${erpNum(grossKg)}</b>` : "")}
@@ -410,7 +410,7 @@ function erpInvPrintDeclaration(o, lang) {
     <div class="head"><div><h1>Declaration by the exporter</h1></div><div></div></div>
     <p>By<br><b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.country)}<br>${escapeHtml(s.city)}<br>${escapeHtml(s.address)}<br>VAT: ${escapeHtml(s.vat)}</p>
     <p>The undersigned <b>${escapeHtml(s.manager)}</b>, declares that the above products <b>${escapeHtml(s.goodsDesc)}</b>,
-      exported with invoice No.: <b>${escapeHtml(o.docNo || "")}/${invFmtD(o.issueDate)}</b>,
+      exported with invoice No.: <b>${escapeHtml(o.docNo || "")}/${invFmtD(o.issueDate)}</b>${o.orderRef ? `, customer order No.: <b>${escapeHtml(o.orderRef)}</b>` : ""},
       loaded on truck: <b>${escapeHtml(tr.vehicleReg || "..................")}</b>,
       are produced with materials by EU and are with European statute.</p>
     ${routeBlock}
@@ -419,7 +419,7 @@ function erpInvPrintDeclaration(o, lang) {
     <div class="head"><div><h1>Декларация за произход</h1></div><div></div></div>
     <p>От<br><b>${escapeHtml((typeof ERP_SELLER !== "undefined" && ERP_SELLER.name) || s.name)}</b><br>гр. Пловдив 4000, ул. Кукленско шосе<br>ЕИК: ${escapeHtml((typeof ERP_SELLER !== "undefined" && ERP_SELLER.eik) || "115789385")}</p>
     <p>Долуподписаният <b>Данко Георгиев</b> декларирам, че описаните стоки — <b>механизми за дивани и метални части за мека мебел</b>,
-      изнесени с фактура №: <b>${escapeHtml(o.docNo || "")}/${invFmtD(o.issueDate)}</b>,
+      изнесени с фактура №: <b>${escapeHtml(o.docNo || "")}/${invFmtD(o.issueDate)}</b>${o.orderRef ? `, по поръчка на клиента №: <b>${escapeHtml(o.orderRef)}</b>` : ""},
       натоварени на камион: <b>${escapeHtml(tr.vehicleReg || "..................")}</b>,
       са произведени с материали от ЕС и са с европейски произход, съгласно чл. 313.</p>
     ${routeBlock}

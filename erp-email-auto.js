@@ -134,6 +134,7 @@ function erpMailInvoiceHtml(o) {
   return `
   <h2 style="color:#0f766e;margin:14px 0 4px">${escapeHtml(en ? (k.en || "INVOICE") : (k.bg || "ФАКТУРА"))} № ${escapeHtml(o.docNo || "")}</h2>
   <p style="margin:2px 0">${L.date}: <b>${escapeHtml(fmtD(o.issueDate))}</b> · ${L.to}: <b>${escapeHtml((o.client && o.client.name) || "")}</b></p>
+  ${o.orderRef ? `<p style="margin:2px 0">${en ? "Your order" : "Поръчка"}: <b>${escapeHtml(o.orderRef)}</b></p>` : ""}
   <table style="border-collapse:collapse;width:100%;margin:8px 0;font-size:13px">
     <tr style="background:#ecfdf5;color:#065f46"><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.no}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.code}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.name}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.qty}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.price}</th><th style="border:1px solid #cbd5e1;padding:5px 7px">${L.amount}</th></tr>
     ${rows}
