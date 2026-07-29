@@ -482,6 +482,8 @@ async function creditWeldingWorkshop(product,qty,extra,worker){
     first=false;
   }
   if(window.FLOW_CREDIT&&readyIds.size){ try{ await FLOW_CREDIT.markOrdersReady(c,[...readyIds]); }catch(err){} }
+  // 🎨 Авто-боя: отчетът може да е отключил детайли за Бояджийно.
+  if(window.FLOW_CREDIT&&FLOW_CREDIT.autoPaint){ try{ await FLOW_CREDIT.autoPaint(c); }catch(err){} }
 }
 
 /* ===== Съобщения към админите (искане на чертеж / снабдяване) ===== */
@@ -667,7 +669,7 @@ else loadWeldingTasks();
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
 <script src="../ui-guards.js?v=1"></script>
-<script src="../flow-credit.js?v=3"></script>
+<script src="../flow-credit.js?v=4"></script>
 <script src="sync.js?v=3"></script>
 </body>
 </html>

@@ -518,6 +518,10 @@ async function openTasks() {
   renderWorkerFilter();
   mUpdateBadge();
   renderTasks();
+  // 🎨 Авто-боя: избутай натрупаното в Бояджийно (фонoво, после пре-рисува).
+  if (typeof erpAutoPaint === "function") {
+    erpAutoPaint().then(n => { if (n && !document.getElementById("tasks-modal").hidden) renderTasks(); }).catch(() => {});
+  }
   // Зареждаме наличностите на материалите за индикатора „чака материал" (без да
   // бавим таблицата) и пре-рисуваме, щом дойдат.
   if (typeof erpEnsureLoaded === "function") {
@@ -1241,6 +1245,8 @@ async function logProduction(t, qtyVal, extra, opts) {
   if (typeof erpFlowConsume === "function") { try { await erpFlowConsume(t); } catch (e) { console.error("consume", e); } }
   // Изписване на материала при рязане (толкова, колкото нарязано).
   if (typeof erpFlowMaterialConsume === "function") { try { await erpFlowMaterialConsume(t); } catch (e) { console.error("mat-consume", e); } }
+  // 🎨 Авто-боя: ако този отчет отключи детайли за Бояджийно — отчети ги веднага.
+  if (typeof erpAutoPaint === "function") { try { await erpAutoPaint(); } catch (e) {} }
   if (!silent) renderTasks();   // в мастер режим гридът се пре-рисува сам
 }
 
