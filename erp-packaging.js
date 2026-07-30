@@ -338,7 +338,11 @@ async function erpPackOrderOpen(orderId, moreIds) {
     const r = P.rows[key] || {};
     const spec = erpPackFind(l.code, o.clientName);
     return {
-      key, code: l.code || "", name: l.name || "", qty: erpToNum(l.qty) || 0,
+      key, code: l.code || "", name: l.name || "",
+      // Бройката може да се коригира РЪЧНО за опаковането (частична пратка и пр.)
+      // — пази се в опаковката (r.qty), заявката НЕ се пипа.
+      qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),
+      baseQty: erpToNum(l.qty) || 0,
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
@@ -377,7 +381,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
-          <td class="num">${erpNum(st.qty)}</td>
+          <td class="num"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:76px" />${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Оригиналната бройка по заявката — изтрий корекцията, за да се върне">заявка: ${erpNum(st.baseQty)}</span>` : ""}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="Малък / Голям / Тава…" /></td>
           <td><input type="text" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" style="width:96px" placeholder="60×40×30" /></td>
@@ -419,6 +423,10 @@ async function erpPackOrderOpen(orderId, moreIds) {
           perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
           perPallet: erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0,
         };
+        // Ръчна корекция на бройката: пази се САМО ако се различава от заявката
+        // (върнеш ли оригиналното число, корекцията пада и следи заявката).
+        const qv = erpToNum((tr.querySelector(".pko-qty") || {}).value) || 0;
+        if (qv !== (erpToNum(l.qty) || 0)) P.rows[key].qty = qv;
       });
       P.palletKg = erpToNum((document.getElementById("pko-palkg") || {}).value) || 20;
     };
@@ -428,7 +436,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       const std = packBoxStdFind(el.value);
       if (std) { el.value = std.name; const tr = el.closest("tr"); const s = tr && tr.querySelector(".pko-boxsize"); if (s) s.value = std.size; }
     }));
-    v.querySelectorAll(".pko-kg,.pko-box,.pko-boxsize,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-boxsize,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
       collect();
@@ -442,7 +450,8 @@ async function erpPackOrderOpen(orderId, moreIds) {
               oc.packing = oc.packing || { rows: {}, palletKg: P.palletKg };
               (oc.lines || []).forEach((l, i) => {
                 const key = String(l.code || i);
-                if (P.rows[key]) oc.packing.rows[key] = { ...P.rows[key] };
+                // Спецификациите — да; ръчната ОБЩА бройка — не (тя е за общия товар).
+                if (P.rows[key]) { const { qty, ...spec } = P.rows[key]; oc.packing.rows[key] = spec; }
               });
               oc.packing.palletKg = P.palletKg;
             }
@@ -703,7 +712,8 @@ async function erpPackDocRows(o) {
     const r = (P.rows || {})[key] || {};
     const spec = erpPackFind(l.code, o.clientName);
     const st = {
-      key, code: l.code || "", name: l.name || "", qty: erpToNum(l.qty) || 0,
+      key, code: l.code || "", name: l.name || "",
+      qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),   // ръчната корекция важи и за документите
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
