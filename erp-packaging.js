@@ -273,10 +273,10 @@ async function erpPackOrderOpen(orderId) {
   };
   const calc = st => {
     const perBox = packNum(st.perBox), perPallet = packNum(st.perPallet);
-    const boxes = perBox > 0 ? Math.ceil(st.qty / perBox) : 0;
-    const pallets = (boxes > 0 && perPallet > 0) ? boxes / perPallet : 0;
+    const bd = packBoxBreakdown(st.qty, perBox);
+    const pallets = (bd.boxes > 0 && perPallet > 0) ? bd.boxes / perPallet : 0;
     const netKg = Math.round(st.qty * packNum(st.kgPer) * 10) / 10;
-    return { boxes, pallets, netKg };
+    return { boxes: bd.boxes, bdText: bd.text, pallets, netKg };
   };
   const render = () => {
     const states = (o.lines || []).map((_, i) => rowState(i));
@@ -285,7 +285,8 @@ async function erpPackOrderOpen(orderId) {
       t.qty += st.qty; t.boxes += c.boxes; t.pallets += c.pallets; t.net += c.netKg;
       return t;
     }, { qty: 0, boxes: 0, pallets: 0, net: 0 });
-    const palletsUp = Math.ceil(totals.pallets - 1e-9);
+    const built = packBuildPallets(states.map(st => ({ ...st, ...calc(st) })));
+    const palletsUp = built.length || Math.ceil(totals.pallets - 1e-9);
     const gross = Math.round((totals.net + palletsUp * packNum(P.palletKg || 20)) * 10) / 10;
     v.innerHTML = `
       <div class="erp-toolbar">
@@ -304,7 +305,7 @@ async function erpPackOrderOpen(orderId) {
           <td><input type="text" class="pko-box" data-i="${i}" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="напр. кафяв 5-слоен" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" /></td>
-          <td class="num"><b>${c.boxes || "—"}</b></td>
+          <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
           <td class="num">${c.pallets ? (Math.round(c.pallets * 100) / 100) : "—"}</td>
           <td class="num">${c.netKg || "—"}</td>
         </tr>`; }).join("")}</tbody>
@@ -320,6 +321,7 @@ async function erpPackOrderOpen(orderId) {
         <span>Тегло на палет: <input type="number" step="any" id="pko-palkg" value="${escapeAttr(String(P.palletKg || 20))}" style="width:64px" /> кг</span>
         <span>Бруто: <b>${gross} кг</b></span>
       </div>
+      ${built.length ? `<div class="hint" style="line-height:1.8">🧱 <b>План на палетите:</b><br>${built.map(p => `Палет №${p.no}${p.items.length > 1 ? " <i>(комбиниран)</i>" : ""}: ${p.items.map(x => `<b>${escapeHtml(x.code)}</b> — ${x.text || x.boxes + " каш."}`).join(" · ")}`).join("<br>")}</div>` : ""}
       <div class="erp-co-actions">
         <button class="btn btn-small" id="pko-packing">🖨 Packing List</button>
         <button class="btn btn-small" id="pko-goods">🖨 Стокова разписка</button>
@@ -372,21 +374,56 @@ async function erpPackOrderOpen(orderId) {
   render();
 }
 
-/* Разпределя кашоните по палети (последователно) — за описа „всеки един палет". */
+/* Кашоните на едно изделие: пълни кашони + един непълен с остатъка.
+   Пример: 150 бр. по 56 в кашон → 2×56 + 1×38 (текстът е за жените на кашоните). */
+function packBoxBreakdown(qty, perBox) {
+  const pb = packNum(perBox);
+  if (!(pb > 0) || !(qty > 0)) return { full: 0, rest: 0, boxes: 0, text: "" };
+  const full = Math.floor(qty / pb);
+  const rest = Math.round((qty - full * pb) * 100) / 100;
+  const boxes = full + (rest > 0 ? 1 : 0);
+  const parts = [];
+  if (full > 0) parts.push(`${full}×${pb}`);
+  if (rest > 0) parts.push(`1×${rest}`);
+  return { full, rest, boxes, text: parts.join(" + ") };
+}
+
+/* Разпределя кашоните по палети — както се прави на рампата:
+   1) всяко изделие първо пълни ЦЕЛИ палети само със свои кашони;
+   2) остатъчните кашони от ВСИЧКИ изделия се комбинират на общи палети —
+      частта от палета на всяко изделие е кашони ÷ кашони-на-палет,
+      редим най-големите остатъци първи и допълваме, докато палетът се напълни. */
 function packBuildPallets(rows) {
-  const pallets = [];
-  let cur = null, curCap = 0;   // капацитет на текущия палет в КАШОНИ от текущия ред
-  rows.forEach(st => {
-    let left = st.boxes;
-    const perPal = packNum(st.perPallet) || st.boxes || 1;
-    while (left > 0) {
-      if (!cur || curCap <= 0) { cur = { no: pallets.length + 1, items: [] }; pallets.push(cur); curCap = perPal; }
-      const take = Math.min(left, curCap);
-      const qty = Math.min(st.qty, take * (packNum(st.perBox) || st.qty));
-      cur.items.push({ code: st.code, name: st.name, boxes: take, qty: take === st.boxes ? st.qty : take * (packNum(st.perBox) || 0), kg: Math.round(((take === st.boxes ? st.qty : take * (packNum(st.perBox) || 0)) * packNum(st.kgPer)) * 10) / 10 });
-      left -= take; curCap -= take;
-    }
+  const items = rows.filter(r => r.boxes > 0).map(r => {
+    const pb = packNum(r.perBox) || 0;
+    const bd = packBoxBreakdown(r.qty, pb);
+    return { r, pb, perPal: packNum(r.perPallet) || bd.boxes || 1, full: bd.full, rest: bd.rest };
   });
+  const left = it => it.full + (it.rest > 0 ? 1 : 0);
+  const take = (it, n) => { // сваля n кашона от изделието (пълните първи, непълният последен)
+    const f = Math.min(n, it.full); it.full -= f;
+    let restQty = 0;
+    if (f < n && it.rest > 0) { restQty = it.rest; it.rest = 0; }
+    const boxes = f + (restQty > 0 ? 1 : 0);
+    const qty = f * it.pb + restQty;
+    const parts = []; if (f > 0) parts.push(`${f}×${it.pb}`); if (restQty > 0) parts.push(`1×${restQty}`);
+    return { code: it.r.code, name: it.r.name, boxes, qty, text: parts.join(" + "), kg: Math.round(qty * packNum(it.r.kgPer) * 10) / 10 };
+  };
+  const pallets = [];
+  // 1) цели палети по изделие
+  items.forEach(it => { while (left(it) >= it.perPal) pallets.push({ items: [take(it, it.perPal)] }); });
+  // 2) остатъците — на общи (комбинирани) палети, first-fit по заетата част
+  const mixed = [];
+  items.filter(it => left(it) > 0)
+    .map(it => ({ it, frac: left(it) / it.perPal }))
+    .sort((a, b) => b.frac - a.frac)
+    .forEach(x => {
+      let m = mixed.find(mm => mm.frac + x.frac <= 1.0001);
+      if (!m) { m = { frac: 0, items: [] }; mixed.push(m); }
+      m.items.push(take(x.it, left(x.it))); m.frac += x.frac;
+    });
+  mixed.forEach(m => pallets.push({ items: m.items }));
+  pallets.forEach((p, i) => { p.no = i + 1; });
   return pallets;
 }
 function packDocHead(o, title) {
@@ -396,11 +433,11 @@ function packDocHead(o, title) {
 }
 function packPrintPacking(o, rows, P) {
   const tot = rows.reduce((t, r) => { t.q += r.qty; t.b += r.boxes; t.p += r.pallets; t.n += r.netKg; return t; }, { q: 0, b: 0, p: 0, n: 0 });
-  const palletsUp = Math.ceil(tot.p - 1e-9);
+  const palletsUp = packBuildPallets(rows).length || Math.ceil(tot.p - 1e-9);
   const gross = Math.round((tot.n + palletsUp * packNum(P.palletKg || 20)) * 10) / 10;
   const body = `${packDocHead(o, "PACKING LIST")}
     <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
     <div class="kv"><b>Pallets:</b> ${palletsUp} × ${packNum(P.palletKg || 20)} kg</div>
     <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
@@ -409,7 +446,7 @@ function packPrintPacking(o, rows, P) {
 function packPrintGoods(o, rows) {
   const body = `${packDocHead(o, "СТОКОВА РАЗПИСКА")}
     <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th class="c">Бройка</th><th class="c">Кашони</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.boxes || ""}</td></tr>`).join("")}</tbody></table>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td></tr>`).join("")}</tbody></table>
     <div class="foot"><div>Предал: ................</div><div>Приел: ................</div></div>`;
   invPrintWindow("Стокова разписка — заявка " + (o.ourNo || ""), body, "bg");
 }
@@ -418,9 +455,9 @@ function packPrintPallets(o, rows, P) {
   const body = `${packDocHead(o, "ПАЛЕТ ОПИС / PALLET LIST")}
     ${pallets.map(p => {
       const kg = Math.round(p.items.reduce((s, x) => s + x.kg, 0) * 10) / 10;
-      return `<h3 style="margin:12px 0 4px">Палет № ${p.no} <span style="font-weight:400;color:#555">— нето ${kg} кг + палет ${packNum(P.palletKg || 20)} кг = бруто ${Math.round((kg + packNum(P.palletKg || 20)) * 10) / 10} кг</span></h3>
+      return `<h3 style="margin:12px 0 4px">Палет № ${p.no}${p.items.length > 1 ? " · комбиниран" : ""} <span style="font-weight:400;color:#555">— нето ${kg} кг + палет ${packNum(P.palletKg || 20)} кг = бруто ${Math.round((kg + packNum(P.palletKg || 20)) * 10) / 10} кг</span></h3>
       <table><thead><tr><th>Код</th><th>Наименование</th><th class="c">Кашони</th><th class="c">Бройка</th><th class="c">Нето кг</th></tr></thead>
-      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>`;
+      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>`;
     }).join("") || "<p>Няма палети — попълни кашоните на палет.</p>"}
     <div class="kv"><b>Общо палети:</b> ${pallets.length}</div>`;
   invPrintWindow("Палет опис — заявка " + (o.ourNo || ""), body, "bg");
