@@ -29,6 +29,24 @@ function packNextId() { let m = 0; (PACKAGING || []).forEach(p => { const n = Nu
 function packNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
 function packNorm(s) { return String(s || "").trim().toLowerCase(); }
 
+/* Стандартните кашони на Данко Системс (30.07.2026) — падащ списък навсякъде,
+   където се избира кашон; изборът попълва и размера автоматично. */
+const PACK_BOX_STD = [
+  { name: "Малък", size: "48×22×12" },
+  { name: "Среден", size: "60×30×12" },
+  { name: "Голям", size: "80×36×23" },
+  { name: "МПК 85", size: "85×26×25" },
+  { name: "Тава", size: "120×80×8" },
+];
+function packBoxStdFind(name) {
+  const n = packNorm(name);
+  if (!n) return null;
+  return PACK_BOX_STD.find(b => packNorm(b.name) === n || packNorm(b.name + " " + b.size) === n || packNorm(b.name + " · " + b.size) === n) || null;
+}
+function packBoxDatalistHtml() {
+  return `<datalist id="pack-boxlist">${PACK_BOX_STD.map(b => `<option value="${escapeAttr(b.name)}" label="${escapeAttr(b.size)}"></option>`).join("")}</datalist>`;
+}
+
 /* ---------- Търсене на опаковка (ключ: наш код + клиент) ----------
    Първо точно (код + клиент); ако няма — общ запис за кода (без клиент);
    ако и той липсва — единствен запис за кода (ако е само един). Връща spec или null. */
@@ -71,7 +89,8 @@ async function erpRenderPackaging() {
       <tbody id="pack-tbody"></tbody>
     </table>
     <datalist id="pack-codes">${(typeof ERP !== "undefined" && ERP.products ? ERP.products : []).slice(0, 4000).map(p => `<option value="${escapeAttr(p.code || "")}">${escapeAttr(p.name || "")}</option>`).join("")}</datalist>
-    <datalist id="pack-clients">${clientNames.map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>`;
+    <datalist id="pack-clients">${clientNames.map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
+    ${packBoxDatalistHtml()}`;
   const qEl = document.getElementById("pack-q");
   if (qEl) qEl.addEventListener("input", e => { packQuery = e.target.value; erpPackFillRows(); });
   document.getElementById("pack-new").addEventListener("click", () => erpPackForm(null));
@@ -115,7 +134,7 @@ function erpPackForm(rec) {
       <label>Наш код (може празно — попълва се после) <input type="text" id="pk-code" list="pack-codes" value="${escapeAttr(r.code || "")}" placeholder="напр. 30..." /></label>
       <label>Клиент <input type="text" id="pk-client" list="pack-clients" value="${escapeAttr(r.clientName || "")}" placeholder="празно = за всички клиенти" /></label>
       <label>Име по клиента / № чертеж <input type="text" id="pk-cpname" value="${escapeAttr(r.clientProductName || "")}" placeholder="както клиента поръчва" /></label>
-      <label>Вид кашон <input type="text" id="pk-boxtype" value="${escapeAttr(r.boxType || "")}" placeholder="напр. кафяв 5-слоен…" /></label>
+      <label>Вид кашон <input type="text" id="pk-boxtype" list="pack-boxlist" value="${escapeAttr(r.boxType || "")}" placeholder="Малък / Среден / Голям / МПК 85 / Тава…" /></label>
       <label>Размер кашон <input type="text" id="pk-boxsize" value="${escapeAttr(r.boxSize || "")}" placeholder="напр. 600×400×300" /></label>
       <label>Броя в кашон <input type="number" id="pk-ppb" step="1" min="0" value="${escapeAttr(String(r.piecesPerBox ?? ""))}" /></label>
       <label>Килограми за брой <input type="number" id="pk-kgp" step="any" min="0" value="${escapeAttr(String(r.kgPerPiece ?? ""))}" /></label>
@@ -142,6 +161,9 @@ function erpPackForm(rec) {
       + (perBox && bpp ? ` · <b>${perBox * bpp} бр.</b> на палет (${bpp} кашона)` : "");
   };
   ["pk-code", "pk-kgp", "pk-kgb", "pk-bpp", "pk-ppb"].forEach(id => wrap.querySelector("#" + id).addEventListener("input", preview));
+  // Стандартен кашон от списъка → размерът се попълва сам.
+  const bt = wrap.querySelector("#pk-boxtype");
+  if (bt) bt.addEventListener("change", () => { const std = packBoxStdFind(bt.value); if (std) { bt.value = std.name; const s = wrap.querySelector("#pk-boxsize"); if (s) s.value = std.size; } });
   preview();
   wrap.querySelector("#pk-cancel").addEventListener("click", close);
   wrap.querySelector("#pk-save").addEventListener("click", async () => {
@@ -312,7 +334,7 @@ async function erpPackOrderOpen(orderId) {
           <td>${escapeHtml(st.name)}</td>
           <td class="num">${erpNum(st.qty)}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
-          <td><input type="text" class="pko-box" data-i="${i}" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="напр. кафяв 5-слоен" /></td>
+          <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="Малък / Голям / Тава…" /></td>
           <td><input type="text" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" style="width:96px" placeholder="60×40×30" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" /></td>
@@ -338,7 +360,8 @@ async function erpPackOrderOpen(orderId) {
         <button class="btn btn-small" id="pko-goods">🖨 Стокова разписка</button>
         <button class="btn btn-small" id="pko-pallets">🖨 Палет опис (по палети)</button>
         <span class="erp-muted">Документите се пълнят от ТАЗИ таблица (Опаковъчната верига).</span>
-      </div>`;
+      </div>
+      ${packBoxDatalistHtml()}`;
     const collect = () => {
       v.querySelectorAll("tr[data-i]").forEach(tr => {
         const i = Number(tr.dataset.i);
@@ -355,6 +378,11 @@ async function erpPackOrderOpen(orderId) {
       P.palletKg = erpToNum((document.getElementById("pko-palkg") || {}).value) || 20;
     };
     v.querySelector("#pko-back").addEventListener("click", () => erpRenderPackaging());
+    // Стандартен кашон от списъка → размерът на реда се попълва сам (преди collect).
+    v.querySelectorAll(".pko-box").forEach(el => el.addEventListener("change", () => {
+      const std = packBoxStdFind(el.value);
+      if (std) { el.value = std.name; const tr = el.closest("tr"); const s = tr && tr.querySelector(".pko-boxsize"); if (s) s.value = std.size; }
+    }));
     v.querySelectorAll(".pko-kg,.pko-box,.pko-boxsize,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
