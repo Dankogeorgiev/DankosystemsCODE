@@ -65,7 +65,7 @@ async function erpRenderPackaging() {
     <table class="report-table erp-table">
       <thead><tr>
         <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид кашон</th><th>Размер кашон</th>
-        <th class="num">кг/брой</th><th class="num">кг/кашон</th><th class="num">кашони/палет</th>
+        <th class="num">бр/кашон</th><th class="num">кг/брой</th><th class="num">кг/кашон</th><th class="num">кашони/палет</th>
         <th>Аксесоари на палета</th><th></th>
       </tr></thead>
       <tbody id="pack-tbody"></tbody>
@@ -93,12 +93,13 @@ function erpPackFillRows() {
     <td data-label="Име по клиента">${escapeHtml(p.clientProductName || "")}</td>
     <td data-label="Вид кашон">${escapeHtml(p.boxType || "")}</td>
     <td data-label="Размер кашон">${escapeHtml(p.boxSize || "")}</td>
+    <td class="num" data-label="бр/кашон">${n(p.piecesPerBox)}</td>
     <td class="num" data-label="кг/брой">${n(p.kgPerPiece)}</td>
     <td class="num" data-label="кг/кашон">${n(p.kgPerBox)}</td>
     <td class="num" data-label="кашони/палет">${n(p.boxesPerPallet)}</td>
     <td data-label="Аксесоари">${escapeHtml(p.accessories || "")}</td>
     <td class="erp-row-actions"><button class="btn btn-small" data-edit="${p.id}">✎</button> <button class="btn btn-small btn-danger" data-del="${p.id}">×</button></td>
-  </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
+  </tr>`).join("") || `<tr><td colspan="11" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
   tb.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackForm((PACKAGING || []).find(x => String(x.id) === String(b.dataset.edit))); }));
   tb.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackDelete(Number(b.dataset.del)); }));
   tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpPackForm((PACKAGING || []).find(x => String(x.id) === String(tr.dataset.id)))));
@@ -107,7 +108,7 @@ function erpPackFillRows() {
 /* ---------- Форма (добавяне/редакция) ---------- */
 function erpPackForm(rec) {
   const isNew = !rec;
-  const r = rec ? { ...rec } : { id: null, code: "", clientName: "", clientProductName: "", kgPerPiece: "", kgPerBox: "", boxesPerPallet: "", boxType: "", accessories: "" };
+  const r = rec ? { ...rec } : { id: null, code: "", clientName: "", clientProductName: "", kgPerPiece: "", kgPerBox: "", piecesPerBox: "", boxesPerPallet: "", boxType: "", accessories: "" };
   const { wrap, close } = erpDialog(`
     <h3>${isNew ? "Нова опаковка" : "Редакция на опаковка"}</h3>
     <div class="erp-co-grid">
@@ -116,6 +117,7 @@ function erpPackForm(rec) {
       <label>Име по клиента / № чертеж <input type="text" id="pk-cpname" value="${escapeAttr(r.clientProductName || "")}" placeholder="както клиента поръчва" /></label>
       <label>Вид кашон <input type="text" id="pk-boxtype" value="${escapeAttr(r.boxType || "")}" placeholder="напр. кафяв 5-слоен…" /></label>
       <label>Размер кашон <input type="text" id="pk-boxsize" value="${escapeAttr(r.boxSize || "")}" placeholder="напр. 600×400×300" /></label>
+      <label>Броя в кашон <input type="number" id="pk-ppb" step="1" min="0" value="${escapeAttr(String(r.piecesPerBox ?? ""))}" /></label>
       <label>Килограми за брой <input type="number" id="pk-kgp" step="any" min="0" value="${escapeAttr(String(r.kgPerPiece ?? ""))}" /></label>
       <label>Килограми за кашон <input type="number" id="pk-kgb" step="any" min="0" value="${escapeAttr(String(r.kgPerBox ?? ""))}" /></label>
       <label>Брой кашони на палет <input type="number" id="pk-bpp" step="any" min="0" value="${escapeAttr(String(r.boxesPerPallet ?? ""))}" /></label>
@@ -129,8 +131,8 @@ function erpPackForm(rec) {
     const g = id => (wrap.querySelector("#" + id).value || "").trim();
     const code = g("pk-code");
     const p = (typeof ERP !== "undefined" && ERP.products ? ERP.products : []).find(x => String(x.code || "").trim() === code);
-    const kgP = packNum(g("pk-kgp")), kgB = packNum(g("pk-kgb")), bpp = packNum(g("pk-bpp"));
-    const perBox = (kgP > 0 && kgB > 0) ? Math.max(1, Math.round(kgB / kgP)) : 0;
+    const kgP = packNum(g("pk-kgp")), kgB = packNum(g("pk-kgb")), bpp = packNum(g("pk-bpp")), ppb = packNum(g("pk-ppb"));
+    const perBox = ppb > 0 ? Math.round(ppb) : ((kgP > 0 && kgB > 0) ? Math.max(1, Math.round(kgB / kgP)) : 0);
     const box = wrap.querySelector("#pk-preview"); if (!box) return;
     const head = code
       ? `<b>${escapeHtml(code)}</b>${p ? " · " + escapeHtml(p.name || "") : ' · <span class="erp-muted">няма продукт с този код</span>'}`
@@ -139,7 +141,7 @@ function erpPackForm(rec) {
       + (perBox ? ` · <b>${perBox} бр.</b> в кашон` : "")
       + (perBox && bpp ? ` · <b>${perBox * bpp} бр.</b> на палет (${bpp} кашона)` : "");
   };
-  ["pk-code", "pk-kgp", "pk-kgb", "pk-bpp"].forEach(id => wrap.querySelector("#" + id).addEventListener("input", preview));
+  ["pk-code", "pk-kgp", "pk-kgb", "pk-bpp", "pk-ppb"].forEach(id => wrap.querySelector("#" + id).addEventListener("input", preview));
   preview();
   wrap.querySelector("#pk-cancel").addEventListener("click", close);
   wrap.querySelector("#pk-save").addEventListener("click", async () => {
@@ -152,7 +154,7 @@ function erpPackForm(rec) {
       code, clientName: g("pk-client"), clientProductName: g("pk-cpname"),
       boxType: g("pk-boxtype"), boxSize: g("pk-boxsize"),
       kgPerPiece: packNum(g("pk-kgp")), kgPerBox: packNum(g("pk-kgb")),
-      boxesPerPallet: packNum(g("pk-bpp")), accessories: g("pk-acc"),
+      piecesPerBox: packNum(g("pk-ppb")), boxesPerPallet: packNum(g("pk-bpp")), accessories: g("pk-acc"),
     };
     if (isNew) {
       // Дедуп: по код+клиент (ако има код) или по име по клиента+клиент (ако няма).
@@ -273,7 +275,7 @@ async function erpPackOrderOpen(orderId) {
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
-      perBox: r.perBox != null ? r.perBox : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : ""),
+      perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : "")),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),
     };
   };
@@ -369,6 +371,7 @@ async function erpPackOrderOpen(orderId) {
           if (r.kgPer > 0) spec.kgPerPiece = r.kgPer;
           if (r.boxType) spec.boxType = r.boxType;
           if (r.boxSize) spec.boxSize = r.boxSize;
+          if (r.perBox > 0) spec.piecesPerBox = r.perBox;
           if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
           if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;
         });
