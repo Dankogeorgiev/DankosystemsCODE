@@ -730,7 +730,28 @@ async function erpFlowApply(meta, productLines) {
     }
   }
 
-  // 0б) КРЪСТОСАНО нетване между заявки: една и съща наличност НЕ бива да се
+  // 0б) „В ПРОИЗВОДСТВО ЗА СКЛАД" (пуснато, но още незаприходено) се брои като
+  //     ОЧАКВАНА наличност. Иначе заявка за същия детайл го пуска ВТОРИ път и
+  //     цехът произвежда двойно. Остатъкът (количество − заприходено) по
+  //     последната стъпка на всяка складова верига влиза в avail и се резервира
+  //     чрез flow_netting като всяка друга наличност — две заявки не могат да
+  //     си поделят едни и същи очаквани бройки.
+  const expectedWip = {};            // pid -> очаквани от текущо складово производство
+  if (stockOn && !toStock) {
+    try {
+      const { data: wipRows } = await erpSelectAll("tasks", "id,data", "data->source->>stock", "true");
+      (wipRows || []).forEach(r => {
+        const d = r.data || {}, src = d.source || {};
+        if (src.kind !== "series" || !src.flow || !src.last || !src.pid) return;
+        if (String(src.seriesKey || "").includes("¦арх:")) return;   // архивирана (готова) верига
+        const rem = Math.max(0, (Number(d.qty) || 0) - (Number(src.stocked) || 0));
+        if (rem > 0) expectedWip[src.pid] = (Number(expectedWip[src.pid]) || 0) + rem;
+      });
+      Object.keys(expectedWip).forEach(pid => { avail[pid] = (Number(avail[pid]) || 0) + expectedWip[pid]; });
+    } catch (e) { /* при грешка — без очакваните (по-добре предпазливо пускане, отколкото счупено) */ }
+  }
+
+  // 0в) КРЪСТОСАНО нетване между заявки: една и съща наличност НЕ бива да се
   //     приспада на всяка заявка поотделно. Пазим колко е нетнала всяка заявка
   //     (по детайл) в app_config → flow_netting и намаляваме avail с вече заетото
   //     от ДРУГИТЕ заявки. Иначе 3 заявки за 500 при 100 налични биха пуснали
@@ -763,6 +784,10 @@ async function erpFlowApply(meta, productLines) {
     });
     Object.keys(reserved).forEach(pid => { avail[pid] = Math.max(0, (Number(avail[pid]) || 0) - reserved[pid]); });
   }
+  // Снимка на РЕАЛНАТА (заскладена) част — за съобщението „колко са от рафта
+  // и колко се очакват от цеха" (преди erpFlowSteps да започне да вади от avail).
+  const shelfAvail = {};
+  Object.keys(avail).forEach(pid => { shelfAvail[pid] = Math.max(0, (Number(avail[pid]) || 0) - (Number(expectedWip[pid]) || 0)); });
 
   // 1) Нови приноси на тази поръчка, групирани по серия (код+операция).
   //    При обхождането приспадаме от avail (мутира се) и записваме взетото от склад.
@@ -827,7 +852,9 @@ async function erpFlowApply(meta, productLines) {
       const qtyUsed = Number(consumed[pid]) || 0;
       if (qtyUsed <= 0) return;
       const p = ERP.prodById[pid] || {};
-      fromStock.push({ pid: Number(pid), code: p.code || "", name: p.name || "", qty: qtyUsed });
+      // wip = частта, която НЕ е на рафта, а се очаква от текущо „Производство за склад".
+      const wip = Math.min(Math.max(0, qtyUsed - (Number(shelfAvail[pid]) || 0)), Number(expectedWip[pid]) || 0);
+      fromStock.push({ pid: Number(pid), code: p.code || "", name: p.name || "", qty: qtyUsed, wip });
     });
   }
 
@@ -1373,15 +1400,18 @@ async function erpProduce(s) {
   const matShort = res.materialsShort || [];
   // Всичко е налично от склада — няма какво да се произвежда.
   if (res.seriesCount === 0 && !miss.length) {
-    alert(`✅ Всичко е налично в Склад детайли — няма какво да се произвежда.\n`
-      + (fs.length ? `\n📦 Покрито от склад:\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.` ).join("\n") + `\n` : "")
-      + `\nПоръчката е готова за продажба — натисни „🧾 Създай продажба".`);
+    const wipTotal = fs.reduce((s, f) => s + (Number(f.wip) || 0), 0);
+    alert((wipTotal
+        ? `⏳ Нищо ново не се пуска в цех — количествата са покрити, но ${erpNum(wipTotal)} бр. се ОЧАКВАТ от текущо „Производство за склад" (още в цех).\n`
+        : `✅ Всичко е налично в Склад детайли — няма какво да се произвежда.\n`)
+      + (fs.length ? `\n📦 Покрито от склад:\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.${f.wip ? ` (⏳ ${erpNum(f.wip)} бр. от тях идват от „Производство за склад" — още в цех)` : ""}` ).join("\n") + `\n` : "")
+      + (wipTotal ? `\nИзчакай складовите вериги (виж Цехове; „🔧 Пусни заседнали вериги" при засечка).` : `\nПоръчката е готова за продажба — натисни „🧾 Създай продажба".`));
     return;
   }
   alert(`Готово! Пуснах поточно производство (${res.seriesCount} операции).\n`
     + `Всяка следваща операция приема детайлите постепенно, колкото са отчетени в предната.`
     + `\n\n📥 Като се отчете последната операция, готовите детайли влизат в Склад детайли. После натисни „🧾 Създай продажба", за да ги изпишеш с продажба.`
-    + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.${f.wip ? ` (⏳ ${erpNum(f.wip)} бр. от тях идват от „Производство за склад" — още в цех)` : ""}`).join("\n") : "")
     + (matShort.length ? `\n\n⚠ НЯМА ДА СТИГНЕ МАТЕРИАЛ (виж таб „⚠ Липсващи материали"):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяването НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
