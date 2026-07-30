@@ -871,6 +871,54 @@ async function erpFlowApply(meta, productLines) {
     bySeries[src.seriesKey] = { id: r.id, data: d, _touched: idx >= 0 };
   });
 
+  // 3б) АРХИВ на изцяло готовите серии: нова заявка за същия детайл НЕ бива да
+  // се обединява със стара, ВЕЧЕ ИЗПЪЛНЕНА — числата се сливаха (напр. „250/400"
+  // при нови 150) и изпълнени задачи се събуждаха. Ако серията, в която ще
+  // добавяме, е готова (произведено ≥ количество) И всички свързани с нея серии
+  // (по prevKey/gate — цялата верига) също са готови, преименуваме ключовете на
+  // цялата верига (¦арх:…) и новата заявка тръгва на чисто от 0. Ако някоя част
+  // от старата верига още тече, НЕ архивираме (кумулативният модел си остава верен).
+  {
+    const doneT = r => { const d = r.data || {}; const q = Number(d.qty) || 0; return q > 0 && (Number(d.produced) || 0) >= q; };
+    const linkKeys = src => {
+      const out = [];
+      if (src.prevKey) out.push(src.prevKey);
+      if (Array.isArray(src.gate)) src.gate.forEach(g => { const k = (typeof g === "string") ? g : (g && g.key); if (k) out.push(k); });
+      return out;
+    };
+    const adj = {};
+    Object.keys(bySeries).forEach(k => {
+      const src = bySeries[k].data.source || {};
+      linkKeys(src).forEach(pk => {
+        if (!bySeries[pk]) return;
+        (adj[k] = adj[k] || new Set()).add(pk);
+        (adj[pk] = adj[pk] || new Set()).add(k);
+      });
+    });
+    const toArchive = new Set();
+    myKeys.forEach(k => {
+      const r0 = bySeries[k];
+      if (!r0 || toArchive.has(k) || !doneT(r0)) return;
+      const comp = new Set([k]); const queue = [k];
+      while (queue.length) { const c = queue.pop(); [...(adj[c] || [])].forEach(n => { if (!comp.has(n)) { comp.add(n); queue.push(n); } }); }
+      if ([...comp].every(c => doneT(bySeries[c]))) comp.forEach(c => toArchive.add(c));
+    });
+    if (toArchive.size) {
+      const tag = "¦арх:" + Date.now().toString(36);
+      for (const k of toArchive) {
+        const r0 = bySeries[k];
+        const src = r0.data.source || {};
+        src.seriesKey = k + tag;
+        if (src.prevKey && toArchive.has(src.prevKey)) src.prevKey = src.prevKey + tag;
+        if (Array.isArray(src.gate)) src.gate = src.gate.map(g => (typeof g === "string")
+          ? (toArchive.has(g) ? g + tag : g)
+          : (g && g.key && toArchive.has(g.key) ? { ...g, key: g.key + tag } : g));
+        try { await sb.from("tasks").update({ data: r0.data, updated_at: new Date().toISOString() }).eq("id", r0.id); } catch (e) { /* при грешка старото сливане остава */ }
+        delete bySeries[k];   // стъпка 4 ще създаде ЧИСТА нова серия на стандартния ключ
+      }
+    }
+  }
+
   // 4) Добавяме новите приноси (нова серия или обединяване към съществуваща).
   myKeys.forEach(k => {
     const add = mine[k], st = add.st;
