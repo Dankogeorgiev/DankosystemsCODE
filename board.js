@@ -137,7 +137,7 @@ function boardCard(t, flowMap) {
   const pi = (typeof priInfo === "function") ? priInfo(t) : { icon: "", cls: "" };
   const gated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
   const avail = (gated && typeof erpFlowAvailable === "function") ? (erpFlowAvailable(t, flowMap) || 0) : null;
-  const due = t.due ? `<span class="bc-due">⏱ ${escapeHtml(t.due)}</span>` : "";
+  const due = t.due ? `<span class="bc-due">⏱ ${typeof erpDMY === "function" ? erpDMY(t.due) : escapeHtml(t.due)}</span>` : "";
   const asg = (typeof taskAssignees === "function") ? taskAssignees(t) : (t.assignee ? [t.assignee] : []);
   const who = asg.length ? `<span class="bc-asg">👷 ${escapeHtml(asg.join(", "))}</span>` : `<span class="bc-asg bc-free">незает</span>`;
   const nos = (typeof taskOrderNos === "function") ? taskOrderNos(t) : [];

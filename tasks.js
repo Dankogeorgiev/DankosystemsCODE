@@ -933,7 +933,7 @@ function renderTasks() {
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>
-      <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td data-label="Срок">${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : escapeHtml(t.due)) : `<span class="serie">СЕРИЯ</span>`}</td>
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${assignees.length ? assignees.map(escapeHtml).join(", ") : "—"}</td>`
         : `<td data-label="Отговорник" class="t-asg-cell">
