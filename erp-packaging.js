@@ -375,24 +375,38 @@ async function erpPackOrderOpen(orderId) {
     const docRows = () => (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) }));
     v.querySelector("#pko-packing").addEventListener("click", () => { collect(); packPrintPacking(o, docRows(), P); });
     v.querySelector("#pko-goods").addEventListener("click", () => { collect(); packPrintGoods(o, docRows()); });
-    v.querySelector("#pko-pallets").addEventListener("click", () => { collect(); packPrintPallets(o, docRows(), P); });
+    v.querySelector("#pko-pallets").addEventListener("click", () => {
+      collect();
+      const trayCnt = (P.tray || []).reduce((s, x) => s + x.boxes, 0);
+      if (trayCnt && !confirm(`Внимание: ${trayCnt} кашона са „Настрани" и НЯМА да влязат в Палет описа. Да печатам ли все пак?`)) return;
+      packPrintPallets(o, docRows(), P);
+    });
     renderPlan();
   };
-  /* --- 3D редактор на палетния план --- */
-  const planSel = { p: -1, g: -1 };
-  const movePlan = (fromP, gi, toP) => {
-    const g = ((P.plan[fromP] || {}).g || [])[gi]; if (!g || fromP === toP) return;
-    let n = g.boxes;
-    if (g.boxes > 1) {
-      const a = prompt(`Колко кашона от ${g.code} (${g.boxes} каш. × ${g.per} бр.) да преместя на Палет №${toP + 1}?`, String(g.boxes));
-      if (a == null) return;
-      n = Math.max(1, Math.min(g.boxes, Math.round(packNum(a)) || 0)); if (!n) return;
-    }
-    g.boxes -= n;
-    if (g.boxes <= 0) P.plan[fromP].g.splice(gi, 1);
-    const same = P.plan[toP].g.find(x => x.code === g.code && x.per === g.per && !x.part === !g.part);
-    if (same) same.boxes += n; else P.plan[toP].g.push({ code: g.code, boxes: n, per: g.per, part: g.part });
-    planSel.p = planSel.g = -1;
+  /* --- 3D редактор на палетния план ---
+     Всеки КАШОН е отделна кутия. Клик маркира/отмаркира (може много
+     наведнъж), после „⤵ Тук (N)" на целевия палет. Влаченето мести
+     един кашон (или цялата селекция, ако влачиш маркиран). „Настрани"
+     е страничният ред за разпределяне — кашоните там НЕ влизат в описа. */
+  const SEL = new Set();   // избрани кашони: "pi:gi:k" (pi = -1 → Настрани)
+  const contOf = pi => pi < 0 ? (P.tray = P.tray || []) : ((P.plan[pi] || {}).g || null);
+  const moveSel = toPi => {
+    if (!SEL.size) return;
+    const byGroup = new Map();
+    SEL.forEach(key => { const [pi, gi] = key.split(":").map(Number); if (pi === toPi) return; const k = pi + ":" + gi; byGroup.set(k, (byGroup.get(k) || 0) + 1); });
+    const target = contOf(toPi); if (!target) { SEL.clear(); return; }
+    const touched = new Set();
+    byGroup.forEach((cnt, k) => {
+      const [pi, gi] = k.split(":").map(Number);
+      const cont = contOf(pi); if (!cont) return;
+      const g = cont[gi]; if (!g) return;
+      const n = Math.min(cnt, g.boxes);
+      g.boxes -= n; touched.add(pi);
+      const same = target.find(x => x !== g && x.code === g.code && x.per === g.per && !x.part === !g.part);
+      if (same) same.boxes += n; else target.push({ code: g.code, boxes: n, per: g.per, part: g.part });
+    });
+    touched.forEach(pi => { const cont = contOf(pi); for (let i = cont.length - 1; i >= 0; i--) if (cont[i].boxes <= 0) cont.splice(i, 1); });
+    SEL.clear();
     collect(); render();
   };
   const renderPlan = () => {
@@ -400,74 +414,93 @@ async function erpPackOrderOpen(orderId) {
     const rows = (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) })).filter(r => r.boxes > 0);
     if (!rows.length) { box.innerHTML = ""; return; }
     const sig = packPlanSig(rows);
-    if (!Array.isArray(P.plan) || P.planSig !== sig) { P.plan = packPlanAuto(rows); P.planSig = sig; }
+    if (!Array.isArray(P.plan) || P.planSig !== sig) { P.plan = packPlanAuto(rows); P.planSig = sig; P.tray = []; SEL.clear(); }
     packPlanNorm(P);
+    P.tray = P.tray || [];
     const info = {}; rows.forEach(r => { info[r.code] = r; });
+    // Кутиите на един контейнер (палет pi или Настрани pi=-1) — кашон по кашон.
+    const boxesHtml = (g, pi) => (g || []).map((x, gi) => {
+      const inf = info[x.code] || {};
+      // Размерите (2 или 3 числа, в произволен ред): най-голямото = дължина
+      // (ширина на екрана), най-малкото = височина на кутията.
+      const nums = (String(inf.boxSize || "").match(/\d+/g) || []).map(Number).filter(n => n > 0);
+      const w = nums.length ? Math.max(52, Math.min(130, Math.round(Math.max(...nums)))) : 64;
+      const h = nums.length > 1 ? Math.max(30, Math.min(90, Math.round(Math.min(...nums) * 0.9))) : 40;
+      const col = packColor(x.code);
+      return Array.from({ length: x.boxes }, (_, k) => `<button type="button" class="pk3d-box${SEL.has(pi + ":" + gi + ":" + k) ? " sel" : ""}" draggable="true" data-pi="${pi}" data-gi="${gi}" data-k="${k}" title="${escapeAttr(x.code)} · ${escapeAttr(inf.name || "")}${inf.boxSize ? " · кашон " + escapeAttr(inf.boxSize) : ""} — 1 кашон × ${x.per} бр. Клик = маркирай, влачи = премести.">
+          <span class="t" style="background:${col}"></span><span class="s" style="background:${col}"></span>
+          <span class="f" style="background:${col};min-width:${w}px;min-height:${h}px${x.part ? ";outline:2px dashed rgba(255,255,255,.85);outline-offset:-4px" : ""}">${escapeHtml(packBoxLabel(inf.name, x.code))}<small>${x.per} бр.${x.part ? " · непълен" : ""}</small></span>
+        </button>`).join("");
+    }).join("");
+    const dropBtn = pi => SEL.size ? `<button class="btn btn-small btn-primary" data-moveto="${pi}">⤵ Тук (${SEL.size})</button>` : "";
     const palletHtml = (p, pi) => {
       const g = p.g || [];
       // Малкият палет 60×80 побира половината кашони на 120×80.
       const capOf = x => { const c = packNum((info[x.code] || {}).perPallet) || x.boxes || 1; return p.small ? Math.max(1, c / 2) : c; };
-      const frac = g.reduce((s, x) => s + x.boxes / capOf(x), 0);
+      const pct = Math.round(g.reduce((s, x) => s + x.boxes / capOf(x), 0) * 100);
       const kg = g.reduce((s, x) => s + x.boxes * x.per * packNum((info[x.code] || {}).kgPer), 0);
-      const pct = Math.round(frac * 100);
       return `<div class="pk3d-pallet${pct > 100 ? " pk3d-overfull" : ""}" data-pi="${pi}">
         <div class="pk3d-head"><b>Палет №${pi + 1}</b><span><button type="button" class="btn btn-small" data-palsize="${pi}" title="Смени размера: стандартен евро 120×80 ↔ малък 60×80">${p.small ? "60×80" : "120×80"}</button> ${pct}%${kg ? " · " + Math.round(kg * 10) / 10 + " кг" : ""}${g.length > 1 ? " · комбиниран" : ""}</span></div>
         <div class="pk3d-fill${pct > 100 ? " over" : ""}"><div style="width:${Math.min(100, pct)}%"></div></div>
-        <div class="pk3d-stack">${(g || []).map((x, gi) => {
-          const inf = info[x.code] || {};
-          // Размерите (2 или 3 числа, в какъвто и да е ред): най-голямото = дължина
-          // (ширина на екрана), най-малкото = височина на кутията.
-          const nums = (String(inf.boxSize || "").match(/\d+/g) || []).map(Number).filter(n => n > 0);
-          const w = nums.length ? Math.max(58, Math.min(150, Math.round(Math.max(...nums) * 1.2))) : 76;
-          const h = nums.length > 1 ? Math.max(34, Math.min(100, Math.round(Math.min(...nums)))) : 46;
-          return `<button type="button" class="pk3d-box${planSel.p === pi && planSel.g === gi ? " sel" : ""}" draggable="true" data-pi="${pi}" data-gi="${gi}" title="${escapeAttr(x.code)} · ${escapeAttr(inf.name || "")}${inf.boxSize ? " · кашон " + escapeAttr(inf.boxSize) : ""} — ${x.boxes} каш. × ${x.per} бр. Клик = избери, влачи = премести.">
-            <span class="t" style="background:${packColor(x.code)}"></span><span class="s" style="background:${packColor(x.code)}"></span>
-            <span class="f" style="background:${packColor(x.code)};min-width:${w}px;min-height:${h}px">${escapeHtml(packBoxLabel(inf.name, x.code))}<small>${x.boxes}×${x.per} бр.${x.part ? " · непълен" : ""}</small>${inf.boxSize ? `<small style="opacity:.75">${escapeHtml(inf.boxSize)}</small>` : ""}</span>
-          </button>`;
-        }).join("") || '<span class="erp-muted">празен палет</span>'}</div>
+        <div class="pk3d-stack">${boxesHtml(g, pi) || '<span class="erp-muted">празен палет</span>'}</div>
         <div class="pk3d-base"${p.small ? ' style="width:58%"' : ""}></div>
         <div class="pk3d-actions">
-          ${planSel.p >= 0 && planSel.p !== pi ? `<button class="btn btn-small btn-primary" data-moveto="${pi}">⤵ Премести тук</button>` : ""}
-          ${!(g || []).length ? `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>` : ""}
+          ${dropBtn(pi)}
+          ${!g.length ? `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>` : ""}
         </div>
       </div>`;
     };
-    box.innerHTML = `<h4 class="erp-group-head">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик на кашон и „⤵ Премести тук" на друг палет (или влачене). Пази се със „Запази опаковката" и Палет описът излиза по НЕГО.</span></h4>
+    const trayCnt = P.tray.reduce((s, x) => s + x.boxes, 0);
+    box.innerHTML = `<h4 class="erp-group-head">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик маркира кашони (колкото искаш), после „⤵ Тук" на палета; влаченето мести. Пази се със „Запази опаковката", Палет описът излиза по НЕГО.</span></h4>
+      ${SEL.size ? `<div class="hint" style="margin:4px 0">✔ Маркирани: <b>${SEL.size}</b> кашона — натисни „⤵ Тук" на палета, където да отидат, или <button class="btn btn-small" id="pk3d-desel">откажи</button></div>` : ""}
+      <div class="pk3d-pallet pk3d-tray${trayCnt ? "" : " pk3d-trayempty"}" data-pi="-1">
+        <div class="pk3d-head"><b>📥 Настрани (за разпределяне)</b><span>${trayCnt ? trayCnt + " кашона — ⚠ няма да влязат в Палет описа, докато са тук" : "празно — тук може да сваляш кашони, докато редиш"}</span></div>
+        <div class="pk3d-stack">${boxesHtml(P.tray, -1) || '<span class="erp-muted">няма кашони настрани</span>'}</div>
+        <div class="pk3d-actions">${dropBtn(-1)}</div>
+      </div>
       <div class="pk3d-wrap">${P.plan.map(palletHtml).join("")}
         <div class="pk3d-pallet pk3d-newpal">
           <button class="btn btn-small" id="pk3d-add">+ Палет</button>
           <button class="btn btn-small" id="pk3d-auto" title="Строи плана наново: цели палети по изделие + комбинирани остатъци">↺ Авто подредба</button>
+          <button class="btn btn-small" id="pk3d-clear" title="Сваля всички кашони Настрани — редиш палетите от нулата">⬇ Всички настрани</button>
         </div>
       </div>`;
     box.querySelectorAll(".pk3d-box").forEach(b => {
-      b.addEventListener("click", () => {
-        const pi = Number(b.dataset.pi), gi = Number(b.dataset.gi);
-        if (planSel.p === pi && planSel.g === gi) { planSel.p = planSel.g = -1; } else { planSel.p = pi; planSel.g = gi; }
-        renderPlan();
-      });
-      b.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", b.dataset.pi + ":" + b.dataset.gi); });
+      const key = b.dataset.pi + ":" + b.dataset.gi + ":" + b.dataset.k;
+      b.addEventListener("click", () => { if (SEL.has(key)) SEL.delete(key); else SEL.add(key); renderPlan(); });
+      b.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", key); });
     });
     box.querySelectorAll(".pk3d-pallet[data-pi]").forEach(card => {
       card.addEventListener("dragover", e => { e.preventDefault(); card.classList.add("pk3d-over"); });
       card.addEventListener("dragleave", () => card.classList.remove("pk3d-over"));
       card.addEventListener("drop", e => {
         e.preventDefault(); card.classList.remove("pk3d-over");
-        const m = String(e.dataTransfer.getData("text/plain") || "").match(/^(\d+):(\d+)$/);
-        // prompt() е блокиран от браузъра ПО ВРЕМЕ на drop събитието →
-        // местим след края му, иначе преместването мълчаливо се отказва.
-        if (m) setTimeout(() => movePlan(Number(m[1]), Number(m[2]), Number(card.dataset.pi)), 0);
+        const m = String(e.dataTransfer.getData("text/plain") || "").match(/^(-?\d+):(\d+):(\d+)$/);
+        if (!m) return;
+        const key = m[0], toPi = Number(card.dataset.pi);
+        // влачиш маркиран кашон → мести цялата селекция; иначе само този
+        setTimeout(() => { if (!SEL.has(key)) { SEL.clear(); SEL.add(key); } moveSel(toPi); }, 0);
       });
     });
-    box.querySelectorAll("[data-moveto]").forEach(b => b.addEventListener("click", () => movePlan(planSel.p, planSel.g, Number(b.dataset.moveto))));
-    box.querySelectorAll("[data-delpal]").forEach(b => b.addEventListener("click", () => { P.plan.splice(Number(b.dataset.delpal), 1); planSel.p = planSel.g = -1; collect(); render(); }));
+    box.querySelectorAll("[data-moveto]").forEach(b => b.addEventListener("click", () => moveSel(Number(b.dataset.moveto))));
+    box.querySelectorAll("[data-delpal]").forEach(b => b.addEventListener("click", () => { P.plan.splice(Number(b.dataset.delpal), 1); SEL.clear(); collect(); render(); }));
     box.querySelectorAll("[data-palsize]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
       const p = P.plan[Number(b.dataset.palsize)]; if (!p) return;
       p.small = p.small ? 0 : 1;
       collect(); render();
     }));
+    const desel = box.querySelector("#pk3d-desel"); if (desel) desel.addEventListener("click", () => { SEL.clear(); renderPlan(); });
     const add = box.querySelector("#pk3d-add"); if (add) add.addEventListener("click", () => { P.plan.push({ small: 0, g: [] }); renderPlan(); });
-    const auto = box.querySelector("#pk3d-auto"); if (auto) auto.addEventListener("click", () => { P.plan = packPlanAuto(rows); P.planSig = sig; planSel.p = planSel.g = -1; collect(); render(); });
+    const auto = box.querySelector("#pk3d-auto"); if (auto) auto.addEventListener("click", () => { P.plan = packPlanAuto(rows); P.planSig = sig; P.tray = []; SEL.clear(); collect(); render(); });
+    const clr = box.querySelector("#pk3d-clear"); if (clr) clr.addEventListener("click", () => {
+      P.plan.forEach(p => (p.g || []).forEach(g => {
+        const same = P.tray.find(x => x.code === g.code && x.per === g.per && !x.part === !g.part);
+        if (same) same.boxes += g.boxes; else P.tray.push({ ...g });
+      }));
+      P.plan.forEach(p => { p.g = []; });
+      SEL.clear(); collect(); render();
+    });
   };
   render();
 }
