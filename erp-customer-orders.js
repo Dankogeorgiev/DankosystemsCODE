@@ -300,12 +300,27 @@ async function erpRenderCustomerOrders() {
         ops: ts.map(t => ({ op: t.operation || "", ws: t.workshop || "", p: Number(t.produced) || 0, q: Number(t.qty) || 0 })) };
     }).filter(g => !g.allDone);
   } catch (e) { /* тихо — секцията просто не се показва */ }
+  // Всичко за склад се показва като ЕДНА „заявка" — кликаш и излиза целият списък.
+  const stTotQty = stockGroups.reduce((s, g) => s + g.qty, 0);
+  const stTotDone = stockGroups.reduce((s, g) => s + g.stocked, 0);
   const stockHtml = stockGroups.length ? `
-    <div class="co-stock-box">
-      <h4 class="erp-group-head" style="margin-top:0">🏭 Производство ЗА СКЛАД — текущи (${stockGroups.length})</h4>
+    <div class="co-stock-box co-stock-one erp-clickable" id="co-stock-open" title="Отвори всички текущи производства за склад">
+      <span class="co-stock-ttl">🏭 <b>ПРОИЗВОДСТВО ЗА СКЛАД</b></span>
+      <span class="erp-co-status s-в производство">в производство</span>
+      <span class="erp-muted">${stockGroups.length} ${stockGroups.length === 1 ? "изделие" : "изделия"} · общо ${erpNum(stTotQty)} бр. · готови в склада ${erpNum(stTotDone)}</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small" type="button">Отвори →</button>
+    </div>` : "";
+
+  // Прозорецът „Производство за склад" — всичко на едно място, като отворена заявка.
+  function erpCOStockDialog(groups) {
+    const { wrap, close } = erpDialog(`
+      <h3>🏭 Производство ЗА СКЛАД — текущи (${groups.length})</h3>
+      <p class="hint" style="margin:0 0 8px">Пуснати от Продукти / Склад детайли (без клиентска заявка). Щом мине последната операция, готовите бройки влизат в Склад детайли и изделието изчезва оттук.</p>
+      <div style="max-height:60vh;overflow:auto">
       <table class="report-table erp-table" style="margin-bottom:6px">
         <thead><tr><th>Код</th><th>Детайл</th><th class="num">Бройка</th><th>Напредък по операции</th><th class="num">Готови в склада</th><th></th></tr></thead>
-        <tbody>${stockGroups.map(g => `<tr>
+        <tbody>${groups.map(g => `<tr>
           <td><b>${escapeHtml(g.code)}</b></td>
           <td>${escapeHtml(g.product)}</td>
           <td class="num">${erpNum(g.qty)}</td>
@@ -313,9 +328,20 @@ async function erpRenderCustomerOrders() {
           <td class="num"><b>${erpNum(g.stocked)}</b></td>
           <td class="erp-row-actions"><button class="btn btn-small btn-danger" data-stockrm="${escapeAttr(g.sid)}" title="Изтегля производството за склад (маха задачите по цеховете)">✕ Изтегли</button></td>
         </tr>`).join("")}</tbody>
-      </table>
-      <p class="hint" style="margin:0">Пуснати от Продукти / Склад детайли (без клиентска заявка). Щом мине последната операция, готовите бройки влизат в Склад детайли и редът изчезва оттук.</p>
-    </div>` : "";
+      </table></div>
+      <div class="erp-dialog-actions"><span class="spacer"></span><button class="btn" id="costk-close">Затвори</button></div>`);
+    wrap.querySelector("#costk-close").addEventListener("click", close);
+    wrap.querySelectorAll("[data-stockrm]").forEach(b => b.addEventListener("click", async () => {
+      const sid = b.dataset.stockrm;
+      const g = groups.find(x => x.sid === sid);
+      if (!confirm(`Да изтегля ли производството за склад на „${(g && g.code) || ""} ${(g && g.product) || ""}"?\nЗадачите му по цеховете ще се премахнат.`)) return;
+      try {
+        if (typeof erpFlowRemoveOrder === "function") await erpFlowRemoveOrder(sid);
+        else await sb.from("tasks").delete().eq("data->source->>sampleId", String(sid));
+      } catch (e) { alert("Грешка при изтегляне: " + (e.message || e)); return; }
+      close(); erpRenderCustomerOrders();
+    }));
+  }
 
   const rows = erpCOSortRows(erpCOList.slice());
   const sortOpts = [
@@ -365,17 +391,9 @@ async function erpRenderCustomerOrders() {
     </table>`;
 
   document.getElementById("erp-co-new").addEventListener("click", erpNewCO);
-  // Изтегляне на производство ЗА СКЛАД (маха задачите му по цеховете).
-  v.querySelectorAll("[data-stockrm]").forEach(b => b.addEventListener("click", async () => {
-    const sid = b.dataset.stockrm;
-    const g = stockGroups.find(x => x.sid === sid);
-    if (!confirm(`Да изтегля ли производството за склад на „${(g && g.code) || ""} ${(g && g.product) || ""}"?\nЗадачите му по цеховете ще се премахнат.`)) return;
-    try {
-      if (typeof erpFlowRemoveOrder === "function") await erpFlowRemoveOrder(sid);
-      else await sb.from("tasks").delete().eq("data->source->>sampleId", String(sid));
-    } catch (e) { alert("Грешка при изтегляне: " + (e.message || e)); return; }
-    erpRenderCustomerOrders();
-  }));
+  // „Заявката" за склад: клик → прозорец с всички текущи производства за склад.
+  const stOpen = document.getElementById("co-stock-open");
+  if (stOpen) stOpen.addEventListener("click", () => erpCOStockDialog(stockGroups));
   const aiBtn = document.getElementById("erp-co-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpAIStart);
   const sortSel = document.getElementById("erp-co-sort");
