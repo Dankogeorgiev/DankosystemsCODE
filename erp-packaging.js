@@ -267,6 +267,7 @@ async function erpPackOrderOpen(orderId) {
       key, code: l.code || "", name: l.name || "", qty: erpToNum(l.qty) || 0,
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
+      boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
       perBox: r.perBox != null ? r.perBox : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : ""),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),
     };
@@ -296,13 +297,14 @@ async function erpPackOrderOpen(orderId) {
         <button class="btn btn-small btn-primary" id="pko-save">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
-        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th class="num">Броя в кашон</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
+        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Размер кашон</th><th class="num">Броя в кашон</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
           <td class="num">${erpNum(st.qty)}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
           <td><input type="text" class="pko-box" data-i="${i}" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="напр. кафяв 5-слоен" /></td>
+          <td><input type="text" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" style="width:96px" placeholder="60×40×30" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" /></td>
           <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
@@ -310,7 +312,7 @@ async function erpPackOrderOpen(orderId) {
           <td class="num">${c.netKg || "—"}</td>
         </tr>`; }).join("")}</tbody>
         <tfoot><tr style="font-weight:700;background:#f8fafc">
-          <td colspan="2">ОБЩО</td><td class="num">${erpNum(totals.qty)}</td><td></td><td></td><td></td><td></td>
+          <td colspan="2">ОБЩО</td><td class="num">${erpNum(totals.qty)}</td><td></td><td></td><td></td><td></td><td></td>
           <td class="num">${totals.boxes}</td><td class="num">${palletsUp}${totals.pallets ? ` <span class="erp-muted">(${Math.round(totals.pallets * 100) / 100})</span>` : ""}</td><td class="num">${Math.round(totals.net * 10) / 10}</td>
         </tr></tfoot>
       </table>
@@ -336,6 +338,7 @@ async function erpPackOrderOpen(orderId) {
         P.rows[key] = {
           kgPer: erpToNum((tr.querySelector(".pko-kg") || {}).value) || 0,
           boxType: ((tr.querySelector(".pko-box") || {}).value || "").trim(),
+          boxSize: ((tr.querySelector(".pko-boxsize") || {}).value || "").trim(),
           perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
           perPallet: erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0,
         };
@@ -343,7 +346,7 @@ async function erpPackOrderOpen(orderId) {
       P.palletKg = erpToNum((document.getElementById("pko-palkg") || {}).value) || 20;
     };
     v.querySelector("#pko-back").addEventListener("click", () => erpRenderPackaging());
-    v.querySelectorAll(".pko-kg,.pko-box,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    v.querySelectorAll(".pko-kg,.pko-box,.pko-boxsize,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
       collect();
@@ -358,6 +361,7 @@ async function erpPackOrderOpen(orderId) {
           if (!spec) { spec = { id: packNextId(), code: l.code, clientName: o.clientName || "" }; PACKAGING.push(spec); }
           if (r.kgPer > 0) spec.kgPerPiece = r.kgPer;
           if (r.boxType) spec.boxType = r.boxType;
+          if (r.boxSize) spec.boxSize = r.boxSize;
           if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
           if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;
         });
@@ -403,10 +407,16 @@ async function erpPackOrderOpen(orderId) {
       return `<div class="pk3d-pallet${pct > 100 ? " pk3d-overfull" : ""}" data-pi="${pi}">
         <div class="pk3d-head"><b>Палет №${pi + 1}</b><span>${pct}%${kg ? " · " + Math.round(kg * 10) / 10 + " кг" : ""}${(g || []).length > 1 ? " · комбиниран" : ""}</span></div>
         <div class="pk3d-fill${pct > 100 ? " over" : ""}"><div style="width:${Math.min(100, pct)}%"></div></div>
-        <div class="pk3d-stack">${(g || []).map((x, gi) => `<button type="button" class="pk3d-box${planSel.p === pi && planSel.g === gi ? " sel" : ""}" draggable="true" data-pi="${pi}" data-gi="${gi}" title="${escapeAttr(x.code)} — ${x.boxes} каш. × ${x.per} бр. Клик = избери, влачи = премести.">
+        <div class="pk3d-stack">${(g || []).map((x, gi) => {
+          const inf = info[x.code] || {};
+          const dim = String(inf.boxSize || "").match(/(\d+)\D+(\d+)/);
+          const w = dim ? Math.max(58, Math.min(150, Math.round(Number(dim[1]) * 1.2))) : 76;
+          const h = dim ? Math.max(34, Math.min(100, Math.round(Number(dim[2]) * 1.0))) : 46;
+          return `<button type="button" class="pk3d-box${planSel.p === pi && planSel.g === gi ? " sel" : ""}" draggable="true" data-pi="${pi}" data-gi="${gi}" title="${escapeAttr(x.code)} · ${escapeAttr(inf.name || "")}${inf.boxSize ? " · кашон " + escapeAttr(inf.boxSize) : ""} — ${x.boxes} каш. × ${x.per} бр. Клик = избери, влачи = премести.">
             <span class="t" style="background:${packColor(x.code)}"></span><span class="s" style="background:${packColor(x.code)}"></span>
-            <span class="f" style="background:${packColor(x.code)}">${escapeHtml(x.code)}<small>${x.boxes}×${x.per} бр.${x.part ? " · непълен" : ""}</small></span>
-          </button>`).join("") || '<span class="erp-muted">празен палет</span>'}</div>
+            <span class="f" style="background:${packColor(x.code)};min-width:${w}px;min-height:${h}px">${escapeHtml(packBoxLabel(inf.name, x.code))}<small>${x.boxes}×${x.per} бр.${x.part ? " · непълен" : ""}</small>${inf.boxSize ? `<small style="opacity:.75">${escapeHtml(inf.boxSize)}</small>` : ""}</span>
+          </button>`;
+        }).join("") || '<span class="erp-muted">празен палет</span>'}</div>
         <div class="pk3d-base"></div>
         <div class="pk3d-actions">
           ${planSel.p >= 0 && planSel.p !== pi ? `<button class="btn btn-small btn-primary" data-moveto="${pi}">⤵ Премести тук</button>` : ""}
@@ -435,7 +445,9 @@ async function erpPackOrderOpen(orderId) {
       card.addEventListener("drop", e => {
         e.preventDefault(); card.classList.remove("pk3d-over");
         const m = String(e.dataTransfer.getData("text/plain") || "").match(/^(\d+):(\d+)$/);
-        if (m) movePlan(Number(m[1]), Number(m[2]), Number(card.dataset.pi));
+        // prompt() е блокиран от браузъра ПО ВРЕМЕ на drop събитието →
+        // местим след края му, иначе преместването мълчаливо се отказва.
+        if (m) setTimeout(() => movePlan(Number(m[1]), Number(m[2]), Number(card.dataset.pi)), 0);
       });
     });
     box.querySelectorAll("[data-moveto]").forEach(b => b.addEventListener("click", () => movePlan(planSel.p, planSel.g, Number(b.dataset.moveto))));
@@ -528,6 +540,14 @@ function packPlanPallets(rows, P) {
     });
     return { items: [...by.values()].map(it => ({ ...it, text: it.parts.join(" + "), kg: Math.round(it.qty * packNum((info[it.code] || {}).kgPer) * 10) / 10 })) };
   }).filter(p => p.items.length).map((p, i) => ({ ...p, no: i + 1 }));
+}
+/* Етикет на кутията в 3D плана — първите дума-две от ИМЕТО (Hook, Bench legs…). */
+function packBoxLabel(name, code) {
+  const ws = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!ws.length) return String(code || "");
+  let l = ws[0];
+  if (ws[1] && (l + " " + ws[1]).length <= 16) l += " " + ws[1];
+  return l;
 }
 /* Цвят на изделие в 3D плана — постоянен за даден код. */
 function packColor(code) {
