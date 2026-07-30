@@ -237,8 +237,8 @@ async function erpRenderSaleForm(o) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="sa-print">🖨 Печат</button>
       ${o.invoiceNo ? `<span class="erp-count" title="Фактурирана">📄 ф-ра № ${escapeHtml(o.invoiceNo)}</span>` : (typeof erpInvFromSale === "function" && o.posted && !o.imported ? '<button class="btn btn-small" id="sa-invoice" title="Създава фактура от тази продажба (документът; складът остава от продажбата)">📄 Създай фактура</button>' : "")}
-      ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span> <button class="btn btn-small btn-danger" id="sa-unpost" title="Връща движенията в склада, за да осчетоводиш продажбата пак">↩ Отмени осчетоводяване</button>'
-        : '<button class="btn btn-small" id="sa-save">💾 Запази</button><button class="btn btn-small btn-primary" id="sa-post">📤 Осчетоводи (изпиши от склада)</button>'}
+      ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span>' + ((typeof postAllowed !== "function" || postAllowed()) ? ' <button class="btn btn-small btn-danger" id="sa-unpost" title="Връща движенията в склада, за да осчетоводиш продажбата пак">↩ Отмени осчетоводяване</button>' : '')
+        : '<button class="btn btn-small" id="sa-save">💾 Запази</button>' + ((typeof postAllowed !== "function" || postAllowed()) ? '<button class="btn btn-small btn-primary" id="sa-post">📤 Осчетоводи (изпиши от склада)</button>' : '<span class="erp-muted" title="Осчетоводяването е разрешено само за Данко и Григор">🔒 осчетоводява: Данко/Григор</span>')}
     </div>
     <div class="erp-co-form">
       <div class="erp-co-grid">
@@ -295,7 +295,7 @@ async function erpRenderSaleForm(o) {
     document.getElementById("sa-cur").addEventListener("change", e => { o.currency = e.target.value; erpSaRefreshFull(o); });
     document.getElementById("sa-vat").addEventListener("change", e => { o.vatRate = erpToNum(e.target.value); erpSaTotals(o); });
     document.getElementById("sa-save").addEventListener("click", () => erpSaSaveClick(o));
-    document.getElementById("sa-post").addEventListener("click", () => erpPostSale(o));
+    const postB = document.getElementById("sa-post"); if (postB) postB.addEventListener("click", () => erpPostSale(o));
     document.getElementById("sa-add-prod").addEventListener("click", () => erpSaAddLine(o, "product"));
     document.getElementById("sa-add-mat").addEventListener("click", () => erpSaAddLine(o, "material"));
   }
@@ -415,6 +415,7 @@ async function erpSaClearImport() {
 }
 
 async function erpUnpostSale(o) {
+  if (typeof postAllowed === "function" && !postAllowed()) { alert("🔒 Отмяната на осчетоводяване е разрешена само за Данко и Григор."); return; }
   if (!o.posted) { alert("Продажбата не е осчетоводена."); return; }
   if (!confirm(`Да отменя ли осчетоводяването на продажба №${o.saleNo || ""}?\n\nВсички движения от тази продажба ще се върнат (изписаните материали/детайли се възстановяват в склада), за да можеш да я осчетоводиш пак — напр. с Вид = готов детайл.`)) return;
   const ref = `Продажба ${o.saleNo || "—"} · ${o.clientName || ""}`.trim();
@@ -538,6 +539,7 @@ async function erpSaSaveClick(o) {
 
 /* ---------- Осчетоводяване (изписване от склада) ---------- */
 async function erpPostSale(o) {
+  if (typeof postAllowed === "function" && !postAllowed()) { alert("🔒 Осчетоводяването е разрешено само за Данко и Григор."); return; }
   if (o.imported) { alert("Това е ИМПОРТИРАНА продажба (регистър от GenCloud) — не се осчетоводява и не пипа склада.\nСкладът за нея е бил обслужен в стария процес."); return; }
   if (o.posted) { alert("Вече е осчетоводена."); return; }
   if (!(o.lines || []).length) { alert("Добави поне един ред."); return; }
