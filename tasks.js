@@ -1855,6 +1855,7 @@ function computeReport() {
     (t.logs || []).forEach(l => {
       if (from && l.date < from) return;
       if (to && l.date > to) return;
+      if (typeof reportWorkerOk === "function" && !reportWorkerOk(l.worker)) return;
       const w = l.worker || "(без име)";
       byWorker[w] = byWorker[w] || { qty: 0, shop: t.workshop };
       byWorker[w].qty += Number(l.qty) || 0;
@@ -2615,6 +2616,9 @@ function timeRowMeaningful(l) {
   return !!(l.machine || l.tPiece || l.tSheet || l.tOrder || l.tSetup || l.sheets || l.consumables || l.specific || l.assemblyNote || l.activity);
 }
 
+// Хора, които НЕ влизат в отчетите (работим по Системата — записите ни са тестови).
+const REPORT_EXCLUDE_WORKERS = new Set(["Григор Байков", "Тестов", "тестов", "Тест"]);
+function reportWorkerOk(w) { return !REPORT_EXCLUDE_WORKERS.has(String(w || "").trim()); }
 function collectTimeRows() {
   const rows = [];
   const seen = new Set();
@@ -2622,6 +2626,7 @@ function collectTimeRows() {
   (PROD_LOG || []).forEach(l => {
     if (l.lid) seen.add(l.lid);
     if (!timeRowMeaningful(l)) return;
+    if (!reportWorkerOk(l.worker)) return;
     rows.push({
       date: l.date || "", workshop: l.workshop || "", machine: l.machine || "",
       client: l.client || "", orderNo: l.orderNo || "", product: l.product || "", code: l.code || "", operation: l.operation || "",
@@ -2634,6 +2639,7 @@ function collectTimeRows() {
   TASKS.forEach(t => (t.logs || []).forEach(l => {
     // включваме всяко вписване, направено през Отчетния прозорец (с машина, време или бележка)
     if (!timeRowMeaningful(l)) return;
+    if (!reportWorkerOk(l.worker)) return;
     if (l.lid && seen.has(l.lid)) return;   // вече е в дневника
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",

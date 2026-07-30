@@ -43,7 +43,26 @@ Deno.serve(async (req) => {
   const paySoon = pay.filter(p => !p.paid && ((p.dueDate && p.dueDate <= in3) || p.forToday))
     .sort((a, b) => String(a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
 
-  if (!recvOver.length && !paySoon.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
+  // Производството ВЧЕРА — от вечния дневник production_log (какво е свършено).
+  const yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const SKIP_WORKERS = new Set(["Григор Байков", "Тестов", "тестов", "Тест"]);
+  let prodRows: any[] = [];
+  try {
+    const pr = await fetch(`${url}/rest/v1/production_log?select=data&data->>date=eq.${yday}`, {
+      headers: { apikey: key, authorization: "Bearer " + key },
+    });
+    if (pr.ok) prodRows = ((await pr.json()) as any[]).map(r => r.data || {}).filter(d => !SKIP_WORKERS.has(String(d.worker || "").trim()));
+  } catch (e) { /* без производствена секция при грешка */ }
+  const byShop: Record<string, { qty: number; cnt: number }> = {};
+  const byWorker: Record<string, { qty: number; ws: string }> = {};
+  prodRows.forEach(d => {
+    const q = Number(d.qty) || 0; const ws = d.workshop || "—";
+    (byShop[ws] = byShop[ws] || { qty: 0, cnt: 0 }); byShop[ws].qty += q; byShop[ws].cnt++;
+    const w = d.worker || "—"; (byWorker[w] = byWorker[w] || { qty: 0, ws }); byWorker[w].qty += q;
+  });
+  const prodTotal = prodRows.reduce((s, d) => s + (Number(d.qty) || 0), 0);
+
+  if (!recvOver.length && !paySoon.length && !prodRows.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
 
   const sum = (arr: any[], f: string) => arr.reduce((s, p) => s + (Number(String(p[f]).replace(",", ".")) || 0), 0);
   const tbl = (head: string, rws: string) => `<table style="border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:13px">
@@ -63,6 +82,16 @@ Deno.serve(async (req) => {
       + tbl(th("Доставчик") + th("Фактура") + th("Падеж") + th("С ДДС EUR") + th(""),
         paySoon.map(p => `<tr>${td(esc(p.supplier))}${td(esc(p.invoiceNo))}${td(fmt(p.dueDate))}${td(money(Number(p.amountVat) || 0), true)}${td(p.forToday ? "☀ За днес" : "")}</tr>`).join(""));
   }
+  if (prodRows.length) {
+    const shopRows = Object.entries(byShop).sort((a, b) => b[1].qty - a[1].qty);
+    const workerRows = Object.entries(byWorker).sort((a, b) => b[1].qty - a[1].qty).slice(0, 15);
+    html += `<h3 style="color:#065f46">🏭 Свършено вчера (${fmt(yday)}): ${money(prodTotal).replace(",00", "")} бр. · ${prodRows.length} отчета</h3>`
+      + tbl(th("Цех") + th("Отчети") + th("Бройки"),
+        shopRows.map(([ws, d]) => `<tr>${td(esc(ws))}${td(String(d.cnt), true)}${td(String(Math.round(d.qty)), true)}</tr>`).join(""))
+      + `<h4 style="margin:4px 0">Топ служители</h4>`
+      + tbl(th("Служител") + th("Цех") + th("Бройки"),
+        workerRows.map(([w, d]) => `<tr>${td(esc(w))}${td(esc(d.ws))}${td(String(Math.round(d.qty)), true)}</tr>`).join(""));
+  }
   html += `<p style="color:#64748b;font-size:12px">Автоматично писмо от СИСТЕМАТА (Данко Системс).</p></div>`;
 
   const send = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -71,7 +100,7 @@ Deno.serve(async (req) => {
     body: JSON.stringify({
       sender: { email: fromEmail, name: fromName },
       to: office.split(",").map(e => ({ email: e.trim() })).filter(x => x.email.includes("@")),
-      subject: `Сутрешен отчет ${fmt(today)}: ${recvOver.length} просрочени вземания · ${paySoon.length} задължения`,
+      subject: `Сутрешен отчет ${fmt(today)}: произведени ${Math.round(prodTotal)} бр. · ${recvOver.length} просрочени вземания · ${paySoon.length} задължения`,
       htmlContent: html,
     }),
   });
