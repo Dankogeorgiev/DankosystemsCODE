@@ -128,10 +128,28 @@ async function erpRenderPriceLists() {
       <button class="btn btn-small" id="pl-frominv" title="Минава всички издадени фактури и опреснява цените по клиенти (по-новата фактура печели). Клиентските имена не се пипат.">⟳ Обнови от фактурите</button>
       <span id="pl-status" class="erp-muted"></span>
     </div>
+    <div id="pl-clientlist" class="hint" style="line-height:2"></div>
     <div id="pl-body"></div>`;
   const ci = v.querySelector("#pl-client");
   ci.addEventListener("change", () => erpPLPickClient(ci.value, clients));
   ci.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); erpPLPickClient(ci.value, clients); } });
+  // Списъкът на клиентите, за които ВЕЧЕ има цени — клик отваря листата им.
+  const renderClientList = async () => {
+    const host = v.querySelector("#pl-clientlist"); if (!host) return;
+    const rows = await erpPLAllRows();
+    const items = rows.map(r => (r.data || {}))
+      .map(d => ({ name: d.clientName || "", n: Object.keys(d.entries || {}).length }))
+      .filter(x => x.name && x.n > 0)
+      .sort((a, b) => a.name.localeCompare(b.name, "bg"));
+    host.innerHTML = items.length
+      ? `📋 <b>Клиенти с готови цени (${items.length}):</b> ` + items.map(x => `<button type="button" class="btn btn-small" data-plc="${escapeAttr(x.name)}" title="${x.n} продукта с цена — клик отваря листата">${escapeHtml(x.name)} <span class="erp-muted">(${x.n})</span></button>`).join(" ")
+      : `<span class="erp-muted">Още няма клиенти с попълнени цени — натисни „⟳ Обнови от фактурите".</span>`;
+    host.querySelectorAll("[data-plc]").forEach(b => b.addEventListener("click", () => {
+      ci.value = b.dataset.plc;
+      erpPLPickClient(b.dataset.plc, clients);
+    }));
+  };
+  renderClientList();
   const runBackfill = async () => {
     const st = document.getElementById("pl-status");
     const btn = document.getElementById("pl-frominv"); if (btn) btn.disabled = true;
@@ -139,6 +157,7 @@ async function erpRenderPriceLists() {
     if (btn) btn.disabled = false;
     if (st) st.textContent = r ? `✓ От ${r.invUsed} фактури: ${r.entriesSet} цени обновени при ${r.clientsTouched} клиенти.` : "⚠ Фактурите не се заредиха.";
     if (PL_CLIENT) { const d = await erpPLLoad(PL_CLIENT.id); PL_ENTRIES = (d && d.entries) || {}; erpPLRenderGrid(); }
+    renderClientList();
     return r;
   };
   v.querySelector("#pl-frominv").addEventListener("click", runBackfill);
