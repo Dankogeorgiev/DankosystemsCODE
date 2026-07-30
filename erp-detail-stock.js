@@ -199,13 +199,11 @@ async function erpRenderDetailStockInner() {
       <button type="button" class="btn btn-small" id="ds-nodemap" title="Цял екран: къде се включва изделието (нагоре) и кои ВЪЗЛИ влизат в него (надолу) — само кодовете на възлите, без дребните части">🌳 Структура (възли)</button>
       <span id="ds-count" class="erp-muted"></span>
       <span class="spacer"></span>
-      <button type="button" class="btn btn-small" id="ds-export">⤓ Свали шаблон (Excel)</button>
       <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
       <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip,application/x-zip-compressed,.dwg,.dxf,.step,.stp,.igs,.iges" multiple hidden />
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
       <button type="button" class="btn btn-small" id="ds-fixcls" title="Намира продукти, ползвани като части в рецепти, но маркирани като артикул — и ги оправя, за да влязат тук">🔧 Провери класификацията</button>
       <button type="button" class="btn btn-small" id="ds-dedup" title="Открива продукти с еднакъв код, заведени два пъти (наличността на единия, рецептата на другия) — и ги обединява">🔗 Дублирани по код</button>
-      <button type="button" class="btn btn-small btn-danger" id="ds-reset" title="За тестване: връща склада ТОЧНО до внесената база — трие движенията от пускане/производство/продажба и поточните задачи. Внесените наличности НЕ се пипат.">🧪 Нулирай тестови движения</button>
     </div>
     <p class="hint">💡 За масово качване на чертежи: кръсти всеки файл да <b>започва с кода</b> на детайла, напр.
       <code>100526_Нож-Николети_3мм.pdf</code>. Дебелината (напр. <code>3мм</code>) я слагай в името за твое удобство — системата разпознава детайла по кода отпред.
