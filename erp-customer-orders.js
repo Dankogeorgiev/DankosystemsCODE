@@ -604,16 +604,18 @@ async function erpRenderCOForm(o) {
       </div>
 
       <h4 class="erp-group-head">Придружаващи документи</h4>
-      <div class="erp-co-actions">
+      <div class="erp-co-actions doc-src doc-src-pack">
+        <span class="doc-src-lbl">📦 От ОПАКОВКИ:</span>
         <button class="btn btn-small" id="co-doc-goods">📦 Стокова разписка</button>
         <button class="btn btn-small" id="co-doc-packing">📦 Packing List</button>
         <button class="btn btn-small" id="co-doc-pallets">🧱 Палет опис</button>
-        <span class="spacer"></span>
+      </div>
+      <div class="erp-co-actions">
         ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="co-mail-transport" title="Запитване за транспорт до превозвач — маршрут/палети/тегло се попълват от заявката">🚚 Запитване за транспорт</button>' : ""}
         <button class="btn btn-small" id="co-edit-transport">✎ Транспорт</button>
         <button class="btn btn-small" id="co-edit-pallets">✎ Палети (${(o.pallets || []).length})</button>
       </div>
-      <p class="hint">Същите документи като при фактурата — за да подготвиш стоката за клиента преди фактурата. (ЧМР се прави от фактурата, защото изисква номер на фактура.)</p>
+      <p class="hint">Зелените документи се пълнят от <b>Опаковки</b> (кашони, тегла и палетния план на ТАЗИ заявка). ЧМР, Description of goods и декларациите се правят от <b>фактурата</b> — виж синята група там.</p>
       <div id="co-extra"></div>
     </div>`;
 
@@ -684,14 +686,15 @@ async function erpRenderCOForm(o) {
     if (typeof erpNewSaleFromOrder === "function") erpNewSaleFromOrder(o);
     else alert("Модул Продажби още не е зареден.");
   });
-  // Придружаващи документи — същите като при фактурата (без ЧМР).
+  // Придружаващи документи — ВИНАГИ от ОПАКОВКИ (Опаковъчната верига).
   const docObj = () => erpCODocAdapter(o);
+  const packDoc = kind => { if (typeof erpPackPrintFor === "function") erpPackPrintFor(o, kind); else alert("Модул Опаковки не е зареден."); };
   const dg = document.getElementById("co-doc-goods");
-  if (dg) dg.addEventListener("click", () => { if (typeof erpInvPrintGoodsNote === "function") erpInvPrintGoodsNote(docObj()); else alert("Модул Фактуриране не е зареден."); });
+  if (dg) dg.addEventListener("click", () => packDoc("goods"));
   const dp = document.getElementById("co-doc-packing");
-  if (dp) dp.addEventListener("click", () => { if (typeof erpInvPrintPacking === "function") erpInvPrintPacking(docObj()); });
+  if (dp) dp.addEventListener("click", () => packDoc("packing"));
   const dl = document.getElementById("co-doc-pallets");
-  if (dl) dl.addEventListener("click", () => { if (typeof erpInvPrintPallets === "function") erpInvPrintPallets(docObj()); });
+  if (dl) dl.addEventListener("click", () => packDoc("pallets"));
   const et = document.getElementById("co-edit-transport");
   if (et) et.addEventListener("click", () => { if (typeof erpInvTransportDialog === "function") erpInvTransportDialog(o, () => { erpSaveCO(o).catch(() => {}); }); });
   const mtr = document.getElementById("co-mail-transport");
