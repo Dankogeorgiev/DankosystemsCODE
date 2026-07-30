@@ -167,10 +167,9 @@ function erpCOListHtml(rows) {
   rows.forEach(o => { const c = o.clientName || "— без клиент —"; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(o); });
   let out = "";
   for (const [c, list] of groups) {
-    if (list.length < 2) { out += list.map(erpCORowHtml).join(""); continue; }
-    const open = erpCOOpenClients.has(c);
+    const open = erpCOOpenClients.has(c);   // всеки клиент е в папка (и с 1 заявка)
     const sum = list.reduce((s, o) => s + (o.lines || []).reduce((t, l) => t + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0), 0);
-    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="10">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} заявки <span class="sell-cell erp-muted">· общо ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
+    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="10">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} ${list.length === 1 ? "заявка" : "заявки"} <span class="sell-cell erp-muted">· общо ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
     if (open) out += list.map(erpCORowHtml).join("");
   }
   return out;
