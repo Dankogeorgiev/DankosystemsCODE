@@ -315,7 +315,9 @@ async function erpRenderCustomerOrders() {
   // показват се тук, за да се виждат наравно със заявките. Четат се от задачите.
   let stockGroups = [];
   try {
-    const { data } = await erpSelectAll("tasks", "id,done,data");
+    // Филтър В БАЗАТА: само задачите „за склад" (преди се теглеха ВСИЧКИ
+    // задачи с целите им данни — все по-бавно с растежа им).
+    const { data } = await erpSelectAll("tasks", "id,done,data", "data->source->>stock", "true");
     const st = (data || []).map(r => ({ tid: r.id, tdone: r.done, ...(r.data || {}) }))
       .filter(t => t.source && t.source.stock);
     const bySid = {};
@@ -388,6 +390,22 @@ async function erpRenderCustomerOrders() {
     }));
   }
 
+  // Частичен ререндер: филтри/подредба/папки сменят САМО тялото на таблицата,
+  // без да презареждат заявките и складовите групи от базата.
+  function erpCORefreshTable() {
+    const tb = document.querySelector("#co-orders-table tbody");
+    if (!tb) { erpRenderCustomerOrders(); return; }
+    const list = erpCOSortRows(erpCOList.slice());
+    tb.innerHTML = erpCOListHtml(list) || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
+    tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
+    tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
+    tb.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
+      const c = tr.dataset.folder;
+      if (erpCOOpenClients.has(c)) erpCOOpenClients.delete(c); else erpCOOpenClients.add(c);
+      erpCORefreshTable();
+    }));
+  }
+
   const rows = erpCOSortRows(erpCOList.slice());
   const sortOpts = [
     ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
@@ -430,32 +448,29 @@ async function erpRenderCustomerOrders() {
   const aiBtn = document.getElementById("erp-co-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpAIStart);
   const sortSel = document.getElementById("erp-co-sort");
-  if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpRenderCustomerOrders(); });
+  if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpCORefreshTable(); });
   const fStatus = document.getElementById("erp-co-fstatus");
-  if (fStatus) fStatus.addEventListener("change", e => { erpCOStatusFilter = e.target.value; erpRenderCustomerOrders(); });
+  if (fStatus) fStatus.addEventListener("change", e => { erpCOStatusFilter = e.target.value; erpCORefreshTable(); });
   const fClient = document.getElementById("erp-co-fclient");
-  if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpRenderCustomerOrders(); });
+  if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpCORefreshTable(); });
   const clearF = document.getElementById("erp-co-clearf");
-  if (clearF) clearF.addEventListener("click", () => { erpCOStatusFilter = ""; erpCOClientFilter = ""; erpRenderCustomerOrders(); });
+  if (clearF) clearF.addEventListener("click", () => { erpCOStatusFilter = ""; erpCOClientFilter = ""; erpCORefreshTable(); });
   const hideDoneEl = document.getElementById("erp-co-hidedone");
-  if (hideDoneEl) hideDoneEl.addEventListener("change", e => { erpCOHideDone = e.target.checked; erpRenderCustomerOrders(); });
+  if (hideDoneEl) hideDoneEl.addEventListener("change", e => { erpCOHideDone = e.target.checked; erpCORefreshTable(); });
   const qEl = document.getElementById("erp-co-q");
   if (qEl) qEl.addEventListener("input", e => {
     erpCOQuery = e.target.value;
     // пре-рисуваме само таблицата със заявките, за да не губим фокуса на търсачката
     const tb = v.querySelector("#co-orders-table tbody");
     if (!tb) { erpRenderCustomerOrders(); return; }
-    const list = erpCOSortRows(erpCOList.slice());
-    tb.innerHTML = erpCOListHtml(list) || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
-    tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
-    tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
+    erpCORefreshTable();
   });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   v.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
     const c = tr.dataset.folder;
     if (erpCOOpenClients.has(c)) erpCOOpenClients.delete(c); else erpCOOpenClients.add(c);
-    erpRenderCustomerOrders();
+    erpCORefreshTable();
   }));
 }
 
