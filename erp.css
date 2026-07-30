@@ -670,3 +670,8 @@ img.ai-doc-content { max-width: none; }
 .pk3d-box.sel .t, .pk3d-box.sel .s { filter: brightness(1.5); }
 .pk3d-base { height: 12px; margin-top: 10px; border-radius: 2px; background: repeating-linear-gradient(90deg, #b45309 0 22px, #92400e 22px 27px); box-shadow: 0 3px 6px rgba(0,0,0,.25); }
 .pk3d-actions { display: flex; gap: 8px; margin-top: 8px; min-height: 4px; flex-wrap: wrap; }
+
+/* Опаковки: страничният ред „Настрани" в плана на палетите */
+.pk3d-tray { max-width: none; width: 100%; flex: none; margin: 6px 0 10px; border-style: dashed; border-color: #94a3b8; background: linear-gradient(180deg, #fffbeb, #fef3c7); }
+.pk3d-tray.pk3d-trayempty { background: #fff; }
+.pk3d-tray .pk3d-stack { min-height: 44px; }
