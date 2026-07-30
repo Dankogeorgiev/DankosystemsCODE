@@ -1043,8 +1043,8 @@ function erpInvPrintHTML(o, single) {
     .trow{display:flex;align-items:baseline;justify-content:space-between}
     .trow h1{flex:1;text-align:center;font-size:17px;letter-spacing:1px;margin:2px 0}
     .trow .orig{font-weight:700;font-size:13px}
-    .meta{display:flex;justify-content:space-between;margin:6px 0 10px}
-    .meta .ml{padding-left:120px}
+    .meta{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin:6px 0 10px}
+    .meta .ml{border:1.6px solid #000;padding:6px 10px;width:calc(50% - 9px);box-sizing:border-box;line-height:1.55}
     .meta .mr{text-align:right;font-size:11.5px}
     .meta .mr .lab{color:#333}
     .parties{display:flex;gap:18px;margin-bottom:12px}
