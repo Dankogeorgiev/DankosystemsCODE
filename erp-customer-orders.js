@@ -153,7 +153,7 @@ function erpCORowHtml(o) {
             <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
             <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
             <td data-label="Дата">${erpDMY(o.date)}</td>
-            <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
+            <td data-label="Срок">${erpDMY(o.deadline)}</td>
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
             <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
             <td data-label="Статус">${erpCOStatusCell(o)}</td>

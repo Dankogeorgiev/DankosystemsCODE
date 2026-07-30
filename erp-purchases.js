@@ -693,7 +693,7 @@ function erpPuCodeHistory(preCode) {
     let r = rows.filter(x => !q || (`${x.code} ${x.article}`.toLowerCase().includes(q)));
     r.sort((a, b) => a.code.localeCompare(b.code) || String(b.date).localeCompare(String(a.date)));
     listEl.innerHTML = r.length ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Артикул</th><th>Дата</th><th>Доставчик</th><th class="num">Кол.</th><th class="num">Ед. цена</th><th>№</th></tr></thead>
-      <tbody>${r.slice(0, 200).map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.article)}</td><td>${escapeHtml(x.date)}</td><td>${escapeHtml(x.supplier)}</td><td class="num">${erpNum(x.qty)}</td><td class="num">${erpPuMoney(x.price, x.cur)}</td><td>${escapeHtml(x.inv)}</td></tr>`).join("")}</tbody></table>`
+      <tbody>${r.slice(0, 200).map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.article)}</td><td>${erpDMY(x.date)}</td><td>${escapeHtml(x.supplier)}</td><td class="num">${erpNum(x.qty)}</td><td class="num">${erpPuMoney(x.price, x.cur)}</td><td>${escapeHtml(x.inv)}</td></tr>`).join("")}</tbody></table>`
       : `<p class="report-empty">Няма съвпадения.</p>`;
   };
   render(preCode || ""); wrap.querySelector("#puh-q").addEventListener("input", e => render(e.target.value));

@@ -186,7 +186,7 @@ async function renderPulse() {
       <div class="pulse-panel">
         <h4>⏰ Закъснели заявки (${overdue.length})</h4>
         ${overdue.length
-          ? `<table class="report-table"><thead><tr><th>№</th><th>Клиент</th><th>Срок</th></tr></thead><tbody>${overdue.slice(0, 25).map(o => `<tr><td>${escapeHtml(o.ourNo || "—")}</td><td>${escapeHtml(o.clientName || "")}</td><td class="pulse-danger">${escapeHtml(o.deadline || "")}</td></tr>`).join("")}</tbody></table>${overdue.length > 25 ? `<p class="erp-muted">…и още ${overdue.length - 25}</p>` : ""}`
+          ? `<table class="report-table"><thead><tr><th>№</th><th>Клиент</th><th>Срок</th></tr></thead><tbody>${overdue.slice(0, 25).map(o => `<tr><td>${escapeHtml(o.ourNo || "—")}</td><td>${escapeHtml(o.clientName || "")}</td><td class="pulse-danger">${erpDMY(o.deadline)}</td></tr>`).join("")}</tbody></table>${overdue.length > 25 ? `<p class="erp-muted">…и още ${overdue.length - 25}</p>` : ""}`
           : `<p class="erp-muted">Няма закъснели заявки. 🎉</p>`}
       </div>
       <div class="pulse-panel">
