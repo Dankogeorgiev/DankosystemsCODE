@@ -675,3 +675,15 @@ img.ai-doc-content { max-width: none; }
 .pk3d-tray { max-width: none; width: 100%; flex: none; margin: 6px 0 10px; border-style: dashed; border-color: #94a3b8; background: linear-gradient(180deg, #fffbeb, #fef3c7); }
 .pk3d-tray.pk3d-trayempty { background: #fff; }
 .pk3d-tray .pk3d-stack { min-height: 44px; }
+
+/* Опаковки: изометричната 3D сцена на палета */
+.pk3i-scene { position: relative; margin: 4px auto 6px; max-width: 100%; }
+.pk3i-f { position: absolute; left: 0; top: 0; transform-origin: 0 0; cursor: pointer; border: 1px solid rgba(0,0,0,.18); box-sizing: border-box; }
+.pk3i-f:hover { filter: brightness(1.25) !important; }
+.pk3i-lbl { position: absolute; transform: translate(-50%, -100%); background: rgba(15,23,42,.84); color: #fff; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 9px; white-space: nowrap; pointer-events: none; z-index: 5; }
+.pk3i-mark { position: absolute; transform: translate(-50%, -50%); width: 18px; height: 18px; border-radius: 50%; background: #f59e0b; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 6; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.pk3i-part { position: absolute; transform: translate(-50%, -50%); background: rgba(255,255,255,.92); color: #92400e; font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 6px; pointer-events: none; z-index: 4; border: 1px dashed #d97706; }
+.pk3d-trayrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 5px 2px; border-bottom: 1px dashed #e2e8f0; font-size: 13px; }
+.pk3d-trayrow:last-child { border-bottom: none; }
+.pk3d-chip { width: 14px; height: 14px; border-radius: 4px; display: inline-block; flex: none; }
+.pk3d-pallet { overflow-x: auto; }

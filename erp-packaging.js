@@ -409,6 +409,17 @@ async function erpPackOrderOpen(orderId) {
     SEL.clear();
     collect(); render();
   };
+  const moveTray = (gi, toPi, n) => {
+    const g = P.tray[gi]; if (!g) return;
+    if (toPi === "new") { P.plan.push({ small: 0, g: [] }); toPi = P.plan.length - 1; }
+    toPi = Number(toPi); if (!P.plan[toPi]) return;
+    n = Math.max(1, Math.min(g.boxes, n || g.boxes));
+    g.boxes -= n; if (g.boxes <= 0) P.tray.splice(gi, 1);
+    const t = P.plan[toPi].g;
+    const same = t.find(x => x.code === g.code && x.per === g.per && !x.part === !g.part);
+    if (same) same.boxes += n; else t.push({ code: g.code, boxes: n, per: g.per, part: g.part });
+    SEL.clear(); collect(); render();
+  };
   const renderPlan = () => {
     const box = v.querySelector("#pko-plan"); if (!box) return;
     const rows = (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) })).filter(r => r.boxes > 0);
@@ -418,20 +429,66 @@ async function erpPackOrderOpen(orderId) {
     packPlanNorm(P);
     P.tray = P.tray || [];
     const info = {}; rows.forEach(r => { info[r.code] = r; });
-    // Кутиите на един контейнер (палет pi или Настрани pi=-1) — кашон по кашон.
-    const boxesHtml = (g, pi) => (g || []).map((x, gi) => {
-      const inf = info[x.code] || {};
-      // Размерите (2 или 3 числа, в произволен ред): най-голямото = дължина
-      // (ширина на екрана), най-малкото = височина на кутията.
-      const nums = (String(inf.boxSize || "").match(/\d+/g) || []).map(Number).filter(n => n > 0);
-      const w = nums.length ? Math.max(52, Math.min(130, Math.round(Math.max(...nums)))) : 64;
-      const h = nums.length > 1 ? Math.max(30, Math.min(90, Math.round(Math.min(...nums) * 0.9))) : 40;
-      const col = packColor(x.code);
-      return Array.from({ length: x.boxes }, (_, k) => `<button type="button" class="pk3d-box${SEL.has(pi + ":" + gi + ":" + k) ? " sel" : ""}" draggable="true" data-pi="${pi}" data-gi="${gi}" data-k="${k}" title="${escapeAttr(x.code)} · ${escapeAttr(inf.name || "")}${inf.boxSize ? " · кашон " + escapeAttr(inf.boxSize) : ""} — 1 кашон × ${x.per} бр. Клик = маркирай, влачи = премести.">
-          <span class="t" style="background:${col}"></span><span class="s" style="background:${col}"></span>
-          <span class="f" style="background:${col};min-width:${w}px;min-height:${h}px${x.part ? ";outline:2px dashed rgba(255,255,255,.85);outline-offset:-4px" : ""}">${escapeHtml(packBoxLabel(inf.name, x.code))}<small>${x.per} бр.${x.part ? " · непълен" : ""}</small></span>
-        </button>`).join("");
-    }).join("");
+    /* --- Истинска 3D визия (изометрия). Всичко е в СМ, после се проектира:
+       екранX = (x − y)·K, екранY = (x + y)/2·K − z·K. Кашонът е с реалните
+       размери: най-голямото число = дължина, средното = ширина, най-малкото
+       = височина. Палетът е 120×80 (или 60×80), дебелина 12 см. --- */
+    const K = 1.4, PALH = 12;
+    const dimsOf = code => {
+      const nums = (String((info[code] || {}).boxSize || "").match(/\d+/g) || []).map(Number).filter(n => n > 0).sort((a, b) => b - a);
+      if (!nums.length) return { l: 40, w: 30, h: 25 };
+      const l = Math.min(nums[0], 200);
+      const w = nums[1] ? Math.min(nums[1], 120) : Math.round(l * 0.7);
+      const h = nums[2] || Math.round(w * 0.8);
+      return { l, w, h };
+    };
+    const layoutPallet = (g, small) => {
+      const PL = small ? 60 : 120, PW = 80;
+      const units = [];
+      (g || []).forEach((x, gi) => { const d = dimsOf(x.code); for (let k = 0; k < x.boxes; k++) units.push({ ...d, code: x.code, per: x.per, part: x.part, gi, k }); });
+      let cx = 0, cy = 0, cz = 0, rowW = 0, layH = 0;
+      units.forEach(u => {
+        const l = Math.min(u.l, PL), w = Math.min(u.w, PW);
+        if (cx + l > PL + 0.01) { cx = 0; cy += rowW; rowW = 0; }
+        if (cy + w > PW + 0.01) { cy = 0; cx = 0; cz += layH; layH = 0; rowW = 0; }
+        u.x = cx; u.y = cy; u.z = cz; u.l = l; u.w = w;
+        cx += l; rowW = Math.max(rowW, w); layH = Math.max(layH, u.h);
+      });
+      return { units, PL, PW };
+    };
+    const pal3d = (p, pi) => {
+      const { units, PL, PW } = layoutPallet(p.g, p.small);
+      const maxTop = Math.max(30, ...units.map(u => u.z + u.h));
+      const offX = PW * K + 4, offY = maxTop * K + 4;
+      const W = Math.round((PL + PW) * K + 8), H = Math.round((PL + PW) * 0.5 * K + (maxTop + PALH) * K + 8);
+      const pr = (x, y, z) => [Math.round((x - y) * K + offX), Math.round(((x + y) * 0.5 - z) * K + offY)];
+      const face = (p0, a, b, c, d, wdt, hgt, col, br, key, tip) =>
+        `<div class="pk3i-f" ${key ? `data-key="${key}" draggable="true" title="${tip || ""}"` : ""} style="width:${Math.round(wdt)}px;height:${Math.round(hgt)}px;background:${col};filter:brightness(${br});transform:matrix(${a},${b},${c},${d},${p0[0]},${p0[1]})"></div>`;
+      const cub = (x, y, z, l, w, h, col, key, sel, tip) => {
+        const B = sel ? 1.4 : 1;
+        return face(pr(x + l, y, z + h), -K, .5 * K, 0, K, w, h, col, .6 * B, key, tip)
+          + face(pr(x, y + w, z + h), K, .5 * K, 0, K, l, h, col, .84 * B, key, tip)
+          + face(pr(x, y, z + h), K, .5 * K, -K, .5 * K, l, w, col, 1.1 * B, key, tip);
+      };
+      let html = cub(0, 0, -PALH, PL, PW, PALH, "#b07a34", null, false);
+      [...units].sort((a, b) => (a.x + a.y + a.z) - (b.x + b.y + b.z)).forEach(u => {
+        const key = pi + ":" + u.gi + ":" + u.k;
+        const inf = info[u.code] || {};
+        const tip = `${escapeAttr(u.code)} · ${escapeAttr(inf.name || "")} — 1 кашон × ${u.per} бр.${u.part ? " (непълен)" : ""}${inf.boxSize ? " · " + escapeAttr(inf.boxSize) : ""}. Клик = маркирай, влачи = премести.`;
+        html += cub(u.x, u.y, u.z, u.l, u.w, u.h, packColor(u.code), key, SEL.has(key), tip);
+        const c = pr(u.x + u.l / 2, u.y + u.w / 2, u.z + u.h);
+        if (SEL.has(key)) html += `<span class="pk3i-mark" style="left:${c[0]}px;top:${c[1]}px">✓</span>`;
+        else if (u.part) html += `<span class="pk3i-part" style="left:${c[0]}px;top:${c[1]}px">${u.per} бр.</span>`;
+      });
+      // По една табелка на артикул — четима, не се върти с кутиите.
+      const byG = new Map();
+      units.forEach(u => { const c = pr(u.x + u.l / 2, u.y + u.w / 2, u.z + u.h); const a = byG.get(u.gi) || { n: 0, sx: 0, sy: 0, gi: u.gi }; a.n++; a.sx += c[0]; a.sy += c[1]; byG.set(u.gi, a); });
+      byG.forEach(a => {
+        const g = (p.g || [])[a.gi]; if (!g) return;
+        html += `<span class="pk3i-lbl">${escapeHtml(packBoxLabel((info[g.code] || {}).name, g.code))} · ${g.boxes}×${g.per}</span>`.replace("class=\"pk3i-lbl\"", `class="pk3i-lbl" style="left:${Math.round(a.sx / a.n)}px;top:${Math.round(a.sy / a.n) - 8}px"`);
+      });
+      return `<div class="pk3i-scene" style="width:${W}px;height:${H}px">${html}</div>`;
+    };
     const dropBtn = pi => SEL.size ? `<button class="btn btn-small btn-primary" data-moveto="${pi}">⤵ Тук (${SEL.size})</button>` : "";
     const palletHtml = (p, pi) => {
       const g = p.g || [];
@@ -442,20 +499,32 @@ async function erpPackOrderOpen(orderId) {
       return `<div class="pk3d-pallet${pct > 100 ? " pk3d-overfull" : ""}" data-pi="${pi}">
         <div class="pk3d-head"><b>Палет №${pi + 1}</b><span><button type="button" class="btn btn-small" data-palsize="${pi}" title="Смени размера: стандартен евро 120×80 ↔ малък 60×80">${p.small ? "60×80" : "120×80"}</button> ${pct}%${kg ? " · " + Math.round(kg * 10) / 10 + " кг" : ""}${g.length > 1 ? " · комбиниран" : ""}</span></div>
         <div class="pk3d-fill${pct > 100 ? " over" : ""}"><div style="width:${Math.min(100, pct)}%"></div></div>
-        <div class="pk3d-stack">${boxesHtml(g, pi) || '<span class="erp-muted">празен палет</span>'}</div>
-        <div class="pk3d-base"${p.small ? ' style="width:58%"' : ""}></div>
+        ${g.length ? pal3d(p, pi) : `${pal3d(p, pi)}<div class="erp-muted" style="text-align:center">празен палет</div>`}
         <div class="pk3d-actions">
           ${dropBtn(pi)}
           ${!g.length ? `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>` : ""}
         </div>
       </div>`;
     };
+    // Списъкът „Настрани": ред на артикул + брой + директни бутони към палетите.
+    const trayListHtml = () => P.tray.map((x, gi) => {
+      const inf = info[x.code] || {};
+      return `<div class="pk3d-trayrow">
+        <span class="pk3d-chip" style="background:${packColor(x.code)}"></span>
+        <b>${escapeHtml(packBoxLabel(inf.name, x.code))}</b>
+        <span class="erp-muted">${x.boxes} каш. × ${x.per} бр.${x.part ? " (непълен)" : ""}${inf.boxSize ? " · " + escapeHtml(inf.boxSize) : ""}</span>
+        <span class="spacer"></span>
+        <label class="erp-muted" style="font-size:12px">брой: <input type="number" id="tray-n-${gi}" min="1" max="${x.boxes}" value="${x.boxes}" style="width:56px" /></label>
+        ${P.plan.map((_, pi) => `<button class="btn btn-small" data-trayto="${gi}:${pi}">→ №${pi + 1}</button>`).join("")}
+        <button class="btn btn-small btn-primary" data-trayto="${gi}:new">→ нов палет</button>
+      </div>`;
+    }).join("");
     const trayCnt = P.tray.reduce((s, x) => s + x.boxes, 0);
-    box.innerHTML = `<h4 class="erp-group-head">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик маркира кашони (колкото искаш), после „⤵ Тук" на палета; влаченето мести. Пази се със „Запази опаковката", Палет описът излиза по НЕГО.</span></h4>
+    box.innerHTML = `<h4 class="erp-group-head">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик върху кашон го маркира (колкото искаш), после „⤵ Тук" на палета; или ползвай списъка „Настрани" с бутоните „→ №". Пази се със „Запази опаковката", Палет описът излиза по НЕГО.</span></h4>
       ${SEL.size ? `<div class="hint" style="margin:4px 0">✔ Маркирани: <b>${SEL.size}</b> кашона — натисни „⤵ Тук" на палета, където да отидат, или <button class="btn btn-small" id="pk3d-desel">откажи</button></div>` : ""}
       <div class="pk3d-pallet pk3d-tray${trayCnt ? "" : " pk3d-trayempty"}" data-pi="-1">
-        <div class="pk3d-head"><b>📥 Настрани (за разпределяне)</b><span>${trayCnt ? trayCnt + " кашона — ⚠ няма да влязат в Палет описа, докато са тук" : "празно — тук може да сваляш кашони, докато редиш"}</span></div>
-        <div class="pk3d-stack">${boxesHtml(P.tray, -1) || '<span class="erp-muted">няма кашони настрани</span>'}</div>
+        <div class="pk3d-head"><b>📥 Настрани (за разпределяне)</b><span>${trayCnt ? trayCnt + " кашона — ⚠ няма да влязат в Палет описа, докато са тук" : "празно — свали кашони тук (⬇ Всички настрани) и ги пращай по палетите със стрелките"}</span></div>
+        ${trayListHtml() || '<span class="erp-muted">няма кашони настрани</span>'}
         <div class="pk3d-actions">${dropBtn(-1)}</div>
       </div>
       <div class="pk3d-wrap">${P.plan.map(palletHtml).join("")}
@@ -465,11 +534,16 @@ async function erpPackOrderOpen(orderId) {
           <button class="btn btn-small" id="pk3d-clear" title="Сваля всички кашони Настрани — редиш палетите от нулата">⬇ Всички настрани</button>
         </div>
       </div>`;
-    box.querySelectorAll(".pk3d-box").forEach(b => {
-      const key = b.dataset.pi + ":" + b.dataset.gi + ":" + b.dataset.k;
+    box.querySelectorAll("[data-key]").forEach(b => {
+      const key = b.dataset.key;
       b.addEventListener("click", () => { if (SEL.has(key)) SEL.delete(key); else SEL.add(key); renderPlan(); });
       b.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", key); });
     });
+    box.querySelectorAll("[data-trayto]").forEach(b => b.addEventListener("click", () => {
+      const [gi, pi] = b.dataset.trayto.split(":");
+      const inp = box.querySelector("#tray-n-" + gi);
+      moveTray(Number(gi), pi === "new" ? "new" : Number(pi), inp ? Math.round(packNum(inp.value)) : 0);
+    }));
     box.querySelectorAll(".pk3d-pallet[data-pi]").forEach(card => {
       card.addEventListener("dragover", e => { e.preventDefault(); card.classList.add("pk3d-over"); });
       card.addEventListener("dragleave", () => card.classList.remove("pk3d-over"));
