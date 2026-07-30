@@ -45,7 +45,8 @@ async function erpSaveSale(o) {
 }
 async function erpLoadSaleClients() {
   try {
-    const { data } = await erpSelectAll("partners", "id,name,vat,city,street,country", "kind", "customer");
+    // "*" — за да идват ВСИЧКИ данни на клиента (ЕИК, МОЛ, адрес…) във фактурата.
+    const { data } = await erpSelectAll("partners", "*", "kind", "customer");
     return (data || []).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
   } catch { return []; }
 }
@@ -237,6 +238,7 @@ async function erpRenderSaleForm(o) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="sa-print">🖨 Печат</button>
       ${o.invoiceNo ? `<span class="erp-count" title="Фактурирана">📄 ф-ра № ${escapeHtml(o.invoiceNo)}</span>` : (typeof erpInvFromSale === "function" && o.posted && !o.imported ? '<button class="btn btn-small" id="sa-invoice" title="Създава фактура от тази продажба (документът; складът остава от продажбата)">📄 Създай фактура</button>' : "")}
+      ${!o.invoiceNo && typeof erpInvFromSale === "function" && !o.imported ? '<button class="btn btn-small" id="sa-proforma" title="Създава ПРОФОРМА фактура от тази продажба — може и преди осчетоводяване/плащане">📄 Създай проформа</button>' : ""}
       ${locked ? '<span class="erp-count">✓ Осчетоводена — само за преглед</span>' + ((typeof postAllowed !== "function" || postAllowed()) ? ' <button class="btn btn-small btn-danger" id="sa-unpost" title="Връща движенията в склада, за да осчетоводиш продажбата пак">↩ Отмени осчетоводяване</button>' : '')
         : '<button class="btn btn-small" id="sa-save">💾 Запази</button>' + ((typeof postAllowed !== "function" || postAllowed()) ? '<button class="btn btn-small btn-primary" id="sa-post">📤 Осчетоводи (изпиши от склада)</button>' : '<span class="erp-muted" title="Осчетоводяването е разрешено само за Данко и Григор">🔒 осчетоводява: Данко/Григор</span>')}
     </div>
@@ -303,6 +305,8 @@ async function erpRenderSaleForm(o) {
   document.getElementById("sa-print").addEventListener("click", () => erpPrintSale(o));
   const invBtn = document.getElementById("sa-invoice");
   if (invBtn) invBtn.addEventListener("click", () => { if (typeof erpInvFromSale === "function") erpInvFromSale(o); });
+  const pfBtn = document.getElementById("sa-proforma");
+  if (pfBtn) pfBtn.addEventListener("click", () => { if (typeof erpInvFromSale === "function") erpInvFromSale(o, "proforma"); });
   const upBtn = document.getElementById("sa-unpost");
   if (upBtn) upBtn.addEventListener("click", () => erpUnpostSale(o));
   erpSaWireLines(o, locked);

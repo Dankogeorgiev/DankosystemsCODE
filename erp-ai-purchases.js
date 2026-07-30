@@ -180,7 +180,27 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
   }
   if (!termDays && prof && prof.payStatus === "deferred" && prof.termDays) termDays = prof.termDays;
   const payStatus = (!termDays && prof && prof.payStatus) ? prof.payStatus : "deferred";
-  PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: /eur|евро|€/i.test(parsed.currency || "") ? "EUR" : "BGN", expenseType: etype, payStatus, termDays, dueDate, rows };
+  // ЕВРО НАВСЯКЪДЕ: фактура в лева се конвертира по фиксинга 1.95583 — цените,
+  // стойностите и тоталите стават EUR (нищо не остава в BGN).
+  const isEUR = /eur|евро|€/i.test(parsed.currency || "");
+  let bgnConverted = false;
+  if (!isEUR) {
+    const R = 1.95583;
+    rows.forEach(r => {
+      if (r.unitPrice !== "" && r.unitPrice != null) r.unitPrice = Math.round((erpToNum(r.unitPrice) / R) * 1e8) / 1e8;
+      if (r.conv) {
+        if (r.conv.kgPrice !== "" && r.conv.kgPrice != null) r.conv.kgPrice = Math.round((erpToNum(r.conv.kgPrice) / R) * 1e6) / 1e6;
+        if (r.conv.kgTotal != null) r.conv.kgTotal = Math.round((Number(r.conv.kgTotal) / R) * 100) / 100;
+      }
+    });
+    ["net_total", "vat_total", "grand_total"].forEach(k => { if (parsed[k] != null) parsed[k] = Math.round((Number(parsed[k]) / R) * 100) / 100; });
+    (parsed.lines || []).forEach(l => {
+      if (l.unit_price != null) l.unit_price = Math.round((Number(l.unit_price) / R) * 1e6) / 1e6;
+      if (l.total != null) l.total = Math.round((Number(l.total) / R) * 100) / 100;
+    });
+    bgnConverted = true;
+  }
+  PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: "EUR", bgnConverted, expenseType: etype, payStatus, termDays, dueDate, rows };
   erpPuAIDraw();
 }
 
@@ -215,7 +235,7 @@ function erpPuAIDraw() {
             <datalist id="pai-sups">${s.suppliers.map(x => `<option value="${escapeAttr(x.name)}"></option>`).join("")}</datalist></label>
           <label>№ Фактура <input type="text" id="pai-no" value="${escapeAttr(s.invoiceNo)}" /></label>
           <label>Дата <input type="date" id="pai-date" value="${escapeAttr(s.date)}" /></label>
-          <label>Валута <select id="pai-cur"><option ${s.currency === "BGN" ? "selected" : ""}>BGN</option><option ${s.currency === "EUR" ? "selected" : ""}>EUR</option></select></label>
+          <label>Валута <select id="pai-cur"><option ${s.currency === "EUR" ? "selected" : ""}>EUR</option><option ${s.currency === "BGN" ? "selected" : ""}>BGN</option></select>${s.bgnConverted ? '<span class="erp-muted" title="Фактурата е в лева — всички цени и суми са конвертирани по фиксинга 1.95583">⇄ от BGN ÷ 1.95583</span>' : ""}</label>
           <label>Вид разход <select id="pai-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === s.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
           <label>Плащане <select id="pai-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${s.payStatus === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
           <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${erpDMY(s.dueDate)}</span>` : ""}</label>
