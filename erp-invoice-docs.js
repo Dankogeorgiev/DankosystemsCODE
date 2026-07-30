@@ -68,8 +68,9 @@ function invClientBlock(o, which) {
 
 /* Печатен прозорец с общи стилове + бутони Печат и ✎ Редакция (contentEditable —
    поправяш текста директно преди печат; печатът крие бутоните). */
-function invPrintWindow(title, body, lang) {
+function invPrintWindow(title, body, lang, opts) {
   const en = lang === "en";
+  opts = opts || {};
   const base = new URL(".", location.href).href;
   const html = `<!doctype html><html lang="${en ? "en" : "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
   <style>
@@ -101,9 +102,9 @@ function invPrintWindow(title, body, lang) {
       <button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button>
       <button class="btnp btne" onclick="var b=document.body;b.contentEditable=(b.contentEditable!=='true');b.classList.toggle('editing');this.textContent=b.contentEditable==='true'?'✔ ${en ? "Done editing" : "Готово"}':'✎ ${en ? "Edit" : "Редакция"}'">✎ ${en ? "Edit" : "Редакция"}</button>
     </div>
-    <div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>
+    ${opts.noLogo ? "" : `<div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>`}
     ${body}
-    <div class="made">Данко Системс · СИСТЕМАТА</div>
+    ${opts.noMade ? "" : `<div class="made">The Systems</div>`}
   </body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
