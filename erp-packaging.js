@@ -792,11 +792,11 @@ function packPrintPallets(o, rows, P) {
   const base = new URL(".", location.href).href;
   // Всеки палет на ОТДЕЛЕН лист А4 (вертикален) с ЛОГО, ЕДЪР шрифт и подпис.
   const pageCss = `<style>
-    .palpage{font-size:16px}
-    .palpage h1{font-size:24px}
-    .palpage .head > div > div{font-size:16px}
-    .palpage table th,.palpage table td{font-size:16px;padding:8px 10px}
-    .palpage .kv{font-size:17px;margin:8px 0}
+    .palpage{font-size:17px}
+    .palpage h1{font-size:28px}
+    .palpage .head > div{font-size:21px;line-height:1.45}
+    .palpage table th,.palpage table td{font-size:17px;padding:8px 10px}
+    .palpage .kv{font-size:18px;margin:8px 0}
     .palpage .made{margin-top:30px;font-size:12px;color:#666;text-align:center}
   </style>`;
   const body = pageCss + (pallets.map((p, idx) => {
@@ -805,8 +805,8 @@ function packPrintPallets(o, rows, P) {
     return `<div class="palpage" style="${idx < pallets.length - 1 ? "page-break-after:always" : ""}">
       <div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>
       ${packDocHead(o, L.title, en)}
-      <h2 style="margin:12px 0 6px;font-size:32px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:18px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
-      <div class="kv" style="font-size:19px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
+      <h2 style="margin:12px 0 6px;font-size:34px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:21px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
+      <div class="kv" style="font-size:22px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
       <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.boxes}</th><th class="c">${L.qty}</th><th class="c">${L.kg}</th></tr></thead>
       <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>
       <div class="kv"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
