@@ -1084,8 +1084,10 @@ async function erpCOProduce(o) {
   const fs = res.fromStock || [];
   o.production = { at: new Date().toISOString(), count: (res.seriesCount != null ? res.seriesCount : totalSteps), flow: true, external: external.length, fromStock: fs.length, stockCover: fs };
   // Ако всичко е налично от склада (0 операции) — заявката е готова за продажба;
-  // иначе е „в производство".
-  const readyNow = (res.seriesCount === 0) && !(res.missing || []).length;
+  // иначе е „в производство". Частта, очаквана от текущо „Производство за склад"
+  // (wip), НЕ е на рафта → заявката остава „в производство", докато влезе.
+  const wipTotal = fs.reduce((s, f) => s + (Number(f.wip) || 0), 0);
+  const readyNow = (res.seriesCount === 0) && !(res.missing || []).length && !wipTotal;
   o.status = readyNow ? "готова за продажба" : "в производство";
   // Записваме статуса надеждно (не го гълтаме тихо).
   try { await erpSaveCO(o); }
@@ -1095,15 +1097,17 @@ async function erpCOProduce(o) {
   const miss = res.missing || [];
   const matShort = res.materialsShort || [];
   if ((res.seriesCount === 0) && !miss.length) {
-    alert(`✅ Всичко е налично в Склад детайли — няма какво да се произвежда.\n`
-      + (fs.length ? `\n📦 Покрито от склад:\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") + `\n` : "")
-      + `\nЗаявката е готова за продажба — натисни „🧾 Създай продажба".`);
+    alert((wipTotal
+        ? `⏳ Нищо ново не се пуска в цех — количествата са покрити, но ${erpNum(wipTotal)} бр. се ОЧАКВАТ от текущо „Производство за склад" (още в цех).\nЗаявката остава „в производство"; като складовите бройки влязат в Склад детайли, натисни „🏭 Пусни в производство" отново — ще я обяви готова.\n`
+        : `✅ Всичко е налично в Склад детайли — няма какво да се произвежда.\n`)
+      + (fs.length ? `\n📦 Покрито от склад:\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.${f.wip ? ` (⏳ ${erpNum(f.wip)} бр. от тях идват от „Производство за склад" — още в цех)` : ""}`).join("\n") + `\n` : "")
+      + (wipTotal ? "" : `\nЗаявката е готова за продажба — натисни „🧾 Създай продажба".`));
     if (typeof erpRenderCOForm === "function") erpRenderCOForm(o);
     return;
   }
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
-    + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.`).join("\n") : "")
+    + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.${f.wip ? ` (⏳ ${erpNum(f.wip)} бр. от тях идват от „Производство за склад" — още в цех)` : ""}`).join("\n") : "")
     + (matShort.length ? `\n\n⚠ НЯМА ДА СТИГНЕ МАТЕРИАЛ (виж таб „⚠ Липсващи материали"):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяване НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
     + (external.length ? `\n\n(${external.length} външни операции са за подизпълнител.)` : ""));
