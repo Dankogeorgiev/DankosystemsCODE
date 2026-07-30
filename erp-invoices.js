@@ -587,20 +587,25 @@ async function erpInvForm(o) {
       <label class="erp-co-note">Забележка <textarea id="inv-note" rows="2" ${locked ? "disabled" : ""}>${escapeHtml(o.note || "")}</textarea></label>
 
       <h4 class="erp-group-head">Придружаващи документи</h4>
-      <div class="erp-co-actions">
+      <div class="erp-co-actions doc-src doc-src-pack">
+        <span class="doc-src-lbl">📦 От ОПАКОВКИ (заявката по Order No):</span>
         <button class="btn btn-small" id="inv-doc-goods">📦 Стокова разписка</button>
         <button class="btn btn-small" id="inv-doc-packing">📦 Packing List</button>
-        <button class="btn btn-small" id="inv-doc-cmr">🚚 ЧМР (CMR)</button>
         <button class="btn btn-small" id="inv-doc-pallets">🧱 Палет опис</button>
+      </div>
+      <div class="erp-co-actions doc-src doc-src-inv">
+        <span class="doc-src-lbl">🧾 От ФАКТУРАТА:</span>
+        <button class="btn btn-small" id="inv-doc-cmr">🚚 ЧМР (CMR)</button>
         <button class="btn btn-small" id="inv-doc-desc" title="Description of goods — митница, камион, маршрут и опис на детайлите">📄 Description of goods</button>
         <button class="btn btn-small" id="inv-doc-decl-bg" title="Декларация за произход (български) — номерът на фактурата и камионът се попълват сами">📜 Декларация произход</button>
         <button class="btn btn-small" id="inv-doc-decl-en" title="Declaration by the exporter (English)">📜 Declaration (EN)</button>
-        <span class="spacer"></span>
+      </div>
+      <div class="erp-co-actions">
         ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="inv-mail-transport" title="Запитване за транспорт до превозвач (маршрут/палети/тегло се попълват сами)">🚚 Запитване за транспорт</button>' : ""}
         <button class="btn btn-small" id="inv-edit-transport" ${locked ? "disabled" : ""}>✎ Транспорт</button>
         <button class="btn btn-small" id="inv-edit-pallets" ${locked ? "disabled" : ""}>✎ Палети (${(o.pallets || []).length})</button>
       </div>
-      <p class="hint">Стоковата разписка е за БГ доставки; Packing List + ЧМР — за износ; Палет описът — за всички. „Транспорт" и „Палети" попълват данните за тези документи.</p>
+      <p class="hint">Зелените се пълнят от <b>Опаковки</b> — Системата намира заявката по „Поръчка на клиента (Order No)" и взема кашоните, теглата и палетния план оттам. Сините се пълнят от <b>тази фактура</b> (+ „✎ Транспорт" за камиона и маршрута).</p>
 
       ${((o.fromSaleNos || []).length || (o.refInvoice && o.refInvoice.docNo) || o.orderRef) ? `
       <h4 class="erp-group-head">🔗 Свързани документи (история)</h4>
@@ -692,10 +697,20 @@ async function erpInvForm(o) {
   const unl = document.getElementById("inv-unlock"); if (unl) unl.addEventListener("click", () => { if (!confirm("Отключвам издадената фактура за РЪЧНА редакция.\nНомерът и статусът се запазват; промените важат за печата и за вземането.\nПродължавам?")) return; o.__editUnlocked = true; erpInvForm(o); });
   const ap = document.getElementById("inv-add-prod"); if (ap) ap.addEventListener("click", () => erpInvAddProduct(o));
   const af = document.getElementById("inv-add-free"); if (af) af.addEventListener("click", () => { o.lines.push({ code: "", name: "", clientCode: "", unit: "бр.", qty: 1, unitPrice: "" }); erpInvLinesRefresh(o); });
-  const dg = document.getElementById("inv-doc-goods"); if (dg) dg.addEventListener("click", () => erpInvPrintGoodsNote(o));
-  const dp = document.getElementById("inv-doc-packing"); if (dp) dp.addEventListener("click", () => (typeof erpInvPrintPackingEx === "function" ? erpInvPrintPackingEx(o) : erpInvPrintPacking(o)));
+  // Зелените (Стокова/Packing/Палет опис) черпят от ОПАКОВКИ — заявката по Order No.
+  const packDoc = kind => async () => {
+    const co = (typeof erpPackOrderForInvoice === "function") ? await erpPackOrderForInvoice(o) : null;
+    if (co && typeof erpPackPrintFor === "function") { erpPackPrintFor(co, kind); return; }
+    const ask = "Не намерих заявка по Order No “" + (o.orderRef || "—") + "” — тези документи черпят от ОПАКОВКИ (заявката).\nПопълни полето Поръчка на клиента (Order No) на фактурата с номера на заявката.\n\nДа отпечатам ли ПО СТАРИЯ начин — от редовете на фактурата?";
+    if (!confirm(ask)) return;
+    if (kind === "goods") erpInvPrintGoodsNote(o);
+    else if (kind === "packing") (typeof erpInvPrintPackingEx === "function" ? erpInvPrintPackingEx(o) : erpInvPrintPacking(o));
+    else erpInvPrintPallets(o);
+  };
+  const dg = document.getElementById("inv-doc-goods"); if (dg) dg.addEventListener("click", packDoc("goods"));
+  const dp = document.getElementById("inv-doc-packing"); if (dp) dp.addEventListener("click", packDoc("packing"));
   const dc = document.getElementById("inv-doc-cmr"); if (dc) dc.addEventListener("click", () => (typeof erpInvPrintCMREx === "function" ? erpInvPrintCMREx(o) : erpInvPrintCMR(o)));
-  const dl = document.getElementById("inv-doc-pallets"); if (dl) dl.addEventListener("click", () => erpInvPrintPallets(o));
+  const dl = document.getElementById("inv-doc-pallets"); if (dl) dl.addEventListener("click", packDoc("pallets"));
   const dd = document.getElementById("inv-doc-desc"); if (dd) dd.addEventListener("click", () => erpInvPrintDescGoods(o));
   const db1 = document.getElementById("inv-doc-decl-bg"); if (db1) db1.addEventListener("click", () => erpInvPrintDeclaration(o, "bg"));
   const db2 = document.getElementById("inv-doc-decl-en"); if (db2) db2.addEventListener("click", () => erpInvPrintDeclaration(o, "en"));

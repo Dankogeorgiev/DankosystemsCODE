@@ -632,6 +632,52 @@ async function erpPackOrderOpen(orderId) {
   render();
 }
 
+/* ---------- Печат от ОПАКОВКИ за заявка извън опаковъчния изглед ----------
+   Стокова разписка / Packing List / Палет опис ВИНАГИ черпят от Опаковки:
+   o.packing (записаното по заявката) + картотеката. Ползва се от бутоните
+   в Заявки и във Фактури. kind: "goods" | "packing" | "pallets". */
+async function erpPackDocRows(o) {
+  if (!PACKAGING) { try { await erpPackLoad(); } catch (e) {} }
+  const P = o.packing || {};
+  return (o.lines || []).map((l, i) => {
+    const key = String(l.code || i);
+    const r = (P.rows || {})[key] || {};
+    const spec = erpPackFind(l.code, o.clientName);
+    const st = {
+      key, code: l.code || "", name: l.name || "", qty: erpToNum(l.qty) || 0,
+      kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
+      boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
+      boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
+      perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : 0)),
+      perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || 0),
+    };
+    const perPallet = packNum(st.perPallet);
+    const bd = packBoxBreakdown(st.qty, packNum(st.perBox));
+    return { ...st, boxes: bd.boxes, bdText: bd.text, pallets: (bd.boxes > 0 && perPallet > 0) ? bd.boxes / perPallet : 0, netKg: Math.round(st.qty * packNum(st.kgPer) * 10) / 10 };
+  });
+}
+async function erpPackPrintFor(o, kind) {
+  if (!o) { alert("Няма заявка."); return; }
+  const rows = await erpPackDocRows(o);
+  const P = o.packing || { rows: {}, palletKg: 20 };
+  if (!rows.some(r => r.boxes > 0)) {
+    if (confirm("Опаковката на тази заявка НЕ е попълнена — тези документи черпят кашоните и теглата от ОПАКОВКИ.\nДа отворя ли опаковъчния изглед, за да я попълниш?")) {
+      if (typeof erpPackOrderOpen === "function") { erpPackOrderOpen(o.id); return; }
+    }
+  }
+  if (kind === "goods") packPrintGoods(o, rows);
+  else if (kind === "packing") packPrintPacking(o, rows, P);
+  else packPrintPallets(o, rows, P);
+}
+/* Заявката, свързана с фактура — по Order No (клиентския/нашия номер). */
+async function erpPackOrderForInvoice(inv) {
+  try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  const list = (typeof erpCOList !== "undefined" && erpCOList) || [];
+  const ref = String((inv && inv.orderRef) || "").trim().toLowerCase();
+  if (!ref) return null;
+  return list.find(x => String(x.clientNo || "").trim().toLowerCase() === ref || String(x.ourNo || "").trim().toLowerCase() === ref) || null;
+}
+
 /* Кашоните на едно изделие: пълни кашони + един непълен с остатъка.
    Пример: 150 бр. по 56 в кашон → 2×56 + 1×38 (текстът е за жените на кашоните). */
 function packBoxBreakdown(qty, perBox) {
