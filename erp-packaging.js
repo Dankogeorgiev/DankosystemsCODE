@@ -49,7 +49,7 @@ async function erpRenderPackaging() {
   try { if (typeof erpLoadClients === "function") clients = await erpLoadClients(); } catch (e) {}
   const clientNames = clients.map(c => c.company).filter(Boolean);
   v.innerHTML = `
-    ${packOrdersListHtml()}
+    <div id="pack-orders-box">${packOrdersListHtml()}</div>
     <div class="erp-toolbar">
       <span class="erp-count" id="pack-count"></span>
       <input type="search" id="pack-q" placeholder="🔎 код / клиент / име…" value="${escapeAttr(packQuery)}" style="min-width:220px" autocomplete="off" />
@@ -70,9 +70,8 @@ async function erpRenderPackaging() {
   const qEl = document.getElementById("pack-q");
   if (qEl) qEl.addEventListener("input", e => { packQuery = e.target.value; erpPackFillRows(); });
   document.getElementById("pack-new").addEventListener("click", () => erpPackForm(null));
-  // Опаковъчната верига: отваряне на заявка в опаковъчния изглед.
-  v.querySelectorAll("[data-packco-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackOrderOpen(b.dataset.packcoOpen); }));
-  v.querySelectorAll("tr[data-packco]").forEach(tr => tr.addEventListener("click", () => erpPackOrderOpen(tr.dataset.packco)));
+  // Опаковъчната верига: папки по клиент + отваряне в опаковъчния изглед.
+  packOrdersWire();
   erpPackFillRows();
 }
 // Пълни само тялото (търсене в паметта — без нова заявка).
@@ -185,27 +184,60 @@ async function erpPackEnsureLoaded() { if (!PACKAGING) await erpPackLoad(); }
    (старата „ФАКТУРНА ВЕРИГА" остава като резервен път).
    Данните се пазят В ЗАЯВКАТА (o.packing) и дообучават картотеката горе. */
 
+let PACK_CO_OPEN = new Set(); // отворени клиентски папки в „Заявки за опаковане"
+
+function packOrderRowHtml(o) {
+  const packed = o.packing && Object.keys(o.packing.rows || {}).length;
+  const status = (typeof erpCOStatusCell === "function") ? erpCOStatusCell(o) : escapeHtml(o.status || "нова");
+  return `<tr class="erp-clickable" data-packco="${o.id}">
+    <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
+    <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
+    <td data-label="Дата">${erpDMY(o.date)}</td>
+    <td class="num" data-label="Редове">${(o.lines || []).length}</td>
+    <td data-label="Статус">${status}</td>
+    <td data-label="Опаковка">${packed ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">✓ попълнена</span>' : '<span class="erp-muted">—</span>'}</td>
+    <td class="erp-row-actions"><button class="btn btn-small" data-packco-open="${o.id}">Опаковай →</button></td>
+  </tr>`;
+}
+
 function packOrdersListHtml() {
   const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
     .filter(o => (o.status || "нова") !== "завършена")
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   if (!list.length) return "";
+  // Папки по клиент — както в Заявки: всеки клиент си е в папка.
+  const byClient = new Map();
+  list.forEach(o => { const c = o.clientName || "— без клиент"; if (!byClient.has(c)) byClient.set(c, []); byClient.get(c).push(o); });
+  const clients = [...byClient.keys()].sort((a, b) => a.localeCompare(b, "bg"));
+  const body = clients.map(c => {
+    const rows = byClient.get(c);
+    const packed = rows.filter(o => o.packing && Object.keys(o.packing.rows || {}).length).length;
+    const open = PACK_CO_OPEN.has(c);
+    return `<tr class="co-folder erp-clickable" data-packfolder="${escapeAttr(c)}">
+      <td colspan="7">📁 ${open ? "▾" : "▸"} <b>${escapeHtml(c)}</b> — ${rows.length} ${rows.length === 1 ? "заявка" : "заявки"} · опаковани ${packed}/${rows.length}</td>
+    </tr>` + (open ? rows.map(packOrderRowHtml).join("") : "");
+  }).join("");
   return `
     <div class="pack-orders">
       <h4 class="erp-group-head" style="margin-top:0">📦 Заявки за опаковане (${list.length})</h4>
       <table class="report-table erp-table" style="margin-bottom:8px">
-        <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th class="num">Редове</th><th>Опаковка</th><th></th></tr></thead>
-        <tbody>${list.map(o => `<tr class="erp-clickable" data-packco="${o.id}">
-          <td><b>${escapeHtml(o.ourNo || "—")}</b></td>
-          <td>${escapeHtml(o.clientNo || "—")}</td>
-          <td>${escapeHtml(o.clientName || "")}</td>
-          <td>${erpDMY(o.date)}</td>
-          <td class="num">${(o.lines || []).length}</td>
-          <td>${o.packing && Object.keys(o.packing.rows || {}).length ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">✓ попълнена</span>' : '<span class="erp-muted">—</span>'}</td>
-          <td class="erp-row-actions"><button class="btn btn-small" data-packco-open="${o.id}">Опаковай →</button></td>
-        </tr>`).join("")}</tbody>
+        <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Дата</th><th class="num">Редове</th><th>Статус</th><th>Опаковка</th><th></th></tr></thead>
+        <tbody>${body}</tbody>
       </table>
     </div>`;
+}
+
+// Кабелира секцията; папка се отваря/затваря с прерисуване САМО на кутията (без заявки към базата).
+function packOrdersWire() {
+  const box = document.getElementById("pack-orders-box"); if (!box) return;
+  box.querySelectorAll("[data-packfolder]").forEach(tr => tr.addEventListener("click", () => {
+    const c = tr.dataset.packfolder;
+    if (PACK_CO_OPEN.has(c)) PACK_CO_OPEN.delete(c); else PACK_CO_OPEN.add(c);
+    box.innerHTML = packOrdersListHtml();
+    packOrdersWire();
+  }));
+  box.querySelectorAll("[data-packco-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackOrderOpen(b.dataset.packcoOpen); }));
+  box.querySelectorAll("tr[data-packco]").forEach(tr => tr.addEventListener("click", () => erpPackOrderOpen(tr.dataset.packco)));
 }
 
 // Тегло на 1 брой: картотеката (код+клиент) → рецептата → ръчно.
