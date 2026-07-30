@@ -789,19 +789,30 @@ function packPrintPallets(o, rows, P) {
   const L = en ? { title: "PALLET LIST", pal: "PALLET No", mix: "mixed", net: "Net weight", plt: "Pallet", gr: "Gross weight", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", ord: "Order No", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " }
     : { title: "ПАЛЕТ ОПИС / PALLET LIST", pal: "ПАЛЕТ №", mix: "комбиниран", net: "Нето", plt: "Палет", gr: "Бруто", code: "Код", name: "Наименование", boxes: "Кашони", qty: "Бройка", kg: "Нето кг", tot: "Общо палети", ord: "Order No (клиентски №)", none: "Няма палети — попълни кашоните на палет.", win: "Палет опис — заявка " };
   const kgU = en ? "kg" : "кг";
-  // Всеки палет на ОТДЕЛЕН лист А4 (вертикален) — за лепене/прилагане към самия палет.
-  const body = pallets.map((p, idx) => {
+  const base = new URL(".", location.href).href;
+  // Всеки палет на ОТДЕЛЕН лист А4 (вертикален) с ЛОГО, ЕДЪР шрифт и подпис.
+  const pageCss = `<style>
+    .palpage{font-size:16px}
+    .palpage h1{font-size:24px}
+    .palpage .head > div > div{font-size:16px}
+    .palpage table th,.palpage table td{font-size:16px;padding:8px 10px}
+    .palpage .kv{font-size:17px;margin:8px 0}
+    .palpage .made{margin-top:30px;font-size:12px;color:#666;text-align:center}
+  </style>`;
+  const body = pageCss + (pallets.map((p, idx) => {
     const kg = Math.round(p.items.reduce((s, x) => s + x.kg, 0) * 10) / 10;
     const palKg = p.small ? packNum(P.palletKg || 20) / 2 : packNum(P.palletKg || 20);
-    return `<div style="${idx < pallets.length - 1 ? "page-break-after:always" : ""}">
+    return `<div class="palpage" style="${idx < pallets.length - 1 ? "page-break-after:always" : ""}">
+      <div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>
       ${packDocHead(o, L.title, en)}
-      <h2 style="margin:10px 0 4px;font-size:22px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:14px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
-      <div class="kv" style="font-size:14px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
+      <h2 style="margin:12px 0 6px;font-size:32px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:18px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
+      <div class="kv" style="font-size:19px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
       <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.boxes}</th><th class="c">${L.qty}</th><th class="c">${L.kg}</th></tr></thead>
       <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>
-      <div class="kv" style="font-size:13px"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
+      <div class="kv"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
       ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>` : ""}
+      <div class="made">The Systems</div>
     </div>`;
-  }).join("") || `<p>${L.none}</p>`;
-  invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg");
+  }).join("") || `<p>${L.none}</p>`);
+  invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg", { noLogo: true, noMade: true });
 }
