@@ -13,7 +13,7 @@ function erpMailMyCc() {
   return (e.includes("@") && !e.toLowerCase().endsWith("@danko.local")) ? e : "";
 }
 
-async function erpMailSend({ to, subject, html, text, replyTo, direct, cc }) {
+async function erpMailSend({ to, subject, html, text, replyTo, direct, cc, attachments }) {
   const list = (Array.isArray(to) ? to : [to]).filter(e => e && String(e).includes("@"));
   if (!list.length) return { ok: false, error: "Няма валиден имейл на получател." };
   // Копие до личния мейл (ако не е изрично подадено друго).
@@ -24,7 +24,7 @@ async function erpMailSend({ to, subject, html, text, replyTo, direct, cc }) {
   if (!replyTo) replyTo = erpMailMyCc();
   try {
     const { data, error } = await sb.functions.invoke("send-inquiry", {
-      body: { to: list, cc: ccList, subject: subject || "", html: html || "", text: text || "", replyTo: replyTo || "", direct: !!direct },
+      body: { to: list, cc: ccList, subject: subject || "", html: html || "", text: text || "", replyTo: replyTo || "", direct: !!direct, attachments: attachments || [] },
     });
     if (error) {
       // Тялото на грешката често носи истинската причина (Brevo отказа: ...).
@@ -77,14 +77,36 @@ async function erpMailDiag() {
   });
 }
 
+/* ---------- Допълнителни имейли по клиент (запомнят се) ---------- */
+async function erpMailExtraGet(clientKey) {
+  const k = String(clientKey || "").trim().toLowerCase();
+  if (!k) return [];
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "extra_mails").maybeSingle();
+    return ((data && data.data && data.data.byClient) || {})[k] || [];
+  } catch (e) { return []; }
+}
+async function erpMailExtraSave(clientKey, emails) {
+  const k = String(clientKey || "").trim().toLowerCase();
+  if (!k) return;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "extra_mails").maybeSingle();
+    const by = (data && data.data && data.data.byClient) || {};
+    by[k] = emails;
+    await sb.from("app_config").upsert({ id: "extra_mails", data: { byClient: by }, updated_at: new Date().toISOString() });
+  } catch (e) {}
+}
+
 /* ---------- Общ прозорец за изпращане ---------- */
-function erpMailComposeDialog({ title, to, subject, html, text, onSent }) {
+function erpMailComposeDialog({ title, to, subject, html, text, onSent, clientKey, extra, attachments }) {
   const { wrap, close } = erpDialog(`
     <h3>${escapeHtml(title || "✉ Изпращане на имейл")}</h3>
     <label>До <input type="email" id="mc-to" list="mc-contacts" value="${escapeAttr(to || "")}" placeholder="имейл на получателя (или избери от Контактите)" /></label>
     ${typeof erpMailContactsDatalist === "function" ? erpMailContactsDatalist() : ""}
+    <label>Още получатели <input type="text" id="mc-extra" value="${escapeAttr((extra || []).join(", "))}" placeholder="втори, трети имейл — през запетая" />${clientKey ? '<span class="erp-muted" style="font-size:12px">запомнят се за клиента</span>' : ""}</label>
     <label>Тема <input type="text" id="mc-subject" value="${escapeAttr(subject || "")}" /></label>
     <label>Съобщение <textarea id="mc-text" rows="7">${escapeHtml(text || "")}</textarea></label>
+    ${(attachments || []).length ? `<p class="hint" style="margin:6px 0 0">📎 Прикачен файл: <b>${(attachments || []).map(a => escapeHtml(a.name)).join(", ")}</b></p>` : ""}
     ${erpMailMyCc() ? `<p class="hint" style="margin:6px 0 0">📩 Копие ще получиш и ти: <b>${escapeHtml(erpMailMyCc())}</b></p>` : ""}
     ${html ? '<p class="hint" style="margin:6px 0 0">Писмото ще включи и оформена таблица с данните (HTML).</p>' : ""}
     <div id="mc-result" style="margin-top:8px"></div>
@@ -93,19 +115,62 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent }) {
   wrap.querySelector("#mc-send").addEventListener("click", async () => {
     const btn = wrap.querySelector("#mc-send"); const res = wrap.querySelector("#mc-result");
     const toV = wrap.querySelector("#mc-to").value.trim();
+    const extras = (wrap.querySelector("#mc-extra").value || "").split(/[,;]+/).map(x => x.trim()).filter(x => x.includes("@") && x !== toV);
     const subjV = wrap.querySelector("#mc-subject").value.trim();
     const textV = wrap.querySelector("#mc-text").value;
     if (!toV) { alert("Въведи имейл на получателя."); return; }
     btn.disabled = true; btn.textContent = "Изпращам…";
     const bodyHtml = html ? `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111"><p>${escapeHtml(textV).replace(/\n/g, "<br>")}</p>${html}</div>` : "";
-    const r = await erpMailSend({ to: toV, subject: subjV, text: textV, html: bodyHtml, direct: true });
+    const r = await erpMailSend({ to: [toV, ...extras], subject: subjV, text: textV, html: bodyHtml, direct: true, attachments });
     btn.disabled = false; btn.textContent = "📤 Изпрати";
-    if (r.ok) { res.innerHTML = '<div style="background:#dcfce7;color:#166534;padding:8px 10px;border-radius:8px">✓ Изпратено!</div>'; setTimeout(() => { close(); if (onSent) onSent(toV); }, 900); }
-    else {
+    if (r.ok) {
+      if (clientKey) erpMailExtraSave(clientKey, extras);   // запомни доп. имейлите за клиента
+      res.innerHTML = '<div style="background:#dcfce7;color:#166534;padding:8px 10px;border-radius:8px">✓ Изпратено!</div>'; setTimeout(() => { close(); if (onSent) onSent(toV); }, 900);
+    } else {
       const why = erpMailExplain(r.error);
       res.innerHTML = `<div style="background:#fef2f2;color:#991b1b;padding:8px 10px;border-radius:8px">✗ ${escapeHtml(r.error)}${why ? `<br>👉 <b>${escapeHtml(why)}</b>` : ""}</div>`;
     }
   });
+}
+
+/* ---------- PDF на фактурата (за прикачане към имейла) ----------
+   Рендира печатния HTML в скрит iframe → html2canvas → jsPDF (A4, по
+   страници) → base64. Библиотеките (vendor-*.js) се зареждат при нужда. */
+function erpLoadScript(src, globalName) {
+  return new Promise((resolve, reject) => {
+    if (globalName && window[globalName]) return resolve();
+    const s = document.createElement("script");
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error("не се зареди " + src));
+    document.head.appendChild(s);
+  });
+}
+async function erpInvPdfBase64(o) {
+  if (typeof erpInvPrintHTML !== "function") throw new Error("Модул Фактуриране не е зареден.");
+  await erpLoadScript("vendor-html2canvas.js?v=1", "html2canvas");
+  await erpLoadScript("vendor-jspdf.js?v=1", "jspdf");
+  const html = erpInvPrintHTML(o, true);   // само оригиналът, без бутони
+  const fr = document.createElement("iframe");
+  fr.style.cssText = "position:fixed;left:-12000px;top:0;width:820px;height:1400px;visibility:hidden";
+  document.body.appendChild(fr);
+  try {
+    fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+    await new Promise(r => setTimeout(r, 500));   // рендер + шрифтове + логото
+    const body = fr.contentDocument.body;
+    const canvas = await window.html2canvas(body, { scale: 2, backgroundColor: "#ffffff", logging: false });
+    const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4" });
+    const pw = 210, margin = 8, iw = pw - margin * 2;
+    const pageHpx = Math.floor((297 - margin * 2) * canvas.width / iw);   // A4 страница в px от канваса
+    let y = 0, page = 0;
+    while (y < canvas.height && page < 20) {
+      const sliceH = Math.min(pageHpx, canvas.height - y);
+      const c2 = document.createElement("canvas"); c2.width = canvas.width; c2.height = sliceH;
+      c2.getContext("2d").drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      if (page > 0) pdf.addPage();
+      pdf.addImage(c2.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, iw, sliceH * iw / canvas.width);
+      y += sliceH; page++;
+    }
+    return pdf.output("datauristring").split(",")[1];
+  } finally { fr.remove(); }
 }
 
 /* ---------- Фактура към клиента ----------
@@ -150,7 +215,16 @@ async function erpMailInvoice(o) {
   const k = INV_KINDS[o.kind] || {};
   const en = erpMailInvoiceExport(o);
   const fmtD = d => (typeof erpDMY === "function") ? erpDMY(d) : (d || "");
+  // Запомнените допълнителни имейли на клиента + PDF на фактурата за прикачане.
+  const clientKey = (o.client && o.client.name) || "";
+  const extra = await erpMailExtraGet(clientKey);
+  let attachments = [];
+  try {
+    const b64 = await erpInvPdfBase64(o);
+    if (b64) attachments = [{ name: (en ? (k.en || "Invoice").replace(/\s+/g, "_") : "Faktura") + "-" + String(o.docNo || "draft").replace(/[^\w.-]+/g, "_") + ".pdf", content: b64 }];
+  } catch (e) { alert("⚠ PDF-ът не се генерира (" + (e.message || e) + ") — писмото ще тръгне без прикачен файл, с таблицата в тялото."); }
   erpMailComposeDialog({
+    clientKey, extra, attachments,
     title: "✉ " + (k.label || "Фактура") + (o.docNo ? " № " + o.docNo : "") + " → клиента" + (en ? " (EN)" : ""),
     to: (rec && rec.email) || "",
     subject: en

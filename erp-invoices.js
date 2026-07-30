@@ -326,23 +326,24 @@ function erpNewInvoice(kind) {
    Фактурата носи документа и парите. При ИЗДАВАНЕ продажбите се маркират
    с номера ѝ (не могат да се фактурират втори път), а стоковите им
    вземания се заменят от фактурното (erpRecvSyncFromInvoice). */
-async function erpInvFromSale(sale) {
+async function erpInvFromSale(sale, kind) {
   if (!sale) return;
-  if (!sale.posted) { alert("Първо осчетоводи продажбата (складът се изписва от нея), после пусни фактурата."); return; }
+  // Проформата може и ПРЕДИ осчетоводяване — тя не е данъчен документ.
+  if (!sale.posted && kind !== "proforma") { alert("Първо осчетоводи продажбата (складът се изписва от нея), после пусни фактурата.\n(Проформа може да създадеш и преди това — с бутона Създай проформа.)"); return; }
   if (sale.imported) { alert("Импортирана продажба (регистър от GenCloud) — фактурата ѝ е издадена в стария процес."); return; }
   if (sale.invoiceNo) { alert("Тази продажба вече е фактурирана с № " + sale.invoiceNo + "."); return; }
-  await erpInvOpenFromSales([sale]);
+  await erpInvOpenFromSales([sale], kind);
 }
 
 // Строи чернова на фактура от 1+ продажби и я отваря в таб Фактуриране.
-async function erpInvOpenFromSales(salesArr) {
+async function erpInvOpenFromSales(salesArr, kindOverride) {
   const s0 = salesArr[0];
   let cl = { name: s0.clientName || "", eik: "", vat: "", city: "", street: "", country: "България", person: "" };
   try {
     const clients = await erpLoadSaleClients();
     const hit = clients.find(c => (s0.clientId && c.id === s0.clientId)
       || (c.name || "").trim().toLowerCase() === (s0.clientName || "").trim().toLowerCase());
-    if (hit) cl = { name: hit.name || cl.name, eik: "", vat: hit.vat || "", city: hit.city || "", street: hit.street || "", country: hit.country || "България", person: "" };
+    if (hit) cl = { name: hit.name || cl.name, eik: hit.eik || "", vat: hit.vat || "", city: hit.city || "", street: hit.street || "", country: hit.country || "България", person: hit.mol || hit.person || "" };
   } catch (e) {}
   const today = new Date().toISOString().slice(0, 10);
   const isExport = Number(s0.vatRate) === 0 || (cl.country && !/бълг|bulgaria|^bg$/i.test(String(cl.country).trim()));
@@ -364,7 +365,7 @@ async function erpInvOpenFromSales(salesArr) {
     qty: l.qty, unit: l.unit || "бр.", unitPrice: l.unitPrice,
   })));
   const o = {
-    kind: "invoice", seriesKey: isExport ? "1" : "2",
+    kind: kindOverride || "invoice", seriesKey: isExport ? "1" : "2",
     issueDate: today, taxDate: today,
     orderRef: [...new Set(orderRefs)].join(", ") || ("Продажба № " + salesArr.map(s => s.saleNo || "—").join(", ")),
     client: cl, clientId: s0.clientId || null,
@@ -563,10 +564,25 @@ async function erpInvForm(o) {
         <label>Град <input type="text" id="inv-ccity" value="${escapeAttr(o.client.city || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Адрес <input type="text" id="inv-cstreet" value="${escapeAttr(o.client.street || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Държава <input type="text" id="inv-ccountry" value="${escapeAttr(o.client.country || "")}" ${locked ? "disabled" : ""} /></label>
+        <label>МОЛ <input type="text" id="inv-cmol" value="${escapeAttr(o.client.person || "")}" ${locked ? "disabled" : ""} /></label>
       </div>
 
       <h4 class="erp-group-head">Получател на стоката (CONSIGNEE — за износ, ако е различен от купувача)</h4>
       <div class="erp-co-grid">
+        ${(() => {
+          // Запазените получатели на ТОЗИ клиент от предишни фактури — падащ списък.
+          const seen = new Set(); const outc = [];
+          (erpInvoices || []).slice().reverse().forEach(x => {
+            const cs = x.consignee;
+            if (!cs || !(cs.name || cs.street || cs.city)) return;
+            if (((x.client && x.client.name) || "") !== (o.client.name || "")) return;
+            const k = [cs.name, cs.street, cs.city, cs.country].join("¦").toLowerCase();
+            if (seen.has(k)) return; seen.add(k);
+            outc.push(cs);
+          });
+          window.__invConsSaved = outc.slice(0, 25);
+          return window.__invConsSaved.length ? `<label>Запазени адреси <select id="inv-gpick" ${locked ? "disabled" : ""}><option value="">— избери запазен получател —</option>${window.__invConsSaved.map((cx, i) => `<option value="${i}">${escapeHtml([cx.name, cx.city, cx.street].filter(Boolean).join(" · "))}</option>`).join("")}</select></label>` : "";
+        })()}
         <label>Име <input type="text" id="inv-gname" value="${escapeAttr((o.consignee || {}).name || "")}" ${locked ? "disabled" : ""} placeholder="празно = купувача" /></label>
         <label>Адрес <input type="text" id="inv-gstreet" list="inv-cons-addr" value="${escapeAttr((o.consignee || {}).street || "")}" ${locked ? "disabled" : ""} />
           <datalist id="inv-cons-addr">${[...new Set((erpInvoices || []).filter(x => x.consignee && x.consignee.street && x.client && (x.client.name || "") === (o.client.name || "")).map(x => x.consignee.street))].map(a => `<option value="${escapeAttr(a)}"></option>`).join("")}</datalist></label>
@@ -619,7 +635,7 @@ async function erpInvForm(o) {
   const bindClient = () => {
     const m = clients.find(c => (c.name || "") === document.getElementById("inv-cname").value);
     if (m) {
-      o.client.name = m.name; o.client.eik = m.eik || o.client.eik; o.client.vat = m.vat || o.client.vat; o.client.city = m.city || o.client.city; o.client.street = m.street || o.client.street; o.client.country = m.country || o.client.country; o.clientId = m.id;
+      o.client.name = m.name; o.client.eik = m.eik || o.client.eik; o.client.vat = m.vat || o.client.vat; o.client.city = m.city || o.client.city; o.client.street = m.street || o.client.street; o.client.country = m.country || o.client.country; o.client.person = m.mol || m.person || o.client.person; o.clientId = m.id;
       // Самообучение: навиците на клиента от предишните му фактури (срок, плащане, валута, серия).
       erpInvApplyClientProfile(o, erpInvClientProfile(m.name));
       erpInvForm(o);
@@ -686,6 +702,12 @@ async function erpInvForm(o) {
   const cn = document.getElementById("inv-cname"); if (cn && !locked) cn.addEventListener("change", bindClient);
   g("inv-ceik", e => o.client.eik = e.target.value);
   g("inv-cvat", e => o.client.vat = e.target.value);
+  g("inv-cmol", e => o.client.person = e.target.value);
+  const gpick = document.getElementById("inv-gpick");
+  if (gpick && !locked) gpick.addEventListener("change", () => {
+    const cs = (window.__invConsSaved || [])[Number(gpick.value)];
+    if (cs) { o.consignee = { ...cs }; erpInvForm(o); }
+  });
   g("inv-ccity", e => o.client.city = e.target.value);
   g("inv-cstreet", e => o.client.street = e.target.value);
   g("inv-ccountry", e => o.client.country = e.target.value);
@@ -889,7 +911,7 @@ function erpInvNoteFrom(src, kind) {
 }
 
 /* ---------- Печат (BG / EN, 1:1 като реалната фактура) ---------- */
-function erpInvPrint(o) {
+function erpInvPrintHTML(o, single) {
   const ser = (erpInvSeries && erpInvSeries[o.seriesKey]) || { lang: "bg" };
   const en = ser.lang === "en";
   // Износна серия (EN): новият печат по образеца — само ORIGINAL, всичко на
@@ -1065,10 +1087,14 @@ function erpInvPrint(o) {
     @media screen{.inv-page{border-bottom:2px dashed #cbd5e1;margin-bottom:26px;padding-bottom:26px}}
     .noprint{text-align:center;margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:14px;cursor:pointer}
   </style></head><body>
-    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button></div>
-    <div class="inv-page">${invPage(L.orig)}</div>
-    <div>${invPage(en ? "COPY" : "КОПИЕ")}</div>
+    ${single ? "" : `<div class="noprint"><button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button></div>`}
+    ${single ? `<div>${invPage(L.orig)}</div>` : `<div class="inv-page">${invPage(L.orig)}</div>
+    <div>${invPage(en ? "COPY" : "КОПИЕ")}</div>`}
   </body></html>`;
+  return html;
+}
+function erpInvPrint(o) {
+  const html = erpInvPrintHTML(o);
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();

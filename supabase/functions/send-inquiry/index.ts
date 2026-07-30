@@ -68,6 +68,12 @@ Deno.serve(async (req) => {
   if (replyTo) body.replyTo = { email: replyTo };
   // Копие до личния мейл на изпращащия (профилът, с който е влязъл в Системата).
   if (cc.length) body.cc = cc.map((e) => ({ email: e }));
+  // Прикачени файлове (напр. PDF на фактурата): [{ name, content(base64) }].
+  const atts = Array.isArray(payload.attachments)
+    ? payload.attachments.filter((a: any) => a && a.name && a.content).slice(0, 5)
+      .map((a: any) => ({ name: String(a.name).slice(0, 100), content: String(a.content) }))
+    : [];
+  if (atts.length) body.attachment = atts;
 
   try {
     const resp = await fetch("https://api.brevo.com/v3/smtp/email", {

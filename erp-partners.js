@@ -78,6 +78,8 @@ function erpEditPartner(id) {
   const { wrap, close } = erpDialog(`
     <h3>${p ? "Редакция на " + lbl : "Нов " + lbl}${p ? ` <span class="erp-muted">№${p.id}</span>` : ""}</h3>
     <label>Име / Фирма<input type="text" id="pt-name" value="${g("name")}" /></label>
+    <label>ЕИК / Булстат<input type="text" id="pt-eik" value="${g("eik")}" /></label>
+    <label>МОЛ<input type="text" id="pt-mol" value="${g("mol")}" /></label>
     <label>Лице за контакт<input type="text" id="pt-person" value="${g("person")}" /></label>
     <label>Телефон<input type="text" id="pt-phone" value="${g("phone")}" /></label>
     <label>Имейл<input type="text" id="pt-email" value="${g("email")}" /></label>
@@ -98,11 +100,17 @@ function erpEditPartner(id) {
   wrap.querySelector("#pt-save").addEventListener("click", async () => {
     const name = wrap.querySelector("#pt-name").value.trim();
     if (!name) { wrap.querySelector("#pt-status").textContent = "Въведи име."; return; }
-    const payload = { kind, name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), street: val("street"), country: val("country"), vat: val("vat"), note: val("note") };
+    const payload = { kind, name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), street: val("street"), country: val("country"), vat: val("vat"), eik: val("eik"), mol: val("mol"), note: val("note") };
     wrap.querySelector("#pt-status").textContent = "Записва…";
     let error;
-    if (p) ({ error } = await sb.from("partners").update(payload).eq("id", p.id));
-    else ({ error } = await sb.from("partners").insert(payload));
+    const doSave = async pl => p ? (await sb.from("partners").update(pl).eq("id", p.id)) : (await sb.from("partners").insert(pl));
+    ({ error } = await doSave(payload));
+    if (error && /column|schema cache/i.test(error.message || "")) {
+      // Базата още няма колоните eik/mol → записваме без тях и казваме какво да се пусне.
+      const pl2 = { ...payload }; delete pl2.eik; delete pl2.mol;
+      ({ error } = await doSave(pl2));
+      if (!error) alert("⚠ Записано, но БЕЗ ЕИК и МОЛ — базата няма тези колони още.\n\nПусни в Supabase → SQL Editor:\nALTER TABLE partners ADD COLUMN IF NOT EXISTS eik text;\nALTER TABLE partners ADD COLUMN IF NOT EXISTS mol text;\n\nСлед това ги попълни отново.");
+    }
     if (error) { wrap.querySelector("#pt-status").textContent = "⚠ " + error.message; return; }
     close(); erpPartners = null; erpRenderPartners();
   });
