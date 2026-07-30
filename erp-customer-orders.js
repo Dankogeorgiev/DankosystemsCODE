@@ -142,6 +142,40 @@ function erpCOStatusCell(o) {
     <div class="co-progress" title="доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр."><div class="co-progress-fill" style="width:${p.pct}%"></div></div>`;
 }
 
+/* ---------- Списъкът: ред + папки по клиент ----------
+   При подредба „Клиент (А→Я)" клиентите с 2+ заявки се групират в ПАПКА —
+   клик върху нея разгъва/скрива заявките на клиента. */
+let erpCOOpenClients = new Set();
+function erpCORowHtml(o) {
+  return `
+          <tr class="erp-clickable" data-id="${o.id}">
+            <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
+            <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
+            <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
+            <td data-label="Дата">${erpDMY(o.date)}</td>
+            <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
+            <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
+            <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
+            <td data-label="Статус">${erpCOStatusCell(o)}</td>
+            <td data-label="Файл">${erpCOFileCell(o)}</td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+          </tr>`;
+}
+function erpCOListHtml(rows) {
+  if (erpCOSort !== "client" || (erpCOQuery || "").trim()) return rows.map(erpCORowHtml).join("");
+  const groups = new Map();
+  rows.forEach(o => { const c = o.clientName || "— без клиент —"; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(o); });
+  let out = "";
+  for (const [c, list] of groups) {
+    if (list.length < 2) { out += list.map(erpCORowHtml).join(""); continue; }
+    const open = erpCOOpenClients.has(c);
+    const sum = list.reduce((s, o) => s + (o.lines || []).reduce((t, l) => t + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0), 0);
+    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="10">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} заявки <span class="sell-cell erp-muted">· общо ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
+    if (open) out += list.map(erpCORowHtml).join("");
+  }
+  return out;
+}
+
 /* ---------- Печат на заявка ---------- */
 function erpPrintCO(o) {
   // Цените се крият за „само производство" достъп (както в списъка).
@@ -385,19 +419,7 @@ async function erpRenderCustomerOrders() {
     <table class="report-table erp-table" id="co-orders-table">
       <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th>Файл</th><th></th></tr></thead>
       <tbody>
-        ${rows.map(o => `
-          <tr class="erp-clickable" data-id="${o.id}">
-            <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
-            <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
-            <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-            <td data-label="Дата">${erpDMY(o.date)}</td>
-            <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
-            <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
-            <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
-            <td data-label="Статус">${erpCOStatusCell(o)}</td>
-            <td data-label="Файл">${erpCOFileCell(o)}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-          </tr>`).join("") ||
+        ${erpCOListHtml(rows) ||
           `<tr><td colspan="10" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
       </tbody>
     </table>`;
@@ -425,24 +447,17 @@ async function erpRenderCustomerOrders() {
     const tb = v.querySelector("#co-orders-table tbody");
     if (!tb) { erpRenderCustomerOrders(); return; }
     const list = erpCOSortRows(erpCOList.slice());
-    tb.innerHTML = list.map(o => `
-      <tr class="erp-clickable" data-id="${o.id}">
-        <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
-        <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
-        <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
-        <td data-label="Дата">${erpDMY(o.date)}</td>
-        <td data-label="Срок">${escapeHtml(o.deadline || "")}</td>
-        <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
-        <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
-        <td data-label="Статус">${erpCOStatusCell(o)}</td>
-        <td data-label="Файл">${erpCOFileCell(o)}</td>
-        <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-      </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
+    tb.innerHTML = erpCOListHtml(list) || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
+  v.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
+    const c = tr.dataset.folder;
+    if (erpCOOpenClients.has(c)) erpCOOpenClients.delete(c); else erpCOOpenClients.add(c);
+    erpRenderCustomerOrders();
+  }));
 }
 
 /* ---------- 📚 Архив (изпълнени заявки) ----------

@@ -727,6 +727,7 @@ function renderTasksIncompleteWarn() {
   });
 }
 
+let TASKS_ARCHIVE = false;   // 🗄 изглед „Архив производство" (само изпълнените)
 function renderTasks() {
   showSub("tasks");
 
@@ -742,8 +743,6 @@ function renderTasks() {
   const worker = isW ? MY_WORKER : document.getElementById("task-worker-filter").value;
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
   const readyOnly = !!(document.getElementById("task-ready-filter") || {}).checked;
-  const hideDoneEl = document.getElementById("task-hide-done");
-  const hideDone = hideDoneEl ? hideDoneEl.checked : true;
   // Филтър по клиент — падащо меню с клиентите на всички пуснати заявки (с №).
   const clientSel = document.getElementById("task-client-filter");
   let clientFilter = "";
@@ -785,11 +784,14 @@ function renderTasks() {
     return true;
   });
 
-  // Изпълнените задачи: по подразбиране скрити, за да не пълнят списъка.
+  // 🗄 Архив производство: изпълнените задачи НЕ стоят в активния списък —
+  // живеят в архива (same изглед, по цехове), превключван с бутона.
   const doneHidden = rows.filter(t => taskStatus(t) === "done").length;
-  if (hideDone) rows = rows.filter(t => taskStatus(t) !== "done");
+  rows = TASKS_ARCHIVE ? rows.filter(t => taskStatus(t) === "done") : rows.filter(t => taskStatus(t) !== "done");
   const dc = document.getElementById("done-count");
   if (dc) dc.textContent = doneHidden ? ` (${doneHidden})` : "";
+  const ab = document.getElementById("task-archive-btn");
+  if (ab) { ab.classList.toggle("btn-primary", TASKS_ARCHIVE); ab.firstChild.textContent = TASKS_ARCHIVE ? "🗄 Архив — назад към активните" : "🗄 Архив производство"; }
 
   // Приоритетните задачи винаги изплуват най-горе; в рамките на еднакъв приоритет —
   // по избраната колона (по подразбиране по срок).
@@ -2834,8 +2836,8 @@ function tInit() {
   document.getElementById("task-search").addEventListener("input", renderTasks);
   const rf = document.getElementById("task-ready-filter");
   if (rf) rf.addEventListener("change", renderTasks);
-  const hd = document.getElementById("task-hide-done");
-  if (hd) hd.addEventListener("change", renderTasks);
+  const ab = document.getElementById("task-archive-btn");
+  if (ab) ab.addEventListener("click", () => { TASKS_ARCHIVE = !TASKS_ARCHIVE; renderTasks(); });
   const thead = document.querySelector(".tasks-table thead");
   if (thead) thead.addEventListener("click", e => {
     const th = e.target.closest("th[data-sort]"); if (!th) return;

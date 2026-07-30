@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=296" />
-  <link rel="stylesheet" href="erp.css?v=285" />
+  <link rel="stylesheet" href="erp.css?v=286" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 536</p>
+      <p class="login-version">версия 537</p>
     </form>
   </div>
 
@@ -399,7 +399,7 @@
         <select id="task-client-filter" title="Клиент — покажи всичко пуснато за избран клиент"><option value="">Всички клиенти</option></select>
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
         <label class="task-ready-lbl" title="Показвай само задачите, за които детайлите вече са пристигнали от предната операция (не се чакат други цехове)"><input type="checkbox" id="task-ready-filter" /> ⚡ Само готови за работа</label>
-        <label class="task-ready-lbl" title="Скрива напълно изпълнените задачи, за да не пълнят списъка. Махни отметката, за да ги видиш най-долу."><input type="checkbox" id="task-hide-done" checked /> ✅ Скрий изпълнените<span id="done-count"></span></label>
+        <button type="button" id="task-archive-btn" class="btn btn-small" title="Всички изпълнени задачи, по цехове — както активните, само че архив">🗄 Архив производство<span id="done-count"></span></button>
         <button id="btn-orders-prod" class="btn btn-small" title="Покажи поръчките в производство и детайлите на пуснатите продукти">📋 Поръчки в производство</button>
         <button id="btn-master" class="btn btn-small" title="Мастер отчитане — бързо докарване на операциите до етап (само за офиса)">⚡ Мастер отчитане</button>
         <span class="spacer"></span>
@@ -615,7 +615,7 @@
   <script src="config.js?v=139"></script>
   <script src="report-export.js?v=1"></script>
   <script src="app.js?v=249"></script>
-  <script src="tasks.js?v=282"></script>
+  <script src="tasks.js?v=283"></script>
   <script src="laser-fill.js?v=3"></script>
   <script src="master-report.js?v=4"></script>
   <script src="prod-report.js?v=165"></script>
@@ -646,7 +646,7 @@
   <script src="erp-workcard.js?v=162"></script>
   <script src="erp-recipe-edit.js?v=234"></script>
   <script src="erp-recipe-auto.js?v=4"></script>
-  <script src="erp-customer-orders.js?v=273"></script>
+  <script src="erp-customer-orders.js?v=274"></script>
   <script src="erp-ai-orders.js?v=5"></script>
   <script src="erp-pricelists.js?v=226"></script>
   <script src="erp-partners.js?v=161"></script>
