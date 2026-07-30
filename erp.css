@@ -643,3 +643,7 @@ img.ai-doc-content { max-width: none; }
 .erp-dialog-box.erp-dialog-xwide { width: min(1150px, 96vw); }
 .costk-stats { display: flex; gap: 18px; flex-wrap: wrap; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 4px 0 10px; font-size: 14px; }
 .costk-stats b { font-size: 16px; }
+
+/* Папка на клиент в списъка със заявки */
+.co-folder td { background: #eef2ff; font-size: 14px; padding: 10px 12px; border-left: 3px solid #6366f1; }
+.co-folder:hover td { background: #e0e7ff; }
