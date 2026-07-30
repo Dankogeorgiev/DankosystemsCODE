@@ -43,10 +43,13 @@ async function erpRenderPackaging() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await erpPackLoad();
+  // Заявките — за секцията „Заявки за опаковане" (Опаковъчната верига).
+  try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
   let clients = [];
   try { if (typeof erpLoadClients === "function") clients = await erpLoadClients(); } catch (e) {}
   const clientNames = clients.map(c => c.company).filter(Boolean);
   v.innerHTML = `
+    ${packOrdersListHtml()}
     <div class="erp-toolbar">
       <span class="erp-count" id="pack-count"></span>
       <input type="search" id="pack-q" placeholder="🔎 код / клиент / име…" value="${escapeAttr(packQuery)}" style="min-width:220px" autocomplete="off" />
@@ -67,6 +70,9 @@ async function erpRenderPackaging() {
   const qEl = document.getElementById("pack-q");
   if (qEl) qEl.addEventListener("input", e => { packQuery = e.target.value; erpPackFillRows(); });
   document.getElementById("pack-new").addEventListener("click", () => erpPackForm(null));
+  // Опаковъчната верига: отваряне на заявка в опаковъчния изглед.
+  v.querySelectorAll("[data-packco-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackOrderOpen(b.dataset.packcoOpen); }));
+  v.querySelectorAll("tr[data-packco]").forEach(tr => tr.addEventListener("click", () => erpPackOrderOpen(tr.dataset.packco)));
   erpPackFillRows();
 }
 // Пълни само тялото (търсене в паметта — без нова заявка).
@@ -169,3 +175,221 @@ async function erpPackDelete(id) {
    Използва се от erp-invoices.js (erpDocLineKg/erpDocAutoRows). Гарантира, че
    PACKAGING е зареден дори ако табът „Опаковки" не е отварян в тази сесия. */
 async function erpPackEnsureLoaded() { if (!PACKAGING) await erpPackLoad(); }
+
+/* ================== ОПАКОВЪЧНА ВЕРИГА (заявка → Опаковки → документи) ==================
+   НОВАТА връзка (30.07.2026, Данко): всяка въведена заявка (наш № + клиентски №)
+   се появява тук; отваря се в опаковъчен изглед с колони КОД / Бройка /
+   КГ за брой / Вид кашон / Броя в кашон / Кашони на палет + Сума на палетите.
+   Оттук се печатат РЕАЛНИТЕ Packing List, Стокова разписка и Палет опис
+   (по палети) — директно от заявката, без да минават през фактурата
+   (старата „ФАКТУРНА ВЕРИГА" остава като резервен път).
+   Данните се пазят В ЗАЯВКАТА (o.packing) и дообучават картотеката горе. */
+
+function packOrdersListHtml() {
+  const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
+    .filter(o => (o.status || "нова") !== "завършена")
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  if (!list.length) return "";
+  return `
+    <div class="pack-orders">
+      <h4 class="erp-group-head" style="margin-top:0">📦 Заявки за опаковане (${list.length})</h4>
+      <table class="report-table erp-table" style="margin-bottom:8px">
+        <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th class="num">Редове</th><th>Опаковка</th><th></th></tr></thead>
+        <tbody>${list.map(o => `<tr class="erp-clickable" data-packco="${o.id}">
+          <td><b>${escapeHtml(o.ourNo || "—")}</b></td>
+          <td>${escapeHtml(o.clientNo || "—")}</td>
+          <td>${escapeHtml(o.clientName || "")}</td>
+          <td>${erpDMY(o.date)}</td>
+          <td class="num">${(o.lines || []).length}</td>
+          <td>${o.packing && Object.keys(o.packing.rows || {}).length ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">✓ попълнена</span>' : '<span class="erp-muted">—</span>'}</td>
+          <td class="erp-row-actions"><button class="btn btn-small" data-packco-open="${o.id}">Опаковай →</button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
+// Тегло на 1 брой: картотеката (код+клиент) → рецептата → ръчно.
+function packKgFor(code, clientName, productId) {
+  const spec = erpPackFind(code, clientName);
+  if (spec && packNum(spec.kgPerPiece) > 0) return packNum(spec.kgPerPiece);
+  if (productId && typeof erpProductWeightKg === "function") {
+    const kg = erpProductWeightKg(productId);
+    if (kg > 0) return Math.round(kg * 1000) / 1000;
+  }
+  return 0;
+}
+
+async function erpPackOrderOpen(orderId) {
+  const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(orderId));
+  if (!o) { alert("Заявката не е намерена."); return; }
+  try { await erpEnsureLoaded(); } catch (e) {}
+  o.packing = o.packing || { rows: {}, palletKg: 20 };
+  const v = erpView();
+  const P = o.packing;
+  const rowState = i => {
+    const l = (o.lines || [])[i] || {};
+    const key = String(l.code || i);
+    const r = P.rows[key] || {};
+    const spec = erpPackFind(l.code, o.clientName);
+    return {
+      key, code: l.code || "", name: l.name || "", qty: erpToNum(l.qty) || 0,
+      kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
+      boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
+      perBox: r.perBox != null ? r.perBox : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : ""),
+      perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),
+    };
+  };
+  const calc = st => {
+    const perBox = packNum(st.perBox), perPallet = packNum(st.perPallet);
+    const boxes = perBox > 0 ? Math.ceil(st.qty / perBox) : 0;
+    const pallets = (boxes > 0 && perPallet > 0) ? boxes / perPallet : 0;
+    const netKg = Math.round(st.qty * packNum(st.kgPer) * 10) / 10;
+    return { boxes, pallets, netKg };
+  };
+  const render = () => {
+    const states = (o.lines || []).map((_, i) => rowState(i));
+    const totals = states.reduce((t, st) => {
+      const c = calc(st);
+      t.qty += st.qty; t.boxes += c.boxes; t.pallets += c.pallets; t.net += c.netKg;
+      return t;
+    }, { qty: 0, boxes: 0, pallets: 0, net: 0 });
+    const palletsUp = Math.ceil(totals.pallets - 1e-9);
+    const gross = Math.round((totals.net + palletsUp * packNum(P.palletKg || 20)) * 10) / 10;
+    v.innerHTML = `
+      <div class="erp-toolbar">
+        <button class="btn btn-small" id="pko-back">← Опаковки</button>
+        <span class="erp-count">📦 Опаковане — заявка <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · клиентски № " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")}</span>
+        <span class="spacer"></span>
+        <button class="btn btn-small btn-primary" id="pko-save">💾 Запази опаковката</button>
+      </div>
+      <table class="report-table erp-table">
+        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th class="num">Броя в кашон</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
+        <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
+          <td><b>${escapeHtml(st.code)}</b></td>
+          <td>${escapeHtml(st.name)}</td>
+          <td class="num">${erpNum(st.qty)}</td>
+          <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
+          <td><input type="text" class="pko-box" data-i="${i}" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="напр. кафяв 5-слоен" /></td>
+          <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
+          <td class="num"><input type="number" step="1" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" /></td>
+          <td class="num"><b>${c.boxes || "—"}</b></td>
+          <td class="num">${c.pallets ? (Math.round(c.pallets * 100) / 100) : "—"}</td>
+          <td class="num">${c.netKg || "—"}</td>
+        </tr>`; }).join("")}</tbody>
+        <tfoot><tr style="font-weight:700;background:#f8fafc">
+          <td colspan="2">ОБЩО</td><td class="num">${erpNum(totals.qty)}</td><td></td><td></td><td></td><td></td>
+          <td class="num">${totals.boxes}</td><td class="num">${palletsUp}${totals.pallets ? ` <span class="erp-muted">(${Math.round(totals.pallets * 100) / 100})</span>` : ""}</td><td class="num">${Math.round(totals.net * 10) / 10}</td>
+        </tr></tfoot>
+      </table>
+      <div class="costk-stats">
+        <span>Сума на палетите: <b>${palletsUp}</b></span>
+        <span>Кашони: <b>${totals.boxes}</b></span>
+        <span>Нето: <b>${Math.round(totals.net * 10) / 10} кг</b></span>
+        <span>Тегло на палет: <input type="number" step="any" id="pko-palkg" value="${escapeAttr(String(P.palletKg || 20))}" style="width:64px" /> кг</span>
+        <span>Бруто: <b>${gross} кг</b></span>
+      </div>
+      <div class="erp-co-actions">
+        <button class="btn btn-small" id="pko-packing">🖨 Packing List</button>
+        <button class="btn btn-small" id="pko-goods">🖨 Стокова разписка</button>
+        <button class="btn btn-small" id="pko-pallets">🖨 Палет опис (по палети)</button>
+        <span class="erp-muted">Документите се пълнят от ТАЗИ таблица (Опаковъчната верига).</span>
+      </div>`;
+    const collect = () => {
+      v.querySelectorAll("tr[data-i]").forEach(tr => {
+        const i = Number(tr.dataset.i);
+        const l = (o.lines || [])[i] || {};
+        const key = String(l.code || i);
+        P.rows[key] = {
+          kgPer: erpToNum((tr.querySelector(".pko-kg") || {}).value) || 0,
+          boxType: ((tr.querySelector(".pko-box") || {}).value || "").trim(),
+          perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
+          perPallet: erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0,
+        };
+      });
+      P.palletKg = erpToNum((document.getElementById("pko-palkg") || {}).value) || 20;
+    };
+    v.querySelector("#pko-back").addEventListener("click", () => erpRenderPackaging());
+    v.querySelectorAll(".pko-kg,.pko-box,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
+    v.querySelector("#pko-save").addEventListener("click", async () => {
+      collect();
+      const btn = v.querySelector("#pko-save"); btn.disabled = true; btn.textContent = "Записва…";
+      try {
+        await erpSaveCO(o);
+        // Дообучаване на картотеката: код+клиент → кг/брой, кашон, кашони/палет.
+        (o.lines || []).forEach((l, i) => {
+          const r = P.rows[String(l.code || i)];
+          if (!r || !l.code) return;
+          let spec = (PACKAGING || []).find(p => packNorm(p.code) === packNorm(l.code) && packNorm(p.clientName) === packNorm(o.clientName));
+          if (!spec) { spec = { id: packNextId(), code: l.code, clientName: o.clientName || "" }; PACKAGING.push(spec); }
+          if (r.kgPer > 0) spec.kgPerPiece = r.kgPer;
+          if (r.boxType) spec.boxType = r.boxType;
+          if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
+          if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;
+        });
+        await erpPackSave();
+        btn.textContent = "✓ Записано"; setTimeout(() => { btn.textContent = "💾 Запази опаковката"; btn.disabled = false; }, 1200);
+      } catch (e) { btn.disabled = false; btn.textContent = "💾 Запази опаковката"; alert("Грешка при запис: " + (e.message || e)); }
+    });
+    // Печат — трите документа от опаковъчните данни.
+    const docRows = () => (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) }));
+    v.querySelector("#pko-packing").addEventListener("click", () => { collect(); packPrintPacking(o, docRows(), P); });
+    v.querySelector("#pko-goods").addEventListener("click", () => { collect(); packPrintGoods(o, docRows()); });
+    v.querySelector("#pko-pallets").addEventListener("click", () => { collect(); packPrintPallets(o, docRows(), P); });
+  };
+  render();
+}
+
+/* Разпределя кашоните по палети (последователно) — за описа „всеки един палет". */
+function packBuildPallets(rows) {
+  const pallets = [];
+  let cur = null, curCap = 0;   // капацитет на текущия палет в КАШОНИ от текущия ред
+  rows.forEach(st => {
+    let left = st.boxes;
+    const perPal = packNum(st.perPallet) || st.boxes || 1;
+    while (left > 0) {
+      if (!cur || curCap <= 0) { cur = { no: pallets.length + 1, items: [] }; pallets.push(cur); curCap = perPal; }
+      const take = Math.min(left, curCap);
+      const qty = Math.min(st.qty, take * (packNum(st.perBox) || st.qty));
+      cur.items.push({ code: st.code, name: st.name, boxes: take, qty: take === st.boxes ? st.qty : take * (packNum(st.perBox) || 0), kg: Math.round(((take === st.boxes ? st.qty : take * (packNum(st.perBox) || 0)) * packNum(st.kgPer)) * 10) / 10 });
+      left -= take; curCap -= take;
+    }
+  });
+  return pallets;
+}
+function packDocHead(o, title) {
+  return `<div class="head"><div><h1>${title}</h1>
+      <div>Заявка: <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · Order No: <b>" + escapeHtml(o.clientNo) + "</b>" : ""}</div></div>
+    <div style="text-align:right">Клиент: <b>${escapeHtml(o.clientName || "")}</b><br>Дата: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
+}
+function packPrintPacking(o, rows, P) {
+  const tot = rows.reduce((t, r) => { t.q += r.qty; t.b += r.boxes; t.p += r.pallets; t.n += r.netKg; return t; }, { q: 0, b: 0, p: 0, n: 0 });
+  const palletsUp = Math.ceil(tot.p - 1e-9);
+  const gross = Math.round((tot.n + palletsUp * packNum(P.palletKg || 20)) * 10) / 10;
+  const body = `${packDocHead(o, "PACKING LIST")}
+    <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
+    <div class="kv"><b>Pallets:</b> ${palletsUp} × ${packNum(P.palletKg || 20)} kg</div>
+    <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
+  invPrintWindow("Packing List — заявка " + (o.ourNo || ""), body, "en");
+}
+function packPrintGoods(o, rows) {
+  const body = `${packDocHead(o, "СТОКОВА РАЗПИСКА")}
+    <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th class="c">Бройка</th><th class="c">Кашони</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.boxes || ""}</td></tr>`).join("")}</tbody></table>
+    <div class="foot"><div>Предал: ................</div><div>Приел: ................</div></div>`;
+  invPrintWindow("Стокова разписка — заявка " + (o.ourNo || ""), body, "bg");
+}
+function packPrintPallets(o, rows, P) {
+  const pallets = packBuildPallets(rows);
+  const body = `${packDocHead(o, "ПАЛЕТ ОПИС / PALLET LIST")}
+    ${pallets.map(p => {
+      const kg = Math.round(p.items.reduce((s, x) => s + x.kg, 0) * 10) / 10;
+      return `<h3 style="margin:12px 0 4px">Палет № ${p.no} <span style="font-weight:400;color:#555">— нето ${kg} кг + палет ${packNum(P.palletKg || 20)} кг = бруто ${Math.round((kg + packNum(P.palletKg || 20)) * 10) / 10} кг</span></h3>
+      <table><thead><tr><th>Код</th><th>Наименование</th><th class="c">Кашони</th><th class="c">Бройка</th><th class="c">Нето кг</th></tr></thead>
+      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>`;
+    }).join("") || "<p>Няма палети — попълни кашоните на палет.</p>"}
+    <div class="kv"><b>Общо палети:</b> ${pallets.length}</div>`;
+  invPrintWindow("Палет опис — заявка " + (o.ourNo || ""), body, "bg");
+}
