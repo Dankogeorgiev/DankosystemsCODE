@@ -638,3 +638,8 @@ img.ai-doc-content { max-width: none; }
 .co-stock-one:hover { background: #fef3c7; border-color: #f59e0b; }
 .co-stock-one .co-stock-ttl { white-space: nowrap; }
 .co-stock-one .spacer { flex: 1; }
+
+/* Голям прозорец за „Производство за склад" + сводка */
+.erp-dialog-box.erp-dialog-xwide { width: min(1150px, 96vw); }
+.costk-stats { display: flex; gap: 18px; flex-wrap: wrap; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 4px 0 10px; font-size: 14px; }
+.costk-stats b { font-size: 16px; }

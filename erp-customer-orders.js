@@ -314,22 +314,34 @@ async function erpRenderCustomerOrders() {
 
   // Прозорецът „Производство за склад" — всичко на едно място, като отворена заявка.
   function erpCOStockDialog(groups) {
+    const totQ = groups.reduce((s, g) => s + g.qty, 0);
+    const totS = groups.reduce((s, g) => s + g.stocked, 0);
+    const gPct = g => { const ops = g.ops || []; if (!ops.length) return 0; const s = ops.reduce((t, o) => t + (o.q > 0 ? Math.min(1, o.p / o.q) : 1), 0); return Math.round(s / ops.length * 100); };
     const { wrap, close } = erpDialog(`
       <h3>🏭 Производство ЗА СКЛАД — текущи (${groups.length})</h3>
-      <p class="hint" style="margin:0 0 8px">Пуснати от Продукти / Склад детайли (без клиентска заявка). Щом мине последната операция, готовите бройки влизат в Склад детайли и изделието изчезва оттук.</p>
-      <div style="max-height:60vh;overflow:auto">
+      <div class="costk-stats">
+        <span>Изделия: <b>${groups.length}</b></span>
+        <span>Пуснати общо: <b>${erpNum(totQ)} бр.</b></span>
+        <span>Готови в Склад детайли: <b>${erpNum(totS)} бр.</b></span>
+        <span>Остават: <b>${erpNum(Math.max(0, totQ - totS))} бр.</b></span>
+      </div>
+      <p class="hint" style="margin:0 0 8px">Пуснати от Продукти / Склад детайли (без клиентска заявка). Готовите бройки от ПОСЛЕДНАТА операция влизат директно в Склад детайли — щом всичко мине, изделието изчезва оттук.</p>
+      <div style="max-height:66vh;overflow:auto">
       <table class="report-table erp-table" style="margin-bottom:6px">
-        <thead><tr><th>Код</th><th>Детайл</th><th class="num">Бройка</th><th>Напредък по операции</th><th class="num">Готови в склада</th><th></th></tr></thead>
+        <thead><tr><th>Код</th><th>Детайл</th><th class="num">Пуснати</th><th style="width:42%">Напредък по операции (цех · готови/всичко)</th><th style="width:110px">Общо</th><th class="num">В склада</th><th class="num">Остават</th><th></th></tr></thead>
         <tbody>${groups.map(g => `<tr>
           <td><b>${escapeHtml(g.code)}</b></td>
           <td>${escapeHtml(g.product)}</td>
           <td class="num">${erpNum(g.qty)}</td>
-          <td>${g.ops.map(o => `<span class="oip-op ${o.q > 0 && o.p >= o.q ? "ok" : o.p > 0 ? "part" : ""}">${escapeHtml(o.op)} ${o.p}/${o.q}${o.ws ? " · " + escapeHtml(o.ws) : ""}</span>`).join(" ")}</td>
+          <td>${g.ops.map(o => `<span class="oip-op ${o.q > 0 && o.p >= o.q ? "ok" : o.p > 0 ? "part" : ""}">${escapeHtml(o.op)}${o.ws ? " · " + escapeHtml(o.ws) : ""} <b>${o.p}/${o.q}</b></span>`).join(" ")}</td>
+          <td><div class="co-progress" style="max-width:none" title="${gPct(g)}% от операциите"><div class="co-progress-fill" style="width:${gPct(g)}%"></div></div><span class="erp-muted" style="font-size:11px">${gPct(g)}%</span></td>
           <td class="num"><b>${erpNum(g.stocked)}</b></td>
+          <td class="num">${erpNum(Math.max(0, g.qty - g.stocked))}</td>
           <td class="erp-row-actions"><button class="btn btn-small btn-danger" data-stockrm="${escapeAttr(g.sid)}" title="Изтегля производството за склад (маха задачите по цеховете)">✕ Изтегли</button></td>
         </tr>`).join("")}</tbody>
       </table></div>
       <div class="erp-dialog-actions"><span class="spacer"></span><button class="btn" id="costk-close">Затвори</button></div>`);
+    wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
     wrap.querySelector("#costk-close").addEventListener("click", close);
     wrap.querySelectorAll("[data-stockrm]").forEach(b => b.addEventListener("click", async () => {
       const sid = b.dataset.stockrm;
