@@ -285,7 +285,7 @@ async function erpPackOrderOpen(orderId) {
       t.qty += st.qty; t.boxes += c.boxes; t.pallets += c.pallets; t.net += c.netKg;
       return t;
     }, { qty: 0, boxes: 0, pallets: 0, net: 0 });
-    const built = packBuildPallets(states.map(st => ({ ...st, ...calc(st) })));
+    const built = packPlanPallets(states.map(st => ({ ...st, ...calc(st) })), P);
     const palletsUp = built.length || Math.ceil(totals.pallets - 1e-9);
     const gross = Math.round((totals.net + palletsUp * packNum(P.palletKg || 20)) * 10) / 10;
     v.innerHTML = `
@@ -321,7 +321,7 @@ async function erpPackOrderOpen(orderId) {
         <span>Тегло на палет: <input type="number" step="any" id="pko-palkg" value="${escapeAttr(String(P.palletKg || 20))}" style="width:64px" /> кг</span>
         <span>Бруто: <b>${gross} кг</b></span>
       </div>
-      ${built.length ? `<div class="hint" style="line-height:1.8">🧱 <b>План на палетите:</b><br>${built.map(p => `Палет №${p.no}${p.items.length > 1 ? " <i>(комбиниран)</i>" : ""}: ${p.items.map(x => `<b>${escapeHtml(x.code)}</b> — ${x.text || x.boxes + " каш."}`).join(" · ")}`).join("<br>")}</div>` : ""}
+      <div id="pko-plan"></div>
       <div class="erp-co-actions">
         <button class="btn btn-small" id="pko-packing">🖨 Packing List</button>
         <button class="btn btn-small" id="pko-goods">🖨 Стокова разписка</button>
@@ -370,6 +370,78 @@ async function erpPackOrderOpen(orderId) {
     v.querySelector("#pko-packing").addEventListener("click", () => { collect(); packPrintPacking(o, docRows(), P); });
     v.querySelector("#pko-goods").addEventListener("click", () => { collect(); packPrintGoods(o, docRows()); });
     v.querySelector("#pko-pallets").addEventListener("click", () => { collect(); packPrintPallets(o, docRows(), P); });
+    renderPlan();
+  };
+  /* --- 3D редактор на палетния план --- */
+  const planSel = { p: -1, g: -1 };
+  const movePlan = (fromP, gi, toP) => {
+    const g = (P.plan[fromP] || [])[gi]; if (!g || fromP === toP) return;
+    let n = g.boxes;
+    if (g.boxes > 1) {
+      const a = prompt(`Колко кашона от ${g.code} (${g.boxes} каш. × ${g.per} бр.) да преместя на Палет №${toP + 1}?`, String(g.boxes));
+      if (a == null) return;
+      n = Math.max(1, Math.min(g.boxes, Math.round(packNum(a)) || 0)); if (!n) return;
+    }
+    g.boxes -= n;
+    if (g.boxes <= 0) P.plan[fromP].splice(gi, 1);
+    const same = P.plan[toP].find(x => x.code === g.code && x.per === g.per && !x.part === !g.part);
+    if (same) same.boxes += n; else P.plan[toP].push({ code: g.code, boxes: n, per: g.per, part: g.part });
+    planSel.p = planSel.g = -1;
+    collect(); render();
+  };
+  const renderPlan = () => {
+    const box = v.querySelector("#pko-plan"); if (!box) return;
+    const rows = (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) })).filter(r => r.boxes > 0);
+    if (!rows.length) { box.innerHTML = ""; return; }
+    const sig = packPlanSig(rows);
+    if (!Array.isArray(P.plan) || P.planSig !== sig) { P.plan = packPlanAuto(rows); P.planSig = sig; }
+    const info = {}; rows.forEach(r => { info[r.code] = r; });
+    const palletHtml = (g, pi) => {
+      const frac = (g || []).reduce((s, x) => s + x.boxes / (packNum((info[x.code] || {}).perPallet) || x.boxes || 1), 0);
+      const kg = (g || []).reduce((s, x) => s + x.boxes * x.per * packNum((info[x.code] || {}).kgPer), 0);
+      const pct = Math.round(frac * 100);
+      return `<div class="pk3d-pallet${pct > 100 ? " pk3d-overfull" : ""}" data-pi="${pi}">
+        <div class="pk3d-head"><b>Палет №${pi + 1}</b><span>${pct}%${kg ? " · " + Math.round(kg * 10) / 10 + " кг" : ""}${(g || []).length > 1 ? " · комбиниран" : ""}</span></div>
+        <div class="pk3d-fill${pct > 100 ? " over" : ""}"><div style="width:${Math.min(100, pct)}%"></div></div>
+        <div class="pk3d-stack">${(g || []).map((x, gi) => `<button type="button" class="pk3d-box${planSel.p === pi && planSel.g === gi ? " sel" : ""}" draggable="true" data-pi="${pi}" data-gi="${gi}" title="${escapeAttr(x.code)} — ${x.boxes} каш. × ${x.per} бр. Клик = избери, влачи = премести.">
+            <span class="t" style="background:${packColor(x.code)}"></span><span class="s" style="background:${packColor(x.code)}"></span>
+            <span class="f" style="background:${packColor(x.code)}">${escapeHtml(x.code)}<small>${x.boxes}×${x.per} бр.${x.part ? " · непълен" : ""}</small></span>
+          </button>`).join("") || '<span class="erp-muted">празен палет</span>'}</div>
+        <div class="pk3d-base"></div>
+        <div class="pk3d-actions">
+          ${planSel.p >= 0 && planSel.p !== pi ? `<button class="btn btn-small btn-primary" data-moveto="${pi}">⤵ Премести тук</button>` : ""}
+          ${!(g || []).length ? `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>` : ""}
+        </div>
+      </div>`;
+    };
+    box.innerHTML = `<h4 class="erp-group-head">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик на кашон и „⤵ Премести тук" на друг палет (или влачене). Пази се със „Запази опаковката" и Палет описът излиза по НЕГО.</span></h4>
+      <div class="pk3d-wrap">${P.plan.map(palletHtml).join("")}
+        <div class="pk3d-pallet pk3d-newpal">
+          <button class="btn btn-small" id="pk3d-add">+ Палет</button>
+          <button class="btn btn-small" id="pk3d-auto" title="Строи плана наново: цели палети по изделие + комбинирани остатъци">↺ Авто подредба</button>
+        </div>
+      </div>`;
+    box.querySelectorAll(".pk3d-box").forEach(b => {
+      b.addEventListener("click", () => {
+        const pi = Number(b.dataset.pi), gi = Number(b.dataset.gi);
+        if (planSel.p === pi && planSel.g === gi) { planSel.p = planSel.g = -1; } else { planSel.p = pi; planSel.g = gi; }
+        renderPlan();
+      });
+      b.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", b.dataset.pi + ":" + b.dataset.gi); });
+    });
+    box.querySelectorAll(".pk3d-pallet[data-pi]").forEach(card => {
+      card.addEventListener("dragover", e => { e.preventDefault(); card.classList.add("pk3d-over"); });
+      card.addEventListener("dragleave", () => card.classList.remove("pk3d-over"));
+      card.addEventListener("drop", e => {
+        e.preventDefault(); card.classList.remove("pk3d-over");
+        const m = String(e.dataTransfer.getData("text/plain") || "").match(/^(\d+):(\d+)$/);
+        if (m) movePlan(Number(m[1]), Number(m[2]), Number(card.dataset.pi));
+      });
+    });
+    box.querySelectorAll("[data-moveto]").forEach(b => b.addEventListener("click", () => movePlan(planSel.p, planSel.g, Number(b.dataset.moveto))));
+    box.querySelectorAll("[data-delpal]").forEach(b => b.addEventListener("click", () => { P.plan.splice(Number(b.dataset.delpal), 1); planSel.p = planSel.g = -1; collect(); render(); }));
+    const add = box.querySelector("#pk3d-add"); if (add) add.addEventListener("click", () => { P.plan.push([]); renderPlan(); });
+    const auto = box.querySelector("#pk3d-auto"); if (auto) auto.addEventListener("click", () => { P.plan = packPlanAuto(rows); P.planSig = sig; planSel.p = planSel.g = -1; collect(); render(); });
   };
   render();
 }
@@ -407,7 +479,7 @@ function packBuildPallets(rows) {
     const boxes = f + (restQty > 0 ? 1 : 0);
     const qty = f * it.pb + restQty;
     const parts = []; if (f > 0) parts.push(`${f}×${it.pb}`); if (restQty > 0) parts.push(`1×${restQty}`);
-    return { code: it.r.code, name: it.r.name, boxes, qty, text: parts.join(" + "), kg: Math.round(qty * packNum(it.r.kgPer) * 10) / 10 };
+    return { code: it.r.code, name: it.r.name, boxes, qty, full: f, rest: restQty, pb: it.pb, text: parts.join(" + "), kg: Math.round(qty * packNum(it.r.kgPer) * 10) / 10 };
   };
   const pallets = [];
   // 1) цели палети по изделие
@@ -426,16 +498,56 @@ function packBuildPallets(rows) {
   pallets.forEach((p, i) => { p.no = i + 1; });
   return pallets;
 }
-function packDocHead(o, title) {
+
+/* --- РЪЧНИЯТ план на палетите (редактируем; пази се в o.packing.plan) ---
+   Планът е списък от палети; всеки палет е списък групи {code, boxes, per, part}
+   (part = непълен кашон). Подписът пази плана валиден: промени ли се заявката
+   (бройки/кашони), планът се строи наново от автоматиката. */
+function packPlanSig(rows) { return rows.map(r => `${r.code}|${r.qty}|${packNum(r.perBox)}|${packNum(r.perPallet)}`).join(";"); }
+function packPlanAuto(rows) {
+  return packBuildPallets(rows).map(p => {
+    const g = [];
+    p.items.forEach(x => {
+      if (x.full > 0) g.push({ code: x.code, boxes: x.full, per: x.pb });
+      if (x.rest > 0) g.push({ code: x.code, boxes: 1, per: x.rest, part: 1 });
+    });
+    return g;
+  });
+}
+/* Палетите за ДОКУМЕНТИТЕ: ръчният план (ако е валиден), иначе автоматиката. */
+function packPlanPallets(rows, P) {
+  rows = rows.filter(r => r.boxes > 0);
+  if (!P || !Array.isArray(P.plan) || P.planSig !== packPlanSig(rows)) return packBuildPallets(rows);
+  const info = {}; rows.forEach(r => { info[r.code] = r; });
+  return P.plan.map(g => {
+    const by = new Map();
+    (g || []).forEach(x => {
+      const it = by.get(x.code) || { code: x.code, name: (info[x.code] || {}).name || "", boxes: 0, qty: 0, parts: [] };
+      it.boxes += x.boxes; it.qty += x.boxes * x.per; it.parts.push(`${x.boxes}×${x.per}`);
+      by.set(x.code, it);
+    });
+    return { items: [...by.values()].map(it => ({ ...it, text: it.parts.join(" + "), kg: Math.round(it.qty * packNum((info[it.code] || {}).kgPer) * 10) / 10 })) };
+  }).filter(p => p.items.length).map((p, i) => ({ ...p, no: i + 1 }));
+}
+/* Цвят на изделие в 3D плана — постоянен за даден код. */
+function packColor(code) {
+  let h = 0; const s = String(code || "");
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return `hsl(${h},62%,46%)`;
+}
+/* Клиент на латиница (без кирилица) = ИЗНОС → придружаващите документи на английски. */
+function packIsExport(o) { const n = String((o && o.clientName) || ""); return /[A-Za-z]/.test(n) && !/[А-Яа-я]/.test(n); }
+function packDocHead(o, title, en) {
+  const L = en ? { ord: "Order", cl: "Client", dt: "Date" } : { ord: "Заявка", cl: "Клиент", dt: "Дата" };
   return `<div class="head"><div><h1>${title}</h1>
-      <div>Заявка: <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · Order No: <b>" + escapeHtml(o.clientNo) + "</b>" : ""}</div></div>
-    <div style="text-align:right">Клиент: <b>${escapeHtml(o.clientName || "")}</b><br>Дата: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
+      <div>${L.ord}: <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · Order No: <b>" + escapeHtml(o.clientNo) + "</b>" : ""}</div></div>
+    <div style="text-align:right">${L.cl}: <b>${escapeHtml(o.clientName || "")}</b><br>${L.dt}: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
 }
 function packPrintPacking(o, rows, P) {
   const tot = rows.reduce((t, r) => { t.q += r.qty; t.b += r.boxes; t.p += r.pallets; t.n += r.netKg; return t; }, { q: 0, b: 0, p: 0, n: 0 });
-  const palletsUp = packBuildPallets(rows).length || Math.ceil(tot.p - 1e-9);
+  const palletsUp = packPlanPallets(rows, P).length || Math.ceil(tot.p - 1e-9);
   const gross = Math.round((tot.n + palletsUp * packNum(P.palletKg || 20)) * 10) / 10;
-  const body = `${packDocHead(o, "PACKING LIST")}
+  const body = `${packDocHead(o, "PACKING LIST", packIsExport(o))}
     <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
     <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
@@ -444,21 +556,27 @@ function packPrintPacking(o, rows, P) {
   invPrintWindow("Packing List — заявка " + (o.ourNo || ""), body, "en");
 }
 function packPrintGoods(o, rows) {
-  const body = `${packDocHead(o, "СТОКОВА РАЗПИСКА")}
-    <table><thead><tr><th>№</th><th>Код</th><th>Наименование</th><th class="c">Бройка</th><th class="c">Кашони</th></tr></thead>
+  const en = packIsExport(o);
+  const L = en ? { title: "DELIVERY NOTE", code: "Code", name: "Description", qty: "Qty", boxes: "Boxes", from: "Issued by", to: "Received by", win: "Delivery Note — order " }
+    : { title: "СТОКОВА РАЗПИСКА", code: "Код", name: "Наименование", qty: "Бройка", boxes: "Кашони", from: "Предал", to: "Приел", win: "Стокова разписка — заявка " };
+  const body = `${packDocHead(o, L.title, en)}
+    <table><thead><tr><th>№</th><th>${L.code}</th><th>${L.name}</th><th class="c">${L.qty}</th><th class="c">${L.boxes}</th></tr></thead>
     <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td></tr>`).join("")}</tbody></table>
-    <div class="foot"><div>Предал: ................</div><div>Приел: ................</div></div>`;
-  invPrintWindow("Стокова разписка — заявка " + (o.ourNo || ""), body, "bg");
+    <div class="foot"><div>${L.from}: ................</div><div>${L.to}: ................</div></div>`;
+  invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg");
 }
 function packPrintPallets(o, rows, P) {
-  const pallets = packBuildPallets(rows);
-  const body = `${packDocHead(o, "ПАЛЕТ ОПИС / PALLET LIST")}
+  const pallets = packPlanPallets(rows, P);
+  const en = packIsExport(o);
+  const L = en ? { title: "PALLET LIST", pal: "Pallet No", mix: "mixed", net: "net", plt: "pallet", gr: "gross", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " }
+    : { title: "ПАЛЕТ ОПИС / PALLET LIST", pal: "Палет №", mix: "комбиниран", net: "нето", plt: "палет", gr: "бруто", code: "Код", name: "Наименование", boxes: "Кашони", qty: "Бройка", kg: "Нето кг", tot: "Общо палети", none: "Няма палети — попълни кашоните на палет.", win: "Палет опис — заявка " };
+  const body = `${packDocHead(o, L.title, en)}
     ${pallets.map(p => {
       const kg = Math.round(p.items.reduce((s, x) => s + x.kg, 0) * 10) / 10;
-      return `<h3 style="margin:12px 0 4px">Палет № ${p.no}${p.items.length > 1 ? " · комбиниран" : ""} <span style="font-weight:400;color:#555">— нето ${kg} кг + палет ${packNum(P.palletKg || 20)} кг = бруто ${Math.round((kg + packNum(P.palletKg || 20)) * 10) / 10} кг</span></h3>
-      <table><thead><tr><th>Код</th><th>Наименование</th><th class="c">Кашони</th><th class="c">Бройка</th><th class="c">Нето кг</th></tr></thead>
+      return `<h3 style="margin:12px 0 4px">${L.pal} ${p.no}${p.items.length > 1 ? " · " + L.mix : ""} <span style="font-weight:400;color:#555">— ${L.net} ${kg} ${en ? "kg" : "кг"} + ${L.plt} ${packNum(P.palletKg || 20)} ${en ? "kg" : "кг"} = ${L.gr} ${Math.round((kg + packNum(P.palletKg || 20)) * 10) / 10} ${en ? "kg" : "кг"}</span></h3>
+      <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.boxes}</th><th class="c">${L.qty}</th><th class="c">${L.kg}</th></tr></thead>
       <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>`;
-    }).join("") || "<p>Няма палети — попълни кашоните на палет.</p>"}
-    <div class="kv"><b>Общо палети:</b> ${pallets.length}</div>`;
-  invPrintWindow("Палет опис — заявка " + (o.ourNo || ""), body, "bg");
+    }).join("") || `<p>${L.none}</p>`}
+    <div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>`;
+  invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg");
 }
