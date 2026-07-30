@@ -214,12 +214,13 @@ async function erpPackEnsureLoaded() { if (!PACKAGING) await erpPackLoad(); }
    Данните се пазят В ЗАЯВКАТА (o.packing) и дообучават картотеката горе. */
 
 let PACK_CO_OPEN = new Set(); // отворени клиентски папки в „Заявки за опаковане"
+let PACK_CO_SEL = new Set();  // избрани заявки за ОБЩО опаковане (две+ наведнъж)
 
 function packOrderRowHtml(o) {
   const packed = o.packing && Object.keys(o.packing.rows || {}).length;
   const status = (typeof erpCOStatusCell === "function") ? erpCOStatusCell(o) : escapeHtml(o.status || "нова");
   return `<tr class="erp-clickable" data-packco="${o.id}">
-    <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
+    <td data-label="Наш №"><input type="checkbox" class="packsel" data-packselid="${o.id}"${PACK_CO_SEL.has(String(o.id)) ? " checked" : ""} title="Избери за ОБЩО опаковане (две+ заявки наведнъж)" /> <b>${escapeHtml(o.ourNo || "—")}</b></td>
     <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
     <td data-label="Дата">${erpDMY(o.date)}</td>
     <td class="num" data-label="Редове">${(o.lines || []).length}</td>
@@ -248,7 +249,8 @@ function packOrdersListHtml() {
   }).join("");
   return `
     <div class="pack-orders">
-      <h4 class="erp-group-head" style="margin-top:0">📦 Заявки за опаковане (${list.length})</h4>
+      <h4 class="erp-group-head" style="margin-top:0">📦 Заявки за опаковане (${list.length})
+        <button type="button" class="btn btn-small btn-primary" id="pack-combine" style="${PACK_CO_SEL.size > 1 ? "" : "display:none"};margin-left:10px">📦 Опаковай заедно (${PACK_CO_SEL.size})</button></h4>
       <table class="report-table erp-table" style="margin-bottom:8px">
         <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Дата</th><th class="num">Редове</th><th>Статус</th><th>Опаковка</th><th></th></tr></thead>
         <tbody>${body}</tbody>
@@ -267,6 +269,23 @@ function packOrdersWire() {
   }));
   box.querySelectorAll("[data-packco-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackOrderOpen(b.dataset.packcoOpen); }));
   box.querySelectorAll("tr[data-packco]").forEach(tr => tr.addEventListener("click", () => erpPackOrderOpen(tr.dataset.packco)));
+  // Общо опаковане: отметки + бутон „Опаковай заедно".
+  box.querySelectorAll(".packsel").forEach(cb => {
+    cb.addEventListener("click", e => e.stopPropagation());
+    cb.addEventListener("change", () => {
+      const id = String(cb.dataset.packselid);
+      if (cb.checked) PACK_CO_SEL.add(id); else PACK_CO_SEL.delete(id);
+      const btn = box.querySelector("#pack-combine");
+      if (btn) { btn.style.display = PACK_CO_SEL.size > 1 ? "" : "none"; btn.textContent = `📦 Опаковай заедно (${PACK_CO_SEL.size})`; }
+    });
+  });
+  const cmb = box.querySelector("#pack-combine");
+  if (cmb) cmb.addEventListener("click", () => {
+    const ids = [...PACK_CO_SEL];
+    if (ids.length < 2) return;
+    PACK_CO_SEL = new Set();
+    erpPackOrderOpen(ids[0], ids.slice(1));
+  });
 }
 
 // Тегло на 1 брой: картотеката (код+клиент) → рецептата → ръчно.
@@ -280,11 +299,37 @@ function packKgFor(code, clientName, productId) {
   return 0;
 }
 
-async function erpPackOrderOpen(orderId) {
-  const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(orderId));
-  if (!o) { alert("Заявката не е намерена."); return; }
+async function erpPackOrderOpen(orderId, moreIds) {
+  const all = ((typeof erpCOList !== "undefined" && erpCOList) || []);
+  const main = all.find(x => String(x.id) === String(orderId));
+  if (!main) { alert("Заявката не е намерена."); return; }
+  const others = (moreIds || []).map(id => all.find(x => String(x.id) === String(id))).filter(Boolean);
   try { await erpEnsureLoaded(); } catch (e) {}
-  o.packing = o.packing || { rows: {}, palletKg: 20 };
+  main.packing = main.packing || { rows: {}, palletKg: 20 };
+  let o = main;
+  if (others.length) {
+    // ОБЩО опаковане на 2+ заявки: редовете се сливат по код (количествата се
+    // събират), планът/документите са общи; спецификациите се записват във
+    // ВСЯКА заявка, а общият план остава в първата.
+    if (others.some(x => (x.clientName || "") !== (main.clientName || ""))
+      && !confirm("Избраните заявки са на РАЗЛИЧНИ клиенти — документите ще излязат с клиента на първата. Продължавам ли?")) return;
+    const merged = new Map();
+    [main, ...others].forEach(src => (src.lines || []).forEach(l => {
+      const k = String(l.code || l.name || "");
+      const cur = merged.get(k);
+      if (cur) cur.qty = (erpToNum(cur.qty) || 0) + (erpToNum(l.qty) || 0);
+      else merged.set(k, { ...l });
+    }));
+    o = {
+      id: main.id,
+      ourNo: [main, ...others].map(x => x.ourNo || "—").join(" + "),
+      clientNo: [main, ...others].map(x => x.clientNo || "—").join(" + "),
+      clientName: main.clientName, date: main.date,
+      lines: [...merged.values()],
+      packing: main.packing,
+      __combined: [main, ...others],
+    };
+  }
   const v = erpView();
   const P = o.packing;
   const rowState = i => {
@@ -323,7 +368,7 @@ async function erpPackOrderOpen(orderId) {
     v.innerHTML = `
       <div class="erp-toolbar">
         <button class="btn btn-small" id="pko-back">← Опаковки</button>
-        <span class="erp-count">📦 Опаковане — заявка <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · клиентски № " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")}</span>
+        <span class="erp-count">📦 Опаковане — ${o.__combined ? `<b style="color:#b45309">${o.__combined.length} заявки ЗАЕДНО</b> ` : "заявка "}<b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · клиентски № " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")}</span>
         <span class="spacer"></span>
         <button class="btn btn-small btn-primary" id="pko-save">💾 Запази опаковката</button>
       </div>
@@ -389,7 +434,21 @@ async function erpPackOrderOpen(orderId) {
       collect();
       const btn = v.querySelector("#pko-save"); btn.disabled = true; btn.textContent = "Записва…";
       try {
-        await erpSaveCO(o);
+        if (o.__combined) {
+          // Общият план остава в първата заявка (packing e нейният обект);
+          // спецификациите по код се копират и в останалите заявки.
+          for (const oc of o.__combined) {
+            if (oc !== o.__combined[0]) {
+              oc.packing = oc.packing || { rows: {}, palletKg: P.palletKg };
+              (oc.lines || []).forEach((l, i) => {
+                const key = String(l.code || i);
+                if (P.rows[key]) oc.packing.rows[key] = { ...P.rows[key] };
+              });
+              oc.packing.palletKg = P.palletKg;
+            }
+            await erpSaveCO(oc);
+          }
+        } else await erpSaveCO(o);
         // Дообучаване на картотеката: код+клиент → кг/брой, кашон, кашони/палет.
         (o.lines || []).forEach((l, i) => {
           const r = P.rows[String(l.code || i)];
