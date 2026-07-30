@@ -372,12 +372,13 @@ async function erpPackOrderOpen(orderId) {
           if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
           if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;
         });
-        // „Запомни подредбата": пази схемата за клиент + този набор артикули.
+        // Стандартните палети (🧠 Запомни) → шаблон за клиента.
         try {
-          const rws = (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) })).filter(r => r.boxes > 0);
-          if (planRemember && rws.length && Array.isArray(P.plan)) {
-            const tpl = packLayoutTemplate(P, rws);
-            if (tpl) { PACK_LAYOUTS = PACK_LAYOUTS || {}; PACK_LAYOUTS[packLayoutKey(o.clientName, rws)] = tpl; }
+          if (Array.isArray(P.plan) && o.clientName) {
+            const tpl = packLayoutTemplate(P);
+            PACK_LAYOUTS = PACK_LAYOUTS || {};
+            if (tpl) PACK_LAYOUTS[packNorm(o.clientName)] = tpl;
+            else if ((P.plan || []).length) delete PACK_LAYOUTS[packNorm(o.clientName)];
           }
         } catch (e) {}
         await erpPackSave();
@@ -402,7 +403,6 @@ async function erpPackOrderOpen(orderId) {
      един кашон (или цялата селекция, ако влачиш маркиран). „Настрани"
      е страничният ред за разпределяне — кашоните там НЕ влизат в описа. */
   const SEL = new Set();   // избрани кашони: "pi:gi:k" (pi = -1 → Настрани)
-  let planRemember = null; // отметката „Запомни подредбата" (null = още неинициализирана)
   const contOf = pi => pi < 0 ? (P.tray = P.tray || []) : ((P.plan[pi] || {}).g || null);
   const moveSel = toPi => {
     if (!SEL.size) return;
@@ -445,7 +445,6 @@ async function erpPackOrderOpen(orderId) {
       P.planSig = sig; P.tray = []; SEL.clear();
     }
     packPlanNorm(P);
-    if (planRemember === null) planRemember = !!(PACK_LAYOUTS && PACK_LAYOUTS[packLayoutKey(o.clientName, rows)]);
     P.tray = P.tray || [];
     const info = {}; rows.forEach(r => { info[r.code] = r; });
     /* --- Истинска 3D визия (изометрия). Всичко е в СМ, после се проектира:
@@ -521,7 +520,7 @@ async function erpPackOrderOpen(orderId) {
         ${g.length ? pal3d(p, pi) : `${pal3d(p, pi)}<div class="erp-muted" style="text-align:center">празен палет</div>`}
         <div class="pk3d-actions">
           ${dropBtn(pi)}
-          ${!g.length ? `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>` : ""}
+          ${g.length ? `<label style="font-size:12px;white-space:nowrap;cursor:pointer" title="Пази ТОЗИ палет като стандартен за клиента (с точните бройки). Следваща заявка го нарежда пак така и го повтаря, докато има пълни кашони. Записва се със „Запази опаковката"."><input type="checkbox" data-rem="${pi}"${p.rem ? " checked" : ""}> 🧠 Запомни</label>` : `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>`}
         </div>
       </div>`;
     };
@@ -539,8 +538,7 @@ async function erpPackOrderOpen(orderId) {
       </div>`;
     }).join("");
     const trayCnt = P.tray.reduce((s, x) => s + x.boxes, 0);
-    box.innerHTML = `<h4 class="erp-group-head" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик върху кашон го маркира, после „⤵ Тук" / „⬇ Настрани"; или списъка „Настрани" с „→ №". Пази се със „Запази опаковката".</span>
-      <label style="font-weight:400;font-size:12px;white-space:nowrap;margin-left:auto" title="При запис пази схемата (кой код на кой палет, какъв дял, размер на палета) за този клиент и този набор артикули — следваща заявка със същите артикули се подрежда така автоматично."><input type="checkbox" id="pk3d-remember"${planRemember ? " checked" : ""}> 🧠 Запомни подредбата</label></h4>
+    box.innerHTML = `<h4 class="erp-group-head">🧱 План на палетите <span class="erp-muted" style="font-weight:400;font-size:12px">— клик върху кашон го маркира, после „⤵ Тук"; или го хвърли с мишката в червената зона вдясно → отива Настрани. „🧠 Запомни" под палета го прави стандартен за клиента.</span></h4>
       ${SEL.size ? `<div class="hint" style="margin:4px 0">✔ Маркирани: <b>${SEL.size}</b> кашона — „⤵ Тук" на целевия палет, <button class="btn btn-small" id="pk3d-totray">⬇ Настрани (${SEL.size})</button> или <button class="btn btn-small" id="pk3d-desel">откажи</button></div>` : ""}
       <div class="pk3d-pallet pk3d-tray${trayCnt ? "" : " pk3d-trayempty"}" data-pi="-1">
         <div class="pk3d-head"><b>📥 Настрани (за разпределяне)</b><span>${trayCnt ? trayCnt + " кашона — ⚠ няма да влязат в Палет описа, докато са тук" : "празно — свали кашони тук (⬇ Всички настрани) и ги пращай по палетите със стрелките"}</span></div>
@@ -552,6 +550,10 @@ async function erpPackOrderOpen(orderId) {
           <button class="btn btn-small" id="pk3d-add">+ Палет</button>
           <button class="btn btn-small" id="pk3d-auto" title="Строи плана наново: цели палети по изделие + комбинирани остатъци">↺ Авто подредба</button>
           <button class="btn btn-small" id="pk3d-clear" title="Сваля всички кашони Настрани — редиш палетите от нулата">⬇ Всички настрани</button>
+        </div>
+        <div class="pk3d-pallet pk3d-dropzone" data-pi="-1" title="Хвърли кашони тук (влачене) или маркирай и кликни зоната — отиват Настрани">
+          <span class="big">🎯</span>
+          <span>Хвърли кашони тук<br>→ отиват Настрани</span>
         </div>
       </div>`;
     box.querySelectorAll("[data-key]").forEach(b => {
@@ -586,7 +588,10 @@ async function erpPackOrderOpen(orderId) {
     }));
     const desel = box.querySelector("#pk3d-desel"); if (desel) desel.addEventListener("click", () => { SEL.clear(); renderPlan(); });
     const totray = box.querySelector("#pk3d-totray"); if (totray) totray.addEventListener("click", () => moveSel(-1));
-    const rem = box.querySelector("#pk3d-remember"); if (rem) rem.addEventListener("change", () => { planRemember = rem.checked; });
+    const dz = box.querySelector(".pk3d-dropzone"); if (dz) dz.addEventListener("click", () => { if (SEL.size) moveSel(-1); });
+    box.querySelectorAll("[data-rem]").forEach(c => c.addEventListener("change", () => {
+      const p = P.plan[Number(c.dataset.rem)]; if (p) p.rem = c.checked ? 1 : 0;
+    }));
     const add = box.querySelector("#pk3d-add"); if (add) add.addEventListener("click", () => { P.plan.push({ small: 0, g: [] }); renderPlan(); });
     const auto = box.querySelector("#pk3d-auto"); if (auto) auto.addEventListener("click", () => { P.plan = packPlanAuto(rows); P.planSig = sig; P.tray = []; SEL.clear(); collect(); render(); });
     const clr = box.querySelector("#pk3d-clear"); if (clr) clr.addEventListener("click", () => {
@@ -690,52 +695,45 @@ function packPlanPallets(rows, P) {
     return { small: p.small ? 1 : 0, items: [...by.values()].map(it => ({ ...it, text: it.parts.join(" + "), kg: Math.round(it.qty * packNum((info[it.code] || {}).kgPer) * 10) / 10 })) };
   }).filter(p => p.items.length).map((p, i) => ({ ...p, no: i + 1 }));
 }
-/* --- ЗАПОМНЕНА ПОДРЕДБА (по клиент + същия набор кодове) ---
-   Пази ДЯЛОВЕТЕ: кой код каква част от кашоните си слага на кой палет
-   (+ размера на палета). При нова заявка със същите кодове (дори други
-   количества) кашоните се разпределят по същата схема. */
-function packLayoutKey(clientName, rows) { return packNorm(clientName) + "|" + rows.map(r => packNorm(r.code)).sort().join(","); }
-function packLayoutTemplate(P, rows) {
-  const totals = {}; rows.forEach(r => { totals[r.code] = packBoxBreakdown(r.qty, packNum(r.perBox)).boxes || 0; });
-  const pallets = (P.plan || []).map(p => {
+/* --- СТАНДАРТНИ ПАЛЕТИ (запомнени по клиент) ---
+   Запомнят се само палетите с отметка „🧠 Запомни" — с ТОЧНИТЕ бройки
+   кашони (стандартният палет на клиента). При нова заявка всеки
+   стандартен палет се нарежда отново и се ПОВТАРЯ, докато има пълни
+   кашони за него; остатъкът минава през автоматиката. */
+function packLayoutTemplate(P) {
+  const pallets = (P.plan || []).filter(p => p.rem).map(p => {
     const per = {}; (p.g || []).forEach(x => { per[x.code] = (per[x.code] || 0) + x.boxes; });
-    return { small: p.small ? 1 : 0, items: Object.keys(per).map(code => ({ code, frac: totals[code] ? per[code] / totals[code] : 0 })) };
+    return { small: p.small ? 1 : 0, items: Object.keys(per).map(code => ({ code, boxes: per[code] })) };
   }).filter(p => p.items.length);
   return pallets.length ? { pallets } : null;
 }
 function packPlanFromTemplate(rows, clientName) {
-  if (!PACK_LAYOUTS) return null;
-  const t = PACK_LAYOUTS[packLayoutKey(clientName, rows)];
+  const t = PACK_LAYOUTS && PACK_LAYOUTS[packNorm(clientName)];
   if (!t || !Array.isArray(t.pallets) || !t.pallets.length) return null;
-  const q = {}; rows.forEach(r => { const bd = packBoxBreakdown(r.qty, packNum(r.perBox)); q[r.code] = { full: bd.full, rest: bd.rest, pb: packNum(r.perBox), total: bd.boxes }; });
-  // Разпределяме кашоните на всеки код по запомнените дялове (най-голям остатък).
-  const counts = {};
-  Object.keys(q).forEach(code => {
-    const fr = t.pallets.map(p => { const it = (p.items || []).find(x => x.code === code); return it ? Math.max(0, Number(it.frac) || 0) : 0; });
-    const sum = fr.reduce((a, b) => a + b, 0);
-    const N = q[code].total;
-    if (!sum || !N) { counts[code] = fr.map((_, i) => i === 0 ? N : 0); return; }
-    const raw = fr.map(f => f / sum * N);
-    const base = raw.map(Math.floor);
-    let left = N - base.reduce((a, b) => a + b, 0);
-    raw.map((v, i) => [v - base[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { base[i]++; left--; } });
-    counts[code] = base;
+  const avail = {}, pbOf = {};
+  rows.forEach(r => { const bd = packBoxBreakdown(r.qty, packNum(r.perBox)); avail[r.code] = { full: bd.full, rest: bd.rest }; pbOf[r.code] = packNum(r.perBox); });
+  const plan = [];
+  let made = false;
+  t.pallets.forEach(tp => {
+    const items = (tp.items || []).filter(it => it.boxes > 0);
+    if (!items.length) return;
+    const fits = () => items.every(it => avail[it.code] && avail[it.code].full >= it.boxes);
+    let guard = 0;
+    while (fits() && guard++ < 500) {   // повтаряме стандартния палет, докато има пълни кашони
+      const g = items.map(it => { avail[it.code].full -= it.boxes; return { code: it.code, boxes: it.boxes, per: pbOf[it.code] }; });
+      plan.push({ small: tp.small ? 1 : 0, g, rem: 1 });
+      made = true;
+    }
   });
-  const plan = t.pallets.map(p => ({ small: p.small ? 1 : 0, g: [] }));
-  Object.keys(q).forEach(code => {
-    const c = q[code];
-    let lastIdx = -1; counts[code].forEach((n, i) => { if (n > 0) lastIdx = i; });
-    counts[code].forEach((n, i) => {
-      if (!n) return;
-      const full = Math.min(n, c.full); c.full -= full;
-      let rest = 0;
-      if (i === lastIdx && full < n && c.rest > 0) { rest = c.rest; c.rest = 0; }
-      if (full > 0) plan[i].g.push({ code, boxes: full, per: c.pb });
-      if (rest > 0) plan[i].g.push({ code, boxes: 1, per: rest, part: 1 });
-    });
-  });
-  const out = plan.filter(p => p.g.length);
-  return out.length ? out : null;
+  if (!made) return null;
+  // Остатъкът (вкл. непълните кашони) — през автоматиката.
+  const restRows = rows.map(r => {
+    const a = avail[r.code]; if (!a) return null;
+    const qty = a.full * pbOf[r.code] + a.rest;
+    return qty > 0 ? { ...r, qty, boxes: a.full + (a.rest > 0 ? 1 : 0) } : null;
+  }).filter(Boolean);
+  packPlanAuto(restRows).forEach(p => plan.push(p));
+  return plan;
 }
 
 /* Тегло на празния палет: 120×80 = настройката; 60×80 = половината. */
