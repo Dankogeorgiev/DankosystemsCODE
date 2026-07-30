@@ -56,6 +56,7 @@ function prodAggregate(from, to, shop, worker) {
       if (from && d < from) return;
       if (to && d > to) return;
       const w = l.worker || "(без име)";
+      if (typeof reportWorkerOk === "function" && !reportWorkerOk(w)) return;
       if (worker && w !== worker) return;
       const q = Number(l.qty) || 0;
       total += q; entries++;
@@ -92,6 +93,7 @@ function prodWorkerEntries(from, to, shop, worker) {
       if (from && d < from) return;
       if (to && d > to) return;
       if ((l.worker || "(без име)") !== worker) return;
+      if (typeof reportWorkerOk === "function" && !reportWorkerOk(l.worker)) return;
       out.push({ date: d, client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "", workshop: t.workshop || "", qty: Number(l.qty) || 0, machine: l.machine || "", perPiece: prodPerPiece(l) });
     });
   });

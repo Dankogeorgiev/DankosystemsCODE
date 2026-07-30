@@ -259,6 +259,7 @@ function renderTimesReport() {
       ${hasFilter ? `<button id="tr-clear" class="btn btn-small">✕ Изчисти филтъра</button>` : ""}
       <span class="spacer"></span>
       <span class="muted times-count">${detailed.length} записа</span>
+      <button id="tr-all" class="btn btn-small btn-primary" title="Един файл: днес (детайлно), тази седмица и този месец (обобщено), със стойност на труда по цеховите ставки">⤓ Общ отчет (ден·седмица·месец)</button>
       <button id="tr-csv" class="btn btn-small">⤓ Excel</button>
       <button id="tr-pdf" class="btn btn-small">🖨 PDF</button>
     </div>
@@ -405,6 +406,7 @@ function renderTimesReport() {
   v.querySelectorAll("[data-trend]").forEach(b => b.addEventListener("click", () => { timesTrendMode = b.dataset.trend; renderTimesReport(); }));
   v.querySelectorAll("[data-anal]").forEach(b => b.addEventListener("click", () => { timesAnalysisMode = b.dataset.anal; renderTimesReport(); }));
   v.querySelector("#tr-csv").addEventListener("click", () => timesExportCsv(analysis, detailed, timesAnalysisMode));
+  const trAll = v.querySelector("#tr-all"); if (trAll) trAll.addEventListener("click", timesUnifiedExport);
   v.querySelector("#tr-pdf").addEventListener("click", () => timesExportPdf(analysis, detailed, timesAnalysisMode));
 }
 
@@ -441,4 +443,70 @@ function timesExportCsv(ops, detailed, mode) {
 }
 function timesExportPdf(ops, detailed, mode) {
   reportOpenView("ОТЧЕТИ — анализ на операциите", timesSections(ops, detailed, mode));
+}
+
+
+/* ---------- ⤓ Общ отчет: ден (детайлно) + седмица + месец (обобщено) ----------
+   Един Excel файл с три секции. Ако модулът „Разходи и ставки" е зареден,
+   добавя „Труд (ч)" и „Стойност труд (EUR)" = часове × пълната ставка на цеха
+   (труд+машина+режийни) — връзката отчети ↔ себестойност. */
+async function timesUnifiedExport() {
+  const all = (typeof collectTimeRows === "function") ? collectTimeRows() : [];
+  let R = null;
+  try { if (typeof erpLoadCostCfg === "function" && typeof erpCostRates === "function") { await erpLoadCostCfg(); R = erpCostRates(); } } catch (e) { R = null; }
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = iso(new Date());
+  const mon = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); })();
+  const month = today.slice(0, 7);
+  // Реално време на един запис: за поръчката (или 1 брой × бройката) + настройка.
+  const secOf = r => ((r.tOrder && r.tOrder.sec) || ((r.tPiece && r.tPiece.sec) || 0) * (Number(r.qty) || 0)) + ((r.tSetup && r.tSetup.sec) || 0);
+  const hFmt = sec => Math.round(sec / 36) / 100;                                  // часове, 2 знака
+  const valOf = (sec, ws) => (R && R.rate && R.rate[ws]) ? Math.round(sec / 3600 * R.rate[ws].full * 100) / 100 : "";
+  const n2 = x => x === "" ? "" : (Math.round(Number(x) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const dayRows = all.filter(r => r.date === today);
+  const weekRows = all.filter(r => r.date >= mon && r.date <= today);
+  const monthRows = all.filter(r => String(r.date).slice(0, 7) === month);
+  const agg = (rows, keyFn, labelFns) => {
+    const m = new Map();
+    rows.forEach(r => {
+      const k = keyFn(r);
+      const cur = m.get(k) || { qty: 0, sec: 0, val: 0, cnt: 0, r };
+      cur.qty += Number(r.qty) || 0; const sc = secOf(r); cur.sec += sc;
+      const v = valOf(sc, r.workshop); if (v !== "") cur.val += v;
+      cur.cnt++; m.set(k, cur);
+    });
+    return [...m.entries()].sort((a, b) => b[1].qty - a[1].qty)
+      .map(([k, d]) => [...labelFns.map(f => f(d.r, k)), d.cnt, d.qty, hFmt(d.sec), R ? n2(d.val) : ""]);
+  };
+  const headAgg = extra => [...extra, { label: "Записи", num: true }, { label: "Бройки", num: true }, { label: "Труд (ч)", num: true }, { label: "Стойност труд EUR", num: true }];
+  const sections = [
+    {
+      title: `ДНЕС ${today.slice(8, 10)}.${today.slice(5, 7)}.${today.slice(0, 4)} — детайлно`,
+      headers: [{ label: "Цех" }, { label: "Служител" }, { label: "Клиент" }, { label: "Код" }, { label: "Продукт" }, { label: "Операция" }, { label: "Машина" }, { label: "Бройки", num: true }, { label: "Труд (ч)", num: true }, { label: "Стойност труд EUR", num: true }],
+      rows: dayRows.map(r => [r.workshop, r.worker, r.client, r.code, r.product, r.operation, r.machine, r.qty, hFmt(secOf(r)), R ? n2(valOf(secOf(r), r.workshop)) : ""]),
+    },
+    {
+      title: "ТАЗИ СЕДМИЦА — по служител",
+      headers: headAgg([{ label: "Служител" }, { label: "Цех" }]),
+      rows: agg(weekRows, r => (r.worker || "—") + "¦" + (r.workshop || ""), [r => r.worker || "—", r => r.workshop || ""]),
+    },
+    {
+      title: "ТАЗИ СЕДМИЦА — по цех",
+      headers: headAgg([{ label: "Цех" }]),
+      rows: agg(weekRows, r => r.workshop || "—", [r => r.workshop || "—"]),
+    },
+    {
+      title: `ТОЗИ МЕСЕЦ (${month}) — по служител`,
+      headers: headAgg([{ label: "Служител" }, { label: "Цех" }]),
+      rows: agg(monthRows, r => (r.worker || "—") + "¦" + (r.workshop || ""), [r => r.worker || "—", r => r.workshop || ""]),
+    },
+    {
+      title: `ТОЗИ МЕСЕЦ (${month}) — по цех`,
+      headers: headAgg([{ label: "Цех" }]),
+      rows: agg(monthRows, r => r.workshop || "—", [r => r.workshop || "—"]),
+    },
+  ];
+  if (!R) sections.forEach(sec => { sec.rows.forEach(row => row.pop()); sec.headers.pop(); });   // без ставки — без колоната
+  reportExportXls("obsht-otchet", "Общ производствен отчет", sections);
 }
