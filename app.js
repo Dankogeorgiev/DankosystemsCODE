@@ -103,6 +103,13 @@ function produceAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return PRODUCE_EMAILS.map(x => x.toLowerCase()).includes(e);
 }
+// Осчетоводяване на продажба/фактура (изписване от склада + отмяна) —
+// само за изрично изброените. Останалите виждат всичко, но без бутоните.
+const POST_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];     // Данко + Григор
+function postAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return POST_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
 
 function applyAccess() {
   const fin = document.getElementById("btn-finance");
