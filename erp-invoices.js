@@ -962,9 +962,8 @@ function erpInvPrintHTML(o, single) {
     <div class="trow"><span style="width:80px"></span><h1>${escapeHtml(title)}</h1><span class="orig">${lbl}</span></div>
     <hr class="thin" />
     <div class="meta">
-      <div class="ml">${L.no}: <b>${escapeHtml(o.docNo || "____")}</b><br>${L.date}: <b>${fmtD(o.issueDate)}</b></div>
+      <div class="ml">${escapeHtml(en ? (((INV_KINDS[o.kind] || {}).en || "Invoice").charAt(0) + ((INV_KINDS[o.kind] || {}).en || "Invoice").slice(1).toLowerCase()) : ((INV_KINDS[o.kind] || {}).label || "Фактура"))} ${L.no}: <b>${escapeHtml(o.docNo || "____")}</b><br>${L.date}: <b>${fmtD(o.issueDate)}</b><br><span class="lab">${L.order}:</span> <b>${escapeHtml(o.orderRef || "/")}</b></div>
       <div class="mr">
-        <div><span class="lab">${L.order}:</span> ${escapeHtml(o.orderRef || "/")}</div>
         ${s.phone ? `<div><span class="lab">${L.tel}:</span> ${escapeHtml(s.phone)}</div>` : ""}
         ${s.email ? `<div><span class="lab">e-mail:</span> ${escapeHtml(s.email)}</div>` : ""}
       </div>
@@ -1034,7 +1033,7 @@ function erpInvPrintHTML(o, single) {
       </div>
     </div>
     <div class="isobox"><img src="${base}iso-cert.png" alt="ISO 9001:2015" /></div>
-    <div class="made">Данко Системс · СИСТЕМАТА</div>`;
+    <div class="made">The Systems</div>`;
   const html = `<!doctype html><html lang="${en ? "en" : "bg"}"><head><meta charset="utf-8"><title>${escapeHtml(title)} ${escapeHtml(o.docNo || "")}</title>
   <style>
     *{box-sizing:border-box}
@@ -1050,12 +1049,16 @@ function erpInvPrintHTML(o, single) {
     .meta .mr .lab{color:#333}
     .parties{display:flex;gap:18px;margin-bottom:12px}
     .party{flex:1;border:1.6px solid #000}
-    .party .ph{font-weight:700;padding:3px 8px;border-bottom:1.4px solid #000}
+    .party .ph{font-weight:700;padding:3px 8px;border-bottom:1.4px solid #000;background:#e9edf2;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .party .pb{padding:8px 10px 6px 26px;min-height:128px;display:flex;flex-direction:column}
     .party .pb .mol{margin-top:auto;padding-top:10px}
     table.items{width:100%;border-collapse:collapse;margin-bottom:10px}
     table.items th,table.items td{border:1.2px solid #000;padding:4px 6px;font-size:11.5px;text-align:left;vertical-align:top}
-    table.items th{background:#efefef;text-align:center}
+    table.items th{background:#e9edf2;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table.items{page-break-inside:auto}
+    table.items tr{page-break-inside:avoid;page-break-after:auto}
+    table.items thead{display:table-header-group}
+    .totals,.bankbox,.signs{page-break-inside:avoid}
     td.r{text-align:right}td.c,th.c{text-align:center}.muted{color:#777}small{color:#555}
     .totbox{border:1.6px solid #000;display:flex;gap:10px;padding:8px 10px;margin-bottom:10px}
     .totbox .tl{flex:1;align-self:center}
