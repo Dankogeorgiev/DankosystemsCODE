@@ -352,7 +352,11 @@ function openReport(product,robotId){
   const close=()=>w.remove();
   w.addEventListener('click',e=>{if(e.target===w)close();});
   w.querySelector('#rp-cancel').addEventListener('click',close);
-  w.querySelector('#rp-save').addEventListener('click',async()=>{
+  w.querySelector('#rp-save').addEventListener('click',()=>{
+    // 🔍 Контрол на качеството преди всяко отчитане (всяко 3-то с 60 сек.).
+    if(typeof qcGate==='function')qcGate(rpDoSave);else rpDoSave();
+  });
+  async function rpDoSave(){
     const qty=Number(String(w.querySelector('#rp-qty').value).replace(',','.'));
     if(!qty||qty<=0){alert('Въведи брой заварени сега.');return;}
     // Поточен гейт — СЪЩАТА проверка като в Цехове: не повече от наличното
@@ -380,7 +384,7 @@ function openReport(product,robotId){
     // 2) кредит към Цех Заваряване (задачите на Таня)
     try{ await creditWeldingWorkshop(product,qty,{tOrder,tSetup,consumables},worker,r.name); await loadWeldingTasks(); }
     catch(e){ console.warn('Заваръчно роботи: кредит към Цех',e); alert('Бройката е записана на робота, но неуспя записът в Цех Заваряване (връзка?). Опитай пак при връзка.'); }
-  });
+  }
   setTimeout(()=>{const q=w.querySelector('#rp-qty');if(q)q.focus();},50);
 }
 
@@ -513,6 +517,7 @@ else loadWeldingTasks();
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
 <script src="../ui-guards.js?v=1"></script>
+<script src="../quality.js?v=1"></script>
 <script src="../flow-credit.js?v=4"></script>
 <script src="sync.js?v=1"></script>
 </body>

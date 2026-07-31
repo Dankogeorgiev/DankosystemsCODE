@@ -1585,7 +1585,9 @@ function nitRenderOps(v) {
   recalc();
   v.querySelectorAll(".nit-allchk").forEach(chk => chk.addEventListener("change", () => { NIT_PICK_ALL = chk.checked; nitRender(); }));
   v.querySelector("#nit-back").addEventListener("click", () => { nitMech = null; nitRender(); });
-  v.querySelector("#nit-save").addEventListener("click", async () => {
+  // 🔍 Контрол на качеството преди отчитане (всяко 3-то с 60 сек.).
+  v.querySelector("#nit-save").addEventListener("click", () => { if (typeof qcGate === "function") qcGate(nitDoSave); else nitDoSave(); });
+  async function nitDoSave() {
     // Свеж документ точно преди записа — да не стъпчем запис от друга сесия
     // (кешът може да е от сутринта, а междувременно някой да е писал).
     try { await nitLoad(); } catch (e) {}
@@ -1644,7 +1646,7 @@ function nitRenderOps(v) {
     // Показваме ЯСНО какво влезе в Склад детайли (операция → код → бройка) —
     // екранът остава, служителят се връща с „←" когато е готов.
     if (ok) { NIT_FLASH = nitStockReportHtml(); nitRender(); }
-  });
+  }
 }
 
 /* ---------- Отчет „какво влезе в Склад детайли" (общ за Занитване и Рогош) ----------

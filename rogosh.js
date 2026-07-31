@@ -154,7 +154,9 @@ function rogRenderEntry(v) {
   const sum = v.querySelector("#rog-summary");
   if (sum) sum.addEventListener("click", () => { rogView = "summary"; rogRender(); });
 
-  v.querySelector("#rog-save").addEventListener("click", async () => {
+  // 🔍 Контрол на качеството преди отчитане (всяко 3-то с 60 сек.).
+  v.querySelector("#rog-save").addEventListener("click", () => { if (typeof qcGate === "function") qcGate(rogDoSave); else rogDoSave(); });
+  async function rogDoSave() {
     // Свеж документ преди записа — да не стъпчем запис от друга сесия.
     try { await rogLoad(); } catch (e) {}
     const key = rogKey(worker, rogDate);
@@ -203,7 +205,7 @@ function rogRenderEntry(v) {
     // Същият отчет като в Занитване: операция → код → бройка в Склад детайли.
     if (ok && typeof nitStockReportHtml === "function") NIT_FLASH = nitStockReportHtml();
     if (ok) rogRender();
-  });
+  }
 }
 
 /* ---------- Период (ден/седмица/месец) ---------- */

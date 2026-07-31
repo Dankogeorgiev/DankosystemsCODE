@@ -1002,8 +1002,12 @@ function renderTasks() {
     });
     const input = tr.querySelector(".t-today");
     const submit = () => {
-      if (usesDialog) openProductionDialog(t, input ? input.value : "");
-      else logProduction(t, input ? input.value : "");
+      // 🔍 КОНТРОЛ НА КАЧЕСТВОТО — преди всяко отчитане (всяко 3-то с 60 сек.).
+      const go = () => {
+        if (usesDialog) openProductionDialog(t, input ? input.value : "");
+        else logProduction(t, input ? input.value : "");
+      };
+      if (typeof qcGate === "function") qcGate(go); else go();
     };
     tr.querySelector(".t-add").addEventListener("click", submit);
     if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
