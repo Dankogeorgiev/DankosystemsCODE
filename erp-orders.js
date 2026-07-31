@@ -762,18 +762,24 @@ async function erpFlowApply(meta, productLines) {
       const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
       flowNet = (data && data.data && data.data.byOrder) || {};
     } catch (e) { flowNet = {}; }
-    // Резервациите на ПРИКЛЮЧИЛИ заявки (завършена / готова за продажба) са
-    // изтекли — взетото им от склад е вече консумирано в производството. Ако
-    // останат, блокират наличност за новите заявки завинаги. Чистим ги тук
-    // (записът по-долу така или иначе презаписва целия обект).
+    // Резервациите на ЗАВЪРШЕНИТЕ заявки са изтекли — стоката им е изписана с
+    // продажбата, тоест вече я няма в наличността. Ако останат, блокират
+    // наличност завинаги. Чистим само тях.
+    // ВНИМАНИЕ: „готова за продажба" НЕ освобождава резервацията — детайлите
+    // стоят физически на рафта, ЗАПАЗЕНИ за тази заявка, докато не се продадат.
+    // (Заради това втора заявка за същия детайл ги смяташе за свободни и ги
+    // нетнеше повторно — производството излизаше по-малко от нужното.)
     try {
       const oids = Object.keys(flowNet).filter(k => String(k) !== sid);
       if (oids.length) {
         const { data: cos } = await sb.from("customer_orders").select("id,data").in("id", oids);
+        const seen = new Set((cos || []).map(r => String(r.id)));
         (cos || []).forEach(r => {
           const st = (r.data && r.data.status) || "";
-          if (st === "завършена" || st === "готова за продажба") delete flowNet[String(r.id)];
+          if (st === "завършена") delete flowNet[String(r.id)];
         });
+        // Изтрити заявки (няма ги вече в базата) — резервациите им също падат.
+        oids.forEach(k => { if (!seen.has(String(k))) delete flowNet[String(k)]; });
       }
     } catch (e) { /* при грешка оставаме консервативни — не чистим */ }
     const reserved = {};
@@ -824,8 +830,21 @@ async function erpFlowApply(meta, productLines) {
   if (stockOn) {
     const mineNet = {};
     Object.keys(consumed).forEach(pid => { const u = Number(consumed[pid]) || 0; if (u > 0) mineNet[pid] = u; });
-    if (Object.keys(mineNet).length) flowNet[sid] = mineNet; else delete flowNet[sid];
-    try { await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder: flowNet }, updated_at: new Date().toISOString() }); } catch (e) {}
+    // Записваме СРЕЩУ СВЕЖО четене: ако междувременно друга заявка е записала
+    // своята резервация (пускане едно след друго), да не я изтрием с нашата
+    // стара снимка. Пипаме само своя ключ + изчистените завършени.
+    try {
+      let fresh = {};
+      try {
+        const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+        fresh = (data && data.data && data.data.byOrder) || {};
+      } catch (e) { fresh = { ...flowNet }; }
+      Object.keys(fresh).forEach(k => { if (String(k) !== sid && !(k in flowNet)) delete fresh[k]; });   // изтеклите, които изчистихме
+      Object.keys(flowNet).forEach(k => { if (String(k) !== sid && !(k in fresh)) fresh[k] = flowNet[k]; });
+      if (Object.keys(mineNet).length) fresh[sid] = mineNet; else delete fresh[sid];
+      flowNet = fresh;
+      await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder: flowNet }, updated_at: new Date().toISOString() });
+    } catch (e) {}
   }
   const myKeys = Object.keys(mine);
   const missingList = Object.values(missingMap);
