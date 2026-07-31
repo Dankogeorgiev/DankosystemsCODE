@@ -258,6 +258,11 @@ function packOrdersListHtml() {
         <button type="button" class="btn btn-small btn-primary" id="pack-combine">📦 Опаковай заедно</button>
         <button type="button" class="btn btn-small" id="pack-selclear">откажи</button>
       </div>
+      <div class="pack-combofloat" id="pack-combofloat"${PACK_CO_SEL.size ? "" : " hidden"}>
+        ✔ <b id="pack-selcnt2">${PACK_CO_SEL.size}</b> заявки за едно товарене
+        <button type="button" class="btn btn-small btn-primary" id="pack-combine2">📦 Опаковай заедно</button>
+        <button type="button" class="btn btn-small" id="pack-selclear2">✕</button>
+      </div>
       <table class="report-table erp-table" style="margin-bottom:8px">
         <thead><tr><th class="pack-selcell" title="Избери 2+ заявки за общо товарене">Заедно</th><th>Наш №</th><th>Клиентски №</th><th>Дата</th><th class="num">Редове</th><th>Статус</th><th>Опаковка</th><th></th></tr></thead>
         <tbody>${body}</tbody>
@@ -278,9 +283,8 @@ function packOrdersWire() {
   box.querySelectorAll("tr[data-packco]").forEach(tr => tr.addEventListener("click", () => erpPackOrderOpen(tr.dataset.packco)));
   // Общо опаковане: отметки + бутон „Опаковай заедно".
   const syncBar = () => {
-    const bar = box.querySelector("#pack-combobar"); if (!bar) return;
-    bar.hidden = PACK_CO_SEL.size === 0;
-    const c = box.querySelector("#pack-selcnt"); if (c) c.textContent = PACK_CO_SEL.size;
+    ["#pack-combobar", "#pack-combofloat"].forEach(id => { const b = box.querySelector(id); if (b) b.hidden = PACK_CO_SEL.size === 0; });
+    ["#pack-selcnt", "#pack-selcnt2"].forEach(id => { const c = box.querySelector(id); if (c) c.textContent = PACK_CO_SEL.size; });
   };
   box.querySelectorAll(".packsel").forEach(cb => {
     cb.addEventListener("click", e => e.stopPropagation());
@@ -291,16 +295,16 @@ function packOrdersWire() {
       syncBar();
     });
   });
-  const cmb = box.querySelector("#pack-combine");
-  if (cmb) cmb.addEventListener("click", () => {
+  const doCombine = () => {
     const ids = [...PACK_CO_SEL];
     if (!ids.length) return;
     if (ids.length === 1) { PACK_CO_SEL = new Set(); erpPackOrderOpen(ids[0]); return; }
     PACK_CO_SEL = new Set();
     erpPackOrderOpen(ids[0], ids.slice(1));
-  });
-  const clr = box.querySelector("#pack-selclear");
-  if (clr) clr.addEventListener("click", () => { PACK_CO_SEL = new Set(); box.innerHTML = packOrdersListHtml(); packOrdersWire(); });
+  };
+  const doClear = () => { PACK_CO_SEL = new Set(); box.innerHTML = packOrdersListHtml(); packOrdersWire(); };
+  ["#pack-combine", "#pack-combine2"].forEach(id => { const b = box.querySelector(id); if (b) b.addEventListener("click", doCombine); });
+  ["#pack-selclear", "#pack-selclear2"].forEach(id => { const b = box.querySelector(id); if (b) b.addEventListener("click", doClear); });
   syncBar();
 }
 
@@ -958,15 +962,19 @@ function packExtraPanel(o, P, pi, after, nearEl) {
   document.addEventListener("mouseup", () => { moving = false; });
   el.querySelector("#pex-close").addEventListener("click", () => el.remove());
   el.querySelector("#pex-add").addEventListener("click", () => {
-    const add = (kind, text) => { pal.extra = pal.extra || []; pal.extra.push({ kind, text }); };
-    const q = id => { const v = (el.querySelector(id).value || "").trim(); return v ? " — " + v + (/^\d+([.,]\d+)?$/.test(v) ? " бр." : "") : ""; };
+    const add = (kind, code, name, qty) => {
+      pal.extra = pal.extra || [];
+      const qt = qty ? (qty + (/^\d+([.,]\d+)?$/.test(qty) ? " бр." : "")) : "";
+      pal.extra.push({ kind, code, name, qty: qt, text: (code ? code + " · " : "") + name + (qt ? " — " + qt : "") });
+    };
+    const q = id => (el.querySelector(id).value || "").trim();
     let n = 0;
     const li = el.querySelector("#pex-prod").value;
-    if (li !== "") { const l = lines[Number(li)]; add("prod", ((l.code ? l.code + " · " : "") + (l.name || "")) + q("#pex-qprod")); n++; }
+    if (li !== "") { const l = lines[Number(li)]; add("prod", l.code || "", l.name || "", q("#pex-qprod")); n++; }
     const ac = el.querySelector("#pex-acc").value;
-    if (ac) { add("acc", ac + (nameOf(ac) ? " · " + nameOf(ac) : "") + q("#pex-qacc")); n++; }
+    if (ac) { add("acc", ac, nameOf(ac) || "", q("#pex-qacc")); n++; }
     const free = (el.querySelector("#pex-free").value || "").trim();
-    if (free) { add("free", free + q("#pex-qfree")); n++; }
+    if (free) { add("free", "", free, q("#pex-qfree")); n++; }
     if (!n) { el.querySelector("#pex-msg").textContent = "Избери продукт, аксесоар или напиши текст."; return; }
     el.querySelector("#pex-prod").value = ""; el.querySelector("#pex-acc").value = "";
     ["#pex-free", "#pex-qprod", "#pex-qacc", "#pex-qfree"].forEach(id => { el.querySelector(id).value = ""; });
@@ -1047,8 +1055,7 @@ function packPrintPallets(o, rows, P) {
       <h2 style="margin:12px 0 6px;font-size:34px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:21px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
       <div class="kv" style="font-size:22px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
       <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.boxes}</th><th class="c">${L.qty}</th><th class="c">${L.kg}</th></tr></thead>
-      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}</tbody></table>
-      ${(p.extra || []).length ? `<div class="kv"><b>${en ? "Also on the pallet" : "Още на палета"}:</b><br>${p.extra.map(x => "• " + escapeHtml(x.text)).join("<br>")}</div>` : ""}
+      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}${(p.extra || []).map(x => `<tr><td><b>${escapeHtml(x.code || "")}</b></td><td>${escapeHtml(x.name || x.text || "")}</td><td class="r">—</td><td class="r">${escapeHtml(x.qty || "")}</td><td class="r">—</td></tr>`).join("")}</tbody></table>
       <div class="kv"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
       ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>` : ""}
       <div class="made">The Systems</div>
