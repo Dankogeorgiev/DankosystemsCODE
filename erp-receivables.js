@@ -93,14 +93,29 @@ async function erpRenderReceivables() {
   const card = (label, arr, hl) => `<div class="pay-card ${hl || ""}"><div class="pay-card-l">${label}</div><div class="pay-card-v">${recvMoney(sum(arr))} EUR</div><div class="pay-card-n">${arr.length} фактури</div></div>`;
   const tab = (key, label) => `<button class="btn btn-small ${recvFilter === key ? "btn-primary" : ""}" data-rf="${key}">${label}</button>`;
 
+  // Група БЕЗ импортна позиция (виси най-отдолу): търсим импортирана група,
+  // с която явно е един и същ клиент (обща дума ≥ 5 букви, напр. „krohne") —
+  // и предлагаме обединяване с 1 клик (преименува записите към точното име).
+  const mergeHint = {};
+  {
+    const words = k => new Set(k.split(/[^a-zа-я0-9]+/).filter(w => w.length >= 5));
+    Object.keys(groups).forEach(k => {
+      if (gOrd[k] !== BIG) return;
+      const wk = words(k);
+      if (!wk.size) return;
+      const hit = Object.keys(groups).find(k2 => k2 !== k && gOrd[k2] < BIG && [...words(k2)].some(w => wk.has(w)));
+      if (hit) mergeHint[k] = hit;
+    });
+  }
   const colspan = recvFilter === "paid" ? 8 : 9;
   const body = clientNames.length ? clientNames.map(name => {
     const items = groups[name];
     const disp = (gName[name] && gName[name].name) || name;
     const gtot = sum(items);
+    const mh = mergeHint[name];
     const groupHead = `<tr class="recv-client-row">
       ${recvFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="recv-sel-all" data-client="${escapeAttr(name)}" title="Избери всички на клиента" /></td>`}
-      <td colspan="5"><b>${escapeHtml(disp)}</b> <span class="erp-muted">· ${items.length} фактури</span></td>
+      <td colspan="5"><b>${escapeHtml(disp)}</b> <span class="erp-muted">· ${items.length} фактури</span>${mh ? ` <button class="btn btn-small" data-mergefrom="${escapeAttr(name)}" data-mergeto="${escapeAttr(mh)}" title="Изглежда същият клиент като „${escapeAttr(gName[mh].name)}" — преименува тези записи към точното име и групата отива при останалите му фактури">⇧ Обедини с „${escapeHtml(gName[mh].name)}"</button>` : ""}</td>
       <td class="num"><b>${recvMoney(gtot)} EUR</b></td>
       <td></td><td></td>
     </tr>`;
@@ -178,6 +193,15 @@ async function erpRenderReceivables() {
   v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
   const auditBtn = v.querySelector("#recv-audit");
   if (auditBtn) auditBtn.addEventListener("click", () => erpRecvAudit(auditBtn));
+  v.querySelectorAll("[data-mergefrom]").forEach(b => b.addEventListener("click", async () => {
+    const from = b.dataset.mergefrom, to = b.dataset.mergeto;
+    const target = (gName[to] && gName[to].name) || to;
+    const list = groups[from] || [];
+    if (!confirm(`Да преименувам ли ${list.length} записа от „${(gName[from] && gName[from].name) || from}" на „${target}"?\nГрупата ще се обедини с останалите фактури на клиента.`)) return;
+    list.forEach(p => { p.client = target; });
+    await erpRecvSave();
+    erpRenderReceivables();
+  }));
   v.querySelectorAll("[data-dupdel]").forEach(b => b.addEventListener("click", async () => {
     const p = (RECEIVABLES || []).find(x => x.id === Number(b.dataset.dupdel));
     if (!p) return;
@@ -213,7 +237,8 @@ async function erpRecvEdit(id) {
       <label>Сума (EUR) <input type="number" id="rce-amount" step="any" value="${escapeAttr(String(recvNum(p.amount)))}" /></label>
       <label>Падеж <input type="date" id="rce-due" value="${escapeAttr(p.dueDate || "")}" /></label>
       <label>№ Фактура <input type="text" id="rce-no" value="${escapeAttr(p.invoiceNo || "")}" /></label>
-      <label>Клиент <input type="text" id="rce-client" value="${escapeAttr(p.client || "")}" /></label>
+      <label>Клиент <input type="text" id="rce-client" list="rce-clients" value="${escapeAttr(p.client || "")}" title="Избери ТОЧНОТО име от списъка — така фактурата отива в групата на клиента" /></label>
+      <datalist id="rce-clients">${[...new Set((RECEIVABLES || []).map(x => String(x.client || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg")).map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
     </div>
     <div class="erp-dialog-actions">
       <button class="btn" id="rce-cancel">Отказ</button>
