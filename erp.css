@@ -710,3 +710,8 @@ img.ai-doc-content { max-width: none; }
 .doc-src-inv { background: #eff6ff; border-left: 3px solid #3b82f6; }
 .doc-src-inv .doc-src-lbl { color: #1d4ed8; }
 .doc-src-inv .btn { border-color: #93c5fd; background: #f5f9ff; }
+
+/* Опаковки: „Още на палета" (продукти/аксесоари/текст за описа) */
+.pk3d-extra { margin: 6px 0 2px; padding: 6px 8px; background: #fffbeb; border: 1px dashed #f59e0b; border-radius: 8px; font-size: 12px; }
+.pk3d-extrarow { display: flex; align-items: center; gap: 6px; justify-content: space-between; padding: 2px 0; }
+.pk3d-extrarow + .pk3d-extrarow { border-top: 1px dotted #fcd34d; }
