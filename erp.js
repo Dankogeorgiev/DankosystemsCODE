@@ -505,6 +505,7 @@ function erpDispatchTab(tab) {
     case "customer":     erpRenderCustomerOrders(); break;
     case "archive":      erpRenderArchive(); break;
     case "pricelists":   erpRenderPriceLists(); break;
+    case "plan":         erpRenderPlan(); break;
     case "sales":        erpRenderSales(); break;
     case "invoices":     erpRenderInvoices(); break;
     case "finance":
