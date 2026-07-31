@@ -82,7 +82,7 @@ async function erpRenderPackaging() {
     <p class="hint">Как се опакова всяко изделие <b>за всеки клиент</b>. Оттук Придружаващите документи (Packing List, Стокова разписка, Палет опис) вземат теглото на брой, кашоните и палетите. Едно изделие може да има различна опаковка за различни клиенти.</p>
     <table class="report-table erp-table">
       <thead><tr>
-        <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид кашон</th><th>Размер кашон</th>
+        <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид кашон</th><th>Размер кашон</th><th>Нест. опаковка</th>
         <th class="num">бр/кашон</th><th class="num">кг/брой</th><th class="num">кг/кашон</th><th class="num">кашони/палет</th>
         <th>Аксесоари на палета</th><th></th>
       </tr></thead>
@@ -112,13 +112,14 @@ function erpPackFillRows() {
     <td data-label="Име по клиента">${escapeHtml(p.clientProductName || "")}</td>
     <td data-label="Вид кашон">${escapeHtml(p.boxType || "")}</td>
     <td data-label="Размер кашон">${escapeHtml(p.boxSize || "")}</td>
+    <td data-label="Нест. опаковка">${escapeHtml(p.nonStdPacking || "")}</td>
     <td class="num" data-label="бр/кашон">${n(p.piecesPerBox)}</td>
     <td class="num" data-label="кг/брой">${n(p.kgPerPiece)}</td>
     <td class="num" data-label="кг/кашон">${n(p.kgPerBox)}</td>
     <td class="num" data-label="кашони/палет">${n(p.boxesPerPallet)}</td>
     <td data-label="Аксесоари">${escapeHtml(p.accessories || "")}</td>
     <td class="erp-row-actions"><button class="btn btn-small" data-edit="${p.id}">✎</button> <button class="btn btn-small btn-danger" data-del="${p.id}">×</button></td>
-  </tr>`).join("") || `<tr><td colspan="11" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
+  </tr>`).join("") || `<tr><td colspan="12" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
   tb.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackForm((PACKAGING || []).find(x => String(x.id) === String(b.dataset.edit))); }));
   tb.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackDelete(Number(b.dataset.del)); }));
   tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpPackForm((PACKAGING || []).find(x => String(x.id) === String(tr.dataset.id)))));
@@ -136,6 +137,7 @@ function erpPackForm(rec) {
       <label>Име по клиента / № чертеж <input type="text" id="pk-cpname" value="${escapeAttr(r.clientProductName || "")}" placeholder="както клиента поръчва" /></label>
       <label>Вид кашон <input type="text" id="pk-boxtype" list="pack-boxlist" value="${escapeAttr(r.boxType || "")}" placeholder="Малък / Среден / Голям / МПК 85 / Тава…" /></label>
       <label>Размер кашон <input type="text" id="pk-boxsize" value="${escapeAttr(r.boxSize || "")}" placeholder="напр. 600×400×300" /></label>
+      <label>Нест. опаковка <input type="text" id="pk-nonstd" value="${escapeAttr(r.nonStdPacking || "")}" placeholder="напр. на тави, насипно, вързано…" /></label>
       <label>Броя в кашон <input type="number" id="pk-ppb" step="1" min="0" value="${escapeAttr(String(r.piecesPerBox ?? ""))}" /></label>
       <label>Килограми за брой <input type="number" id="pk-kgp" step="any" min="0" value="${escapeAttr(String(r.kgPerPiece ?? ""))}" /></label>
       <label>Килограми за кашон <input type="number" id="pk-kgb" step="any" min="0" value="${escapeAttr(String(r.kgPerBox ?? ""))}" /></label>
@@ -174,7 +176,7 @@ function erpPackForm(rec) {
     if (!code && !g("pk-cpname") && !g("pk-client")) { alert("Попълни поне наш код, клиент или име по клиента."); return; }
     const rc = {
       code, clientName: g("pk-client"), clientProductName: g("pk-cpname"),
-      boxType: g("pk-boxtype"), boxSize: g("pk-boxsize"),
+      boxType: g("pk-boxtype"), boxSize: g("pk-boxsize"), nonStdPacking: g("pk-nonstd"),
       kgPerPiece: packNum(g("pk-kgp")), kgPerBox: packNum(g("pk-kgb")),
       piecesPerBox: packNum(g("pk-ppb")), boxesPerPallet: packNum(g("pk-bpp")), accessories: g("pk-acc"),
     };
@@ -346,6 +348,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
+      nonstd: r.nonstd != null ? r.nonstd : ((spec && spec.nonStdPacking) || ""),
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : "")),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),   // може и дробно (напр. 7,5)
     };
@@ -377,14 +380,14 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
-        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Размер кашон</th><th class="num">Броя в кашон</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
+        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Нест. опаковка</th><th class="num">брой кашон/опаковка</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:76px" />${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Оригиналната бройка по заявката — изтрий корекцията, за да се върне">заявка: ${erpNum(st.baseQty)}</span>` : ""}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="Малък / Голям / Тава…" /></td>
-          <td><input type="text" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" style="width:96px" placeholder="60×40×30" /></td>
+          <td><input type="text" class="pko-nonstd" data-i="${i}" value="${escapeAttr(st.nonstd || "")}" style="width:130px" placeholder="напр. на тави, насипно…" title="Нестандартна опаковка — как се опакова, когато не е стандартен кашон" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td class="num"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" title="Може и дробно число (напр. 7,5 кашона на палет)" /></td>
           <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
@@ -420,6 +423,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           kgPer: erpToNum((tr.querySelector(".pko-kg") || {}).value) || 0,
           boxType: ((tr.querySelector(".pko-box") || {}).value || "").trim(),
           boxSize: ((tr.querySelector(".pko-boxsize") || {}).value || "").trim(),
+          nonstd: ((tr.querySelector(".pko-nonstd") || {}).value || "").trim(),
           perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
           perPallet: erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0,
         };
@@ -436,7 +440,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       const std = packBoxStdFind(el.value);
       if (std) { el.value = std.name; const tr = el.closest("tr"); const s = tr && tr.querySelector(".pko-boxsize"); if (s) s.value = std.size; }
     }));
-    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-boxsize,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-nonstd,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
       collect();
@@ -467,6 +471,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           if (r.kgPer > 0) spec.kgPerPiece = r.kgPer;
           if (r.boxType) spec.boxType = r.boxType;
           if (r.boxSize) spec.boxSize = r.boxSize;
+          if (r.nonstd) spec.nonStdPacking = r.nonstd;
           if (r.perBox > 0) spec.piecesPerBox = r.perBox;
           if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
           if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;   // може и дробно (7,5)
@@ -723,6 +728,7 @@ async function erpPackDocRows(o) {
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
+      nonstd: r.nonstd != null ? r.nonstd : ((spec && spec.nonStdPacking) || ""),
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : 0)),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || 0),
     };
@@ -986,7 +992,7 @@ function packPrintPacking(o, rows, P) {
   const gross = Math.round((tot.n + plKg) * 10) / 10;
   const body = `${packDocHead(o, "PACKING LIST", packIsExport(o))}
     <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}${r.nonstd ? " · " + escapeHtml(r.nonstd) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
     <div class="kv"><b>Pallets:</b> ${plSmall ? `${palletsUp - plSmall} × EUR 120×80 (${packNum(P.palletKg || 20)} kg) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} kg)` : `${palletsUp} × EUR 120×80 (${packNum(P.palletKg || 20)} kg)`} — total ${plKg} kg</div>
     <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
