@@ -143,6 +143,53 @@ function erpWhereUsedDialog(prefPid) {
 }
 
 // Филтрираните редове според търсенето и филтрите (сортирани по име).
+/* ---------- ⏱ Средно време за производство (от Отчети) ----------
+   Чете вечния дневник (production_log) и смята за всеки КОД: средно време
+   на бройка ПО ОПЕРАЦИИ (сума сек ÷ сума бройки) и общо на бройка (сумата
+   по операциите). Пази се в app_config prod_times — както средните цени.
+   Това е основата на бъдещия План за производство. */
+function erpTimeFmt(sec) {
+  if (!(sec > 0)) return "";
+  if (sec < 60) return Math.round(sec) + " сек";
+  if (sec < 3600) return (Math.round(sec / 6) / 10) + " мин";
+  return (Math.round(sec / 360) / 10) + " ч";
+}
+async function erpProdTimesCompute() {
+  const SKIP = new Set(["григор байков", "тестов", "тест"]);   // както в Отчети
+  const { data, error } = await erpSelectAll("production_log", "id,data");
+  if (error) { alert("Не мога да прочета дневника на отчетите: " + (error.message || error)); return null; }
+  const by = {};
+  (data || []).forEach(r => {
+    const l = r.data || {};
+    if (SKIP.has(String(l.worker || "").trim().toLowerCase())) return;
+    const code = String(l.code || "").trim(); if (!code) return;
+    const qty = Number(l.qty) || 0;
+    // Както в Отчети: време за поръчката ИЛИ време/бр × бройки, + настройка.
+    const sec = ((l.tOrder && l.tOrder.sec) || ((l.tPiece && l.tPiece.sec) || 0) * qty) + ((l.tSetup && l.tSetup.sec) || 0);
+    if (!(sec > 0) || !(qty > 0)) return;
+    const op = String(l.operation || "—");
+    const c = by[code] = by[code] || { ops: {}, n: 0 };
+    const o = c.ops[op] = c.ops[op] || { sec: 0, qty: 0 };
+    o.sec += sec; o.qty += qty; c.n++;
+  });
+  const byCode = {};
+  Object.keys(by).forEach(code => {
+    const c = by[code]; let per = 0; const ops = {};
+    Object.keys(c.ops).forEach(op => { const o = c.ops[op]; const p = o.sec / o.qty; ops[op] = { per: Math.round(p * 10) / 10, qty: o.qty }; per += p; });
+    byCode[code] = { per: Math.round(per * 10) / 10, ops, n: c.n };
+  });
+  const payload = { byCode, at: new Date().toISOString() };
+  try { await sb.from("app_config").upsert({ id: "prod_times", data: payload, updated_at: new Date().toISOString() }); } catch (e) {}
+  ERP.prodTimes = payload;
+  return payload;
+}
+function erpProdTimeCell(p) {
+  const t = ERP.prodTimes && ERP.prodTimes.byCode && ERP.prodTimes.byCode[String(p.code || "").trim()];
+  if (!t || !(t.per > 0)) return '<span class="erp-muted">—</span>';
+  const tip = Object.keys(t.ops).map(op => `${op}: ${erpTimeFmt(t.ops[op].per)}/бр (по ${t.ops[op].qty} отчетени бр.)`).join("\n") + `\nОбщо отчети: ${t.n}`;
+  return `<span title="${escapeAttr(tip)}">⏱ ${erpTimeFmt(t.per)}/бр</span>`;
+}
+
 function erpProdRows() {
   const q = erpProdSearch.trim().toLowerCase();
   let rows = ERP.products.slice();
@@ -174,10 +221,11 @@ function erpProdFillRows() {
             <td data-label="Клиент" class="erp-owner-cell">${erpOwnerCell(p)}</td>
             <td data-label="Тип">${p.is_semifinished ? '<span class="erp-tag erp-tag-semi">полуфабрикат</span>' : '<span class="erp-tag erp-tag-art">артикул</span>'}</td>
             <td data-label="Група">${escapeHtml(p.group_name || "")}</td>
+            <td class="num" data-label="⏱ Време/бр.">${erpProdTimeCell(p)}</td>
             <td class="num cost-cell" data-label="Себестойност">${erpManualCostOf(p.id) !== null ? erpEur(p.cost_eur) + ' <span class="erp-tag erp-tag-manual" title="Ръчно зададена цена (екран Рецепта → ✎ Цена)">✋</span>' : (p.needs_recipe ? '<span class="erp-warn">чака рецепта</span>' : erpEur(p.cost_eur))}</td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-editp="${p.id}" title="Редактирай име/група/тип/клиент">✎</button><button class="btn btn-small" data-stree="${p.id}" title="Наличности по структурата (възли, материали, липси)">📦</button>${ERP.childIds && ERP.childIds.has(Number(p.id)) ? `<button class="btn btn-small" data-wu="${p.id}" title="Къде се влага този възел/детайл (директно и в кои крайни продукти)">↥ влага се в</button>` : ""}${(ERP.linesByProduct && (ERP.linesByProduct[p.id] || []).length) ? `<button class="btn btn-small" data-dlrec="${p.id}" title="Свали рецептата като Excel файл (дървото с количества и цени)">⤓ рецепта</button>` : ""}<button class="btn btn-small" data-open="${p.id}">Рецепта →</button></td>
           </tr>`).join("") ||
-    `<tr><td colspan="7" class="report-empty">Няма продукти по този филтър.</td></tr>`;
+    `<tr><td colspan="8" class="report-empty">Няма продукти по този филтър.</td></tr>`;
   const cnt = document.getElementById("erp-prod-count");
   if (cnt) cnt.textContent = rows.length > 300 ? `показани 300 от ${rows.length} — потърси, за да стесниш` : `${rows.length} продукта`;
 }
@@ -208,6 +256,7 @@ function erpRenderProducts() {
       </select>
       <button class="btn btn-small" id="erp-prod-fillclients" title="Задай клиент-собственик автоматично от историята на заявките/продажбите (само където е поръчван от точно един клиент)">👥 Попълни клиентите</button>
       <button class="btn btn-small" id="erp-prod-whereused" title="Обратна справка: избери възел/детайл и виж в кои продукти се влага (директно и до кои крайни стига)">🔎 Къде се влага?</button>
+      <button class="btn btn-small" id="erp-prod-times" title="Преизчислява средното време за производство на бройка от РЕАЛНИТЕ отчети (вечния дневник) — по операции и общо за кода">⏱ Обнови времената</button>
       <span class="spacer"></span>
       <span class="erp-count" id="erp-prod-count"></span>
       <button class="btn btn-primary" id="erp-prod-add">🛠 Създай технология</button>
@@ -216,7 +265,7 @@ function erpRenderProducts() {
     ${ERP.hasOwnerClient === false ? `<p class="erp-warn" style="margin:4px 0">⚠ Колоната „клиент-собственик" липсва в базата. Пусни веднъж в Supabase: <code>alter table products add column if not exists owner_client text;</code></p>` : ""}
     <table class="report-table erp-table">
       <thead>
-        <tr><th>Код</th><th>Име</th><th>Клиент</th><th>Тип</th><th>Група</th><th class="num cost-cell">Себестойност</th><th></th></tr>
+        <tr><th>Код</th><th>Име</th><th>Клиент</th><th>Тип</th><th>Група</th><th class="num" title="Средно време за производство на 1 брой — от реалните отчети, по операции">⏱ Време/бр.</th><th class="num cost-cell">Себестойност</th><th></th></tr>
       </thead>
       <tbody id="erp-prod-tbody"></tbody>
     </table>`;
@@ -233,6 +282,20 @@ function erpRenderProducts() {
   if (fillBtn) fillBtn.addEventListener("click", erpFillProductClients);
   const wuBtn = document.getElementById("erp-prod-whereused");
   if (wuBtn) wuBtn.addEventListener("click", () => erpWhereUsedDialog());
+  const ptBtn = document.getElementById("erp-prod-times");
+  if (ptBtn) ptBtn.addEventListener("click", async () => {
+    ptBtn.disabled = true; ptBtn.textContent = "⏱ Смята…";
+    const r = await erpProdTimesCompute();
+    ptBtn.disabled = false; ptBtn.textContent = "⏱ Обнови времената";
+    if (r) { erpProdFillRows(); alert(`✓ Средни времена изчислени за ${Object.keys(r.byCode).length} кода (от реалните отчети).`); }
+  });
+  // Записаните времена се дозареждат лениво (без да бавят екрана).
+  if (ERP.prodTimes === undefined) {
+    ERP.prodTimes = null;
+    sb.from("app_config").select("data").eq("id", "prod_times").maybeSingle()
+      .then(({ data }) => { ERP.prodTimes = (data && data.data) || null; if (ERP.tab === "products") erpProdFillRows(); })
+      .catch(() => {});
+  }
   document.getElementById("erp-prod-add").addEventListener("click", erpNewProduct);
 
   // Един слушател за цялата таблица (вместо по 4 на ред — хиляди при много продукти).
