@@ -70,12 +70,20 @@ async function erpRenderReceivables() {
   // РЕДА ОТ ФАЙЛА на импорта (ord): първо експортните по азбучен ред, после
   // вътрешните — както е в GenCloud справката. Записи без ord (от издадени
   // фактури в Системата) отиват след тях, по азбучен ред.
-  const groups = {};
-  rows.forEach(p => { const k = p.client || "—"; (groups[k] = groups[k] || []).push(p); });
+  // Ключът е НОРМАЛИЗИРАНОТО име (без разлики в главни/малки букви и интервали),
+  // за да не се цепи един клиент на две групи (напр. „KROHNE" и „Krohne ").
+  // Показва се името от импортирания запис (с ord), ако има такъв.
+  const normClient = s => String(s || "—").trim().replace(/\s+/g, " ").toLowerCase();
+  const groups = {}, gName = {};
+  rows.forEach(p => {
+    const k = normClient(p.client);
+    (groups[k] = groups[k] || []).push(p);
+    if (!gName[k] || ((p.ord != null && p.ord !== "") && !gName[k].fromImport)) gName[k] = { name: (p.client || "—").trim() || "—", fromImport: p.ord != null && p.ord !== "" };
+  });
   const BIG = 1e12;
   const gOrd = {};
   Object.keys(groups).forEach(k => { gOrd[k] = Math.min(...groups[k].map(p => (p.ord != null && p.ord !== "") ? Number(p.ord) : BIG)); });
-  const clientNames = Object.keys(groups).sort((a, b) => (gOrd[a] - gOrd[b]) || a.localeCompare(b, "bg"));
+  const clientNames = Object.keys(groups).sort((a, b) => (gOrd[a] - gOrd[b]) || gName[a].name.localeCompare(gName[b].name, "bg"));
   clientNames.forEach(k => groups[k].sort((a, b) => {
     const ao = (a.ord != null && a.ord !== "") ? Number(a.ord) : BIG;
     const bo = (b.ord != null && b.ord !== "") ? Number(b.ord) : BIG;
@@ -88,10 +96,11 @@ async function erpRenderReceivables() {
   const colspan = recvFilter === "paid" ? 8 : 9;
   const body = clientNames.length ? clientNames.map(name => {
     const items = groups[name];
+    const disp = (gName[name] && gName[name].name) || name;
     const gtot = sum(items);
     const groupHead = `<tr class="recv-client-row">
       ${recvFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="recv-sel-all" data-client="${escapeAttr(name)}" title="Избери всички на клиента" /></td>`}
-      <td colspan="5"><b>${escapeHtml(name)}</b> <span class="erp-muted">· ${items.length} фактури</span></td>
+      <td colspan="5"><b>${escapeHtml(disp)}</b> <span class="erp-muted">· ${items.length} фактури</span></td>
       <td class="num"><b>${recvMoney(gtot)} EUR</b></td>
       <td></td><td></td>
     </tr>`;
@@ -131,6 +140,7 @@ async function erpRenderReceivables() {
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="recv-q" placeholder="🔎 клиент / № фактура…" value="${escapeAttr(recvQuery)}" style="min-width:180px" autocomplete="off" />
       <span class="spacer"></span>
+      <button class="btn btn-small" id="recv-audit" title="100% сверка: всяка издадена фактура има ли вземане с точната сума? Липсващите/различните се показват и могат да се оправят с 1 клик.">🔍 Сверка с фактурите</button>
     </div>
     <div class="pay-cards">
       ${card("Σ Общо за събиране", unpaid, "pay-card-total")}
@@ -166,6 +176,8 @@ async function erpRenderReceivables() {
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpRecvPartialDialog(Number(b.dataset.part))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
   v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
+  const auditBtn = v.querySelector("#recv-audit");
+  if (auditBtn) auditBtn.addEventListener("click", () => erpRecvAudit(auditBtn));
   v.querySelectorAll("[data-dupdel]").forEach(b => b.addEventListener("click", async () => {
     const p = (RECEIVABLES || []).find(x => x.id === Number(b.dataset.dupdel));
     if (!p) return;
@@ -489,4 +501,52 @@ function erpRecvPrint(items) {
     <tfoot><tr><td colspan="4" class="r">ОБЩО</td><td class="r">${recvMoney(tot)} EUR</td></tr></tfoot></table></body></html>`;
   const w = window.open("", "_blank"); if (!w) { alert("Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
+}
+
+/* ---------- 🔍 СВЕРКА: всички издадени фактури ↔ Вземания (100%) ----------
+   За всяка ИЗДАДЕНА фактура (без проформите): има ли вземане (по srcInvoiceId
+   или по № на фактурата) и съвпада ли сумата. Липсващите и различните се
+   показват и се оправят с 1 клик. Платените не се пипат — само се докладват. */
+async function erpRecvAudit(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Сверявам…"; }
+  try {
+    if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+    await erpRecvLoad();
+    const invs = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).filter(o => o.posted && o.kind !== "proforma");
+    if (!invs.length) { alert("Няма издадени фактури за сверка (или модулът Фактуриране не е зареден)."); return; }
+    const normNo = s => String(s || "").trim().replace(/^0+/, "");
+    const missing = [], diff = [], okPaid = [];
+    let okCnt = 0;
+    invs.forEach(o => {
+      const t = (typeof erpInvTotals === "function") ? erpInvTotals(o) : { total: 0 };
+      const rate = (o.currency === "BGN") ? RECV_EUR_BGN : 1;
+      const want = Math.round((Number(t.total) / rate) * 100) / 100;
+      const rec = (RECEIVABLES || []).find(p => p.srcInvoiceId === o.id)
+        || (RECEIVABLES || []).find(p => normNo(p.invoiceNo) === normNo(o.docNo) && normNo(o.docNo));
+      if (!rec) { missing.push({ o, want }); return; }
+      if (Math.abs(recvNum(rec.amount) - want) > 0.02) {
+        if (rec.paid) okPaid.push({ o, rec, want });
+        else diff.push({ o, rec, want });
+        return;
+      }
+      okCnt++;
+    });
+    const kindLbl = o => o.kind === "credit" ? "Кредитно" : o.kind === "debit" ? "Дебитно" : "Фактура";
+    if (!missing.length && !diff.length && !okPaid.length) {
+      alert(`✓ 100% СВЕРКА МИНА.\nВсички ${okCnt} издадени фактури са във Вземания с точните суми.`);
+      return;
+    }
+    const lines = [];
+    if (missing.length) lines.push(`ЛИПСВАТ във Вземания (${missing.length}):\n` + missing.map(x => `• №${x.o.docNo} ${((x.o.client || {}).name) || ""} — ${recvMoney(x.want)} EUR`).join("\n"));
+    if (diff.length) lines.push(`РАЗЛИЧНА СУМА (неплатени, ${diff.length}):\n` + diff.map(x => `• №${x.o.docNo}: във Вземания ${recvMoney(x.rec.amount)}, по фактурата ${recvMoney(x.want)} EUR`).join("\n"));
+    if (okPaid.length) lines.push(`ВНИМАНИЕ — платени с различна сума (не ги пипам, ${okPaid.length}):\n` + okPaid.map(x => `• №${x.o.docNo}: платено ${recvMoney(x.rec.amount)}, по фактурата ${recvMoney(x.want)} EUR`).join("\n"));
+    lines.push(`Наред: ${okCnt} фактури.`);
+    if (!confirm(`🔍 СВЕРКА — открити разлики:\n\n${lines.join("\n\n")}\n\nДа ОПРАВЯ ли автоматично? (добавям липсващите, поправям сумите на неплатените)`)) return;
+    for (const x of missing) { try { await erpRecvSyncFromInvoice(x.o); } catch (e) {} }
+    for (const x of diff) { x.rec.amount = x.want; x.rec.docType = kindLbl(x.o); }
+    await erpRecvSave();
+    alert(`✓ Готово: добавени ${missing.length}, поправени ${diff.length}.` + (okPaid.length ? `\n⚠ Провери ръчно платените с разлика (${okPaid.length}).` : ""));
+    erpRenderReceivables();
+  } catch (e) { alert("Грешка при сверката: " + (e.message || e)); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "🔍 Сверка с фактурите"; } }
 }
