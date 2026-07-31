@@ -1318,7 +1318,11 @@ function dsMoveDialog(pid, kind) {
   const { wrap, close } = erpDialog(`
     <h3>${title}</h3>
     <p><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")} — сега на склад: <b>${erpNum(cur)}</b> ${escapeHtml(p.unit || "бр.")}</p>
-    <label class="erp-inline">${isCorr ? "Нова наличност" : "Брой"}
+    ${isCorr ? `<p class="hint" style="background:#fef3c7;border-left:3px solid #f59e0b;padding:8px 10px;border-radius:6px">
+      ⚠ <b>Числото тук е ЦЯЛАТА истина за този детайл</b> — колко има РЕАЛНО: на склад, по линията, полуготови (нарязани и чакащи), запазени за заявки.
+      Напишеш ли <b>0</b>, значи го няма никъде. След записа Системата предлага да пренастрои производството по новата бройка.
+    </p>` : ""}
+    <label class="erp-inline">${isCorr ? "Реална наличност (всичко налично)" : "Брой"}
       <input type="number" id="ds-qty" min="0" step="any" value="${isCorr ? cur : ""}" style="width:120px" autofocus />
     </label>
     <label>Бележка (по избор)<input type="text" id="ds-note" placeholder="напр. партида, дата, причина" /></label>
@@ -1344,7 +1348,93 @@ function dsMoveDialog(pid, kind) {
     close();
     await erpLoadAll();
     erpRenderDetailStock();
+    // РЪЧНАТА КОРЕКЦИЯ Е ИСТИНАТА: това е всичко налично — на склад И по
+    // линията. Затова пренастройваме производството по новата бройка.
+    if (isCorr) { try { await dsReplanAfterCorrection(pid, val); } catch (e) { alert("Пренастройката не мина: " + (e.message || e)); } }
   });
+}
+
+/* ---------- Пренастройка след ръчна корекция на наличност ----------
+   Новата бройка е ЦЯЛАТА истина за детайла: няма скрити бройки в цеха,
+   няма полуготови (нарязани и чакащи), няма запазени за друга заявка.
+   Затова:
+     1) чистим резервациите (flow_netting) за този детайл — свободен е;
+     2) нулираме отчетеното по НЕЗАВЪРШЕНИТЕ междинни операции за кода
+        (полуфабрикатът физически го няма) — последната операция не се
+        пипа, защото складът вече е зададен от корекцията;
+     3) пре-пускаме активните заявки, в които участва детайлът — плановете
+        се преизчисляват спрямо реалната наличност. */
+async function dsReplanAfterCorrection(pid, newQty) {
+  const p = (ERP.prodById || {})[pid] || {};
+  const code = String(p.code || "").trim();
+  if (!code) return;
+  // Кои активни заявки съдържат този детайл (директно или в рецепта)?
+  let orders = [];
+  try {
+    const { data } = await erpSelectAll("customer_orders", "id,data");
+    orders = (data || []).map(r => ({ id: r.id, ...(r.data || {}) }))
+      .filter(o => o.production && o.status !== "завършена");
+  } catch (e) {}
+  const uses = o => (o.lines || []).some(l => {
+    if (String(l.productId) === String(pid)) return true;
+    if (typeof erpFlowSteps !== "function" || !l.productId) return false;
+    try { return erpFlowSteps({ erpProductId: l.productId, erpQty: 1 }, {}).steps.some(st => String(st.code || "").trim() === code); }
+    catch (e) { return false; }
+  });
+  const affected = orders.filter(uses);
+  // Незавършени поточни задачи за кода (междинни операции).
+  let midTasks = [];
+  try {
+    const { data } = await erpSelectAll("tasks", "id,done,data", "data->source->>flow", "true");
+    midTasks = (data || []).filter(r => {
+      const d = r.data || {}, src = d.source || {};
+      return !r.done && src.kind === "series" && String(src.code || "").trim() === code
+        && !src.last && (Number(d.produced) || 0) > 0;
+    });
+  } catch (e) {}
+  const msg = `Ръчната корекция задава ${erpNum(newQty)} бр. като ЦЯЛАТА налична бройка на ${code} `
+    + `(склад + производство + полуготови).\n\n`
+    + `Да пренастроя ли производството?\n`
+    + `• освобождавам резервациите на този детайл по заявките\n`
+    + (midTasks.length ? `• нулирам отчетеното по ${midTasks.length} незавършени МЕЖДИННИ операции (полуготовите ги няма)\n` : "")
+    + (affected.length ? `• пре-пускам ${affected.length} активни заявки, за да се преизчислят по реалната наличност\n` : "• няма активни заявки с този детайл\n");
+  if (!confirm(msg)) return;
+  // 1) резервациите
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const by = (data && data.data && data.data.byOrder) || {};
+    let ch = false;
+    Object.keys(by).forEach(oid => { if (by[oid] && by[oid][pid] != null) { delete by[oid][pid]; ch = true; if (!Object.keys(by[oid]).length) delete by[oid]; } });
+    if (ch) await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder: by }, updated_at: new Date().toISOString() });
+  } catch (e) {}
+  // 2) полуготовите ги няма
+  for (const r of midTasks) {
+    const d = r.data || {};
+    d.produced = 0;
+    (d.source || {}).consumedUnits = 0;
+    try { await sb.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", r.id); } catch (e) {}
+  }
+  // 3) пре-пускане на засегнатите заявки
+  let ok = 0, fail = 0;
+  for (const o of affected) {
+    const lines = (o.lines || []).filter(l => l.productId && (erpToNum(l.qty) || 0) > 0)
+      .map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 0 }));
+    if (!lines.length) continue;
+    try {
+      const res = await erpFlowApply({
+        clientName: o.clientName || "", deadline: o.deadline || "", sampleId: o.id,
+        sampleType: "customer_order", orderNo: o.ourNo || "", matSubs: o.matSubs || null, stockTop: true,
+      }, lines);
+      if (res && res.error) fail++; else ok++;
+    } catch (e) { fail++; }
+  }
+  await erpLoadAll();
+  erpRenderDetailStock();
+  alert(`✓ Пренастроено по новата наличност на ${code}.\n`
+    + `• резервациите — освободени\n`
+    + (midTasks.length ? `• нулирани междинни операции: ${midTasks.length}\n` : "")
+    + `• преизчислени заявки: ${ok}${fail ? ` (неуспешни: ${fail})` : ""}\n\n`
+    + `Провери Цехове — количествата по задачите вече са спрямо реалната наличност.`);
 }
 
 async function dsHistory(pid) {
