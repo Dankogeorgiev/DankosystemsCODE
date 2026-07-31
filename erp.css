@@ -724,3 +724,8 @@ img.ai-doc-content { max-width: none; }
 .pex-row label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: #475569; margin: 0; }
 .pex-row select, .pex-row input { width: 100%; }
 .pex-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+
+/* Опаковки: избор на 2+ заявки за общо товарене */
+.pack-selcell { width: 60px; text-align: center; }
+.pack-selcell input { width: 18px; height: 18px; cursor: pointer; }
+.pack-combobar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #ecfdf5; border: 1px solid #6ee7b7; border-left: 4px solid #10b981; border-radius: 8px; padding: 7px 12px; margin: 0 0 8px; font-size: 13px; color: #065f46; }
