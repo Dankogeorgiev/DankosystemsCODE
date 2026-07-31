@@ -62,7 +62,47 @@ Deno.serve(async (req) => {
   });
   const prodTotal = prodRows.reduce((s, d) => s + (Number(d.qty) || 0), 0);
 
-  if (!recvOver.length && !paySoon.length && !prodRows.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
+  // 📅 ПОНЕДЕЛНИК: седмичен план — очаквани заявки по ритъма на клиентите
+  // (медиана на интервалите/количествата от историята) за 14 дни + закъснели.
+  let planRows: any[] = [];
+  try {
+    if (new Date().getDay() === 1) {
+      const H = { apikey: key, authorization: "Bearer " + key };
+      const coR = await fetch(`${url}/rest/v1/customer_orders?select=data`, { headers: H });
+      const cos: any[] = coR.ok ? await coR.json() : [];
+      const ev: Record<string, { d: string; q: number }[]> = {};
+      cos.map(r => r.data || {}).forEach((o: any) => {
+        const cl = String(o.clientName || "").trim(); if (!cl || !o.date) return;
+        (o.lines || []).forEach((l: any) => {
+          const q = Number(String(l.qty ?? "").replace(",", ".")) || 0;
+          if (!q || !l.code) return;
+          const k = cl + "¦" + String(l.code).trim();
+          (ev[k] = ev[k] || []).push({ d: o.date, q });
+        });
+      });
+      const med = (a: number[]) => { const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+      const t0 = new Date(today);
+      Object.keys(ev).forEach(k => {
+        const rows = ev[k].sort((a, b) => a.d.localeCompare(b.d));
+        if (rows.length < 2) return;
+        const gaps: number[] = [];
+        for (let i = 1; i < rows.length; i++) { const g = Math.round((new Date(rows[i].d).getTime() - new Date(rows[i - 1].d).getTime()) / 864e5); if (g > 0) gaps.push(g); }
+        if (!gaps.length) return;
+        const per = Math.round(med(gaps));
+        if (per > 200) return;
+        const last = rows[rows.length - 1].d;
+        const next = new Date(new Date(last).getTime() + per * 864e5).toISOString().slice(0, 10);
+        const days = Math.round((new Date(next).getTime() - t0.getTime()) / 864e5);
+        if (days < -14 || days > 14) return;
+        const idx = k.indexOf("¦");
+        planRows.push({ client: k.slice(0, idx), code: k.slice(idx + 1), qty: Math.round(med(rows.map(r => r.q))), next, days, per });
+      });
+      planRows.sort((a, b) => a.days - b.days);
+      planRows = planRows.slice(0, 15);
+    }
+  } catch (e) { /* планът е бонус — не спира писмото */ }
+
+  if (!recvOver.length && !paySoon.length && !prodRows.length && !planRows.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
 
   const sum = (arr: any[], f: string) => arr.reduce((s, p) => s + (Number(String(p[f]).replace(",", ".")) || 0), 0);
   const tbl = (head: string, rws: string) => `<table style="border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:13px">
@@ -92,7 +132,13 @@ Deno.serve(async (req) => {
       + tbl(th("Служител") + th("Цех") + th("Бройки"),
         workerRows.map(([w, d]) => `<tr>${td(esc(w))}${td(esc(d.ws))}${td(String(Math.round(d.qty)), true)}</tr>`).join(""));
   }
-  html += `<p style="color:#64748b;font-size:12px">Автоматично писмо от СИСТЕМАТА (Данко Системс).</p></div>`;
+  if (planRows.length) {
+    html += `<h3 style="color:#1d4ed8">📅 План за седмицата — очаквани заявки (по ритъма на клиентите)</h3>`
+      + tbl(th("Очаквана") + th("Клиент") + th("Код") + th("~Бройки") + th("Ритъм"),
+        planRows.map(p => `<tr>${td(fmt(p.next) + (p.days < 0 ? " ⏰ закъсняла" : ""))}${td(esc(p.client))}${td("<b>" + esc(p.code) + "</b>")}${td(String(p.qty), true)}${td("на ~" + p.per + " дни")}</tr>`).join(""))
+      + `<p style="font-size:12px;color:#64748b">Подробният план (наличности, часове, пускане за склад) е в СИСТЕМАТА → Склад/ЕРП → 📅 План.</p>`;
+  }
+  html += `<p style="color:#64748b;font-size:12px">Автоматично писмо от СИСТЕМАТА (The Systems).</p></div>`;
 
   const send = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
