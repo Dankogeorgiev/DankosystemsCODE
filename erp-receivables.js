@@ -100,13 +100,18 @@ async function erpRenderReceivables() {
       const overdue = !p.paid && dl != null && dl < 0;
       const soon = !p.paid && dl != null && dl >= 0 && dl <= 3;
       const neg = recvNum(p.amount) < 0;
+      // „Стокова" със същата сума като по-късна ФАКТУРА на клиента = вероятен
+      // дублаж (фактурата е издадена отделно и не е заменила стоковото вземане).
+      const dupInv = (!p.paid && p.docType === "Стокова")
+        ? items.find(x => x !== p && (x.docType || "Фактура") === "Фактура" && Math.abs(recvNum(x.amount) - recvNum(p.amount)) <= 0.02 && String(x.docDate || "") >= String(p.docDate || ""))
+        : null;
       return `<tr class="recv-inv-row ${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}" data-id="${p.id}">
         ${recvFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="recv-sel" data-id="${p.id}" data-client="${escapeAttr(name)}" ${recvSelected.has(p.id) ? "checked" : ""} /></td>`}
         <td><b>${recvFmt(p.dueDate)}</b></td>
         <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
         <td>${escapeHtml(p.invoiceNo || "")}</td>
         <td>${recvFmt(p.docDate)}</td>
-        <td>${escapeHtml(p.docType || "Фактура")}</td>
+        <td>${escapeHtml(p.docType || "Фактура")}${dupInv ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e" title="Същата сума като фактура №${escapeAttr(dupInv.invoiceNo || "")} — ако фактурата е за СЪЩАТА доставка, стоковият ред е дублаж и трябва да се махне">⚠ дублира ф-ра №${escapeHtml(dupInv.invoiceNo || "")}?</span> <button class="btn btn-small" data-dupdel="${p.id}" data-dupno="${escapeAttr(dupInv.invoiceNo || "")}" title="Премахва стоковия ред — дългът се следи по фактурата">✕ Махни дубъла</button>` : ""}</td>
         <td class="num ${neg ? "pay-neg" : ""}"><b>${recvMoney(p.paid ? p.amount : recvOutstanding(p))}</b>${(!p.paid && recvPaidPart(p) > 0) ? `<br><small class="erp-muted" title="Частично платени">платени ${recvMoney(recvPaidPart(p))} от ${recvMoney(p.amount)}</small>` : ""}</td>
         <td>${escapeHtml(p.payMethod || "Банка")}</td>
         ${recvFilter === "paid"
@@ -161,6 +166,13 @@ async function erpRenderReceivables() {
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpRecvPartialDialog(Number(b.dataset.part))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
   v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
+  v.querySelectorAll("[data-dupdel]").forEach(b => b.addEventListener("click", async () => {
+    const p = (RECEIVABLES || []).find(x => x.id === Number(b.dataset.dupdel));
+    if (!p) return;
+    if (!confirm(`Да премахна ли стоковото вземане ${p.invoiceNo || ""} (${recvMoney(p.amount)} EUR)?\nДългът ще се следи само по фактура №${b.dataset.dupno}.`)) return;
+    const i = RECEIVABLES.indexOf(p);
+    if (i >= 0) { RECEIVABLES.splice(i, 1); await erpRecvSave(); erpRenderReceivables(); }
+  }));
   erpRecvBar();
 }
 
@@ -393,6 +405,23 @@ async function erpRecvSyncFromInvoice(o) {
     for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
       const p = RECEIVABLES[i];
       if (p.srcSaleId != null && set.has(String(p.srcSaleId)) && !p.paid) RECEIVABLES.splice(i, 1);
+    }
+  }
+  // Фактура, издадена ОТДЕЛНО от продажбата (ръчно/от заявка): ако клиентът има
+  // неплатено „Стокова" вземане със СЪЩАТА сума отпреди фактурата — питаме дали
+  // фактурата покрива същата доставка и махаме дубъла.
+  if (!(o.fromSaleIds || []).length && fields.docType === "Фактура" && amountEur > 0) {
+    const cn = String(fields.client || "").trim().toLowerCase();
+    for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
+      const p = RECEIVABLES[i];
+      if (p.paid || p.docType !== "Стокова") continue;
+      if (String(p.client || "").trim().toLowerCase() !== cn) continue;
+      if (Math.abs(recvNum(p.amount) - amountEur) > 0.02) continue;
+      if (String(p.docDate || "") > String(fields.docDate || "")) continue;
+      if (confirm(`Клиентът има СТОКОВО вземане ${p.invoiceNo || ""} (${recvMoney(p.amount)} EUR от ${recvFmt(p.docDate)}).\nТази фактура за СЪЩАТА доставка ли е?\n\nOK = стоковият ред се маха (дългът остава само по фактурата).`)) {
+        RECEIVABLES.splice(i, 1);
+      }
+      break;   // питаме само за първото съвпадение
     }
   }
   await erpRecvSave();
