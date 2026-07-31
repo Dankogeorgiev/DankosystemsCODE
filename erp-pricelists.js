@@ -7,6 +7,51 @@ let PL_CLIENT = null;     // { id, company } — избраният клиент
 let PL_ENTRIES = null;    // { [productId]: { cname, price, currency } }
 let PL_CACHE = null;      // clientId -> data (за интеграция в заявките)
 let PL_TERM = "";
+let PL_STATS = null;      // периодичност по код/продукт (от историята на заявките)
+
+/* ---------- Периодичност: колко често и по колко поръчва клиентът ----------
+   От историята на ЗАЯВКИТЕ: медиана на интервалите между заявките за всеки
+   код + типично количество (медиана) → очаквана дата на следващата заявка. */
+async function erpPLStats(clientName) {
+  try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  const list = (typeof erpCOList !== "undefined" && erpCOList) || [];
+  const cn = String(clientName || "").trim().toLowerCase();
+  const ev = {};
+  list.forEach(o => {
+    if (String(o.clientName || "").trim().toLowerCase() !== cn) return;
+    const d = o.date; if (!d) return;
+    (o.lines || []).forEach(l => {
+      const q = erpToNum(l.qty) || 0; if (!q) return;
+      [l.productId != null ? "p" + l.productId : null, l.code ? "c" + String(l.code).trim().toLowerCase() : null]
+        .filter(Boolean).forEach(k => { (ev[k] = ev[k] || []).push({ d, q }); });
+    });
+  });
+  const med = a => { const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const out = {};
+  Object.keys(ev).forEach(k => {
+    const rows = ev[k].sort((a, b) => String(a.d).localeCompare(String(b.d)));
+    const n = rows.length, last = rows[n - 1].d;
+    const qty = Math.round(med(rows.map(r => r.q)));
+    if (n < 2) { out[k] = { n, last, qty }; return; }
+    const gaps = [];
+    for (let i = 1; i < n; i++) { const g = Math.round((new Date(rows[i].d) - new Date(rows[i - 1].d)) / 864e5); if (g > 0) gaps.push(g); }
+    if (!gaps.length) { out[k] = { n, last, qty }; return; }
+    const per = Math.round(med(gaps));
+    out[k] = { n, last, qty, per, next: new Date(new Date(last).getTime() + per * 864e5).toISOString().slice(0, 10) };
+  });
+  return out;
+}
+function erpPLStatFor(pid, code) {
+  if (!PL_STATS) return null;
+  return PL_STATS["p" + pid] || (code ? PL_STATS["c" + String(code).trim().toLowerCase()] : null) || null;
+}
+function erpPLNextBadge(stat) {
+  const days = Math.round((new Date(stat.next) - new Date(new Date().toISOString().slice(0, 10))) / 864e5);
+  const dmy = (typeof erpDMY === "function") ? erpDMY(stat.next) : stat.next;
+  if (days < 0) return `<span class="erp-co-status" style="background:#fef3c7;color:#92400e" title="Според ритъма на клиента заявката е закъсняла">⏰ очаквана от ${dmy} (${-days} дни)</span>`;
+  if (days <= 14) return `<span class="erp-co-status" style="background:#dcfce7;color:#166534">📅 ок. ${dmy} (след ${days} дни)</span>`;
+  return `<span class="erp-muted">ок. ${dmy}</span>`;
+}
 
 /* ---------- Съхранение ---------- */
 async function erpPLLoad(clientId) {
@@ -161,7 +206,11 @@ async function erpRenderPriceLists() {
     return r;
   };
   v.querySelector("#pl-frominv").addEventListener("click", runBackfill);
-  if (PL_CLIENT && PL_ENTRIES) erpPLRenderGrid();
+  if (PL_CLIENT && PL_ENTRIES) {
+    erpPLRenderGrid();
+    // Периодичността се дозарежда (заявките може още да не са в паметта).
+    erpPLStats(PL_CLIENT.company).then(s => { PL_STATS = s; erpPLRenderGrid(); }).catch(() => {});
+  }
   else v.querySelector("#pl-body").innerHTML = `<p class="report-empty">Избери клиент, за да видиш/съставиш неговата ценова листа.</p>`;
   // ЕДНОКРАТНО: първото отваряне зарежда листите от вече издадените фактури.
   try {
@@ -182,6 +231,7 @@ async function erpPLPickClient(name, clients) {
   PL_CLIENT = c;
   const d = await erpPLLoad(c.id);
   PL_ENTRIES = (d && d.entries) || {};
+  try { PL_STATS = await erpPLStats(c.company); } catch (e) { PL_STATS = null; }
   if (st) st.textContent = "";
   erpPLRenderGrid();
 }
@@ -223,17 +273,30 @@ function erpPLRenderGrid() {
       <button class="btn btn-small btn-primary" id="pl-save">💾 Запази листата</button>
       <span class="save-status" id="pl-save-st"></span>
     </div>
+    ${(() => {
+      // 📅 Прогноза за планиране: кодовете, чиято следваща заявка се очаква
+      // до 21 дни (или е закъсняла според ритъма на клиента).
+      const today = new Date(new Date().toISOString().slice(0, 10));
+      const soon = list.map(r => ({ r, s: erpPLStatFor(r.pid, r.code) }))
+        .filter(x => x.s && x.s.next)
+        .map(x => ({ ...x, days: Math.round((new Date(x.s.next) - today) / 864e5) }))
+        .filter(x => x.days <= 21)
+        .sort((a, b) => a.days - b.days).slice(0, 12);
+      return soon.length ? `<div class="hint" style="line-height:1.9">📅 <b>Очаквани заявки скоро</b> (по ритъма на клиента): ${soon.map(x => `<b>${escapeHtml(x.r.code || x.r.ourName)}</b> — ${erpPLNextBadge(x.s)} · ~${erpNum(x.s.qty)} бр.`).join(" &nbsp;·&nbsp; ")}</div>` : "";
+    })()}
     <table class="report-table erp-table">
-      <thead><tr><th>Код</th><th>Наш продукт</th><th>Име при клиента</th><th class="num">Цена</th><th>Валута</th><th></th></tr></thead>
-      <tbody>${list.map(r => `
+      <thead><tr><th>Код</th><th>Наш продукт</th><th>Име при клиента</th><th class="num">Цена</th><th>Валута</th><th>Периодичност</th><th>Очаквана заявка</th><th></th></tr></thead>
+      <tbody>${list.map(r => { const stat = erpPLStatFor(r.pid, r.code); return `
         <tr data-pid="${escapeAttr(r.pid)}">
           <td data-label="Код"><b>${escapeHtml(r.code)}</b></td>
           <td data-label="Наш продукт">${escapeHtml(r.ourName)}</td>
           <td data-label="Име при клиента"><input type="text" class="pl-cn" value="${escapeAttr(r.cname)}" placeholder="как го нарича клиентът" /></td>
           <td class="num" data-label="Цена"><input type="number" class="pl-pr" step="any" min="0" value="${r.price !== "" ? escapeAttr(String(r.price)) : ""}" style="width:100px" /></td>
           <td data-label="Валута"><select class="pl-cur"><option ${r.currency === "EUR" ? "selected" : ""}>EUR</option><option ${r.currency === "BGN" ? "selected" : ""}>BGN</option></select></td>
+          <td data-label="Периодичност">${stat && stat.per ? `~на <b>${stat.per}</b> дни · ~${erpNum(stat.qty)} бр. <span class="erp-muted">(${stat.n} заявки)</span>` : (stat ? `<span class="erp-muted">${stat.n === 1 ? "само 1 заявка" : stat.n + " заявки"} · ~${erpNum(stat.qty)} бр.</span>` : '<span class="erp-muted">няма заявки</span>')}</td>
+          <td data-label="Очаквана">${stat && stat.next ? erpPLNextBadge(stat) : ""}</td>
           <td><button class="btn btn-small pl-rm" title="Махни от листата">×</button></td>
-        </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма продукти в листата. Добави с „+ Добави продукт" или импортирай Excel.</td></tr>`}
+        </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма продукти в листата. Добави с „+ Добави продукт" или импортирай Excel.</td></tr>`}
       </tbody>
     </table>
     <p class="hint">За наливане наведнъж: свали Excel, попълни „Име при клиента" и „Цена", после импортирай (съвпадение по Код).</p>`;
