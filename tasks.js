@@ -662,6 +662,7 @@ function renderWorkerFilter() {
 }
 
 /* ---------- Лента с служители (икони) ---------- */
+let workerBarOpen = false;   // за админите лентата е СГЪНАТА по подразбиране (заема много място)
 function renderWorkerBar() {
   const bar = document.getElementById("worker-bar");
   if (!bar) return;
@@ -671,14 +672,25 @@ function renderWorkerBar() {
     : (WORKERS[ws] || []);
   const active = document.getElementById("task-worker-filter").value;
   if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>`; return; }
-  bar.innerHTML = `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
+  if (!workerBarOpen) {
+    // Сгънат изглед: само бутон (+ активният филтър, ако има).
+    bar.innerHTML = `<button class="btn btn-small" id="wbar-toggle" title="Показва служителите за филтриране на задачите">👥 Служители (${names.length}) ▾</button>`
+      + (active ? ` <button class="wchip active" id="wbar-clear" title="Махни филтъра по служител"><span class="wav">${escapeHtml((active.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(active)} ✕</button>` : "");
+    const t = bar.querySelector("#wbar-toggle"); if (t) t.addEventListener("click", () => { workerBarOpen = true; renderWorkerBar(); });
+    const c = bar.querySelector("#wbar-clear"); if (c) c.addEventListener("click", () => { document.getElementById("task-worker-filter").value = ""; renderTasks(); });
+    return;
+  }
+  bar.innerHTML = `<button class="btn btn-small" id="wbar-hide" title="Скрий списъка със служители">▴ Скрий</button>`
+    + `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
     names.map(n => {
       const init = (n.trim()[0] || "?").toUpperCase();
       return `<button class="wchip ${n === active ? "active" : ""}" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml(init)}</span>${escapeHtml(n)}</button>`;
     }).join("");
+  const h = bar.querySelector("#wbar-hide"); if (h) h.addEventListener("click", () => { workerBarOpen = false; renderWorkerBar(); });
   bar.querySelectorAll(".wchip").forEach(b => b.addEventListener("click", () => {
     const filter = document.getElementById("task-worker-filter");
     filter.value = (filter.value === b.dataset.name) ? "" : b.dataset.name;
+    workerBarOpen = false;   // избра ли — лентата се сгъва, филтърът остава видим като чип
     renderTasks();
   }));
 }
