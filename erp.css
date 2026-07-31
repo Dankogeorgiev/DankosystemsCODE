@@ -717,7 +717,7 @@ img.ai-doc-content { max-width: none; }
 .pk3d-extrarow + .pk3d-extrarow { border-top: 1px dotted #fcd34d; }
 
 /* Опаковки: подвижният панел „Добави към палет" */
-.pex-panel { position: absolute; z-index: 60; width: 370px; max-width: 94vw; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; box-shadow: 0 12px 32px rgba(15,23,42,.22); }
+.pex-panel { position: fixed; z-index: 99000; width: 370px; max-width: 94vw; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; box-shadow: 0 12px 32px rgba(15,23,42,.22); }
 .pex-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #eef2ff; border-bottom: 1px solid #dbe3f5; border-radius: 10px 10px 0 0; cursor: move; font-size: 13px; user-select: none; }
 .pex-body { padding: 10px 12px 12px; }
 .pex-row { display: grid; grid-template-columns: 1fr 84px; gap: 6px 8px; align-items: center; margin-bottom: 8px; }

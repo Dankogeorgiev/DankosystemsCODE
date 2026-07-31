@@ -926,13 +926,15 @@ function packExtraPanel(o, P, pi, after, nearEl) {
     </div>`;
   document.body.appendChild(el);
   // Позиция до бутона; после се влачи за заглавието където поиска потребителят.
+  // position: fixed → координатите са спрямо ЕКРАНА (ЕРП изгледът е слой с
+  // висок z-index; при absolute панелът оставаше зад него и не се виждаше).
   const r = nearEl ? nearEl.getBoundingClientRect() : { left: 80, bottom: 120 };
   el.style.left = Math.max(8, Math.min(window.innerWidth - 380, r.left)) + "px";
-  el.style.top = (r.bottom + window.scrollY + 6) + "px";
+  el.style.top = Math.max(8, Math.min(window.innerHeight - 260, r.bottom + 6)) + "px";
   const head = el.querySelector("#pex-drag");
   let dx = 0, dy = 0, moving = false;
-  head.addEventListener("mousedown", e => { moving = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - (el.offsetTop - window.scrollY); e.preventDefault(); });
-  document.addEventListener("mousemove", e => { if (!moving) return; el.style.left = (e.clientX - dx) + "px"; el.style.top = (e.clientY - dy + window.scrollY) + "px"; });
+  head.addEventListener("mousedown", e => { moving = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - el.offsetTop; e.preventDefault(); });
+  document.addEventListener("mousemove", e => { if (!moving) return; el.style.left = (e.clientX - dx) + "px"; el.style.top = (e.clientY - dy) + "px"; });
   document.addEventListener("mouseup", () => { moving = false; });
   el.querySelector("#pex-close").addEventListener("click", () => el.remove());
   el.querySelector("#pex-add").addEventListener("click", () => {
