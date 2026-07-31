@@ -367,6 +367,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
       nonstd: r.nonstd != null ? r.nonstd : ((spec && spec.nonStdPacking) || ""),
+      addBox: r.addBox != null ? r.addBox : ((spec && spec.addBoxNote) || ""),
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : "")),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),   // може и дробно (напр. 7,5)
     };
@@ -398,7 +399,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
-        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Нест. опаковка</th><th class="num">брой кашон/опаковка</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
+        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Нест. опаковка</th><th class="num">брой кашон/опаковка</th><th>Кашон добавка</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
@@ -407,13 +408,14 @@ async function erpPackOrderOpen(orderId, moreIds) {
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:120px" placeholder="Малък / Голям / Тава…" /></td>
           <td><input type="text" class="pko-nonstd" data-i="${i}" value="${escapeAttr(st.nonstd || "")}" style="width:130px" placeholder="напр. на тави, насипно…" title="Нестандартна опаковка — как се опакова, когато не е стандартен кашон" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
+          <td><input type="text" class="pko-addbox" data-i="${i}" value="${escapeAttr(st.addBox || "")}" style="width:150px" placeholder="${c.rest ? escapeAttr("1 кашон × " + erpNum(c.rest) + " бр.") : "непълен кашон…"}" title="Непълният кашон (остатъкът) — опиши го както го правите: вид кашон и бройка" /></td>
           <td class="num"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" title="Може и дробно число (напр. 7,5 кашона на палет)" /></td>
           <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
           <td class="num">${c.pallets ? (Math.round(c.pallets * 100) / 100) : "—"}</td>
           <td class="num">${c.netKg || "—"}</td>
         </tr>`; }).join("")}</tbody>
         <tfoot><tr style="font-weight:700;background:#f8fafc">
-          <td colspan="2">ОБЩО</td><td class="num">${erpNum(totals.qty)}</td><td></td><td></td><td></td><td></td><td></td>
+          <td colspan="2">ОБЩО</td><td class="num">${erpNum(totals.qty)}</td><td></td><td></td><td></td><td></td><td></td><td></td>
           <td class="num">${totals.boxes}</td><td class="num" id="pko-palfoot">${palletsUp}${totals.pallets ? ` <span class="erp-muted">(${Math.round(totals.pallets * 100) / 100})</span>` : ""}</td><td class="num">${Math.round(totals.net * 10) / 10}</td>
         </tr></tfoot>
       </table>
@@ -442,6 +444,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           boxType: ((tr.querySelector(".pko-box") || {}).value || "").trim(),
           boxSize: ((tr.querySelector(".pko-boxsize") || {}).value || "").trim(),
           nonstd: ((tr.querySelector(".pko-nonstd") || {}).value || "").trim(),
+          addBox: ((tr.querySelector(".pko-addbox") || {}).value || "").trim(),
           perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
           perPallet: erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0,
         };
@@ -458,7 +461,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       const std = packBoxStdFind(el.value);
       if (std) { el.value = std.name; const tr = el.closest("tr"); const s = tr && tr.querySelector(".pko-boxsize"); if (s) s.value = std.size; }
     }));
-    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-nonstd,.pko-perbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-nonstd,.pko-perbox,.pko-addbox,.pko-perpal").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
       collect();
@@ -490,6 +493,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           if (r.boxType) spec.boxType = r.boxType;
           if (r.boxSize) spec.boxSize = r.boxSize;
           if (r.nonstd) spec.nonStdPacking = r.nonstd;
+          if (r.addBox) spec.addBoxNote = r.addBox;
           if (r.perBox > 0) spec.piecesPerBox = r.perBox;
           if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
           if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;   // може и дробно (7,5)
@@ -747,6 +751,7 @@ async function erpPackDocRows(o) {
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
       nonstd: r.nonstd != null ? r.nonstd : ((spec && spec.nonStdPacking) || ""),
+      addBox: r.addBox != null ? r.addBox : ((spec && spec.addBoxNote) || ""),
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : 0)),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || 0),
     };
@@ -1014,7 +1019,7 @@ function packPrintPacking(o, rows, P) {
   const gross = Math.round((tot.n + plKg) * 10) / 10;
   const body = `${packDocHead(o, "PACKING LIST", packIsExport(o))}
     <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}${r.nonstd ? " · " + escapeHtml(r.nonstd) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.kgPer || ""}</td><td>${escapeHtml(r.boxType)}${r.nonstd ? " · " + escapeHtml(r.nonstd) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(r.addBox)}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
     <div class="kv"><b>Pallets:</b> ${plSmall ? `${palletsUp - plSmall} × EUR 120×80 (${packNum(P.palletKg || 20)} kg) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} kg)` : `${palletsUp} × EUR 120×80 (${packNum(P.palletKg || 20)} kg)`} — total ${plKg} kg</div>
     <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
@@ -1026,7 +1031,7 @@ function packPrintGoods(o, rows) {
     : { title: "СТОКОВА РАЗПИСКА", code: "Код", name: "Наименование", qty: "Бройка", boxes: "Кашони", from: "Предал", to: "Приел", win: "Стокова разписка — заявка " };
   const body = `${packDocHead(o, L.title, en)}
     <table><thead><tr><th>№</th><th>${L.code}</th><th>${L.name}</th><th class="c">${L.qty}</th><th class="c">${L.boxes}</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}</td></tr>`).join("")}</tbody></table>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.qty)}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(r.addBox)}</small>` : ""}</td></tr>`).join("")}</tbody></table>
     <div class="foot"><div>${L.from}: ................</div><div>${L.to}: ................</div></div>`;
   invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg");
 }
