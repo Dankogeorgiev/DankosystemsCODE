@@ -374,7 +374,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small" id="pko-back">← Опаковки</button>
         <span class="erp-count">📦 Опаковане — ${o.__combined ? `<b style="color:#b45309">${o.__combined.length} заявки ЗАЕДНО</b> ` : "заявка "}<b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · клиентски № " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")}</span>
         <span class="spacer"></span>
-        <button class="btn btn-small btn-primary" id="pko-save">💾 Запази опаковката</button>
+        <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
         <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Размер кашон</th><th class="num">Броя в кашон</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
@@ -621,8 +621,8 @@ async function erpPackOrderOpen(orderId, moreIds) {
         ${(p.extra || []).length ? `<div class="pk3d-extra">${p.extra.map((x, xi) => `<div class="pk3d-extrarow"><span>${x.kind === "acc" ? "🔩" : x.kind === "prod" ? "📦" : "✍"} ${escapeHtml(x.text)}</span><button class="btn btn-small" data-exdel="${pi}:${xi}" title="Махни от палета">×</button></div>`).join("")}</div>` : ""}
         <div class="pk3d-actions">
           ${dropBtn(pi)}
-          <button class="btn btn-small" data-exadd="${pi}" title="Добави към ОПИСА на палета: продукт от заявката, аксесоар или свободен текст (само име — без наличности)">➕ Добави</button>
-          ${g.length ? `<label style="font-size:12px;white-space:nowrap;cursor:pointer" title="Пази ТОЗИ палет като стандартен за клиента (с точните бройки). Следваща заявка го нарежда пак така и го повтаря, докато има пълни кашони. Записва се със „Запази опаковката"."><input type="checkbox" data-rem="${pi}"${p.rem ? " checked" : ""}> 🧠 Запомни</label>` : `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>`}
+          <button class="btn btn-small" data-exadd="${pi}" title="Добави към ПАЛЕТНИЯ ОПИС на този палет: продукт от заявката, аксесоар или свободен текст — само имена и бройки">➕ Добави</button>
+          ${g.length ? "" : `<button class="btn btn-small btn-danger" data-delpal="${pi}">× Махни</button>`}
         </div>
       </div>`;
     };
@@ -684,10 +684,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       if (e.target.closest("[data-key]") || e.target.closest("button")) return;
       if (SEL.size) moveSel(-1);
     });
-    box.querySelectorAll("[data-rem]").forEach(c => c.addEventListener("change", () => {
-      const p = P.plan[Number(c.dataset.rem)]; if (p) p.rem = c.checked ? 1 : 0;
-    }));
-    box.querySelectorAll("[data-exadd]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); packExtraDialog(o, P, Number(b.dataset.exadd), () => { renderPlan(); }); }));
+    box.querySelectorAll("[data-exadd]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); packExtraPanel(o, P, Number(b.dataset.exadd), () => { renderPlan(); }, b); }));
     box.querySelectorAll("[data-exdel]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
       const [pi, xi] = b.dataset.exdel.split(":").map(Number);
@@ -851,9 +848,11 @@ function packPlanPallets(rows, P) {
    стандартен палет се нарежда отново и се ПОВТАРЯ, докато има пълни
    кашони за него; остатъкът минава през автоматиката. */
 function packLayoutTemplate(P) {
-  const pallets = (P.plan || []).filter(p => p.rem).map(p => {
+  // Целият план се пази като стандарт за клиента (със „Запази опаковката") —
+  // палетите се повтарят при следваща заявка, докато има пълни кашони.
+  const pallets = (P.plan || []).map(p => {
     const per = {}; (p.g || []).forEach(x => { per[x.code] = (per[x.code] || 0) + x.boxes; });
-    return { small: p.small ? 1 : 0, items: Object.keys(per).map(code => ({ code, boxes: per[code] })) };
+    return { small: p.small ? 1 : 0, extra: (p.extra || []).slice(), items: Object.keys(per).map(code => ({ code, boxes: per[code] })) };
   }).filter(p => p.items.length);
   return pallets.length ? { pallets } : null;
 }
@@ -871,7 +870,7 @@ function packPlanFromTemplate(rows, clientName) {
     let guard = 0;
     while (fits() && guard++ < 500) {   // повтаряме стандартния палет, докато има пълни кашони
       const g = items.map(it => { avail[it.code].full -= it.boxes; return { code: it.code, boxes: it.boxes, per: pbOf[it.code] }; });
-      plan.push({ small: tp.small ? 1 : 0, g, rem: 1 });
+      plan.push({ small: tp.small ? 1 : 0, g, extra: (tp.extra || []).map(x => ({ ...x })) });
       made = true;
     }
   });
@@ -894,8 +893,9 @@ function packPalletsKg(pallets, palletKg) {
 /* ➕ Добавяне към ОПИСА на палета: продукт от заявката, аксесоар или свободен
    текст. Само имена и количество за описа — НИКАКВИ наличности и складови
    движения (това е как физически се реди палетът). Пази се в plan[i].extra. */
-function packExtraDialog(o, P, pi, after) {
+function packExtraPanel(o, P, pi, after, nearEl) {
   const pal = P.plan[pi]; if (!pal) return;
+  document.getElementById("pex-panel")?.remove();
   const lines = (o.lines || []).filter(l => l.code || l.name);
   const accCodes = (typeof NIT_ACCESSORY_CODES !== "undefined") ? [...NIT_ACCESSORY_CODES] : [];
   const accMats = (typeof NIT_ACCESSORY_MAT_CODES !== "undefined") ? [...NIT_ACCESSORY_MAT_CODES] : [];
@@ -907,29 +907,49 @@ function packExtraDialog(o, P, pi, after) {
   };
   const accAll = [...accCodes.map(c => ({ code: c, name: nameOf(c) })), ...accMats.map(c => ({ code: c, name: nameOf(c) }))]
     .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code), "bg"));
-  const { wrap, close } = erpDialog(`
-    <h3>➕ Добави към Палет №${pi + 1}</h3>
-    <p class="hint" style="margin:-4px 0 8px">Само за ОПИСА на палета — как се реди физически. Наличности не се пипат.</p>
-    <div class="erp-co-grid">
-      <label>Продукт от заявката <select id="pex-prod"><option value="">— избери —</option>${lines.map((l, i) => `<option value="${i}">${escapeHtml((l.code ? l.code + " · " : "") + (l.name || ""))}</option>`).join("")}</select></label>
-      <label>Аксесоар <select id="pex-acc"><option value="">— избери —</option>${accAll.map(a => `<option value="${escapeAttr(a.code)}">${escapeHtml(a.code + (a.name ? " · " + a.name : ""))}</option>`).join("")}</select></label>
-      <label>Количество (по избор) <input type="text" id="pex-qty" placeholder="напр. 20 бр." /></label>
-      <label>Свободен текст <input type="text" id="pex-free" placeholder="напр. капак + стреч, разделители…" /></label>
-    </div>
-    <div class="erp-dialog-actions"><button class="btn" id="pex-cancel">Отказ</button><button class="btn btn-primary" id="pex-add">➕ Добави</button></div>`);
-  wrap.querySelector("#pex-cancel").addEventListener("click", close);
-  wrap.querySelector("#pex-add").addEventListener("click", () => {
-    const qty = (wrap.querySelector("#pex-qty").value || "").trim();
-    const suffix = qty ? " — " + qty : "";
+  const el = document.createElement("div");
+  el.id = "pex-panel"; el.className = "pex-panel";
+  el.innerHTML = `
+    <div class="pex-head" id="pex-drag">➕ Добави към <b>Палет №${pi + 1}</b><span class="spacer" style="flex:1"></span><button class="btn btn-small" id="pex-close" title="Затвори">✕</button></div>
+    <div class="pex-body">
+      <div class="pex-row"><label>Продукт от заявката</label>
+        <select id="pex-prod"><option value="">— избери —</option>${lines.map((l, i) => `<option value="${i}">${escapeHtml((l.code ? l.code + " · " : "") + (l.name || ""))}</option>`).join("")}</select>
+        <input type="text" id="pex-qprod" placeholder="бройки" /></div>
+      <div class="pex-row"><label>Аксесоар</label>
+        <select id="pex-acc"><option value="">— избери —</option>${accAll.map(a => `<option value="${escapeAttr(a.code)}">${escapeHtml(a.code + (a.name ? " · " + a.name : ""))}</option>`).join("")}</select>
+        <input type="text" id="pex-qacc" placeholder="бройки" /></div>
+      <div class="pex-row"><label>Свободен текст</label>
+        <input type="text" id="pex-free" placeholder="напр. капак + стреч, разделители…" />
+        <input type="text" id="pex-qfree" placeholder="бройки" /></div>
+      <p class="hint" style="margin:6px 0 0">Отива в <b>ПАЛЕТНИЯ ОПИС</b> — само имена и бройки, наличности не се пипат. (Стоковата разписка си остава по заявката.)</p>
+      <div class="pex-actions"><button class="btn btn-small btn-primary" id="pex-add">➕ Добави</button><span class="erp-muted" id="pex-msg"></span></div>
+    </div>`;
+  document.body.appendChild(el);
+  // Позиция до бутона; после се влачи за заглавието където поиска потребителят.
+  const r = nearEl ? nearEl.getBoundingClientRect() : { left: 80, bottom: 120 };
+  el.style.left = Math.max(8, Math.min(window.innerWidth - 380, r.left)) + "px";
+  el.style.top = (r.bottom + window.scrollY + 6) + "px";
+  const head = el.querySelector("#pex-drag");
+  let dx = 0, dy = 0, moving = false;
+  head.addEventListener("mousedown", e => { moving = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - (el.offsetTop - window.scrollY); e.preventDefault(); });
+  document.addEventListener("mousemove", e => { if (!moving) return; el.style.left = (e.clientX - dx) + "px"; el.style.top = (e.clientY - dy + window.scrollY) + "px"; });
+  document.addEventListener("mouseup", () => { moving = false; });
+  el.querySelector("#pex-close").addEventListener("click", () => el.remove());
+  el.querySelector("#pex-add").addEventListener("click", () => {
     const add = (kind, text) => { pal.extra = pal.extra || []; pal.extra.push({ kind, text }); };
-    const li = wrap.querySelector("#pex-prod").value;
-    if (li !== "") { const l = lines[Number(li)]; add("prod", ((l.code ? l.code + " · " : "") + (l.name || "")) + suffix); }
-    const ac = wrap.querySelector("#pex-acc").value;
-    if (ac) add("acc", ac + (nameOf(ac) ? " · " + nameOf(ac) : "") + suffix);
-    const free = (wrap.querySelector("#pex-free").value || "").trim();
-    if (free) add("free", free + (li === "" && !ac ? suffix : ""));
-    if (!(pal.extra || []).length) { alert("Избери продукт, аксесоар или напиши текст."); return; }
-    close(); if (after) after();
+    const q = id => { const v = (el.querySelector(id).value || "").trim(); return v ? " — " + v + (/^\d+([.,]\d+)?$/.test(v) ? " бр." : "") : ""; };
+    let n = 0;
+    const li = el.querySelector("#pex-prod").value;
+    if (li !== "") { const l = lines[Number(li)]; add("prod", ((l.code ? l.code + " · " : "") + (l.name || "")) + q("#pex-qprod")); n++; }
+    const ac = el.querySelector("#pex-acc").value;
+    if (ac) { add("acc", ac + (nameOf(ac) ? " · " + nameOf(ac) : "") + q("#pex-qacc")); n++; }
+    const free = (el.querySelector("#pex-free").value || "").trim();
+    if (free) { add("free", free + q("#pex-qfree")); n++; }
+    if (!n) { el.querySelector("#pex-msg").textContent = "Избери продукт, аксесоар или напиши текст."; return; }
+    el.querySelector("#pex-prod").value = ""; el.querySelector("#pex-acc").value = "";
+    ["#pex-free", "#pex-qprod", "#pex-qacc", "#pex-qfree"].forEach(id => { el.querySelector(id).value = ""; });
+    el.querySelector("#pex-msg").textContent = `✓ добавени ${n} — панелът остава отворен`;
+    if (after) after();
   });
 }
 

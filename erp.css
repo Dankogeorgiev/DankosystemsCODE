@@ -715,3 +715,12 @@ img.ai-doc-content { max-width: none; }
 .pk3d-extra { margin: 6px 0 2px; padding: 6px 8px; background: #fffbeb; border: 1px dashed #f59e0b; border-radius: 8px; font-size: 12px; }
 .pk3d-extrarow { display: flex; align-items: center; gap: 6px; justify-content: space-between; padding: 2px 0; }
 .pk3d-extrarow + .pk3d-extrarow { border-top: 1px dotted #fcd34d; }
+
+/* Опаковки: подвижният панел „Добави към палет" */
+.pex-panel { position: absolute; z-index: 60; width: 370px; max-width: 94vw; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; box-shadow: 0 12px 32px rgba(15,23,42,.22); }
+.pex-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #eef2ff; border-bottom: 1px solid #dbe3f5; border-radius: 10px 10px 0 0; cursor: move; font-size: 13px; user-select: none; }
+.pex-body { padding: 10px 12px 12px; }
+.pex-row { display: grid; grid-template-columns: 1fr 84px; gap: 6px 8px; align-items: center; margin-bottom: 8px; }
+.pex-row label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: #475569; margin: 0; }
+.pex-row select, .pex-row input { width: 100%; }
+.pex-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
