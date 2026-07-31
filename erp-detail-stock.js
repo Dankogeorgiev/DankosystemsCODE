@@ -199,8 +199,8 @@ async function erpRenderDetailStockInner() {
       <button type="button" class="btn btn-small" id="ds-nodemap" title="Цял екран: къде се включва изделието (нагоре) и кои ВЪЗЛИ влизат в него (надолу) — само кодовете на възлите, без дребните части">🌳 Структура (възли)</button>
       <span id="ds-count" class="erp-muted"></span>
       <span class="spacer"></span>
-      <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или ZIP архив — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
-      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,application/zip,application/x-zip-compressed,.dwg,.dxf,.step,.stp,.igs,.iges" multiple hidden />
+      <label class="btn btn-small" for="ds-draw-bulk" title="Избери много чертежи или архив (ZIP, RAR, 7z) — разпределят се по кода в началото на името">📎 Качи чертежи наведнъж</label>
+      <input type="file" id="ds-draw-bulk" accept="image/*,.pdf,application/pdf,.zip,.rar,.7z,.tar,.gz,.tgz,application/zip,application/x-zip-compressed,application/vnd.rar,application/x-rar-compressed,application/x-7z-compressed,.dwg,.dxf,.step,.stp,.igs,.iges" multiple hidden />
       <button type="button" class="btn btn-small" id="ds-draw-check" title="Сверява записаните чертежи с реалните файлове в облака">🔎 Провери чертежите</button>
       <button type="button" class="btn btn-small" id="ds-fixcls" title="Намира продукти, ползвани като части в рецепти, но маркирани като артикул — и ги оправя, за да влязат тук">🔧 Провери класификацията</button>
       <button type="button" class="btn btn-small" id="ds-dedup" title="Открива продукти с еднакъв код, заведени два пъти (наличността на единия, рецептата на другия) — и ги обединява">🔗 Дублирани по код</button>
@@ -725,11 +725,56 @@ const DS_DRAW_EXT = /\.(pdf|png|jpe?g|gif|webp|bmp|tiff?|svg|dwg|dxf|step|stp|ig
 
 // Разгъва избраните файлове: ZIP архивите се разпакова́т на отделни чертежи.
 // Диагностика: казва ЯСНО какво е намерено в архива и защо нещо е прескочено.
+/* Разпакова RAR/7z/tar… в браузъра през libarchive.js (WebAssembly).
+   Библиотеката е локална (vendor-libarchive) и се зарежда чак при нужда —
+   не бави останалите екрани. Връща само файловете с чертежни разширения. */
+let DS_ARCHIVE_LIB = null;
+async function dsArchiveLib() {
+  if (DS_ARCHIVE_LIB) return DS_ARCHIVE_LIB;
+  const base = new URL(".", location.href).href;
+  const mod = await import(base + "vendor-libarchive/libarchive.mjs?v=1");
+  mod.Archive.init({ workerUrl: base + "vendor-libarchive/worker-bundle.js?v=1" });
+  DS_ARCHIVE_LIB = mod.Archive;
+  return DS_ARCHIVE_LIB;
+}
+async function dsExtractWithLibarchive(f) {
+  const Archive = await dsArchiveLib();
+  const ar = await Archive.open(f);
+  let files = [];
+  try { files = await ar.extractFiles(); }
+  finally { try { await ar.close(); } catch (e) {} }
+  const out = [];
+  let total = 0, skipped = 0;
+  const skippedExt = new Set();
+  const walk = obj => {
+    Object.keys(obj || {}).forEach(k => {
+      const v = obj[k];
+      if (v instanceof File || (v && typeof v.arrayBuffer === "function" && v.name !== undefined)) {
+        if (/(^|\/)__MACOSX\//.test(k) || String(k).startsWith(".")) return;
+        total++;
+        const bn = String(v.name || k).split("/").pop();
+        if (!bn || !DS_DRAW_EXT.test(bn)) { skipped++; const m = bn.match(/\.[^.]+$/); if (m) skippedExt.add(m[0].toLowerCase()); return; }
+        out.push(new File([v], bn, { type: v.type || dsGuessMime(bn) }));
+      } else if (v && typeof v === "object") walk(v);
+    });
+  };
+  walk(files);
+  if (!total) alert(`Архивът „${f.name}" изглежда празен (0 файла вътре).`);
+  else if (skipped) alert(`От архива „${f.name}": взети ${total - skipped} от ${total} файла.\nПрескочени ${skipped} с неподдържано разширение: ${[...skippedExt].join(", ") || "без разширение"}.\nПоддържат се: PDF, снимки, DWG, DXF, STEP.`);
+  return out;
+}
+
 async function dsExpandFiles(files) {
   const out = [];
   for (const f of files) {
-    if (/\.(rar|7z)$/i.test(f.name)) {
-      alert(`„${f.name}" е ${/\.rar$/i.test(f.name) ? "RAR" : "7z"} архив — браузърът може да разпакова само ZIP.\n\nОтвори го на компютъра и го пре-запиши като ZIP (или качи файловете директно).`);
+    // RAR / 7z / tar.gz — през libarchive (WASM). Зарежда се само при нужда.
+    if (/\.(rar|7z|tar|gz|tgz|bz2|xz|cab|iso)$/i.test(f.name)) {
+      try {
+        const got = await dsExtractWithLibarchive(f);
+        got.forEach(x => out.push(x));
+      } catch (e) {
+        alert(`Не мога да разпакова „${f.name}": ${e.message || e}\n\nАко архивът е с ПАРОЛА или е RAR5 с плътна компресия, отвори го на компютъра и го пре-запиши като ZIP.`);
+      }
       continue;
     }
     if (/\.zip$/i.test(f.name) || /zip/i.test(f.type || "")) {
