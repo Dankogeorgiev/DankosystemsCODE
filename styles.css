@@ -1454,9 +1454,11 @@ tr.times-click:hover td { background: #ecfdf5; }
    при клиента и продукта — имената се четат цели, редовете са подредени. */
 .prod-mode td[data-label="Продукт"] { max-width: none; overflow: visible; }
 .prod-mode td[data-label="Клиент"] { max-width: none; overflow: visible; }
-.prod-mode col:nth-child(2) { width: 25% !important; }   /* Клиент */
-.prod-mode col:nth-child(3) { width: 25% !important; }   /* Продукт */
-.prod-mode col:nth-child(13) { width: 7% !important; }   /* Действия — само ✎/🔀/× */
+.prod-mode col:nth-child(2) { width: 26% !important; }   /* Клиент */
+.prod-mode col:nth-child(3) { width: 26% !important; }   /* Продукт */
+.prod-mode col:nth-child(6) { width: 10% !important; }   /* Операция */
+.prod-mode col:nth-child(11) { width: 17% !important; }  /* Възложи на */
+.prod-mode col:nth-child(13) { width: 6% !important; }   /* Действия — само ✎/🔀/× */
 .prod-mode td[data-label="Клиент"] { font-weight: 600; }
 .prod-mode .t-asg-cell { max-width: 170px; overflow: hidden; }
 .prod-mode .t-asg, .prod-mode .task-note-box { font-size: 11.5px; }
@@ -1472,6 +1474,16 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-mode .tasks-table col.col-claim,
 .prod-mode .tasks-table #th-question,
 .prod-mode .tasks-table td.t-q { display: none !important; }
+/* Инструменти, които не са за планиране — скрити в този режим */
+.prod-mode #btn-messages, .prod-mode #btn-ideas, .prod-mode #btn-supply,
+.prod-mode #btn-extra-activity, .prod-mode #btn-times, .prod-mode #btn-add-task { display: none !important; }
+/* Чертежите не са нужни при планиране */
+.prod-mode .tasks-table th[data-sort="files"],
+.prod-mode .tasks-table td.t-files,
+.prod-mode .tasks-table col:nth-child(4) { display: none !important; }
+/* Операцията — само началото; цялото име излиза при посочване */
+.prod-mode td[data-label="Операция"] { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+
 /* Планирането не отчита и не бракува — това е работа на цеха */
 .prod-mode .t-actions .t-add,
 .prod-mode .t-actions .t-scrap { display: none; }
