@@ -1466,6 +1466,10 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-mode .tasks-table col.col-claim,
 .prod-mode .tasks-table #th-question,
 .prod-mode .tasks-table td.t-q { display: none !important; }
+/* Планирането не отчита и не бракува — това е работа на цеха */
+.prod-mode .t-actions .t-add,
+.prod-mode .t-actions .t-scrap { display: none; }
+
 /* Отговорникът е главното тук — повече място за чиповете и добавянето */
 .prod-mode .t-asg-cell { max-width: none; min-width: 210px; white-space: normal; }
 .prod-mode .t-asg-add { max-width: 130px; }

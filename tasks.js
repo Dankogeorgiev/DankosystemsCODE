@@ -571,6 +571,8 @@ async function openProduction() {
 // Изключва админския режим (при връщане към обикновените Цехове).
 function prodModeOff() {
   PROD_MODE = false;
+  const asgTh = document.querySelector('.tasks-table thead th[data-sort="assignee"]');
+  if (asgTh) asgTh.textContent = "Отговорник";
   const box = document.querySelector("#tasks-modal .tasks-box");
   if (box) box.classList.remove("prod-mode");
   const h = document.querySelector("#tasks-modal .tasks-head h2");
@@ -581,6 +583,9 @@ function prodModeOff() {
 // Лентата с цеховете като бутони + брой активни задачи във всеки.
 function renderProdWsBar() {
   if (!PROD_MODE) return;
+  // В планирането колоната е за раздаване на задачите → „Възложи на".
+  const asgTh = document.querySelector('.tasks-table thead th[data-sort="assignee"]');
+  if (asgTh) asgTh.textContent = "Възложи на";
   const host = document.querySelector("#tasks-modal .tasks-controls");
   if (!host) return;
   let bar = document.getElementById("prod-ws-bar");
