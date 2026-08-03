@@ -1473,3 +1473,11 @@ tr.times-click:hover td { background: #ecfdf5; }
 /* Всички цехове на един екран — по-дребни чипове */
 .prod-mode .prod-ws-bar, .prod-ws-bar { gap: 5px; padding: 8px 12px 2px; }
 .prod-ws { padding: 5px 11px; font-size: 12.5px; }
+
+/* Планиране: лента с натовареността по служител */
+.prod-load-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 12px 8px; }
+.prod-load-lbl { font-size: 12.5px; font-weight: 700; color: #475569; }
+.prod-load { border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.prod-load:hover { background: #eef2ff; }
+.prod-load b { color: #0f172a; }
+.prod-load.is-free { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }

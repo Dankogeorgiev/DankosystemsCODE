@@ -576,6 +576,7 @@ function renderProdWsBar() {
   const btn = (val, label, n) =>
     `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
   bar.innerHTML = workshopList().map(w => btn(w, w, cnt[w] || 0)).join("");
+  renderProdLoadBar();
   bar.querySelectorAll(".prod-ws").forEach(b => b.addEventListener("click", () => {
     const s = document.getElementById("task-workshop");
     if (s) { s.value = b.dataset.ws; }
@@ -583,6 +584,56 @@ function renderProdWsBar() {
     renderWorkerFilter();
     renderTasks();
     renderProdWsBar();
+  }));
+}
+
+/* Натовареност по служител в текущия цех: колко задачи, колко бройки
+   остават и колко ЧАСА е това по измерените времена (Продукти → ⏱).
+   Това е същината на планирането — кой е претоварен и кой е свободен. */
+function renderProdLoadBar() {
+  if (!PROD_MODE) return;
+  const host = document.getElementById("prod-ws-bar");
+  if (!host) return;
+  let bar = document.getElementById("prod-load-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "prod-load-bar";
+    bar.className = "prod-load-bar";
+    host.insertAdjacentElement("afterend", bar);
+  }
+  const ws = currentWorkshop();
+  const rows = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  const times = (typeof ERP !== "undefined" && ERP.prodTimes && ERP.prodTimes.byCode) || null;
+  const secOf = t => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    if (!rem || !times) return 0;
+    const c = times[String(t.code || "").trim()];
+    const op = c && c.ops && c.ops[String(t.operation || "—")];
+    return (op && op.per > 0) ? rem * op.per : 0;
+  };
+  const per = {};
+  let freeN = 0, freeQty = 0, freeSec = 0;
+  rows.forEach(t => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    const sec = secOf(t);
+    const asg = taskAssignees(t);
+    if (!asg.length) { freeN++; freeQty += rem; freeSec += sec; return; }
+    asg.forEach(w => {
+      const p = per[w] || (per[w] = { n: 0, qty: 0, sec: 0 });
+      p.n++; p.qty += rem / asg.length; p.sec += sec / asg.length;
+    });
+  });
+  const h = sec => sec > 0 ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : "";
+  const names = Object.keys(per).sort((a, b) => per[b].sec - per[a].sec || per[b].qty - per[a].qty);
+  const chip = (label, p, cls) =>
+    `<button type="button" class="prod-load${cls || ""}" data-lw="${escapeAttr(label === "— свободни —" ? "" : label)}" title="Клик: показва само задачите на ${escapeHtml(label)}">${escapeHtml(label)} <b>${p.n}</b> зад. · ${matQtyFmt(Math.round(p.qty))} бр.${h(p.sec)}</button>`;
+  bar.innerHTML = `<span class="prod-load-lbl">👥 Натовареност:</span>`
+    + (freeN ? chip("— свободни —", { n: freeN, qty: freeQty, sec: freeSec }, " is-free") : "")
+    + names.map(n => chip(n, per[n])).join("")
+    + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
+  bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
+    const f = document.getElementById("task-worker-filter");
+    if (f) { f.value = (f.value === b.dataset.lw) ? "" : b.dataset.lw; renderTasks(); }
   }));
 }
 
@@ -797,6 +848,8 @@ function renderTasksIncompleteWarn() {
 let TASKS_ARCHIVE = false;   // 🗄 изглед „Архив производство" (само изпълнените)
 function renderTasks() {
   showSub("tasks");
+  // Планирането: натовареността по служител се опреснява при всяко рисуване.
+  if (PROD_MODE) setTimeout(renderProdLoadBar, 0);
 
   // Цехов достъп: първо избор „кой си ти“
   if (amWorker() && !MY_WORKER) { renderIdentityPicker(); return; }
@@ -1138,7 +1191,11 @@ function renderBulkBar(rows, ws) {
   const manualRows = rows.filter(isManualTask);
   bulk.innerHTML = `Маркирани: <strong id="bulk-count">${selectedTasks.size}</strong> ·
     Възложи на: <select id="bulk-worker"><option value="">— избери —</option>${wsNames.map(n => `<option>${escapeHtml(n)}</option>`).join("")}</select>
-    <button id="bulk-assign" class="btn btn-small btn-primary">Възложи избраните</button>
+    <button id="bulk-assign" class="btn btn-small btn-primary" title="ЗАМЕНЯ отговорниците на маркираните с избрания">Възложи избраните</button>
+    <button id="bulk-assign-add" class="btn btn-small" title="ДОБАВЯ избрания към сегашните отговорници (двама на една задача)">➕ Добави към тях</button>
+    <button id="bulk-unassign" class="btn btn-small" title="Маха всички отговорници на маркираните — задачата се връща като свободна">🧹 Освободи</button>
+    <label style="font-size:12.5px">Срок: <input type="date" id="bulk-due" style="padding:4px 6px" /></label>
+    <button id="bulk-setdue" class="btn btn-small" title="Задава този срок на всички маркирани">📅 Задай срок</button>
     <button id="bulk-selvis" class="btn btn-small">Маркирай показаните (${rows.length})</button>
     <button id="bulk-sel-manual" class="btn btn-small" title="Маркира показаните ръчно въведени задачи (не пуснати от системата)">✋ Маркирай ръчните (${manualRows.length})</button>
     <button id="bulk-clear" class="btn btn-small">Изчисти</button>
@@ -1147,6 +1204,9 @@ function renderBulkBar(rows, ws) {
   bulk.querySelector("#bulk-sel-manual").addEventListener("click", () => { manualRows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
   bulk.querySelector("#bulk-clear").addEventListener("click", () => { selectedTasks.clear(); renderTasks(); });
   bulk.querySelector("#bulk-assign").addEventListener("click", () => assignBulk(bulk.querySelector("#bulk-worker").value));
+  bulk.querySelector("#bulk-assign-add").addEventListener("click", () => assignBulk(bulk.querySelector("#bulk-worker").value, true));
+  bulk.querySelector("#bulk-unassign").addEventListener("click", unassignBulk);
+  bulk.querySelector("#bulk-setdue").addEventListener("click", () => setDueBulk(bulk.querySelector("#bulk-due").value));
   bulk.querySelector("#bulk-del").addEventListener("click", deleteBulk);
 }
 
@@ -1173,18 +1233,49 @@ async function deleteBulk() {
   alert(`Изтрити ${done} задачи.`);
 }
 
-async function assignBulk(worker) {
+async function assignBulk(worker, addTo) {
   if (amWorker()) return;
   if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
   if (!worker) { alert("Избери служител от менюто „Възложи на“."); return; }
   const ids = [...selectedTasks];
   for (const id of ids) {
     const t = TASKS.find(x => x.id === id);
-    if (t) { taskSetAssignees(t, [worker]); await tSaveTask(t); }
+    if (!t) continue;
+    const cur = taskAssignees(t);
+    taskSetAssignees(t, addTo ? [...new Set([...cur, worker])] : [worker]);
+    await tSaveTask(t);
   }
   selectedTasks.clear();
   renderTasks();
-  alert(`Възложени ${ids.length} задачи на „${worker}“.`);
+  alert(`${addTo ? "Добавен" : "Възложени"} „${worker}“ ${addTo ? "към" : "на"} ${ids.length} задачи.`);
+}
+// Маха отговорниците на маркираните (задачата се връща като свободна).
+async function unassignBulk() {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
+  const ids = [...selectedTasks];
+  if (!confirm(`Да махна ли отговорниците на ${ids.length} маркирани задачи?`)) return;
+  for (const id of ids) {
+    const t = TASKS.find(x => x.id === id);
+    if (t) { taskSetAssignees(t, []); await tSaveTask(t); }
+  }
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Освободени ${ids.length} задачи.`);
+}
+// Общ срок на маркираните — за планиране по дни.
+async function setDueBulk(due) {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
+  if (!due) { alert("Избери дата в полето „Срок“."); return; }
+  const ids = [...selectedTasks];
+  for (const id of ids) {
+    const t = TASKS.find(x => x.id === id);
+    if (t) { t.due = due; await tSaveTask(t); }
+  }
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Зададен срок ${typeof erpDMY === "function" ? erpDMY(due) : due} на ${ids.length} задачи.`);
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
