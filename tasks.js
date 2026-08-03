@@ -580,12 +580,24 @@ function prodModeOff() {
   const bar = document.getElementById("prod-ws-bar"); if (bar) bar.remove();
 }
 
+// Брой служители в текущия цех — до бутона „👤 Служители".
+function updateWorkersCount() {
+  const el = document.getElementById("workers-count");
+  if (!el) return;
+  const ws = currentWorkshop();
+  const n = ws === "__all"
+    ? new Set(Object.values(WORKERS).flat()).size
+    : (WORKERS[ws] || []).length;
+  el.textContent = n ? ` (${n})` : "";
+}
+
 // Лентата с цеховете като бутони + брой активни задачи във всеки.
 function renderProdWsBar() {
   if (!PROD_MODE) return;
   // В планирането колоната е за раздаване на задачите → „Възложи на".
   const asgTh = document.querySelector('.tasks-table thead th[data-sort="assignee"]');
   if (asgTh) asgTh.textContent = "Възложи на";
+  updateWorkersCount();
   const host = document.querySelector("#tasks-modal .tasks-controls");
   if (!host) return;
   let bar = document.getElementById("prod-ws-bar");
@@ -990,6 +1002,7 @@ function renderTasks() {
   showSub("tasks");
   // Планирането: натовареността по служител се опреснява при всяко рисуване.
   if (PROD_MODE) setTimeout(renderProdLoadBar, 0);
+  updateWorkersCount();
 
   // Цехов достъп: първо избор „кой си ти“
   if (amWorker() && !MY_WORKER) { renderIdentityPicker(); return; }
