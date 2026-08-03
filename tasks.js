@@ -544,7 +544,7 @@ async function openProduction() {
   const box = document.querySelector("#tasks-modal .tasks-box");
   if (box) box.classList.add("prod-mode");
   const h = document.querySelector("#tasks-modal .tasks-head h2");
-  if (h) h.textContent = "🏭 Производство — админски изглед";
+  if (h) h.textContent = "📊 Планиране на производство — раздаване на задачите по служители";
   renderProdWsBar();
 }
 // Изключва админския режим (при връщане към обикновените Цехове).
