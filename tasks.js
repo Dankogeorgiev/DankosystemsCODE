@@ -3149,6 +3149,8 @@ function tInit() {
   btn.addEventListener("click", () => { prodModeOff(); openTasks(); });
   const pBtn = document.getElementById("btn-production");
   if (pBtn) pBtn.addEventListener("click", openProduction);
+  const packBtn = document.getElementById("btn-packing-ws");
+  if (packBtn) packBtn.addEventListener("click", () => openWorkshopDirect("Опаковане/Експедиция"));
   document.getElementById("tasks-close").addEventListener("click", () => {
     document.getElementById("tasks-modal").hidden = true;
     prodModeOff();

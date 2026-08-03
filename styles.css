@@ -909,8 +909,9 @@ tr.times-click:hover td { background: #ecfdf5; }
 @media (max-width: 760px) { .worker-badge { height: 46px; } }
 
 /* Бутони „Боядисване“ (отварят отделната страница boya/) */
-.btn-paint { background: #eef4ff; border-color: #c7d6f2; color: #1f3864; }
-.btn-paint:hover { background: #1f3864; color: #fff; border-color: #1f3864; }
+/* Цеховите бутони — дискретно синьо, за да се различават от останалите */
+.btn-paint { background: #eaf1fb; border-color: #bcd0ec; color: #1e40af; font-weight: 600; }
+.btn-paint:hover { background: #1e40af; color: #fff; border-color: #1e40af; }
 
 /* Заплати — изглед „По петъци" (банка + CODE 005) */
 .pay-scroll { overflow-x: auto; }
