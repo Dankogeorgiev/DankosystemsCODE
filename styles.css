@@ -1450,8 +1450,14 @@ tr.times-click:hover td { background: #ecfdf5; }
 /* Второстепенното остава като подсказка, не като ред */
 .prod-mode .t-detail-pct, .prod-mode .t-today-info, .prod-mode .t-manual,
 .prod-mode .t-stocked, .prod-mode .t-mat-wait, .prod-mode .t-flow-from { display: none !important; }
-.prod-mode td[data-label="Продукт"] { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.prod-mode td[data-label="Клиент"] { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+/* Освободеното място отдясно (Дебелина/Взимам/Въпрос/Запиши/Брак) отива
+   при клиента и продукта — имената се четат цели, редовете са подредени. */
+.prod-mode td[data-label="Продукт"] { max-width: none; overflow: visible; }
+.prod-mode td[data-label="Клиент"] { max-width: none; overflow: visible; }
+.prod-mode col:nth-child(2) { width: 20% !important; }   /* Клиент */
+.prod-mode col:nth-child(3) { width: 22% !important; }   /* Продукт */
+.prod-mode col:nth-child(13) { width: 7% !important; }   /* Действия — само ✎/🔀/× */
+.prod-mode td[data-label="Клиент"] { font-weight: 600; }
 .prod-mode .t-asg-cell { max-width: 170px; overflow: hidden; }
 .prod-mode .t-asg, .prod-mode .task-note-box { font-size: 11.5px; }
 .prod-mode .tasks-controls { padding-top: 6px; }
