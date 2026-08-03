@@ -573,11 +573,9 @@ function renderProdWsBar() {
   const cur = sel ? sel.value : "__all";
   const cnt = {};
   (TASKS || []).forEach(t => { if (!t.done) cnt[t.workshop] = (cnt[t.workshop] || 0) + 1; });
-  const total = Object.values(cnt).reduce((a, b) => a + b, 0);
   const btn = (val, label, n) =>
     `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
-  bar.innerHTML = btn("__all", "Всички цехове", total)
-    + workshopList().map(w => btn(w, w, cnt[w] || 0)).join("");
+  bar.innerHTML = workshopList().map(w => btn(w, w, cnt[w] || 0)).join("");
   bar.querySelectorAll(".prod-ws").forEach(b => b.addEventListener("click", () => {
     const s = document.getElementById("task-workshop");
     if (s) { s.value = b.dataset.ws; }
