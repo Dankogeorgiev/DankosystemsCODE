@@ -751,7 +751,7 @@ function shiftPlanDialog(preWorker) {
     const list = wrap.querySelector("#sp-list");
     let acc = 0;
     const rows = order.map((id, i) => {
-      const t = (TASKS || []).find(x => x.id === id); if (!t) return "";
+      const t = (TASKS || []).find(x => String(x.id) === String(id)); if (!t) return "";
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
       const sec = secOfTask(t); acc += sec;
       const over = acc / 3600 > capH();
@@ -770,34 +770,42 @@ function shiftPlanDialog(preWorker) {
     list.innerHTML = rows;
     const sum = wrap.querySelector("#sp-sum");
     if (sum) sum.textContent = `общо ~${Math.round(acc / 360) / 10} ч · капацитет ${capH()} ч/ден`;
-    list.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => {
-      const i = order.indexOf(Number(b.dataset.up)); if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw(); }
+    // ВАЖНО: id-тата на задачите са UUID (текст) — сравняваме като низове.
+    // (С Number(...) ставаха NaN и нито стрелките, нито влаченето работеха.)
+    const idx = id => order.findIndex(x => String(x) === String(id));
+    list.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      const i = idx(b.dataset.up); if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw(); }
     }));
-    list.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => {
-      const i = order.indexOf(Number(b.dataset.down)); if (i >= 0 && i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; draw(); }
+    list.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      const i = idx(b.dataset.down); if (i >= 0 && i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; draw(); }
     }));
-    list.querySelectorAll("[data-drop]").forEach(b => b.addEventListener("click", () => {
-      order = order.filter(x => x !== Number(b.dataset.drop)); draw();
+    list.querySelectorAll("[data-drop]").forEach(b => b.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      order = order.filter(x => String(x) !== String(b.dataset.drop)); draw();
     }));
     // Влачене на реда: пуснатият застава ПРЕД реда, върху който го пускаш.
     let dragId = null;
     list.querySelectorAll(".sp-row").forEach(row => {
       row.addEventListener("dragstart", e => {
-        // Клик върху бутон (▲▼ / ➖) НЕ започва влачене — иначе браузърът
-        // поглъщаше клика и бутоните изглеждаха „мъртви".
+        // Клик върху бутон (▲▼ / ➖) НЕ започва влачене.
         if (e.target.closest("button")) { e.preventDefault(); return; }
-        dragId = Number(row.dataset.id); e.dataTransfer.effectAllowed = "move"; row.classList.add("sp-dragging");
+        dragId = String(row.dataset.id); e.dataTransfer.effectAllowed = "move";
+        try { e.dataTransfer.setData("text/plain", dragId); } catch (err) {}
+        row.classList.add("sp-dragging");
       });
       row.addEventListener("dragend", () => { row.classList.remove("sp-dragging"); list.querySelectorAll(".sp-row").forEach(r => r.classList.remove("sp-drop")); });
-      row.addEventListener("dragover", e => { e.preventDefault(); row.classList.add("sp-drop"); });
+      row.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; row.classList.add("sp-drop"); });
       row.addEventListener("dragleave", () => row.classList.remove("sp-drop"));
       row.addEventListener("drop", e => {
         e.preventDefault();
-        const target = Number(row.dataset.id);
-        if (!dragId || dragId === target) return;
-        order = order.filter(x => x !== dragId);
-        const at = order.indexOf(target);
-        order.splice(at < 0 ? order.length : at, 0, dragId);
+        const target = String(row.dataset.id);
+        const moved = dragId || (() => { try { return e.dataTransfer.getData("text/plain"); } catch (err) { return ""; } })();
+        if (!moved || moved === target) return;
+        order = order.filter(x => String(x) !== moved);
+        const at = order.findIndex(x => String(x) === target);
+        order.splice(at < 0 ? order.length : at, 0, moved);
         dragId = null; draw();
       });
     });
@@ -811,7 +819,7 @@ function shiftPlanDialog(preWorker) {
     // Първо чистим стария план за този служител/ден, после пишем новия ред.
     for (const t of (TASKS || [])) {
       const had = t.plan && t.plan.day === day && t.plan.worker === worker;
-      const idx = order.indexOf(t.id);
+      const idx = order.findIndex(x => String(x) === String(t.id));
       if (idx >= 0) { t.plan = { worker, day, seq: idx + 1 }; await tSaveTask(t); }
       else if (had) { delete t.plan; await tSaveTask(t); }
     }
