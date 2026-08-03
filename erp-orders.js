@@ -706,6 +706,15 @@ async function erpFlowApply(meta, productLines) {
   const ref = "order:" + sid;
   const toStock = !!meta.toStock;                 // производство ЗА СКЛАД (без заявка)
   const sfx = toStock ? ("¦склад:" + sid) : "";
+  // Цехове, в които НЕ сливаме поръчките в обща серия (настройва се от
+  // „Планиране на производство" → ⚙ Сливане). Там всяка поръчка получава
+  // собствена задача — ключът на серията носи и номера на поръчката.
+  let noMergeWs = [];
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "series_off").maybeSingle();
+    noMergeWs = (data && data.data && data.data.workshops) || [];
+  } catch (e) {}
+  const nmSet = new Set(noMergeWs);
 
   // 0) Нетна потребност спрямо СКЛАДА за детайли. Наличността, която е на склад,
   //    не се пуска към цех (детайлът е готов). Изключваме собствените стари
@@ -830,6 +839,22 @@ async function erpFlowApply(meta, productLines) {
       const cur = missingMap[k] || (missingMap[k] = { code: m.code, name: m.name, qty: 0 });
       cur.qty += Number(m.qty) || 0;
     });
+    // Цехове без сливане: ключът става личен за поръчката (една задача = една
+    // поръчка). Преименуваме СЪГЛАСУВАНО — и връзките prevKey/gate, иначе
+    // веригата се къса и следващата операция не тръгва.
+    if (nmSet.size) {
+      const own = "¦зая:" + sid;
+      const ren = {};
+      steps.forEach(st => { if (nmSet.has(st.workshop) && !String(st.seriesKey).endsWith(own)) ren[st.seriesKey] = st.seriesKey + own; });
+      if (Object.keys(ren).length) steps.forEach(st => {
+        if (ren[st.seriesKey]) st.seriesKey = ren[st.seriesKey];
+        if (st.prevKey && ren[st.prevKey]) st.prevKey = ren[st.prevKey];
+        if (Array.isArray(st.gate)) st.gate = st.gate.map(g => {
+          if (typeof g === "string") return ren[g] || g;
+          return (g && g.key && ren[g.key]) ? { ...g, key: ren[g.key] } : g;
+        });
+      });
+    }
     steps.forEach(st => {
       const cur = mine[st.seriesKey] || (mine[st.seriesKey] = { qty: 0, st });
       cur.qty += st.qty;

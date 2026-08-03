@@ -1483,3 +1483,11 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-load.is-free { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
 .prod-load.is-busy { background: #fef9c3; border-color: #fde047; }
 .prod-load.is-over { background: #fee2e2; border-color: #fca5a5; color: #991b1b; font-weight: 600; }
+
+/* Серии: срок и клиенти вместо голото „СЕРИЯ" (важи и в Цехове, и в Планиране) */
+.t-serie-due { border-bottom: 1px dotted #94a3b8; cursor: help; }
+.t-serie-due.is-late { color: #b91c1c; font-weight: 700; }
+.t-serie-due small { color: #64748b; }
+.t-serie-cl { border-bottom: 1px dotted #94a3b8; cursor: help; }
+.t-serie-bd { font-size: 11px; color: #475569; }
+.prod-mode .t-serie-bd { display: inline; margin-left: 6px; color: #334155; }

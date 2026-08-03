@@ -211,6 +211,24 @@ function amMultiWorkshop() { return myWorkshops().length > 1; }
 // имат source.flow; ръчните (стар импорт / ръчно) нямат.
 function isManualTask(t) { return !(t && t.source && t.source.flow); }
 // Номер(а) на поръчката(ите), по които е този детайл (една серия може да е от няколко).
+/* Серия = няколко поръчки в една задача. За да не остава „СЕРИЯ" без
+   информация, показваме НАЙ-РАННИЯ срок и колко клиента са вътре, а цялата
+   разбивка (клиент · бройки · срок) е в подсказката. Важи и в Цехове, и в
+   Планиране — един и същ ред. */
+function taskSeriesOrders(t) {
+  const src = t && t.source;
+  return (src && Array.isArray(src.orders)) ? src.orders : [];
+}
+function taskSeriesBreakdown(t) {
+  return taskSeriesOrders(t).map(o =>
+    `${o.client || "—"}${o.no ? " (№" + o.no + ")" : ""}: ${matQtyFmt(Number(o.qty) || 0)} бр.${o.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(o.due) : o.due) : ""}`
+  ).join("\n");
+}
+function taskEarliestDue(t) {
+  const ds = taskSeriesOrders(t).map(o => o.due).filter(Boolean).sort();
+  return ds[0] || "";
+}
+
 function taskOrderNos(t) {
   const src = t && t.source;
   if (src && Array.isArray(src.orders) && src.orders.length) {
@@ -630,6 +648,34 @@ async function workerCapDialog() {
   });
 }
 
+/* ⚙ Сливане: в кои цехове поръчките да НЕ се сливат в обща серия.
+   Сливането пести настройки и материал, но крие сроковете на отделните
+   поръчки. Тук се изключва там, където пречи. Важи при следващото пускане
+   на заявка — вече създадените задачи не се разделят със задна дата. */
+async function seriesMergeDialog() {
+  let off = [];
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "series_off").maybeSingle();
+    off = (data && data.data && data.data.workshops) || [];
+  } catch (e) {}
+  const list = workshopList();
+  const { wrap, close } = erpDialog(`
+    <h3>⚙ Сливане на поръчките в серии</h3>
+    <p class="hint" style="margin:-4px 0 8px">Сливането прави ЕДНА задача от няколко поръчки за същия код и операция — една настройка, по-малко отпадък. Отметни цеховете, в които НЕ искаш сливане (всяка поръчка = отделна задача).</p>
+    <div class="erp-lp-list" style="max-height:46vh;overflow:auto">
+      ${list.map(w => `<label class="erp-inline" style="display:block;padding:3px 0"><input type="checkbox" class="sm-w" value="${escapeAttr(w)}" ${off.includes(w) ? "checked" : ""}> ${escapeHtml(w)}</label>`).join("")}
+    </div>
+    <p class="hint" style="margin:8px 0 0">⚠ Важи за задачите, които ще се пуснат ОТСЕГА нататък. Вече пуснатите остават както са.</p>
+    <div class="erp-dialog-actions"><button class="btn" id="sm-cancel">Отказ</button><button class="btn btn-primary" id="sm-save">Запази</button></div>`);
+  wrap.querySelector("#sm-cancel").addEventListener("click", close);
+  wrap.querySelector("#sm-save").addEventListener("click", async () => {
+    const ws = [...wrap.querySelectorAll(".sm-w")].filter(i => i.checked).map(i => i.value);
+    try { await sb.from("app_config").upsert({ id: "series_off", data: { workshops: ws }, updated_at: new Date().toISOString() }); } catch (e) {}
+    close();
+    alert(ws.length ? `Без сливане в: ${ws.join(", ")}.\nВажи за новите пускания.` : "Сливането е включено за всички цехове.");
+  });
+}
+
 /* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
 function printDayPlan() {
   const ws = currentWorkshop();
@@ -713,9 +759,11 @@ function renderProdLoadBar() {
     + (freeN ? chip("— свободни —", { n: freeN, qty: freeQty, sec: freeSec }, " is-free") : "")
     + names.map(n => chip(n, per[n], "", n)).join("")
     + `<span class="spacer" style="flex:1"></span>`
+    + `<button type="button" class="btn btn-small" id="prod-merge" title="В кои цехове поръчките да НЕ се сливат в обща серия">⚙ Сливане</button>`
     + `<button type="button" class="btn btn-small" id="prod-cap">⚙ Капацитет</button>`
     + `<button type="button" class="btn btn-small" id="prod-print">🖨 Дневен план</button>`
     + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
+  const mb = bar.querySelector("#prod-merge"); if (mb) mb.addEventListener("click", seriesMergeDialog);
   const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
   const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", printDayPlan);
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
@@ -1127,14 +1175,23 @@ function renderTasks() {
     if (isW) { const asg = taskAssignees(t); if (asg.length && !asg.includes(MY_WORKER)) tr.classList.add("task-foreign"); }
     tr.innerHTML = `
       ${prioCell}
-      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}${(function () {
+      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : (function () {
+        const os = taskSeriesOrders(t);
+        const cls = [...new Set(os.map(o => (o.client || "").trim()).filter(Boolean))];
+        if (!cls.length) return `<span class="serie">СЕРИЯ</span>`;
+        const lbl = cls.length === 1 ? cls[0] : (cls.length + " клиента");
+        return `<span class="t-serie-cl" title="${escapeAttr(taskSeriesBreakdown(t))}">${escapeHtml(lbl)}</span>`;
+      })()}${(function () {
         const n = taskOrderNos(t);
         if (!n.length) return "";
         // Поредността на операцията в потока на детайла (source.step, 0-базиран) →
         // след номера на поръчката: напр. 81/1 = рязане, 81/2 = следваща операция…
         const seq = (t.source && t.source.flow && t.source.step != null) ? (Number(t.source.step) + 1) : null;
         const label = (seq != null) ? n.map(x => x + "/" + seq).join(", ") : n.join(", ");
-        return `<div class="t-orderno" title="Номер на поръчката / пореден номер на операцията в потока">📋 № ${escapeHtml(label)}</div>`;
+        const bd = (PROD_MODE && taskSeriesOrders(t).length > 1)
+          ? `<div class="t-serie-bd" title="Разбивка на серията по поръчки">${taskSeriesOrders(t).map(o => `${escapeHtml(o.client || "—")} ${matQtyFmt(Number(o.qty) || 0)}бр${o.due ? " до " + (typeof erpDMY === "function" ? erpDMY(o.due) : o.due) : ""}`).join(" | ")}</div>`
+          : "";
+        return `<div class="t-orderno" title="Номер на поръчката / пореден номер на операцията в потока">📋 № ${escapeHtml(label)}</div>${bd}`;
       })()}</td>
       <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${stockedHtml}${matHtml}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
@@ -1145,7 +1202,14 @@ function renderTasks() {
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>
-      <td data-label="Срок">${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : escapeHtml(t.due)) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td data-label="Срок">${t.due
+        ? (typeof erpDMY === "function" ? erpDMY(t.due) : escapeHtml(t.due))
+        : (function () {
+            const d = taskEarliestDue(t);
+            if (!d) return `<span class="serie">СЕРИЯ</span>`;
+            const late = d < todayStr();
+            return `<span class="t-serie-due${late ? " is-late" : ""}" title="Най-ранен срок в серията:\n${escapeAttr(taskSeriesBreakdown(t))}">${typeof erpDMY === "function" ? erpDMY(d) : escapeHtml(d)} <small>(серия)</small></span>`;
+          })()}</td>
       ${amWorker()
         ? `<td class="t-assignee-ro" data-label="Отговорник">${assignees.length ? assignees.map(escapeHtml).join(", ") : "—"}</td>`
         : `<td data-label="Отговорник" class="t-asg-cell">
