@@ -537,10 +537,13 @@ async function openTasks() {
    се побира на екран. Затова всяка корекция минава през същата логика
    (отчитане, брак, преместване, вериги, склад) — няма втора истина. */
 let PROD_MODE = false;
+let PROD_FREE_FIRST = true;       // неразпределените най-горе
+let WORKER_CAP = { def: 8, byWorker: {} };   // часове/ден за планиране
 
 async function openProduction() {
   PROD_MODE = true;
   await openTasks();
+  try { await loadWorkerCap(); } catch (e) {}
   const box = document.querySelector("#tasks-modal .tasks-box");
   if (box) box.classList.add("prod-mode");
   const h = document.querySelector("#tasks-modal .tasks-head h2");
@@ -587,6 +590,81 @@ function renderProdWsBar() {
   }));
 }
 
+/* Дневен капацитет (часове/ден) по служител — за да се вижда „N дни работа".
+   Пази се в app_config → worker_capacity. По подразбиране 8 ч/ден. */
+async function loadWorkerCap() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "worker_capacity").maybeSingle();
+    const d = (data && data.data) || {};
+    WORKER_CAP = { def: Number(d.def) > 0 ? Number(d.def) : 8, byWorker: d.byWorker || {} };
+  } catch (e) {}
+}
+function capOf(worker) {
+  const v = Number((WORKER_CAP.byWorker || {})[worker]);
+  return v > 0 ? v : (Number(WORKER_CAP.def) > 0 ? Number(WORKER_CAP.def) : 8);
+}
+async function workerCapDialog() {
+  const ws = currentWorkshop();
+  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const { wrap, close } = erpDialog(`
+    <h3>⚙ Дневен капацитет (часове/ден)</h3>
+    <p class="hint" style="margin:-4px 0 8px">Спрямо него се смята „~N дни работа" на всеки служител. Празно = по подразбиране.</p>
+    <label class="erp-inline">По подразбиране за всички <input type="number" id="wc-def" min="1" step="0.5" value="${WORKER_CAP.def}" style="width:80px" /> ч/ден</label>
+    <div class="erp-lp-list" style="max-height:46vh;overflow:auto;margin-top:8px">
+      ${names.map(n => `<label class="erp-inline" style="display:flex;justify-content:space-between;gap:8px;padding:3px 0">
+        <span>${escapeHtml(n)}</span>
+        <input type="number" class="wc-w" data-w="${escapeAttr(n)}" min="0" step="0.5" value="${escapeAttr(String((WORKER_CAP.byWorker || {})[n] || ""))}" placeholder="${WORKER_CAP.def}" style="width:80px" /></label>`).join("") || '<p class="erp-muted">Няма служители в този цех.</p>'}
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="wc-cancel">Отказ</button><button class="btn btn-primary" id="wc-save">Запази</button></div>`);
+  wrap.querySelector("#wc-cancel").addEventListener("click", close);
+  wrap.querySelector("#wc-save").addEventListener("click", async () => {
+    const def = Number(wrap.querySelector("#wc-def").value) || 8;
+    const by = { ...(WORKER_CAP.byWorker || {}) };
+    wrap.querySelectorAll(".wc-w").forEach(i => {
+      const v = Number(i.value);
+      if (v > 0) by[i.dataset.w] = v; else delete by[i.dataset.w];
+    });
+    WORKER_CAP = { def, byWorker: by };
+    try { await sb.from("app_config").upsert({ id: "worker_capacity", data: WORKER_CAP, updated_at: new Date().toISOString() }); } catch (e) {}
+    close(); renderProdLoadBar();
+  });
+}
+
+/* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
+function printDayPlan() {
+  const ws = currentWorkshop();
+  const rows = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  const by = {};
+  rows.forEach(t => {
+    const asg = taskAssignees(t);
+    (asg.length ? asg : ["— неразпределени —"]).forEach(w => (by[w] = by[w] || []).push(t));
+  });
+  const names = Object.keys(by).sort((a, b) => a.localeCompare(b, "bg"));
+  const d = typeof erpDMY === "function" ? erpDMY(todayStr()) : todayStr();
+  const body = names.map(w => {
+    const list = by[w].slice().sort((x, y) => String(x.due || "9999").localeCompare(String(y.due || "9999")));
+    const rowsH = list.map((t, i) => {
+      const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+      return `<tr><td>${i + 1}</td><td>${escapeHtml(t.client || "СЕРИЯ")}</td><td>${escapeHtml(t.code || "")}</td>
+        <td>${escapeHtml(t.product || "")}</td><td>${escapeHtml(t.operation || t.workshop || "")}</td>
+        <td class="r">${rem}</td><td>${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : "—"}</td><td style="width:90px"></td></tr>`;
+    }).join("");
+    return `<h3>${escapeHtml(w)} <span style="font-weight:400;font-size:13px;color:#555">— ${list.length} задачи</span></h3>
+      <table><thead><tr><th>№</th><th>Клиент</th><th>Код</th><th>Продукт</th><th>Операция</th><th>Остават</th><th>Срок</th><th>Готово ✓</th></tr></thead><tbody>${rowsH}</tbody></table>`;
+  }).join("") || "<p>Няма задачи за този цех.</p>";
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Дневен план ${d}</title>
+    <style>body{font-family:Arial,sans-serif;margin:16px 22px;color:#111}
+    h1{font-size:19px;margin:0 0 2px}h3{font-size:15px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left}
+    th{background:#f1f5f9}td.r{text-align:right}
+    @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
+    <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
+    <h1>Дневен план — ${escapeHtml(ws === "__all" ? "всички цехове" : ws)} · ${d}</h1>${body}</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
 /* Натовареност по служител в текущия цех: колко задачи, колко бройки
    остават и колко ЧАСА е това по измерените времена (Продукти → ⏱).
    Това е същината на планирането — кой е претоварен и кой е свободен. */
@@ -625,12 +703,21 @@ function renderProdLoadBar() {
   });
   const h = sec => sec > 0 ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : "";
   const names = Object.keys(per).sort((a, b) => per[b].sec - per[a].sec || per[b].qty - per[a].qty);
-  const chip = (label, p, cls) =>
-    `<button type="button" class="prod-load${cls || ""}" data-lw="${escapeAttr(label === "— свободни —" ? "" : label)}" title="Клик: показва само задачите на ${escapeHtml(label)}">${escapeHtml(label)} <b>${p.n}</b> зад. · ${matQtyFmt(Math.round(p.qty))} бр.${h(p.sec)}</button>`;
+  const chip = (label, p, cls, worker) => {
+    const days = (worker && p.sec > 0) ? p.sec / 3600 / capOf(worker) : 0;
+    const load = days > 3 ? " is-over" : (days > 1 ? " is-busy" : "");
+    const dTxt = days > 0 ? ` · <b>~${Math.round(days * 10) / 10} дни</b>` : "";
+    return `<button type="button" class="prod-load${cls || ""}${load}" data-lw="${escapeAttr(label === "— свободни —" ? "" : label)}" title="Клик: показва само задачите на ${escapeHtml(label)}${worker ? ` (капацитет ${capOf(worker)} ч/ден)` : ""}">${escapeHtml(label)} <b>${p.n}</b> зад. · ${matQtyFmt(Math.round(p.qty))} бр.${h(p.sec)}${dTxt}</button>`;
+  };
   bar.innerHTML = `<span class="prod-load-lbl">👥 Натовареност:</span>`
     + (freeN ? chip("— свободни —", { n: freeN, qty: freeQty, sec: freeSec }, " is-free") : "")
-    + names.map(n => chip(n, per[n])).join("")
+    + names.map(n => chip(n, per[n], "", n)).join("")
+    + `<span class="spacer" style="flex:1"></span>`
+    + `<button type="button" class="btn btn-small" id="prod-cap">⚙ Капацитет</button>`
+    + `<button type="button" class="btn btn-small" id="prod-print">🖨 Дневен план</button>`
     + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
+  const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
+  const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", printDayPlan);
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
     const f = document.getElementById("task-worker-filter");
     if (f) { f.value = (f.value === b.dataset.lw) ? "" : b.dataset.lw; renderTasks(); }
@@ -921,6 +1008,11 @@ function renderTasks() {
     // Изпълнените (когато се показват) винаги най-долу.
     const da = taskStatus(a) === "done" ? 1 : 0, db = taskStatus(b) === "done" ? 1 : 0;
     if (da !== db) return da - db;
+    // ПЛАНИРАНЕ: неразпределените изплуват най-горе — те чакат решение.
+    if (PROD_MODE && PROD_FREE_FIRST && !sortState.key) {
+      const fa = taskAssignees(a).length ? 1 : 0, fb = taskAssignees(b).length ? 1 : 0;
+      if (fa !== fb) return fa - fb;
+    }
     if (selKey !== "priority") {
       const pa = priLevel(a), pb = priLevel(b);
       if (pa !== pb) return pb - pa;

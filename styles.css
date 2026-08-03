@@ -1481,3 +1481,5 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-load:hover { background: #eef2ff; }
 .prod-load b { color: #0f172a; }
 .prod-load.is-free { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+.prod-load.is-busy { background: #fef9c3; border-color: #fde047; }
+.prod-load.is-over { background: #fee2e2; border-color: #fca5a5; color: #991b1b; font-weight: 600; }
