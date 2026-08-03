@@ -719,7 +719,7 @@ function shiftPlanDialog(preWorker) {
       <span class="spacer" style="flex:1"></span>
       <span class="erp-muted" id="sp-sum"></span>
     </div>
-    <p class="hint" style="margin:0 0 8px">Подреди с ▲▼ реда, в който да се работи. „➖" маха задачата от плана за деня (остава възложена). Записаният ред се вижда и в Цехове, и в разпечатката за бригадира.</p>
+    <p class="hint" style="margin:0 0 8px">Подреди с ВЛАЧЕНЕ (или с ▲▼) реда, в който да се работи. „➖" маха задачата от плана за деня (остава възложена). Записаният ред се вижда и в Цехове, и в разпечатката за бригадира.</p>
     <div id="sp-list" class="erp-lp-list" style="max-height:52vh;overflow:auto"></div>
     <div class="erp-dialog-actions">
       <button class="btn" id="sp-close">Затвори</button>
@@ -755,7 +755,8 @@ function shiftPlanDialog(preWorker) {
       const sec = secOfTask(t); acc += sec;
       const over = acc / 3600 > capH();
       const inPlan = t.plan && t.plan.day === day && t.plan.worker === worker;
-      return `<div class="sp-row${over ? " sp-over" : ""}${inPlan ? " sp-in" : ""}" data-id="${id}">
+      return `<div class="sp-row${over ? " sp-over" : ""}${inPlan ? " sp-in" : ""}" data-id="${id}" draggable="true" title="Влачи, за да преместиш">
+        <span class="sp-grip" title="Влачи">⠿</span>
         <span class="sp-n">${i + 1}</span>
         <span class="sp-main"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
           <small>${escapeHtml(t.operation || t.workshop || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}${sec ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : ""}</small></span>
@@ -777,6 +778,23 @@ function shiftPlanDialog(preWorker) {
     list.querySelectorAll("[data-drop]").forEach(b => b.addEventListener("click", () => {
       order = order.filter(x => x !== Number(b.dataset.drop)); draw();
     }));
+    // Влачене на реда: пуснатият застава ПРЕД реда, върху който го пускаш.
+    let dragId = null;
+    list.querySelectorAll(".sp-row").forEach(row => {
+      row.addEventListener("dragstart", e => { dragId = Number(row.dataset.id); e.dataTransfer.effectAllowed = "move"; row.classList.add("sp-dragging"); });
+      row.addEventListener("dragend", () => { row.classList.remove("sp-dragging"); list.querySelectorAll(".sp-row").forEach(r => r.classList.remove("sp-drop")); });
+      row.addEventListener("dragover", e => { e.preventDefault(); row.classList.add("sp-drop"); });
+      row.addEventListener("dragleave", () => row.classList.remove("sp-drop"));
+      row.addEventListener("drop", e => {
+        e.preventDefault();
+        const target = Number(row.dataset.id);
+        if (!dragId || dragId === target) return;
+        order = order.filter(x => x !== dragId);
+        const at = order.indexOf(target);
+        order.splice(at < 0 ? order.length : at, 0, dragId);
+        dragId = null; draw();
+      });
+    });
   };
   wrap.querySelector("#sp-worker").addEventListener("change", e => { worker = e.target.value; build(); });
   wrap.querySelector("#sp-day").addEventListener("change", e => { day = e.target.value; build(); });
@@ -887,7 +905,9 @@ function renderProdLoadBar() {
     const dTxt = days > 0 ? ` · <b>~${Math.round(days * 10) / 10} дни</b>` : "";
     return `<button type="button" class="prod-load${cls || ""}${load}" data-lw="${escapeAttr(label === "— свободни —" ? "" : label)}" title="Клик: показва само задачите на ${escapeHtml(label)}${worker ? ` (капацитет ${capOf(worker)} ч/ден)` : ""}">${escapeHtml(label)} <b>${p.n}</b> зад. · ${matQtyFmt(Math.round(p.qty))} бр.${h(p.sec)}${dTxt}</button>`;
   };
+  const selW = (document.getElementById("task-worker-filter") || {}).value || "";
   bar.innerHTML = `<span class="prod-load-lbl">👥 Натовареност:</span>`
+    + (selW ? `<button type="button" class="btn btn-small btn-primary" id="prod-shift-sel">📅 Дневен план на ${escapeHtml(selW)}</button>` : "")
     + (freeN ? chip("— свободни —", { n: freeN, qty: freeQty, sec: freeSec }, " is-free") : "")
     + names.map(n => chip(n, per[n], "", n)).join("")
     + `<span class="spacer" style="flex:1"></span>`
@@ -897,6 +917,7 @@ function renderProdLoadBar() {
     + `<button type="button" class="btn btn-small" id="prod-print">🖨 Дневен план</button>`
     + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
   const sb2 = bar.querySelector("#prod-shift"); if (sb2) sb2.addEventListener("click", () => shiftPlanDialog());
+  const sb3 = bar.querySelector("#prod-shift-sel"); if (sb3) sb3.addEventListener("click", () => shiftPlanDialog(selW));
   const mb = bar.querySelector("#prod-merge"); if (mb) mb.addEventListener("click", seriesMergeDialog);
   const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
   const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", () => printDayPlan());
@@ -3291,7 +3312,7 @@ function tInit() {
     if (typeof sb !== "undefined" && sb) sb.auth.signOut();
   });
   document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); renderProdWsBar(); });
-  document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
+  document.getElementById("task-worker-filter").addEventListener("change", () => { renderTasks(); renderProdLoadBar(); });
   const clientFilterEl = document.getElementById("task-client-filter");
   if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);
   const ordersProdBtn = document.getElementById("btn-orders-prod");
