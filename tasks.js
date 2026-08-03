@@ -531,6 +531,63 @@ async function openTasks() {
   }
 }
 
+/* ---------- 🏭 ПРОИЗВОДСТВО (админски изглед) ----------
+   СЪЩИТЕ данни, същите бутони и същите действия като „Цехове" — само
+   подредени за офиса: цеховете са бутони, редовете са стегнати, всичко
+   се побира на екран. Затова всяка корекция минава през същата логика
+   (отчитане, брак, преместване, вериги, склад) — няма втора истина. */
+let PROD_MODE = false;
+
+async function openProduction() {
+  PROD_MODE = true;
+  await openTasks();
+  const box = document.querySelector("#tasks-modal .tasks-box");
+  if (box) box.classList.add("prod-mode");
+  const h = document.querySelector("#tasks-modal .tasks-head h2");
+  if (h) h.textContent = "🏭 Производство — админски изглед";
+  renderProdWsBar();
+}
+// Изключва админския режим (при връщане към обикновените Цехове).
+function prodModeOff() {
+  PROD_MODE = false;
+  const box = document.querySelector("#tasks-modal .tasks-box");
+  if (box) box.classList.remove("prod-mode");
+  const h = document.querySelector("#tasks-modal .tasks-head h2");
+  if (h) h.textContent = "🏭 Производство по цехове";
+  const bar = document.getElementById("prod-ws-bar"); if (bar) bar.remove();
+}
+
+// Лентата с цеховете като бутони + брой активни задачи във всеки.
+function renderProdWsBar() {
+  if (!PROD_MODE) return;
+  const host = document.querySelector("#tasks-modal .tasks-controls");
+  if (!host) return;
+  let bar = document.getElementById("prod-ws-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "prod-ws-bar";
+    bar.className = "prod-ws-bar";
+    host.parentNode.insertBefore(bar, host);
+  }
+  const sel = document.getElementById("task-workshop");
+  const cur = sel ? sel.value : "__all";
+  const cnt = {};
+  (TASKS || []).forEach(t => { if (!t.done) cnt[t.workshop] = (cnt[t.workshop] || 0) + 1; });
+  const total = Object.values(cnt).reduce((a, b) => a + b, 0);
+  const btn = (val, label, n) =>
+    `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
+  bar.innerHTML = btn("__all", "Всички цехове", total)
+    + workshopList().map(w => btn(w, w, cnt[w] || 0)).join("");
+  bar.querySelectorAll(".prod-ws").forEach(b => b.addEventListener("click", () => {
+    const s = document.getElementById("task-workshop");
+    if (s) { s.value = b.dataset.ws; }
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+    renderProdWsBar();
+  }));
+}
+
 // Отваря директно даден цех (за линк ?cex=Лазери на телефон/таблет)
 async function openWorkshopDirect(ws) {
   if (!ws) return;
@@ -2839,15 +2896,18 @@ function exportTimesCsv(rows) {
 function tInit() {
   const btn = document.getElementById("btn-tasks");
   if (!btn) return;
-  btn.addEventListener("click", openTasks);
+  btn.addEventListener("click", () => { prodModeOff(); openTasks(); });
+  const pBtn = document.getElementById("btn-production");
+  if (pBtn) pBtn.addEventListener("click", openProduction);
   document.getElementById("tasks-close").addEventListener("click", () => {
     document.getElementById("tasks-modal").hidden = true;
+    prodModeOff();
   });
   document.getElementById("tasks-logout").addEventListener("click", () => {
     MY_WORKER = null;
     if (typeof sb !== "undefined" && sb) sb.auth.signOut();
   });
-  document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); });
+  document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); renderProdWsBar(); });
   document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
   const clientFilterEl = document.getElementById("task-client-filter");
   if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);

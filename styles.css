@@ -1421,3 +1421,22 @@ tr.times-click:hover td { background: #ecfdf5; }
 /* Чужда задача в цеховия изглед (възложена на друг) — вижда се, но бледа */
 .tasks-table tr.task-foreign td { opacity: .55; }
 .tasks-table tr.task-foreign:hover td { opacity: .85; }
+
+/* ---------- 🏭 ПРОИЗВОДСТВО (админски изглед) ----------
+   Същият екран като „Цехове", но стегнат: цеховете са бутони, редовете
+   са по-ниски, шрифтът по-дребен — за да се вижда повече на екран. */
+.prod-ws-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.prod-ws { border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 6px 13px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.prod-ws:hover { background: #f1f5f9; }
+.prod-ws.active { background: #0f766e; border-color: #0f766e; color: #fff; font-weight: 700; }
+.prod-ws-n { background: rgba(15,23,42,.10); border-radius: 999px; padding: 0 7px; font-size: 12px; font-weight: 700; }
+.prod-ws.active .prod-ws-n { background: rgba(255,255,255,.25); }
+
+.prod-mode .tasks-controls select#task-workshop { display: none; }   /* цеховете са бутони */
+.prod-mode table.task-table { font-size: 12.5px; }
+.prod-mode table.task-table th,
+.prod-mode table.task-table td { padding: 4px 6px; line-height: 1.25; }
+.prod-mode table.task-table td small { font-size: 11px; }
+.prod-mode .t-asg, .prod-mode .task-note-box { font-size: 11.5px; }
+.prod-mode .tasks-controls { padding-top: 6px; }
+.prod-mode input.t-today { width: 62px; }
