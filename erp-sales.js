@@ -712,7 +712,10 @@ async function erpMarkOrderDone(orderId, saleLines) {
       await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", orderId);
       // Приключена заявка → освобождаваме резервираната ѝ наличност (кръстосано
       // нетване), за да не застоява и да блокира нетването на бъдещи заявки.
+      // ЧАСТИЧНА доставка → резервацията пада ПРОПОРЦИОНАЛНО: доставените бройки
+      // са изписани с продажбата и не бива да стоят „блокирани" в Склад детайли.
       if (allDone && typeof erpReleaseNetting === "function") { try { await erpReleaseNetting(orderId); } catch (e) {} }
+      else if (typeof erpScaleNetting === "function") { try { await erpScaleNetting(orderId, erpOrderRemainFactor(d)); } catch (e) {} }
       if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) { it.status = d.status; it.lines = lines; } }
       if (allDone) return `\n\n✅ Заявка №${d.ourNo || ""} е доставена НАПЪЛНО и приключена.`;
       const rem = lines.filter(l => (Number(l.delivered) || 0) < (erpToNum(l.qty) || 0))

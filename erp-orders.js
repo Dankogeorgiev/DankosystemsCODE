@@ -775,8 +775,19 @@ async function erpFlowApply(meta, productLines) {
         const { data: cos } = await sb.from("customer_orders").select("id,data").in("id", oids);
         const seen = new Set((cos || []).map(r => String(r.id)));
         (cos || []).forEach(r => {
-          const st = (r.data && r.data.status) || "";
-          if (st === "завършена") delete flowNet[String(r.id)];
+          const d = r.data || {};
+          const st = d.status || "";
+          if (st === "завършена") { delete flowNet[String(r.id)]; return; }
+          // Частично доставена заявка резервира само НЕДОСТАВЕНАТА си част —
+          // доставените бройки вече са изписани от склада с продажбата.
+          const fx = erpOrderRemainFactor(d);
+          const m = flowNet[String(r.id)];
+          if (!m) return;
+          if (!(fx > 0)) { delete flowNet[String(r.id)]; return; }
+          if (fx < 1) Object.keys(m).forEach(pid => {
+            const v = Math.round((Number(m[pid]) || 0) * fx);
+            if (v > 0) m[pid] = v; else delete m[pid];
+          });
         });
         // Изтрити заявки (няма ги вече в базата) — резервациите им също падат.
         oids.forEach(k => { if (!seen.has(String(k))) delete flowNet[String(k)]; });
@@ -1069,6 +1080,38 @@ async function erpFlowApply(meta, productLines) {
 // ползват другите заявки. Вика се при изтегляне И при приключване/продажба на
 // заявката — тогава наличността вече е реално изписана и резервацията трябва да
 // падне, иначе застоява и блокира нетването на бъдещи заявки.
+/* Каква ЧАСТ от заявката още не е доставена (0…1). При частична доставка
+   резервираната наличност трябва да падне пропорционално — доставените
+   бройки вече са изписани с продажбата и не бива да стоят „блокирани". */
+function erpOrderRemainFactor(d) {
+  const lines = (d && d.lines) || [];
+  let tot = 0, del = 0;
+  lines.forEach(l => {
+    const q = erpToNum(l.qty) || 0;
+    tot += q; del += Math.min(q, Number(l.delivered) || 0);
+  });
+  if (!(tot > 0)) return 1;
+  return Math.max(0, Math.min(1, 1 - del / tot));
+}
+// Свива резервацията на заявка до реално оставащата ѝ част (или я маха).
+async function erpScaleNetting(sampleId, factor) {
+  const sid = String(sampleId);
+  try {
+    const { data: cfg } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (cfg && cfg.data && cfg.data.byOrder) || {};
+    const m = byOrder[sid]; if (!m) return;
+    if (!(factor > 0)) delete byOrder[sid];
+    else {
+      Object.keys(m).forEach(pid => {
+        const v = Math.round((Number(m[pid]) || 0) * factor);
+        if (v > 0) m[pid] = v; else delete m[pid];
+      });
+      if (!Object.keys(m).length) delete byOrder[sid];
+    }
+    await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() });
+  } catch (e) {}
+}
+
 async function erpReleaseNetting(sampleId) {
   const sid = String(sampleId);
   try {

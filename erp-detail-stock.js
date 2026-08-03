@@ -19,24 +19,32 @@ async function dsLoadBlocked() {
     const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
     const byOrder = (data && data.data && data.data.byOrder) || {};
     const oids = Object.keys(byOrder);
-    // Номер и статус на заявките (малко на брой — само пуснатите).
-    const names = {}, done = {};
+    // Номер, статус и ДОСТАВЕНАТА част на заявките (малко на брой — само пуснатите).
+    const names = {}, done = {}, factor = {};
     if (oids.length) {
       try {
         const { data: cos } = await sb.from("customer_orders").select("id,data").in("id", oids);
+        const seen = new Set();
         (cos || []).forEach(r => {
           const d = r.data || {};
+          seen.add(String(r.id));
           names[String(r.id)] = d.ourNo ? ("заявка №" + d.ourNo) : ("заявка #" + r.id);
-          if (d.status === "завършена" || d.status === "готова за продажба") done[String(r.id)] = true;
+          if (d.status === "завършена") done[String(r.id)] = true;
+          // Частично доставена заявка блокира само НЕДОСТАВЕНАТА си част —
+          // доставените бройки са изписани с продажбата.
+          factor[String(r.id)] = (typeof erpOrderRemainFactor === "function") ? erpOrderRemainFactor(d) : 1;
         });
+        oids.forEach(k => { if (!seen.has(String(k))) done[String(k)] = true; });   // изтрита заявка
       } catch (e) { /* без имена — показваме само броя */ }
     }
     const tot = {}, per = {};
     oids.forEach(oid => {
       if (done[oid]) return;                       // приключила заявка — не блокира
+      const fx = factor[oid] != null ? factor[oid] : 1;
+      if (!(fx > 0)) return;                       // всичко доставено — нищо не блокира
       const m = byOrder[oid] || {};
       Object.keys(m).forEach(pid => {
-        const q = Number(m[pid]) || 0;
+        const q = Math.round((Number(m[pid]) || 0) * fx);
         if (!(q > 0)) return;
         tot[pid] = (tot[pid] || 0) + q;
         (per[pid] || (per[pid] = [])).push(`${names[oid] || ("поръчка " + String(oid).slice(0, 8))}: ${q}`);
