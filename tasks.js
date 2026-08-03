@@ -720,12 +720,13 @@ function shiftPlanDialog(preWorker) {
       <span class="erp-muted" id="sp-sum"></span>
     </div>
     <p class="hint" style="margin:0 0 8px">Подреди с ВЛАЧЕНЕ (или с ▲▼) реда, в който да се работи. „➖" маха задачата от плана за деня (остава възложена). Записаният ред се вижда и в Цехове, и в разпечатката за бригадира.</p>
-    <div id="sp-list" class="erp-lp-list" style="max-height:52vh;overflow:auto"></div>
+    <div id="sp-list" class="erp-lp-list" style="max-height:64vh;overflow:auto"></div>
     <div class="erp-dialog-actions">
       <button class="btn" id="sp-close">Затвори</button>
       <button class="btn" id="sp-print">🖨 Разпечатай за бригадира</button>
       <button class="btn btn-primary" id="sp-save">💾 Запази реда</button>
     </div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
   let order = [];      // id-та в избрания ред
   const capH = () => capOf(worker);
   const secOfTask = t => {
@@ -761,9 +762,9 @@ function shiftPlanDialog(preWorker) {
         <span class="sp-main"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
           <small>${escapeHtml(t.operation || t.workshop || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}${sec ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : ""}</small></span>
         <span class="sp-acts">
-          <button class="btn btn-small" data-up="${id}" title="Нагоре">▲</button>
-          <button class="btn btn-small" data-down="${id}" title="Надолу">▼</button>
-          <button class="btn btn-small" data-drop="${id}" title="Махни от плана за деня">➖</button>
+          <button class="btn btn-small" draggable="false" data-up="${id}" title="Нагоре">▲</button>
+          <button class="btn btn-small" draggable="false" data-down="${id}" title="Надолу">▼</button>
+          <button class="btn btn-small" draggable="false" data-drop="${id}" title="Махни от плана за деня">➖</button>
         </span></div>`;
     }).join("") || `<p class="erp-muted">Този служител няма възложени задачи в цеха. Възложи му от таблицата („Възложи на") и се върни тук.</p>`;
     list.innerHTML = rows;
@@ -781,7 +782,12 @@ function shiftPlanDialog(preWorker) {
     // Влачене на реда: пуснатият застава ПРЕД реда, върху който го пускаш.
     let dragId = null;
     list.querySelectorAll(".sp-row").forEach(row => {
-      row.addEventListener("dragstart", e => { dragId = Number(row.dataset.id); e.dataTransfer.effectAllowed = "move"; row.classList.add("sp-dragging"); });
+      row.addEventListener("dragstart", e => {
+        // Клик върху бутон (▲▼ / ➖) НЕ започва влачене — иначе браузърът
+        // поглъщаше клика и бутоните изглеждаха „мъртви".
+        if (e.target.closest("button")) { e.preventDefault(); return; }
+        dragId = Number(row.dataset.id); e.dataTransfer.effectAllowed = "move"; row.classList.add("sp-dragging");
+      });
       row.addEventListener("dragend", () => { row.classList.remove("sp-dragging"); list.querySelectorAll(".sp-row").forEach(r => r.classList.remove("sp-drop")); });
       row.addEventListener("dragover", e => { e.preventDefault(); row.classList.add("sp-drop"); });
       row.addEventListener("dragleave", () => row.classList.remove("sp-drop"));

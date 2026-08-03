@@ -1536,3 +1536,7 @@ tr.times-click:hover td { background: #ecfdf5; }
 .sp-row.sp-dragging { opacity: .45; }
 .sp-row.sp-drop { border-top: 2px solid #0f766e; }
 .sp-grip { color: #94a3b8; font-size: 15px; flex: none; cursor: grab; }
+/* По-четим план: по-едри редове и бутони */
+.sp-row { padding: 8px 8px; font-size: 13.5px; }
+.sp-main small { font-size: 12px; }
+.sp-acts .btn { padding: 4px 9px; }
