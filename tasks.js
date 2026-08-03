@@ -584,6 +584,7 @@ function prodModeOff() {
 function updateWorkersCount() {
   const el = document.getElementById("workers-count");
   if (!el) return;
+  if (!PROD_MODE) { el.textContent = ""; return; }   // само в Планиране
   const ws = currentWorkshop();
   const n = ws === "__all"
     ? new Set(Object.values(WORKERS).flat()).size
@@ -693,19 +694,127 @@ async function seriesMergeDialog() {
   });
 }
 
-/* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
-function printDayPlan() {
+/* 📅 ПЛАН ЗА СМЯНАТА — подреждане на задачите на един служител за днес/утре.
+   Редът се пази В ЗАДАЧАТА (t.plan = {worker, day, seq}), затова се вижда и
+   в Цехове, и в разпечатката за бригадира. Тук само подреждаме — отчита цехът. */
+function shiftDayISO(offset) {
+  const d = new Date(); d.setDate(d.getDate() + (offset || 0));
+  return d.toISOString().slice(0, 10);
+}
+function shiftPlanDialog(preWorker) {
   const ws = currentWorkshop();
-  const rows = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  if (!names.length) { alert("В този цех още няма служители — добави ги от бутона Служители."); return; }
+  let worker = preWorker || names[0];
+  let day = shiftDayISO(0);
+  const { wrap, close } = erpDialog(`
+    <h3>📅 План за смяната</h3>
+    <div class="erp-toolbar" style="margin-bottom:6px">
+      <label class="erp-inline">Служител <select id="sp-worker">${names.map(n => `<option${n === worker ? " selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select></label>
+      <label class="erp-inline">Ден <select id="sp-day">
+        <option value="${shiftDayISO(0)}">Днес · ${typeof erpDMY === "function" ? erpDMY(shiftDayISO(0)) : shiftDayISO(0)}</option>
+        <option value="${shiftDayISO(1)}">Утре · ${typeof erpDMY === "function" ? erpDMY(shiftDayISO(1)) : shiftDayISO(1)}</option>
+        <option value="${shiftDayISO(2)}">Вдругиден · ${typeof erpDMY === "function" ? erpDMY(shiftDayISO(2)) : shiftDayISO(2)}</option>
+      </select></label>
+      <span class="spacer" style="flex:1"></span>
+      <span class="erp-muted" id="sp-sum"></span>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Подреди с ▲▼ реда, в който да се работи. „➖" маха задачата от плана за деня (остава възложена). Записаният ред се вижда и в Цехове, и в разпечатката за бригадира.</p>
+    <div id="sp-list" class="erp-lp-list" style="max-height:52vh;overflow:auto"></div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="sp-close">Затвори</button>
+      <button class="btn" id="sp-print">🖨 Разпечатай за бригадира</button>
+      <button class="btn btn-primary" id="sp-save">💾 Запази реда</button>
+    </div>`);
+  let order = [];      // id-та в избрания ред
+  const capH = () => capOf(worker);
+  const secOfTask = t => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    const times = (typeof ERP !== "undefined" && ERP.prodTimes && ERP.prodTimes.byCode) || null;
+    if (!rem || !times) return 0;
+    const c = times[String(t.code || "").trim()];
+    const op = c && c.ops && c.ops[String(t.operation || "—")];
+    return (op && op.per > 0) ? rem * op.per : 0;
+  };
+  const build = () => {
+    const mine = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws) && taskAssignees(t).includes(worker));
+    // Първо вече планираните за деня (по seq), после останалите (по срок).
+    const planned = mine.filter(t => t.plan && t.plan.day === day && t.plan.worker === worker)
+      .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
+    const rest = mine.filter(t => !(t.plan && t.plan.day === day && t.plan.worker === worker))
+      .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
+    order = [...planned.map(t => t.id), ...rest.map(t => t.id)];
+    draw();
+  };
+  const draw = () => {
+    const list = wrap.querySelector("#sp-list");
+    let acc = 0;
+    const rows = order.map((id, i) => {
+      const t = (TASKS || []).find(x => x.id === id); if (!t) return "";
+      const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+      const sec = secOfTask(t); acc += sec;
+      const over = acc / 3600 > capH();
+      const inPlan = t.plan && t.plan.day === day && t.plan.worker === worker;
+      return `<div class="sp-row${over ? " sp-over" : ""}${inPlan ? " sp-in" : ""}" data-id="${id}">
+        <span class="sp-n">${i + 1}</span>
+        <span class="sp-main"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
+          <small>${escapeHtml(t.operation || t.workshop || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}${sec ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : ""}</small></span>
+        <span class="sp-acts">
+          <button class="btn btn-small" data-up="${id}" title="Нагоре">▲</button>
+          <button class="btn btn-small" data-down="${id}" title="Надолу">▼</button>
+          <button class="btn btn-small" data-drop="${id}" title="Махни от плана за деня">➖</button>
+        </span></div>`;
+    }).join("") || `<p class="erp-muted">Този служител няма възложени задачи в цеха. Възложи му от таблицата („Възложи на") и се върни тук.</p>`;
+    list.innerHTML = rows;
+    const sum = wrap.querySelector("#sp-sum");
+    if (sum) sum.textContent = `общо ~${Math.round(acc / 360) / 10} ч · капацитет ${capH()} ч/ден`;
+    list.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => {
+      const i = order.indexOf(Number(b.dataset.up)); if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw(); }
+    }));
+    list.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => {
+      const i = order.indexOf(Number(b.dataset.down)); if (i >= 0 && i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; draw(); }
+    }));
+    list.querySelectorAll("[data-drop]").forEach(b => b.addEventListener("click", () => {
+      order = order.filter(x => x !== Number(b.dataset.drop)); draw();
+    }));
+  };
+  wrap.querySelector("#sp-worker").addEventListener("change", e => { worker = e.target.value; build(); });
+  wrap.querySelector("#sp-day").addEventListener("change", e => { day = e.target.value; build(); });
+  wrap.querySelector("#sp-close").addEventListener("click", close);
+  wrap.querySelector("#sp-print").addEventListener("click", () => printDayPlan(day));
+  wrap.querySelector("#sp-save").addEventListener("click", async () => {
+    const btn = wrap.querySelector("#sp-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // Първо чистим стария план за този служител/ден, после пишем новия ред.
+    for (const t of (TASKS || [])) {
+      const had = t.plan && t.plan.day === day && t.plan.worker === worker;
+      const idx = order.indexOf(t.id);
+      if (idx >= 0) { t.plan = { worker, day, seq: idx + 1 }; await tSaveTask(t); }
+      else if (had) { delete t.plan; await tSaveTask(t); }
+    }
+    btn.disabled = false; btn.textContent = "💾 Запази реда";
+    renderTasks();
+    alert(`✓ Планът за ${worker} (${typeof erpDMY === "function" ? erpDMY(day) : day}) е записан — ${order.length} задачи.`);
+  });
+  build();
+}
+
+/* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
+function printDayPlan(dayISO) {
+  const ws = currentWorkshop();
+  let rows = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  // Ако има планиран ден — печатаме САМО планираното за него (по реда на плана).
+  if (dayISO) rows = rows.filter(t => t.plan && t.plan.day === dayISO);
   const by = {};
   rows.forEach(t => {
     const asg = taskAssignees(t);
     (asg.length ? asg : ["— неразпределени —"]).forEach(w => (by[w] = by[w] || []).push(t));
   });
   const names = Object.keys(by).sort((a, b) => a.localeCompare(b, "bg"));
-  const d = typeof erpDMY === "function" ? erpDMY(todayStr()) : todayStr();
+  const d = typeof erpDMY === "function" ? erpDMY(dayISO || todayStr()) : (dayISO || todayStr());
   const body = names.map(w => {
-    const list = by[w].slice().sort((x, y) => String(x.due || "9999").localeCompare(String(y.due || "9999")));
+    // Планираните вървят по зададения ред; останалите — по срок.
+    const seqOf = t => (t.plan && t.plan.worker === w && (!dayISO || t.plan.day === dayISO)) ? (Number(t.plan.seq) || 0) : 9999;
+    const list = by[w].slice().sort((x, y) => (seqOf(x) - seqOf(y)) || String(x.due || "9999").localeCompare(String(y.due || "9999")));
     const rowsH = list.map((t, i) => {
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
       return `<tr><td>${i + 1}</td><td>${escapeHtml(t.client || "СЕРИЯ")}</td><td>${escapeHtml(t.code || "")}</td>
@@ -776,13 +885,16 @@ function renderProdLoadBar() {
     + (freeN ? chip("— свободни —", { n: freeN, qty: freeQty, sec: freeSec }, " is-free") : "")
     + names.map(n => chip(n, per[n], "", n)).join("")
     + `<span class="spacer" style="flex:1"></span>`
+    + `<button type="button" class="btn btn-small btn-primary" id="prod-shift" title="Подреди задачите на служител за днес/утре и разпечатай за бригадира">📅 План за смяната</button>`
     + `<button type="button" class="btn btn-small" id="prod-merge" title="В кои цехове поръчките да НЕ се сливат в обща серия">⚙ Сливане</button>`
     + `<button type="button" class="btn btn-small" id="prod-cap">⚙ Капацитет</button>`
     + `<button type="button" class="btn btn-small" id="prod-print">🖨 Дневен план</button>`
     + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
+  const sb2 = bar.querySelector("#prod-shift"); if (sb2) sb2.addEventListener("click", () => shiftPlanDialog());
   const mb = bar.querySelector("#prod-merge"); if (mb) mb.addEventListener("click", seriesMergeDialog);
   const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
   const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", printDayPlan);
+  bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("dblclick", () => { if (b.dataset.lw) shiftPlanDialog(b.dataset.lw); }));
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
     const f = document.getElementById("task-worker-filter");
     if (f) { f.value = (f.value === b.dataset.lw) ? "" : b.dataset.lw; renderTasks(); }
@@ -1193,7 +1305,7 @@ function renderTasks() {
     if (isW) { const asg = taskAssignees(t); if (asg.length && !asg.includes(MY_WORKER)) tr.classList.add("task-foreign"); }
     tr.innerHTML = `
       ${prioCell}
-      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : (function () {
+      <td data-label="Клиент">${(t.plan && t.plan.seq) ? `<span class="t-planseq" title="Пореден номер в плана за смяната на ${escapeAttr(t.plan.worker || "")} за ${escapeAttr(typeof erpDMY === "function" ? erpDMY(t.plan.day) : t.plan.day)}">${t.plan.seq}</span> ` : ""}${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : (function () {
         const os = taskSeriesOrders(t);
         const cls = [...new Set(os.map(o => (o.client || "").trim()).filter(Boolean))];
         if (!cls.length) return `<span class="serie">СЕРИЯ</span>`;

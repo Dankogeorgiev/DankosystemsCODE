@@ -1475,6 +1475,9 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-mode .tasks-table col.col-claim,
 .prod-mode .tasks-table #th-question,
 .prod-mode .tasks-table td.t-q { display: none !important; }
+/* В Планиране „Служители" стои най-вдясно, до Excel (в Цехове — както си е) */
+.prod-mode #btn-workers { order: 99; }
+
 /* Инструменти, които не са за планиране — скрити в този режим */
 .prod-mode #btn-messages, .prod-mode #btn-ideas, .prod-mode #btn-supply,
 .prod-mode #btn-extra-activity, .prod-mode #btn-times, .prod-mode #btn-add-task { display: none !important; }
@@ -1518,3 +1521,14 @@ tr.times-click:hover td { background: #ecfdf5; }
 .t-serie-cl { border-bottom: 1px dotted #94a3b8; cursor: help; }
 .t-serie-bd { font-size: 11px; color: #475569; }
 .prod-mode .t-serie-bd { display: inline; margin-left: 6px; color: #334155; }
+
+/* План за смяната — подреждане на задачите по служител */
+.sp-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid #eef2f7; font-size: 13px; }
+.sp-row.sp-in { background: #f0fdf4; }
+.sp-row.sp-over { background: #fef2f2; }
+.sp-n { width: 24px; height: 24px; flex: none; border-radius: 50%; background: #0f766e; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.sp-row.sp-over .sp-n { background: #b91c1c; }
+.sp-main { flex: 1; min-width: 0; }
+.sp-main small { display: block; color: #64748b; font-size: 11.5px; }
+.sp-acts { display: flex; gap: 3px; flex: none; }
+.t-planseq { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 50%; background: #0f766e; color: #fff; font-size: 11px; font-weight: 700; }
