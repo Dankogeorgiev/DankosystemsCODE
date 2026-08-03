@@ -800,10 +800,16 @@ function shiftPlanDialog(preWorker) {
 
 /* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
 function printDayPlan(dayISO) {
+  if (typeof dayISO !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) dayISO = "";   // пази от подаден event
   const ws = currentWorkshop();
-  let rows = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  const all = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  let rows = all, note = "";
   // Ако има планиран ден — печатаме САМО планираното за него (по реда на плана).
-  if (dayISO) rows = rows.filter(t => t.plan && t.plan.day === dayISO);
+  if (dayISO) {
+    const planned = all.filter(t => t.plan && t.plan.day === dayISO);
+    if (planned.length) rows = planned;
+    else { rows = all; note = " (няма записан план за деня — показани са всички възложени задачи)"; }
+  }
   const by = {};
   rows.forEach(t => {
     const asg = taskAssignees(t);
@@ -831,7 +837,7 @@ function printDayPlan(dayISO) {
     th{background:#f1f5f9}td.r{text-align:right}
     @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
     <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
-    <h1>Дневен план — ${escapeHtml(ws === "__all" ? "всички цехове" : ws)} · ${d}</h1>${body}</body></html>`;
+    <h1>Дневен план — ${escapeHtml(ws === "__all" ? "всички цехове" : ws)} · ${d}</h1>${note ? `<p style="color:#92400e;font-size:12px;margin:0 0 8px">${escapeHtml(note.trim())}</p>` : ""}${body}</body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
@@ -893,7 +899,7 @@ function renderProdLoadBar() {
   const sb2 = bar.querySelector("#prod-shift"); if (sb2) sb2.addEventListener("click", () => shiftPlanDialog());
   const mb = bar.querySelector("#prod-merge"); if (mb) mb.addEventListener("click", seriesMergeDialog);
   const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
-  const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", printDayPlan);
+  const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", () => printDayPlan());
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("dblclick", () => { if (b.dataset.lw) shiftPlanDialog(b.dataset.lw); }));
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
     const f = document.getElementById("task-worker-filter");
