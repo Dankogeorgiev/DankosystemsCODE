@@ -1488,6 +1488,10 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-mode .t-actions .t-add,
 .prod-mode .t-actions .t-scrap { display: none; }
 
+/* „— никой —" е излишен шум при планиране: празно = никой */
+.prod-mode .t-asg-none { display: none; }
+.prod-mode .t-asg-add { max-width: 150px; }
+
 /* Отговорникът е главното тук — повече място за чиповете и добавянето */
 .prod-mode .t-asg-cell { max-width: none; min-width: 210px; white-space: normal; }
 .prod-mode .t-asg-add { max-width: 130px; }
