@@ -855,7 +855,11 @@ function shiftPlanDialog(preWorker) {
   wrap.querySelector("#sp-worker").addEventListener("change", e => { worker = e.target.value; build(); });
   wrap.querySelector("#sp-day").addEventListener("change", e => { day = e.target.value; build(); });
   wrap.querySelector("#sp-close").addEventListener("click", close);
-  wrap.querySelector("#sp-print").addEventListener("click", () => printDayPlan(day));
+  wrap.querySelector("#sp-print").addEventListener("click", () => {
+    // Печат само за ТОЗИ служител и ТОЗИ ден — по реда от списъка отляво,
+    // включително още незаписаните размествания.
+    printDayPlan(day, worker, order.slice());
+  });
   wrap.querySelector("#sp-save").addEventListener("click", async () => {
     const btn = wrap.querySelector("#sp-save"); btn.disabled = true; btn.textContent = "Записва…";
     // Първо чистим стария план за този служител/ден, после пишем новия ред.
@@ -873,28 +877,38 @@ function shiftPlanDialog(preWorker) {
 }
 
 /* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
-function printDayPlan(dayISO) {
+function printDayPlan(dayISO, onlyWorker, seqIds) {
   if (typeof dayISO !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) dayISO = "";   // пази от подаден event
   const ws = currentWorkshop();
   const all = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
   let rows = all, note = "";
-  // Ако има планиран ден — печатаме САМО планираното за него (по реда на плана).
-  if (dayISO) {
+  // Печат за ЕДИН служител (от прозореца „План за смяната"): само неговите
+  // задачи, в реда от списъка — дори още незаписан.
+  if (onlyWorker) {
+    const ids = (seqIds || []).map(String);
+    rows = all.filter(t => taskAssignees(t).includes(onlyWorker) && (!ids.length || ids.includes(String(t.id))));
+    if (ids.length) rows.sort((a, b) => ids.indexOf(String(a.id)) - ids.indexOf(String(b.id)));
+  } else if (dayISO) {
+    // Ако има планиран ден — печатаме САМО планираното за него (по реда на плана).
     const planned = all.filter(t => t.plan && t.plan.day === dayISO);
     if (planned.length) rows = planned;
     else { rows = all; note = " (няма записан план за деня — показани са всички възложени задачи)"; }
   }
   const by = {};
-  rows.forEach(t => {
+  if (onlyWorker) by[onlyWorker] = rows.slice();
+  else rows.forEach(t => {
     const asg = taskAssignees(t);
     (asg.length ? asg : ["— неразпределени —"]).forEach(w => (by[w] = by[w] || []).push(t));
   });
   const names = Object.keys(by).sort((a, b) => a.localeCompare(b, "bg"));
   const d = typeof erpDMY === "function" ? erpDMY(dayISO || todayStr()) : (dayISO || todayStr());
   const body = names.map(w => {
-    // Планираните вървят по зададения ред; останалите — по срок.
+    // При печат за един служител редът вече е зададен (от списъка).
+    const ids0 = (seqIds || []).map(String);
     const seqOf = t => (t.plan && t.plan.worker === w && (!dayISO || t.plan.day === dayISO)) ? (Number(t.plan.seq) || 0) : 9999;
-    const list = by[w].slice().sort((x, y) => (seqOf(x) - seqOf(y)) || String(x.due || "9999").localeCompare(String(y.due || "9999")));
+    const list = (onlyWorker && ids0.length)
+      ? by[w].slice()
+      : by[w].slice().sort((x, y) => (seqOf(x) - seqOf(y)) || String(x.due || "9999").localeCompare(String(y.due || "9999")));
     const rowsH = list.map((t, i) => {
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
       const cl2 = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
@@ -913,7 +927,7 @@ function printDayPlan(dayISO) {
     th{background:#f1f5f9}td.r{text-align:right}
     @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
     <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
-    <h1>Дневен план — ${escapeHtml(ws === "__all" ? "всички цехове" : ws)} · ${d}</h1>${note ? `<p style="color:#92400e;font-size:12px;margin:0 0 8px">${escapeHtml(note.trim())}</p>` : ""}${body}</body></html>`;
+    <h1>${onlyWorker ? "План за смяната — " + escapeHtml(onlyWorker) : "Дневен план"} · ${escapeHtml(ws === "__all" ? "всички цехове" : ws)} · ${d}</h1>${note ? `<p style="color:#92400e;font-size:12px;margin:0 0 8px">${escapeHtml(note.trim())}</p>` : ""}${body}</body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
