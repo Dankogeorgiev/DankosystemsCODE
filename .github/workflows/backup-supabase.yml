@@ -1,21 +1,33 @@
 name: Резервно копие на Supabase (дневно)
 
-# Прави пълен pg_dump на базата всяка нощ и го качва като артефакт в GitHub
-# (пази се 90 дни). Не пипа нищо в базата — само чете.
+# Прави пълен pg_dump на базата всяка нощ, КРИПТИРА го и го качва като
+# артефакт в GitHub (пази се 90 дни). Не пипа нищо в базата — само чете.
 #
-# ЕДНОКРАТНА НАСТРОЙКА:
-# 1) Supabase → Project Settings → Database → Connection string → таб
-#    „Session pooler" (задължително той, не „Transaction pooler" —
-#    pg_dump не работи през 6543, а и прекият адрес е само IPv6).
-#    Изглежда така:
-#    postgresql://postgres.hwbblteomrrahfrsyuow:ПАРОЛАТА@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
-# 2) GitHub → Settings → Secrets and variables → Actions → New repository secret
-#    Име: SUPABASE_DB_URL   Стойност: низът отгоре (с истинската парола)
-# 3) Готово. Ръчен тест: Actions → този workflow → Run workflow.
+# ⚠ ЗАЩО КРИПТИРАНЕ: това хранилище е ПУБЛИЧНО, а артефактите на публично
+# хранилище са достъпни за всеки. Затова копието се заключва с парола (AES256)
+# и без нея файлът е безполезен.
 #
-# ВЪЗСТАНОВЯВАНЕ (ако някога дотрябва):
+# ЕДНОКРАТНА НАСТРОЙКА — три неща:
+#
+# 1) DEFAULT BRANCH да е „main".
+#    Settings → General → Default branch → main
+#    (Насрочените задачи и бутонът „Run workflow" работят САМО от главния клон.)
+#
+# 2) Secret SUPABASE_DB_URL
+#    Supabase → бутон „Connect" горе → таб „Session pooler" (Shared) →
+#    копирай URI и смени [YOUR-PASSWORD] с истинската парола:
+#    postgresql://postgres.hwbblteomrrahfrsyuow:ПАРОЛА@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
+#    GitHub → Settings → Secrets and variables → Actions → New repository secret
+#
+# 3) Secret BACKUP_PASSPHRASE
+#    Дълга парола, която ЗАПАЗВАШ отделно (мениджър на пароли / хартия в сейфа).
+#    Без нея копието НЕ може да се отвори — включително от теб.
+#
+# ВЪЗСТАНОВЯВАНЕ:
+#   gpg --decrypt --output backup.tar supabase-2026-08-05.tar.gpg
+#   tar -xf backup.tar
 #   pg_restore --no-owner --no-privileges -d "ВРЪЗКАТА" supabase-2026-08-05.dump
-# Може и само една таблица:  pg_restore ... -t tasks
+#   (само една таблица:  pg_restore ... -t tasks)
 
 on:
   schedule:
@@ -30,38 +42,49 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      PASS: ${{ secrets.BACKUP_PASSPHRASE }}
     steps:
-      - name: Проверка за настройката
+      - name: Проверка на настройките
         run: |
+          bad=0
           if [ -z "$DB_URL" ]; then
-            echo "SKIP=1" >> $GITHUB_ENV
-            echo "::warning::Липсва secret SUPABASE_DB_URL — копието се пропуска. Виж коментара в началото на файла."
+            echo "::error::Липсва secret SUPABASE_DB_URL (виж коментара в началото на файла)."; bad=1
           fi
+          if [ -z "$PASS" ]; then
+            echo "::error::Липсва secret BACKUP_PASSPHRASE. Хранилището е публично — без парола копието НЕ се качва."; bad=1
+          fi
+          [ "$bad" = "0" ]
 
       - name: Дъмп на базата
-        if: env.SKIP != '1'
         run: |
           set -euo pipefail
           DATE=$(date -u +%Y-%m-%d)
           echo "STAMP=$DATE" >> $GITHUB_ENV
           # pg_dump 17 в контейнер — работи и срещу по-стар сървър.
-          docker run --rm -v "$PWD:/out" -e PGCONNECT_TIMEOUT=30 postgres:17-alpine \
+          docker run --rm -v "$PWD:/out" postgres:17-alpine \
             pg_dump --no-owner --no-privileges --schema=public -Fc \
                     -f "/out/supabase-$DATE.dump" "$DB_URL"
           # Втора, четима версия (обикновен SQL) — удобна за поглед с очи.
-          docker run --rm -v "$PWD:/out" -e PGCONNECT_TIMEOUT=30 postgres:17-alpine \
+          docker run --rm -v "$PWD:/out" postgres:17-alpine \
             pg_dump --no-owner --no-privileges --schema=public --clean --if-exists \
                     -f "/out/supabase-$DATE.sql" "$DB_URL"
-          gzip -9 "supabase-$DATE.sql"
           ls -lh supabase-$DATE.*
 
+      - name: Заключване с парола (AES256)
+        run: |
+          set -euo pipefail
+          DATE="$STAMP"
+          tar -cf "backup-$DATE.tar" "supabase-$DATE.dump" "supabase-$DATE.sql"
+          gpg --batch --yes --symmetric --cipher-algo AES256 --compress-algo 2 \
+              --passphrase "$PASS" -o "supabase-$DATE.tar.gpg" "backup-$DATE.tar"
+          # Незащитените файлове НЕ напускат машината.
+          rm -f "supabase-$DATE.dump" "supabase-$DATE.sql" "backup-$DATE.tar"
+          ls -lh "supabase-$DATE.tar.gpg"
+
       - name: Качване на копието
-        if: env.SKIP != '1'
         uses: actions/upload-artifact@v4
         with:
           name: supabase-backup-${{ env.STAMP }}
-          path: |
-            supabase-*.dump
-            supabase-*.sql.gz
+          path: supabase-*.tar.gpg
           retention-days: 90
           if-no-files-found: error
