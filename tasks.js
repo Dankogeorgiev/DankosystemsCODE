@@ -1254,6 +1254,9 @@ function applyTasksAccess() {
   // „ПЪЛНЕЖ" — за Лазери/Преси (на мястото на Excel) и за админите (слагат кода и заприходяват).
   const lfb = document.getElementById("btn-laser-fill");
   if (lfb) lfb.hidden = !(isFillWorker || !w);
+  // 🚨 Аларма за натрупан ПЪЛНЕЖ (повече от 4 чакащи реда).
+  if (typeof lfillAlarmRefresh === "function" && lfb && !lfb.hidden) lfillAlarmRefresh().catch(() => {});
+  else { const la = document.getElementById("lfill-alarm"); if (la) { la.hidden = true; la.innerHTML = ""; } }
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";

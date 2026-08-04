@@ -79,6 +79,7 @@ async function openLaserFill() {
       ? "Сложи КОД на чакащия ред и натисни 📥 Заприходи — бройката влиза в Склад Детайли, а ламарината се изписва от Материали."
       : "Попълни каквото знаеш — кодът може да остане празен, офисът ще го сложи. Всяка бройка после се заприходява като готов детайл."}</p>
     <div class="lf-scroll">
+    ${pending.length > LFILL_ALARM_OVER ? `<div class="lf-warn">🚨 Натрупали са се <b>${pending.length}</b> реда за заприходяване (${erpNum(pending.reduce((a, r) => a + (Number(r.qty) || 0), 0))} бр.). Докато не се заприходят, тази стока я няма в Склад детайли.</div>` : ""}
     <h4 class="erp-group-head">⏳ Чакащи заприходяване (${pending.length})</h4>
     ${pending.length ? `<table class="report-table erp-table"><thead><tr><th>Дата</th><th>Цех</th><th>Код</th><th>Дебелина</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
       <tbody id="lf-pending">${pending.map(pendRow).join("")}</tbody></table>`
@@ -115,7 +116,7 @@ async function openLaserFill() {
     if (!rows.length) { alert("Попълни поне един ред (наименование/код + брой)."); return; }
     await lfillLoad();
     rows.forEach(r => { r.id = lfillNextId(); LFILL.push(r); });
-    if (await lfillSave()) { close(); alert(`✅ Записани ${rows.length} реда. Офисът ще ги заприходи.`); }
+    if (await lfillSave()) { close(); try { await lfillAlarmRefresh(true); } catch (e) {} alert(`✅ Записани ${rows.length} реда. Офисът ще ги заприходи.`); }
   });
 
   if (!isAdmin) return;
@@ -128,7 +129,7 @@ async function openLaserFill() {
     const r = (LFILL || []).find(x => x.id === Number(b.dataset.del)); if (!r) return;
     if (!confirm(`Да изтрия ли реда „${r.name || r.code}" (${r.qty} бр.)?`)) return;
     LFILL = LFILL.filter(x => x.id !== r.id);
-    if (await lfillSave()) { close(); openLaserFill(); }
+    if (await lfillSave()) { try { await lfillAlarmRefresh(true); } catch (e) {} close(); openLaserFill(); }
   }));
   wrap.querySelectorAll("[data-post]").forEach(b => b.addEventListener("click", async () => {
     const r = (LFILL || []).find(x => x.id === Number(b.dataset.post)); if (!r) return;
@@ -177,9 +178,63 @@ async function lfillPost(r, done) {
   r.status = "заприходен"; r.code = code; r.productId = p.id; r.postedAt = lfillToday();
   r.postedBy = (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "";
   await lfillSave();
+  try { await lfillAlarmRefresh(true); } catch (e) {}
   try { if (typeof erpLoadAll === "function") await erpLoadAll(); } catch (e) {}
   alert(`✅ Готово: ${qty} бр. „${p.code}" са в Склад Детайли${rows.length ? " и материалът е изписан" : ""}.`);
   if (done) done();
+}
+
+/* ---------- 🚨 АЛАРМА: натрупани детайли за заприходяване ----------
+   Пълнежът е готова стока, която НЕ е в склада, докато някой не ѝ сложи кода
+   и не я заприходи. Натрупа ли се, наличностите лъжат. Затова при повече от
+   4 чакащи реда светва аларма (лента над списъка + мигащ брояч на бутона). */
+const LFILL_ALARM_OVER = 4;          // „повече от 4" → алармата пали на 5-ия
+let LFILL_ALARM_AT = 0;              // кога последно четохме (за да не удряме базата на всеки рендер)
+
+function lfillPendingRows() { return (LFILL || []).filter(r => r.status !== "заприходен"); }
+
+/* Опреснява брояча на бутона и лентата-аларма. force = чете базата наново. */
+async function lfillAlarmRefresh(force) {
+  const now = Date.now();
+  if (force || !LFILL || (now - LFILL_ALARM_AT) > 60000) {
+    try { await lfillLoad(); LFILL_ALARM_AT = now; } catch (e) { return; }
+  }
+  const rows = lfillPendingRows();
+  const n = rows.length;
+  const on = n > LFILL_ALARM_OVER;
+
+  const b = document.getElementById("btn-laser-fill");
+  if (b) {
+    let bd = b.querySelector(".lf-badge");
+    if (n > 0) {
+      if (!bd) { bd = document.createElement("span"); bd.className = "msg-badge lf-badge"; b.appendChild(bd); }
+      bd.textContent = String(n);
+      bd.hidden = false;
+      b.title = `${n} реда чакат заприходяване в ПЪЛНЕЖ`;
+    } else if (bd) { bd.hidden = true; }
+    b.classList.toggle("lf-alarm", on);
+  }
+
+  const host = document.getElementById("lfill-alarm");
+  if (!host) return;
+  // Лентата е за този, който заприходява (офиса). Служителят си вижда брояча.
+  const isAdmin = !(typeof amWorker === "function" && amWorker());
+  if (!on || !isAdmin) { host.hidden = true; host.innerHTML = ""; return; }
+  const qty = rows.reduce((a, r) => a + (Number(r.qty) || 0), 0);
+  const noCode = rows.filter(r => !String(r.code || "").trim()).length;
+  const chips = rows.slice(0, 8).map(r => `<span class="ua-chip">${escapeHtml(r.code || r.name || "—")} <span class="ua-op">${erpNum(r.qty)} бр.</span></span>`).join("");
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="ua-flash"><span class="ua-siren">🚨</span>
+      <span class="ua-title">ПЪЛНЕЖ — ${n} детайла чакат заприходяване</span>
+      <span class="ua-siren">🚨</span></div>
+    <div class="ua-list">${chips}${rows.length > 8 ? `<span class="ua-more">+ още ${rows.length - 8}</span>` : ""}</div>
+    <div class="ua-actions">
+      <span style="display:block;margin-bottom:6px">Общо ${erpNum(qty)} бр. готова стока още НЕ е в Склад детайли${noCode ? ` · ${noCode} без код` : ""}.</span>
+      <button type="button" class="btn btn-small" id="lf-alarm-open">🔥 Отвори ПЪЛНЕЖ и заприходи</button>
+    </div>`;
+  const ob = host.querySelector("#lf-alarm-open");
+  if (ob) ob.addEventListener("click", openLaserFill);
 }
 
 /* ---------- Бутонът ---------- */
