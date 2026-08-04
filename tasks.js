@@ -1788,6 +1788,7 @@ function renderBulkBar(rows, ws) {
     <button id="bulk-selvis" class="btn btn-small">Маркирай показаните (${rows.length})</button>
     <button id="bulk-sel-manual" class="btn btn-small" title="Маркира показаните ръчно въведени задачи (не пуснати от системата)">✋ Маркирай ръчните (${manualRows.length})</button>
     <button id="bulk-clear" class="btn btn-small">Изчисти</button>
+    ${PROD_MODE ? `<button id="bulk-print" class="btn btn-small btn-primary" title="Разпечатва маркираните задачи като работен лист за цеха">🖨 Разпечатай маркираните</button>` : ""}
     ${PROD_MODE ? `<button id="bulk-move" class="btn btn-small" title="Мести маркираните задачи в един цех — с възможност правилото да остане завинаги за детайл+операция">🔀 Прехвърли в цех</button>` : ""}
     <button id="bulk-del" class="btn btn-small btn-danger">🗑 Изтрий избраните</button>`;
   bulk.querySelector("#bulk-selvis").addEventListener("click", () => { rows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
@@ -1799,6 +1800,74 @@ function renderBulkBar(rows, ws) {
   bulk.querySelector("#bulk-setdue").addEventListener("click", () => setDueBulk(bulk.querySelector("#bulk-due").value));
   bulk.querySelector("#bulk-del").addEventListener("click", deleteBulk);
   const mv = bulk.querySelector("#bulk-move"); if (mv) mv.addEventListener("click", moveBulkDialog);
+  const pr = bulk.querySelector("#bulk-print"); if (pr) pr.addEventListener("click", () => printSelectedTasks(rows));
+}
+
+/* 🖨 Работен лист от МАРКИРАНИТЕ задачи — за раздаване в цеха.
+   Редът е този от екрана (със сегашната подредба). При няколко цеха се
+   разделя на цехове, за да отиде всеки лист където трябва. */
+function printSelectedTasks(visibleRows) {
+  if (!selectedTasks.size) { alert("Първо маркирай задачи — с тикчетата отляво или с бутона за маркиране на показаните."); return; }
+  const ids = new Set([...selectedTasks].map(String));
+  let list = (visibleRows || []).filter(t => ids.has(String(t.id)));
+  if (list.length < ids.size) {
+    // Маркирани редове, които в момента не се виждат (сменен филтър) — добавяме ги накрая.
+    const have = new Set(list.map(t => String(t.id)));
+    (TASKS || []).forEach(t => { if (ids.has(String(t.id)) && !have.has(String(t.id))) list.push(t); });
+  }
+  if (!list.length) { alert("Маркираните задачи вече не съществуват."); return; }
+
+  const opsAll = [...new Set(list.map(t => String(t.operation || "").trim()).filter(Boolean))];
+  const wsAll = [...new Set(list.map(t => t.workshop || ""))];
+  const title = opsAll.length === 1 ? opsAll[0] : "Задачи за производство";
+  const sub = `${wsAll.length === 1 ? "Цех " + (wsAll[0] || "—") : wsAll.length + " цеха"} · ${list.length} задачи · ${typeof erpDMY === "function" ? erpDMY(todayStr()) : todayStr()}`;
+  const showWs = wsAll.length > 1;
+
+  const rowH = (t, i) => {
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    const rem = Math.max(0, qty - prod);
+    const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
+    const nos = taskOrderNos(t);
+    const asg = taskAssignees(t);
+    return `<tr><td>${i + 1}</td>
+      <td>${escapeHtml(cl)}${nos.length ? `<br><small>№ ${escapeHtml(nos.join(", "))}</small>` : ""}</td>
+      <td><b>${escapeHtml(t.code || "")}</b><br><small>${escapeHtml(t.product || "")}</small></td>
+      <td>${escapeHtml(t.operation || "")}${showWs ? `<br><small>${escapeHtml(t.workshop || "")}</small>` : ""}</td>
+      <td class="r">${matQtyFmt(qty)}</td><td class="r">${matQtyFmt(prod)}</td><td class="r"><b>${matQtyFmt(rem)}</b></td>
+      <td>${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : "—"}</td>
+      <td>${escapeHtml(asg.join(", "))}</td>
+      <td style="width:64px"></td><td style="width:74px"></td></tr>`;
+  };
+  const head = `<thead><tr><th>№</th><th>Клиент / заявка</th><th>Код / продукт</th><th>Операция${showWs ? " · цех" : ""}</th>
+    <th class="r">Кол.</th><th class="r">Готови</th><th class="r">Остават</th><th>Срок</th><th>Възложено на</th><th>Изработени</th><th>Подпис</th></tr></thead>`;
+
+  let body = "";
+  if (showWs) {
+    const by = {};
+    list.forEach(t => (by[t.workshop || "— без цех —"] = by[t.workshop || "— без цех —"] || []).push(t));
+    body = Object.keys(by).sort((a, b) => a.localeCompare(b, "bg")).map(w =>
+      `<h3>${escapeHtml(w)} <span style="font-weight:400;font-size:13px;color:#555">— ${by[w].length} задачи</span></h3>
+       <table>${head}<tbody>${by[w].map(rowH).join("")}</tbody></table>`).join("");
+  } else {
+    body = `<table>${head}<tbody>${list.map(rowH).join("")}</tbody></table>`;
+  }
+
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>${escapeHtml(title)} — задачи</title>
+    <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
+    h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 10px}
+    h3{font-size:15px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px}
+    th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left;vertical-align:top}
+    th{background:#f1f5f9}td.r,th.r{text-align:right}small{color:#555}
+    .sign{margin-top:14px;font-size:12px;display:flex;gap:40px}
+    @page{size:A4 landscape;margin:8mm}@media print{.noprint{display:none}}</style></head><body>
+    <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
+    <h1>${escapeHtml(title)}</h1><h2>${escapeHtml(sub)}</h2>${body}
+    <div class="sign"><span>Дал: ................................</span><span>Приел: ................................</span></div>
+    </body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
 }
 
 /* 🔀 Групово прехвърляне в цех — за събиране на разпръсната операция.
