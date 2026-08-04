@@ -263,7 +263,7 @@ function openOrdersInProduction() {
       e.tasks.push(t);
     });
   });
-  const isDone = t => { const q = Number(t.qty) || 0, p = Number(t.produced) || 0; return q > 0 && p >= q; };
+  const isDone = t => taskStatus(t) === "done";
   let list = Object.values(orders).map(o => {
     const total = o.tasks.length, done = o.tasks.filter(isDone).length;
     return Object.assign(o, { total, done, active: done < total });
@@ -452,7 +452,7 @@ async function tLoadTasks() {
 async function tSaveTask(t) {
   t.updatedAt = new Date().toISOString();
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
-  const done = qty > 0 && prod >= qty;
+  const done = !!t.closed || (qty > 0 && prod >= qty);
   const { error } = await sb.from("tasks").update({ data: t, done, updated_at: t.updatedAt }).eq("id", t.id);
   if (error) console.error("save task", error);
 }
@@ -512,11 +512,17 @@ function taskMaterialShort(t) {
   return short.length ? short : null;
 }
 function taskStatus(t) {
+  if (t && t.closed) return "done";   // ръчно закрита (🧹 Стари задачи) — отива в архива
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (qty > 0 && prod >= qty) return "done";
   if (prod > 0) return "progress";
   return "todo";
 }
+/* ЖИВА ли е задачата (още се работи по нея).
+   ВАЖНО: колоната „done" от базата НЕ влиза в обекта на задачата (той се
+   гради от data), затова проверки от типа „!t.done" пропускаха ВСИЧКО —
+   включително отдавна произведените. Оттук нататък се пита само това. */
+function taskIsOpen(t) { return taskStatus(t) !== "done"; }
 
 /* ---------- Отваряне / изгледи ---------- */
 async function openTasks() {
@@ -611,7 +617,7 @@ function renderProdWsBar() {
   const sel = document.getElementById("task-workshop");
   const cur = sel ? sel.value : "__all";
   const cnt = {};
-  (TASKS || []).forEach(t => { if (!t.done) cnt[t.workshop] = (cnt[t.workshop] || 0) + 1; });
+  (TASKS || []).forEach(t => { if (taskIsOpen(t)) cnt[t.workshop] = (cnt[t.workshop] || 0) + 1; });
   const btn = (val, label, n) =>
     `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
   bar.innerHTML = workshopList().map(w => btn(w, w, cnt[w] || 0)).join("");
@@ -701,7 +707,7 @@ function myShiftPlanTasks() {
   const me = MY_WORKER || "";
   if (!me) return [];
   const today = todayStr();
-  return (TASKS || []).filter(t => !t.done && t.plan && t.plan.worker === me && t.plan.day === today)
+  return (TASKS || []).filter(t => taskIsOpen(t) && t.plan && t.plan.worker === me && t.plan.day === today)
     .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
 }
 function renderMyShiftPlan() {
@@ -776,7 +782,7 @@ function shiftPlanDialog(preWorker) {
     return (op && op.per > 0) ? rem * op.per : 0;
   };
   const build = () => {
-    const mine = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws) && taskAssignees(t).includes(worker));
+    const mine = (TASKS || []).filter(t => taskIsOpen(t) && (ws === "__all" || t.workshop === ws) && taskAssignees(t).includes(worker));
     // Първо вече планираните за деня (по seq), после останалите (по срок).
     const planned = mine.filter(t => t.plan && t.plan.day === day && t.plan.worker === worker)
       .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
@@ -880,7 +886,7 @@ function shiftPlanDialog(preWorker) {
 function printDayPlan(dayISO, onlyWorker, seqIds) {
   if (typeof dayISO !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) dayISO = "";   // пази от подаден event
   const ws = currentWorkshop();
-  const all = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  const all = (TASKS || []).filter(t => taskIsOpen(t) && (ws === "__all" || t.workshop === ws));
   let rows = all, note = "";
   // Печат за ЕДИН служител (от прозореца „План за смяната"): само неговите
   // задачи, в реда от списъка — дори още незаписан.
@@ -933,6 +939,113 @@ function printDayPlan(dayISO, onlyWorker, seqIds) {
   w.document.write(html); w.document.close(); w.focus();
 }
 
+/* 🧹 СТАРИ ЗАДАЧИ — тези, които стоят в цеховете, без да могат да свършат.
+   Задача изчезва от активния списък САМО когато количеството е > 0 и
+   произведеното е ≥ него. Затова тук излизат двата случая, в които това
+   никога не се случва:
+     • Количество 0 — няма какво да се произведе, но редът стои вечно.
+     • Заявката им е ЗАВЪРШЕНА (доставена) — приключването на заявка сменя
+       само статуса ѝ; задачите по цеховете НЕ се пипат (махат се само с
+       „Изтегли от производство" или при триене на заявката).
+   Закриването е ОБРАТИМО: задачата отива в 🗄 Архив производство. Нищо не се
+   трие — отчетите, движенията и вечният дневник остават непокътнати. */
+async function staleTasksDialog() {
+  const { wrap, close } = erpDialog(`<h3>🧹 Стари задачи</h3><div id="st-body"><p class="erp-muted">Проверявам заявките…</p></div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="st-closed">🗄 Виж закритите</button>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn" id="st-x">Затвори</button>
+      <button class="btn btn-primary" id="st-do">🗄 Закрий избраните</button>
+    </div>`);
+  const box = wrap.querySelector(".erp-dialog-box"); if (box) box.classList.add("erp-dialog-xwide");
+  wrap.querySelector("#st-x").addEventListener("click", close);
+
+  // Статусите на клиентските заявки (за да знаем кои са приключени).
+  const ordMap = {};
+  try {
+    const { data } = await erpSelectAll("customer_orders", "id,data");
+    (data || []).forEach(r => { ordMap[String(r.id)] = r.data || {}; });
+  } catch (e) {}
+  const ordDone = d => {
+    if (!d) return false;
+    if (String(d.status || "") === "завършена") return true;
+    const lines = d.lines || [];
+    const num = v => (typeof erpToNum === "function" ? erpToNum(v) : Number(v)) || 0;
+    return lines.length > 0 && lines.every(l => (Number(l.delivered) || 0) >= num(l.qty) - 1e-9);
+  };
+  const reasonOf = t => {
+    if ((Number(t.qty) || 0) <= 0) return "нулево количество";
+    const ids = taskSeriesOrders(t).map(o => String(o.id));
+    const known = ids.filter(id => ordMap[id]);
+    if (ids.length && known.length === ids.length && known.every(id => ordDone(ordMap[id]))) return "заявката е приключена (доставена)";
+    return "";
+  };
+
+  let showClosed = false;
+  const render = () => {
+    const body = wrap.querySelector("#st-body");
+    const list = showClosed
+      ? (TASKS || []).filter(t => t.closed)
+      : (TASKS || []).filter(t => taskIsOpen(t) && !(t.source && t.source.kind === "extra")).map(t => Object.assign({ _r: reasonOf(t) }, t)).filter(t => t._r);
+    wrap.querySelector("#st-do").textContent = showClosed ? "↩ Върни избраните в цеха" : "🗄 Закрий избраните";
+    wrap.querySelector("#st-closed").textContent = showClosed ? "← Назад към старите" : "🗄 Виж закритите";
+    if (!list.length) {
+      body.innerHTML = showClosed
+        ? `<p class="erp-muted">Няма закрити задачи.</p>`
+        : `<p class="erp-muted">✅ Няма стари задачи — всичко в цеховете е живо.</p>`;
+      return;
+    }
+    const rows = list.map(t => {
+      const t0 = (TASKS || []).find(x => String(x.id) === String(t.id)) || t;
+      const qty = Number(t0.qty) || 0, prod = Number(t0.produced) || 0;
+      const cl = t0.client || [...new Set(taskSeriesOrders(t0).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
+      const nos = taskOrderNos(t0);
+      return `<tr>
+        <td><input type="checkbox" class="st-c" data-id="${escapeAttr(String(t0.id))}" checked /></td>
+        <td>${escapeHtml(t0.workshop || "")}</td>
+        <td>${escapeHtml(cl)}${nos.length ? `<div class="erp-muted">№ ${escapeHtml(nos.join(", "))}</div>` : ""}</td>
+        <td><b>${escapeHtml(t0.code || "")}</b> ${escapeHtml(t0.product || "")}</td>
+        <td>${escapeHtml(t0.operation || "")}</td>
+        <td class="num">${matQtyFmt(qty)}</td>
+        <td class="num">${matQtyFmt(prod)}</td>
+        <td class="num">${matQtyFmt(Math.max(0, qty - prod))}</td>
+        <td>${escapeHtml(showClosed ? "закрита ръчно" : t._r)}</td></tr>`;
+    }).join("");
+    body.innerHTML = `<p class="hint" style="margin:-2px 0 8px">${showClosed
+      ? `Закритите задачи стоят в 🗄 Архив производство. Върнатите пак излизат в цеха.`
+      : `Задача слиза от списъка само когато <b>произведено ≥ количество</b>. Тези не могат да го стигнат. Закриването ги маха от цеховете и от планирането — <b>без да трие нищо</b> (отчети, движения и дневник остават).`}</p>
+      <div style="max-height:56vh;overflow:auto"><table class="erp-table">
+        <thead><tr><th><input type="checkbox" id="st-all" checked /></th><th>Цех</th><th>Клиент</th><th>Код / продукт</th><th>Операция</th><th class="num">Кол.</th><th class="num">Произв.</th><th class="num">Остатък</th><th>Причина</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <p class="erp-muted" style="margin:6px 0 0">Общо: <b>${list.length}</b></p>`;
+    const all = body.querySelector("#st-all");
+    if (all) all.addEventListener("change", () => body.querySelectorAll(".st-c").forEach(c => { c.checked = all.checked; }));
+  };
+  render();
+  wrap.querySelector("#st-closed").addEventListener("click", () => { showClosed = !showClosed; render(); });
+  wrap.querySelector("#st-do").addEventListener("click", async () => {
+    const ids = [...wrap.querySelectorAll(".st-c")].filter(c => c.checked).map(c => c.dataset.id);
+    if (!ids.length) { alert("Не си избрал нито една задача."); return; }
+    const back = showClosed;
+    if (!confirm(back
+      ? `Да върна ли ${ids.length} задачи обратно в цеховете?`
+      : `Да закрия ли ${ids.length} задачи?\n\nОтиват в 🗄 Архив производство и изчезват от цеховете и от планирането.\nНищо не се трие — отчетите и движенията остават. Може да ги върнеш по всяко време.`)) return;
+    const btn = wrap.querySelector("#st-do"); btn.disabled = true; btn.textContent = "Записвам…";
+    for (const id of ids) {
+      const t = (TASKS || []).find(x => String(x.id) === String(id));
+      if (!t) continue;
+      if (back) { delete t.closed; delete t.closedAt; }
+      else { t.closed = true; t.closedAt = new Date().toISOString(); }
+      await tSaveTask(t);
+    }
+    btn.disabled = false;
+    render();
+    renderTasks();
+    if (PROD_MODE) renderProdWsBar();
+    alert(back ? `Върнати ${ids.length} задачи.` : `Закрити ${ids.length} задачи.`);
+  });
+}
+
 /* Натовареност по служител в текущия цех: колко задачи, колко бройки
    остават и колко ЧАСА е това по измерените времена (Продукти → ⏱).
    Това е същината на планирането — кой е претоварен и кой е свободен. */
@@ -948,7 +1061,7 @@ function renderProdLoadBar() {
     host.insertAdjacentElement("afterend", bar);
   }
   const ws = currentWorkshop();
-  const rows = (TASKS || []).filter(t => !t.done && (ws === "__all" || t.workshop === ws));
+  const rows = (TASKS || []).filter(t => taskIsOpen(t) && (ws === "__all" || t.workshop === ws));
   const times = (typeof ERP !== "undefined" && ERP.prodTimes && ERP.prodTimes.byCode) || null;
   const secOf = t => {
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
@@ -986,12 +1099,14 @@ function renderProdLoadBar() {
     + `<button type="button" class="btn btn-small btn-primary" id="prod-shift" title="Подреди задачите на служител за днес/утре и разпечатай за бригадира">📅 План за смяната</button>`
     + `<button type="button" class="btn btn-small" id="prod-merge" title="В кои цехове поръчките да НЕ се сливат в обща серия">⚙ Сливане</button>`
     + `<button type="button" class="btn btn-small" id="prod-cap">⚙ Капацитет</button>`
+    + `<button type="button" class="btn btn-small" id="prod-stale" title="Задачи, които не могат да свършат: с нулево количество или от вече приключени (доставени) заявки">🧹 Стари задачи</button>`
     + `<button type="button" class="btn btn-small" id="prod-print">🖨 Дневен план</button>`
     + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
   const sb2 = bar.querySelector("#prod-shift"); if (sb2) sb2.addEventListener("click", () => shiftPlanDialog());
   const sb3 = bar.querySelector("#prod-shift-sel"); if (sb3) sb3.addEventListener("click", () => shiftPlanDialog(selW));
   const mb = bar.querySelector("#prod-merge"); if (mb) mb.addEventListener("click", seriesMergeDialog);
   const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
+  const stb = bar.querySelector("#prod-stale"); if (stb) stb.addEventListener("click", staleTasksDialog);
   const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", () => printDayPlan());
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("dblclick", () => { if (b.dataset.lw) shiftPlanDialog(b.dataset.lw); }));
   bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
