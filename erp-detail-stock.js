@@ -1400,12 +1400,41 @@ async function dsReplanAfterCorrection(pid, newQty) {
         && !src.last && (Number(d.produced) || 0) > 0;
     });
   } catch (e) {}
+  // Снимка на задачите за ТОЗИ код преди пренастройването — за да се види
+  // черно на бяло какво се променя (и че вече произведеното НЕ се губи).
+  const snapTasks = async () => {
+    const out = {};
+    try {
+      const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
+      (data || []).forEach(r => {
+        const d = r.data || {}, src = d.source || {};
+        if (src.kind !== "series" || String(src.code || "").trim() !== code) return;
+        out[src.seriesKey] = { op: d.operation || "", ws: d.workshop || "", qty: Number(d.qty) || 0, produced: Number(d.produced) || 0 };
+      });
+    } catch (e) {}
+    return out;
+  };
+  const before = await snapTasks();
+  // Частично доставените заявки: пренастройването смята ЦЯЛОТО поръчано
+  // количество, а вече отчетеното по задачите остава — то покрива доставеното.
+  const partLines = [];
+  affected.forEach(o => {
+    let tot = 0, del = 0;
+    (o.lines || []).forEach(l => { const q = erpToNum(l.qty) || 0; tot += q; del += Math.min(q, Number(l.delivered) || 0); });
+    if (del > 0) partLines.push(`   № ${o.ourNo || "—"} ${o.clientName || ""}: поръчани ${erpNum(tot)}, доставени ${erpNum(del)}`);
+  });
   const msg = `Ръчната корекция задава ${erpNum(newQty)} бр. като ЦЯЛАТА налична бройка на ${code} `
     + `(склад + производство + полуготови).\n\n`
     + `Да пренастроя ли производството?\n`
     + `• освобождавам резервациите на този детайл по заявките\n`
     + (midTasks.length ? `• нулирам отчетеното по ${midTasks.length} незавършени МЕЖДИННИ операции (полуготовите ги няма)\n` : "")
-    + (affected.length ? `• пре-пускам ${affected.length} активни заявки, за да се преизчислят по реалната наличност\n` : "• няма активни заявки с този детайл\n");
+    + (affected.length ? `• пре-пускам ${affected.length} активни заявки, за да се преизчислят по реалната наличност\n` : "• няма активни заявки с този детайл\n")
+    + (partLines.length
+      ? `\n⚠ ЧАСТИЧНО ДОСТАВЕНИ ЗАЯВКИ:\n${partLines.join("\n")}\n`
+        + `   Смята се ЦЯЛОТО поръчано количество, но вече отчетеното по задачите се ЗАПАЗВА —\n`
+        + `   значи в цеха остава само недовършеното. Ако доставените бройки са тръгнали от\n`
+        + `   склада, а не от цеха, провери остатъците след пренастройването.\n`
+      : "");
   if (!confirm(msg)) return;
   // 1) резервациите
   try {
@@ -1436,13 +1465,22 @@ async function dsReplanAfterCorrection(pid, newQty) {
       if (res && res.error) fail++; else ok++;
     } catch (e) { fail++; }
   }
+  const after = await snapTasks();
+  // Какво се смени по задачите на този код: остатък преди → след.
+  const diff = [];
+  Object.keys(after).forEach(k => {
+    const a = after[k], b = before[k] || { qty: 0, produced: 0 };
+    const ra = Math.max(0, a.qty - a.produced), rb = Math.max(0, b.qty - b.produced);
+    if (ra !== rb || a.qty !== b.qty) diff.push(`• ${a.ws || ""} · ${a.op || ""}: остатък ${erpNum(rb)} → ${erpNum(ra)} (кол. ${erpNum(b.qty)} → ${erpNum(a.qty)}, произведено ${erpNum(a.produced)})`);
+  });
   await erpLoadAll();
   erpRenderDetailStock();
   alert(`✓ Пренастроено по новата наличност на ${code}.\n`
     + `• резервациите — освободени\n`
     + (midTasks.length ? `• нулирани междинни операции: ${midTasks.length}\n` : "")
-    + `• преизчислени заявки: ${ok}${fail ? ` (неуспешни: ${fail})` : ""}\n\n`
-    + `Провери Цехове — количествата по задачите вече са спрямо реалната наличност.`);
+    + `• преизчислени заявки: ${ok}${fail ? ` (неуспешни: ${fail})` : ""}\n`
+    + (diff.length ? `\nПромени по задачите (произведеното е запазено):\n${diff.join("\n")}\n` : `\nЗадачите за ${code} останаха същите.\n`)
+    + `\nПровери Цехове — количествата по задачите вече са спрямо реалната наличност.`);
 }
 
 async function dsHistory(pid) {
