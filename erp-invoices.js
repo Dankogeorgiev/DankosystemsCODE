@@ -477,6 +477,19 @@ async function erpInvSeriesDialog() {
    Чете историята (последната издадена фактура на клиента) и вади навиците му:
    срок на разсрочено плащане, начин на плащане, валута, ДДС, серия. Всяка нова
    фактура автоматично „дообучава" — тя става последната в историята. */
+/* Серията на ЕДНА фактура. Ако записът няма seriesKey (стар/импортиран), се
+   разпознава по първата цифра на номера — 1…=износ, 2…=вътрешен, 3…=месечни. */
+function invSeriesOfInvoice(o) {
+  if (o && o.seriesKey && (erpInvSeries || {})[o.seriesKey]) return String(o.seriesKey);
+  const first = String((o && (o.docNo || o.cancelledNo)) || "").trim().charAt(0);
+  return ((erpInvSeries || {})[first]) ? first : "2";
+}
+function invFindByNo(no) {
+  const n = String(no || "").trim();
+  if (!n) return null;
+  return (erpInvoices || []).find(x => String(x.docNo || "").trim() === n) || null;
+}
+
 function erpInvClientProfile(name) {
   const nm = String(name || "").trim().toLowerCase();
   if (!nm) return null;
@@ -503,6 +516,10 @@ function erpInvApplyClientProfile(o, prof) {
     if (!isNaN(d.getTime())) { d.setDate(d.getDate() + Number(prof.termDays)); o.dueDate = d.toISOString().slice(0, 10); }
   } else o.dueDate = "";
   if (prof.paymentMethod) o.paymentMethod = prof.paymentMethod;
+  // Известието следва ОРИГИНАЛНАТА фактура, а не навиците на клиента —
+  // иначе кредитно към износна фактура вземаше номер от вътрешната серия.
+  const isNoteDoc = (o.kind === "credit" || o.kind === "debit");
+  if (isNoteDoc) return true;
   o.currency = prof.currency; o.vatRate = prof.vatRate; o.seriesKey = prof.seriesKey;
   if (Number(prof.vatRate) === 0 && prof.vatBasis && !o.vatBasis) o.vatBasis = prof.vatBasis;
   return true;
@@ -563,11 +580,25 @@ async function erpInvForm(o) {
       </div>
       ${isNote ? `<div class="inv-note-ref">
         <b>Връзка към фактура (чл. 115 — задължително):</b>
+        ${locked ? "" : `<label>Избери фактурата <select id="inv-refpick" title="Избери оригиналната фактура — известието наследява нейната СЕРИЯ (износ/вътрешен), клиент, валута и ДДС">
+          <option value="">— избери издадена фактура —</option>
+          ${(erpInvoices || []).filter(x => x.posted && x.kind === "invoice" && x.docNo)
+            .sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")))
+            .slice(0, 400)
+            .map(x => `<option value="${escapeAttr(String(x.id))}" ${((o.refInvoice || {}).docNo || "") === String(x.docNo) ? "selected" : ""}>№ ${escapeHtml(String(x.docNo))} · ${escapeHtml((x.client && x.client.name) || "")} · ${escapeHtml(erpDMY(x.issueDate) || "")} · серия ${escapeHtml(invSeriesOfInvoice(x))}</option>`).join("")}
+        </select></label>`}
         <label>Фактура № <input type="text" id="inv-refno" value="${escapeAttr((o.refInvoice && o.refInvoice.docNo) || "")}" ${locked ? "disabled" : ""} placeholder="номер на оригиналната фактура" /></label>
         <label>Дата <input type="date" id="inv-refdate" value="${escapeAttr((o.refInvoice && o.refInvoice.date) || "")}" ${locked ? "disabled" : ""} /></label>
         <label>Основание <input type="text" id="inv-refreason" value="${escapeAttr(o.refReason || "")}" ${locked ? "disabled" : ""} placeholder="напр. връщане на стока / корекция" /></label>
         <label class="erp-inline"><input type="checkbox" id="inv-retstock" ${o.returnStock ? "checked" : ""} ${locked ? "disabled" : ""} />
           ${o.kind === "credit" ? "🔄 При издаване ВЪРНИ артикулите в Склад детайли (клиентът ги връща)" : "🔄 При издаване ИЗПИШИ артикулите от Склад детайли (пращаме стока)"}</label>
+        ${(function () {
+          const src0 = invFindByNo((o.refInvoice || {}).docNo);
+          const sk = src0 ? invSeriesOfInvoice(src0) : o.seriesKey;
+          const lb = (erpInvSeries[sk] || {}).label || "";
+          const bad = src0 && sk !== o.seriesKey;
+          return `<div class="hint" style="margin:6px 0 0${bad ? ";color:#b45309;font-weight:700" : ""}">${bad ? "⚠ " : ""}Известието взима номер от серия <b>${escapeHtml(sk)}. ${escapeHtml(lb)}</b>${bad ? ` — оригиналната фактура е от нея, а сега е избрана серия ${escapeHtml(o.seriesKey)}. Ще ти предложа да я сменя при издаване.` : " — същата като на оригиналната фактура."}</div>`;
+        })()}
       </div>` : ""}
       ${o.vatRate == 0 ? `<label class="erp-co-note">Основание за 0% ДДС <input type="text" id="inv-vatbasis" value="${escapeAttr(o.vatBasis || "")}" ${locked ? "disabled" : ""} placeholder="напр. чл. 28 ЗДДС (износ) / чл. 53 (ВОД)" /></label>` : ""}
 
@@ -712,6 +743,37 @@ async function erpInvForm(o) {
     if (typeof erpSetTab === "function") erpSetTab("sales", true);
   }));
   g("inv-refno", e => { o.refInvoice = o.refInvoice || {}; o.refInvoice.docNo = e.target.value; });
+  // Ръчно въведен номер: щом го разпознаем, известието поема СЕРИЯТА на оригинала.
+  const rno = document.getElementById("inv-refno");
+  if (rno && !locked) rno.addEventListener("change", () => {
+    const src = invFindByNo(rno.value);
+    if (!src) return;
+    o.refInvoice = { docNo: String(src.docNo || ""), date: src.issueDate || (o.refInvoice || {}).date || "" };
+    o.seriesKey = invSeriesOfInvoice(src);
+    if (src.currency) o.currency = src.currency;
+    if (src.vatRate != null) o.vatRate = src.vatRate;
+    if (src.vatBasis) o.vatBasis = src.vatBasis;
+    erpInvForm(o);
+  });
+  // Избор от списъка: пренася серия, клиент, получател, валута, ДДС и поръчка.
+  const rpick = document.getElementById("inv-refpick");
+  if (rpick && !locked) rpick.addEventListener("change", () => {
+    const src = (erpInvoices || []).find(x => String(x.id) === String(rpick.value));
+    if (!src) return;
+    o.refInvoice = { docNo: String(src.docNo || ""), date: src.issueDate || "" };
+    o.seriesKey = invSeriesOfInvoice(src);
+    o.currency = src.currency || o.currency;
+    if (src.vatRate != null) o.vatRate = src.vatRate;
+    if (src.vatBasis) o.vatBasis = src.vatBasis;
+    o.client = JSON.parse(JSON.stringify(src.client || o.client || {}));
+    o.clientId = src.clientId || o.clientId || null;
+    if (src.consignee) o.consignee = JSON.parse(JSON.stringify(src.consignee));
+    o.orderRef = src.orderRef || o.orderRef || "";
+    o.payCond = src.payCond || o.payCond || "";
+    o.tariffCode = src.tariffCode || o.tariffCode || "";
+    if (!(o.lines || []).length) o.lines = (src.lines || []).map(l => ({ ...l }));
+    erpInvForm(o);
+  });
   g("inv-refdate", e => { o.refInvoice = o.refInvoice || {}; o.refInvoice.date = e.target.value; });
   g("inv-refreason", e => o.refReason = e.target.value);
   g("inv-cname", e => o.client.name = e.target.value);
@@ -863,6 +925,20 @@ async function erpInvIssue(o) {
   if ((o.kind === "credit" || o.kind === "debit") && !(o.refInvoice && o.refInvoice.docNo)) {
     alert("Известието задължително се връзва към фактура (чл. 115): въведи номер на оригиналната фактура."); return;
   }
+  // Известието трябва да е от СЕРИЯТА на оригиналната фактура (износ ≠ вътрешен).
+  if (o.kind === "credit" || o.kind === "debit") {
+    const src = invFindByNo((o.refInvoice || {}).docNo);
+    if (src) {
+      const sk = invSeriesOfInvoice(src);
+      if (sk !== String(o.seriesKey)) {
+        const a = (erpInvSeries[sk] || {}).label || "", b = (erpInvSeries[o.seriesKey] || {}).label || "";
+        if (confirm(`Оригиналната фактура № ${src.docNo} е от серия ${sk} (${a}),\nа известието сега е на серия ${o.seriesKey} (${b}).\n\nОК = издавам от серия ${sk} (както е фактурата)\nОтказ = оставям серия ${o.seriesKey}`)) {
+          o.seriesKey = sk;
+          const selEl = document.getElementById("inv-series"); if (selEl) selEl.value = sk;
+        }
+      }
+    }
+  }
   if (!confirm("Да издам ли документа и да взема номер от серията? След това не може да се редактира.")) return;
   const btn = document.getElementById("inv-issue");
   if (btn) { btn.disabled = true; btn.textContent = "Издавам…"; }
@@ -984,7 +1060,7 @@ async function erpInvNoteStockMoves(o) {
 function erpInvNoteFrom(src, kind) {
   const today = new Date().toISOString().slice(0, 10);
   const o = {
-    kind, seriesKey: src.seriesKey, issueDate: today, taxDate: today,
+    kind, seriesKey: invSeriesOfInvoice(src), issueDate: today, taxDate: today,
     orderRef: src.orderRef || "", client: JSON.parse(JSON.stringify(src.client || {})),
     consignee: src.consignee ? JSON.parse(JSON.stringify(src.consignee)) : null,
     clientId: src.clientId || null, currency: src.currency || "EUR",
