@@ -1432,6 +1432,14 @@ tr.times-click:hover td { background: #ecfdf5; }
 .prod-ws.active { background: #0f766e; border-color: #0f766e; color: #fff; font-weight: 700; }
 .prod-ws-n { background: rgba(15,23,42,.10); border-radius: 999px; padding: 0 7px; font-size: 12px; font-weight: 700; }
 .prod-ws.active .prod-ws-n { background: rgba(255,255,255,.25); }
+/* ⚙ Филтър по операция през всички цехове */
+.prod-op-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: #475569; margin-left: 6px; }
+.prod-op-lbl select { max-width: 320px; font-size: 12.5px; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+.prod-op-info { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; padding: 6px 10px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; font-size: 12.5px; color: #1e3a8a; }
+.prod-op-ws { border: 1px solid #a5b4fc; background: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; color: #1e3a8a; }
+.prod-op-ws:hover { background: #e0e7ff; }
+.prod-op-ws.active { background: #4338ca; border-color: #4338ca; color: #fff; font-weight: 700; }
+.prod-op-tip { margin-left: auto; color: #4c5f9b; font-size: 11.5px; }
 
 .prod-mode .tasks-controls select#task-workshop { display: none; }   /* цеховете са бутони */
 /* Цеховите преки пътища и „Поискай отпуск" не са за админския изглед */

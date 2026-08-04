@@ -562,6 +562,11 @@ async function openTasks() {
    (отчитане, брак, преместване, вериги, склад) — няма втора истина. */
 let PROD_MODE = false;
 let PROD_FREE_FIRST = true;       // неразпределените най-горе
+/* Филтър по ОПЕРАЦИЯ през всички цехове. Рецептите пращат една и съща
+   операция (напр. „набиване на гайка") в различни цехове; така се вижда
+   цялата ѝ картина наведнъж и се събира на едно място. */
+let PROD_OP = "";
+function opNorm(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
 let WORKER_CAP = { def: 8, byWorker: {} };   // часове/ден за планиране
 
 async function openProduction() {
@@ -577,6 +582,7 @@ async function openProduction() {
 // Изключва админския режим (при връщане към обикновените Цехове).
 function prodModeOff() {
   PROD_MODE = false;
+  PROD_OP = "";
   const asgTh = document.querySelector('.tasks-table thead th[data-sort="assignee"]');
   if (asgTh) asgTh.textContent = "Отговорник";
   const box = document.querySelector("#tasks-modal .tasks-box");
@@ -596,6 +602,26 @@ function updateWorkersCount() {
     ? new Set(Object.values(WORKERS).flat()).size
     : (WORKERS[ws] || []).length;
   el.textContent = n ? ` (${n})` : "";
+}
+
+/* Опис на живите операции през ВСИЧКИ цехове: колко задачи има всяка и в
+   кои цехове е разпръсната. Имената се сравняват без разлика в главни букви
+   и интервали (същата операция често е изписана по няколко начина). */
+function prodOpIndex() {
+  const by = {};
+  (TASKS || []).forEach(t => {
+    if (!taskIsOpen(t)) return;
+    if (t.source && t.source.kind === "extra") return;
+    const key = opNorm(t.operation);
+    if (!key) return;
+    const e = by[key] || (by[key] = { key, label: String(t.operation || "").trim(), n: 0, ws: {} });
+    e.n++;
+    e.ws[t.workshop || ""] = (e.ws[t.workshop || ""] || 0) + 1;
+  });
+  return Object.values(by).map(e => {
+    e.shops = Object.keys(e.ws).map(w => ({ ws: w, n: e.ws[w] })).sort((a, b) => b.n - a.n);
+    return e;
+  }).sort((a, b) => (b.shops.length - a.shops.length) || a.label.localeCompare(b.label, "bg"));
 }
 
 // Лентата с цеховете като бутони + брой активни задачи във всеки.
@@ -620,8 +646,40 @@ function renderProdWsBar() {
   (TASKS || []).forEach(t => { if (taskIsOpen(t)) cnt[t.workshop] = (cnt[t.workshop] || 0) + 1; });
   const btn = (val, label, n) =>
     `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
-  bar.innerHTML = workshopList().map(w => btn(w, w, cnt[w] || 0)).join("");
+  // Операциите през ВСИЧКИ цехове (една и съща операция често е разпръсната).
+  const ops = prodOpIndex();
+  const opSel = `<label class="prod-op-lbl">⚙ Операция
+      <select id="prod-op" title="Показва тази операция във ВСИЧКИ цехове — така се вижда цялата ѝ картина наведнъж">
+        <option value="">— всички операции —</option>
+        ${ops.map(o => `<option value="${escapeAttr(o.key)}"${PROD_OP === o.key ? " selected" : ""}>${escapeHtml(o.label)} (${o.n})${o.shops.length > 1 ? ` · ${o.shops.length} цеха` : ""}</option>`).join("")}
+      </select></label>`;
+  const curOp = PROD_OP ? ops.find(o => o.key === PROD_OP) : null;
+  const opInfo = curOp ? `<div class="prod-op-info">
+      <b>${escapeHtml(curOp.label)}</b> — ${curOp.n} задачи в ${curOp.shops.length} ${curOp.shops.length === 1 ? "цех" : "цеха"}:
+      ${curOp.shops.map(s => `<button type="button" class="prod-op-ws${cur === s.ws ? " active" : ""}" data-ows="${escapeAttr(s.ws)}" title="Само този цех">${escapeHtml(s.ws || "— без цех —")} <b>${s.n}</b></button>`).join("")}
+      ${cur !== "__all" ? `<button type="button" class="prod-op-ws" data-ows="__all">↺ всички цехове</button>` : ""}
+      <span class="prod-op-tip">Маркирай редовете и ги събери с „🔀 Прехвърли в цех".</span>
+    </div>` : "";
+  bar.innerHTML = workshopList().map(w => btn(w, w, cnt[w] || 0)).join("") + opSel + opInfo;
   renderProdLoadBar();
+  const opEl = bar.querySelector("#prod-op");
+  if (opEl) opEl.addEventListener("change", () => {
+    PROD_OP = opEl.value;
+    // Операцията се гледа през всички цехове — иначе филтърът се самоограничава.
+    if (PROD_OP) { const s = document.getElementById("task-workshop"); if (s) s.value = "__all"; }
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+    renderProdWsBar();
+  });
+  bar.querySelectorAll("[data-ows]").forEach(b => b.addEventListener("click", () => {
+    const s = document.getElementById("task-workshop");
+    if (s) s.value = b.dataset.ows;
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+    renderProdWsBar();
+  }));
   bar.querySelectorAll(".prod-ws").forEach(b => b.addEventListener("click", () => {
     const s = document.getElementById("task-workshop");
     if (s) { s.value = b.dataset.ws; }
@@ -1407,6 +1465,7 @@ function renderTasks() {
     } else if (worker && !taskHasWorker(t, worker)) {
       return false;
     }
+    if (PROD_MODE && PROD_OP && opNorm(t.operation) !== PROD_OP) return false;   // ⚙ операция през всички цехове
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
     if (clientFilter && !taskClients(t).includes(clientFilter)) return false;   // всичко пуснато за избрания клиент
     if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
@@ -1729,6 +1788,7 @@ function renderBulkBar(rows, ws) {
     <button id="bulk-selvis" class="btn btn-small">Маркирай показаните (${rows.length})</button>
     <button id="bulk-sel-manual" class="btn btn-small" title="Маркира показаните ръчно въведени задачи (не пуснати от системата)">✋ Маркирай ръчните (${manualRows.length})</button>
     <button id="bulk-clear" class="btn btn-small">Изчисти</button>
+    ${PROD_MODE ? `<button id="bulk-move" class="btn btn-small" title="Мести маркираните задачи в един цех — с възможност правилото да остане завинаги за детайл+операция">🔀 Прехвърли в цех</button>` : ""}
     <button id="bulk-del" class="btn btn-small btn-danger">🗑 Изтрий избраните</button>`;
   bulk.querySelector("#bulk-selvis").addEventListener("click", () => { rows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
   bulk.querySelector("#bulk-sel-manual").addEventListener("click", () => { manualRows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
@@ -1738,6 +1798,59 @@ function renderBulkBar(rows, ws) {
   bulk.querySelector("#bulk-unassign").addEventListener("click", unassignBulk);
   bulk.querySelector("#bulk-setdue").addEventListener("click", () => setDueBulk(bulk.querySelector("#bulk-due").value));
   bulk.querySelector("#bulk-del").addEventListener("click", deleteBulk);
+  const mv = bulk.querySelector("#bulk-move"); if (mv) mv.addEventListener("click", moveBulkDialog);
+}
+
+/* 🔀 Групово прехвърляне в цех — за събиране на разпръсната операция.
+   „Постоянно" запомня правилото детайл+операция → цех (същото, което пази и
+   единичното прехвърляне), затова и следващите заявки тръгват натам. */
+async function moveBulkDialog() {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачите — с тикчетата отляво или с бутона за маркиране на показаните."); return; }
+  const ids = [...selectedTasks];
+  const list = ids.map(id => (TASKS || []).find(t => String(t.id) === String(id))).filter(Boolean);
+  if (!list.length) return;
+  const froms = {};
+  list.forEach(t => { froms[t.workshop || "— без цех —"] = (froms[t.workshop || "— без цех —"] || 0) + 1; });
+  const opsN = [...new Set(list.map(t => opNorm(t.operation)))].length;
+  const { wrap, close } = erpDialog(`
+    <h3>🔀 Прехвърли ${list.length} задачи в цех</h3>
+    <p class="hint" style="margin:-4px 0 8px">Сега са в: ${Object.keys(froms).map(w => `<b>${escapeHtml(w)}</b> (${froms[w]})`).join(" · ")}${opsN > 1 ? ` · <span class="pay-neg">внимание: ${opsN} различни операции</span>` : ""}</p>
+    <label class="erp-inline">Нов цех <select id="mb-ws">${workshopList().map(w => `<option>${escapeHtml(w)}</option>`).join("")}</select></label>
+    <div style="margin:10px 0 2px">
+      <label style="display:block;padding:3px 0"><input type="radio" name="mb-mode" value="perm" checked /> <b>Постоянно</b> — тази операция на тези детайли ще отива там и при следващите заявки</label>
+      <label style="display:block;padding:3px 0"><input type="radio" name="mb-mode" value="once" /> Само тези задачи (еднократно)</label>
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="mb-x">Отказ</button><button class="btn btn-primary" id="mb-go">Прехвърли</button></div>`);
+  wrap.querySelector("#mb-x").addEventListener("click", close);
+  wrap.querySelector("#mb-go").addEventListener("click", async () => {
+    const target = wrap.querySelector("#mb-ws").value;
+    const perm = (wrap.querySelector('input[name="mb-mode"]:checked') || {}).value !== "once";
+    if (!target) return;
+    const btn = wrap.querySelector("#mb-go"); btn.disabled = true; btn.textContent = "Прехвърля…";
+    for (const t of list) { t.workshop = target; await tSaveTask(t); }
+    // Постоянните правила се пишат НАВЕДНЪЖ (иначе по едно четене+запис на задача).
+    if (perm) {
+      try {
+        const { data } = await sb.from("app_config").select("data").eq("id", "erp_detail_routing").maybeSingle();
+        const byKey = (data && data.data && data.data.byKey) || {};
+        list.forEach(t => {
+          const key = (typeof erpDetailRouteKey === "function")
+            ? erpDetailRouteKey(t.code, t.product, t.operation)
+            : ((t.code || t.product || "") + "¦" + (t.operation || ""));
+          byKey[key] = target;
+        });
+        const { error } = await sb.from("app_config").upsert({ id: "erp_detail_routing", data: { byKey }, updated_at: new Date().toISOString() });
+        if (error) alert("Задачите са преместени, но постоянното правило не се записа: " + (error.message || error));
+        else if (typeof ERP !== "undefined") ERP.detailRouting = byKey;
+      } catch (e) {}
+    }
+    close();
+    selectedTasks.clear();
+    renderTasks();
+    if (PROD_MODE) renderProdWsBar();
+    alert(`✓ ${list.length} задачи са в цех ${target}.` + (perm ? "\nПравилото е запомнено за следващите заявки." : ""));
+  });
 }
 
 async function deleteBulk() {
