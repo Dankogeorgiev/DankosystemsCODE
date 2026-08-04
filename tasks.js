@@ -694,6 +694,29 @@ async function seriesMergeDialog() {
   });
 }
 
+/* Планът за смяната, както го вижда САМИЯТ служител в своя профил —
+   същият ред, който офисът е задал в „Планиране на производство". */
+function renderMyShiftPlan() {
+  const box = document.getElementById("my-shift-plan");
+  if (!box) return;
+  const me = MY_WORKER || "";
+  if (!amWorker() || !me) { box.hidden = true; box.innerHTML = ""; return; }
+  const today = todayStr();
+  const mine = (TASKS || []).filter(t => !t.done && t.plan && t.plan.worker === me && t.plan.day === today)
+    .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
+  if (!mine.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="msp-head">📅 ПЛАН ЗА СМЯНАТА — ${escapeHtml(me)} · ${typeof erpDMY === "function" ? erpDMY(today) : today}
+      <span class="msp-sub">по този ред е разпределена работата ти за днес</span></div>
+    <ol class="msp-list">${mine.map(t => {
+      const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+      const nos = taskOrderNos(t);
+      const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ");
+      return `<li><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
+        <span class="msp-meta">${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}${escapeHtml(t.operation || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}</span></li>`;
+    }).join("")}</ol>`;
+}
+
 /* 📅 ПЛАН ЗА СМЯНАТА — подреждане на задачите на един служител за днес/утре.
    Редът се пази В ЗАДАЧАТА (t.plan = {worker, day, seq}), затова се вижда и
    в Цехове, и в разпечатката за бригадира. Тук само подреждаме — отчита цехът. */
@@ -760,7 +783,11 @@ function shiftPlanDialog(preWorker) {
         <span class="sp-grip" title="Влачи">⠿</span>
         <span class="sp-n">${i + 1}</span>
         <span class="sp-main"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
-          <small>${escapeHtml(t.operation || t.workshop || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}${sec ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : ""}</small></span>
+          <small>${(function () {
+            const nos = taskOrderNos(t);
+            const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ");
+            return `${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}`;
+          })()}${escapeHtml(t.operation || t.workshop || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}${sec ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : ""}</small></span>
         <span class="sp-acts">
           <button class="btn btn-small" draggable="false" data-up="${id}" title="Нагоре">▲</button>
           <button class="btn btn-small" draggable="false" data-down="${id}" title="Надолу">▼</button>
@@ -855,7 +882,9 @@ function printDayPlan(dayISO) {
     const list = by[w].slice().sort((x, y) => (seqOf(x) - seqOf(y)) || String(x.due || "9999").localeCompare(String(y.due || "9999")));
     const rowsH = list.map((t, i) => {
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-      return `<tr><td>${i + 1}</td><td>${escapeHtml(t.client || "СЕРИЯ")}</td><td>${escapeHtml(t.code || "")}</td>
+      const cl2 = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
+      const nos2 = taskOrderNos(t);
+      return `<tr><td>${i + 1}</td><td>${escapeHtml(cl2)}${nos2.length ? `<br><small>№ ${escapeHtml(nos2.join(", "))}</small>` : ""}</td><td>${escapeHtml(t.code || "")}</td>
         <td>${escapeHtml(t.product || "")}</td><td>${escapeHtml(t.operation || t.workshop || "")}</td>
         <td class="r">${rem}</td><td>${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : "—"}</td><td style="width:90px"></td></tr>`;
     }).join("");
@@ -1156,6 +1185,7 @@ function renderTasks() {
   // Планирането: натовареността по служител се опреснява при всяко рисуване.
   if (PROD_MODE) setTimeout(renderProdLoadBar, 0);
   updateWorkersCount();
+  setTimeout(renderMyShiftPlan, 0);
 
   // Цехов достъп: първо избор „кой си ти“
   if (amWorker() && !MY_WORKER) { renderIdentityPicker(); return; }
