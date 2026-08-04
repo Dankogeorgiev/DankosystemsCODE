@@ -11,7 +11,7 @@
    лв. сметката в ERP_SELLER (erp-sales.js). Провери и поправи при нужда. */
 const ERP_SELLER_EN = {
   name: "DANKO SYSTEMS Ltd.",
-  address: "Kuklensko shose str",
+  address: "Str. Viktor Yugo 5",
   city: "4000 Plovdiv",
   country: "Bulgaria",
   vat: "BG115789385",
@@ -512,7 +512,7 @@ function erpInvPrintDeclaration(o, lang) {
     <p style="margin-top:30px">Date: ${invFmtD(o.issueDate)}</p>
     <p style="margin-top:26px">Declared by: ................................<br>/${escapeHtml(s.manager)}/<br>Manager</p>` : `
     <div class="head"><div><h1>Декларация за произход</h1></div><div></div></div>
-    <p>От<br><b>${escapeHtml((typeof ERP_SELLER !== "undefined" && ERP_SELLER.name) || s.name)}</b><br>гр. Пловдив 4000, ул. Кукленско шосе<br>ЕИК: ${escapeHtml((typeof ERP_SELLER !== "undefined" && ERP_SELLER.eik) || "115789385")}</p>
+    <p>От<br><b>${escapeHtml((typeof ERP_SELLER !== "undefined" && ERP_SELLER.name) || s.name)}</b><br>гр. Пловдив 4000, ул. Виктор Юго № 5<br>ЕИК: ${escapeHtml((typeof ERP_SELLER !== "undefined" && ERP_SELLER.eik) || "115789385")}</p>
     <p>Долуподписаният <b>Данко Георгиев</b> декларирам, че описаните стоки — <b>механизми за дивани и метални части за мека мебел</b>,
       изнесени с фактура №: <b>${escapeHtml(o.docNo || "")}/${invFmtD(o.issueDate)}</b>${o.orderRef ? `, по поръчка на клиента №: <b>${escapeHtml(o.orderRef)}</b>` : ""},
       натоварени на камион: <b>${escapeHtml(tr.vehicleReg || "..................")}</b>,

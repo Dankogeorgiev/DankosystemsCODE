@@ -121,6 +121,8 @@ async function renderPulse() {
   purchases.forEach(o => {
     if (String(o.date || "").slice(0, 7) !== month) return;
     if (o.docType === "goods") return;   // ДДС кредитът идва с покриващата фактура, не със стоковата
+    // Смесени ставки по редове (напр. Идънред/Йетел) — броим точно, ред по ред.
+    if (typeof erpPuTotals === "function") { vatIn += toEur(erpPuTotals(o).vat, o.currency || "BGN"); return; }
     const rate = Number(o.vatRate != null ? o.vatRate : 20);
     vatIn += toEur(lineNet(o.lines) * rate / 100, o.currency || "BGN");
   });

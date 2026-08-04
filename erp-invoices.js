@@ -251,9 +251,10 @@ async function erpRenderInvoices() {
       <label class="erp-inline">Тип
         <select id="inv-fkind"><option value="">Всички</option>${Object.entries(INV_KINDS).map(([k, x]) => `<option value="${k}" ${k === erpInvKindFilter ? "selected" : ""}>${x.label}</option>`).join("")}</select></label>
       <label class="erp-inline">Статус
-        <select id="inv-fstatus"><option value="">Всички</option>${["чернова", "издадена", "платена", "сторнирана"].map(s => `<option ${s === erpInvStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+        <select id="inv-fstatus"><option value="">Всички</option>${["чернова", "издадена", "платена", "анулирана", "сторнирана"].map(s => `<option ${s === erpInvStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <span class="spacer"></span>
       ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
+      <button class="btn btn-small" id="inv-report" title="Справка за период: вътрешни, външни и покупни фактури — с експорт">📊 Справка</button>
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
@@ -269,7 +270,7 @@ async function erpRenderInvoices() {
         const t = erpInvTotals(o); const k = INV_KINDS[o.kind] || {};
         const status = o.status || (o.posted ? "издадена" : "чернова");
         return `<tr class="erp-clickable" data-id="${o.id}">
-          <td data-label="№"><b>${escapeHtml(o.docNo || "—")}</b></td>
+          <td data-label="№"><b>${escapeHtml(o.docNo || (o.cancelledNo ? "🚫 " + o.cancelledNo : "—"))}</b></td>
           <td data-label="Тип">${escapeHtml(k.label || o.kind)}</td>
           <td data-label="Клиент">${escapeHtml((o.client && o.client.name) || "")}</td>
           <td data-label="Дата">${erpDMY(o.issueDate)}</td>
@@ -290,6 +291,7 @@ async function erpRenderInvoices() {
   document.getElementById("inv-fkind").addEventListener("change", e => { erpInvKindFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-fstatus").addEventListener("change", e => { erpInvStatusFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-series").addEventListener("click", erpInvSeriesDialog);
+  document.getElementById("inv-report").addEventListener("click", erpInvReport);
   const mt = document.getElementById("inv-mail-test"); if (mt) mt.addEventListener("click", erpMailDiag);
   const imEl = document.getElementById("inv-import");
   if (imEl) imEl.addEventListener("change", e => { erpInvImport(e.target.files[0]); e.target.value = ""; });
@@ -349,20 +351,25 @@ async function erpInvOpenFromSales(salesArr, kindOverride) {
   const isExport = Number(s0.vatRate) === 0 || (cl.country && !/бълг|bulgaria|^bg$/i.test(String(cl.country).trim()));
   // Order No/Date: номерът на ПОРЪЧКАТА НА КЛИЕНТА (от заявката), не на
   // продажбата. Взима се от заявките, от които идват продажбите.
+  // Всяка продажба носи СВОЯТА поръчка — редовете ѝ получават нея, а не
+  // всички поръчки на фактурата (искане на Кристина: детайлът върви със
+  // своята поръчка). Полето на документа остава сборът за заглавието.
   const orderRefs = [];
+  const refBySale = {};
   for (const s of salesArr) {
     if (!s.fromOrderId) continue;
     try {
       const { data } = await sb.from("customer_orders").select("id,data").eq("id", s.fromOrderId).maybeSingle();
       const d = (data && data.data) || {};
       const no = d.clientNo || d.ourNo;
-      if (no) orderRefs.push(`${no}${d.date ? " " + d.date : ""}`);
+      if (no) { const ref = `${no}${d.date ? " " + d.date : ""}`; orderRefs.push(ref); refBySale[String(s.id)] = ref; }
     } catch (e) {}
   }
   const lines = [];
   salesArr.forEach(s => (s.lines || []).forEach(l => lines.push({
     code: l.code || "", clientCode: l.clientCode || "", name: l.name || "",
     qty: l.qty, unit: l.unit || "бр.", unitPrice: l.unitPrice,
+    orderRef: l.orderRef || refBySale[String(s.id)] || "",
   })));
   const o = {
     kind: kindOverride || "invoice", seriesKey: isExport ? "1" : "2",
@@ -447,9 +454,15 @@ async function erpInvSeriesDialog() {
         <label>Име <input type="text" id="invs-label-${k}" value="${escapeAttr(x.label || "")}" /></label>
         <label>Език <select id="invs-lang-${k}"><option value="bg" ${x.lang === "bg" ? "selected" : ""}>BG</option><option value="en" ${x.lang === "en" ? "selected" : ""}>EN</option></select></label>
         <label>Следващ № <input type="number" id="invs-next-${k}" value="${escapeAttr(String(x.next || 0))}" /></label>
+        ${(x.freed || []).length ? `<div class="erp-muted" style="flex:1 0 100%">♻ Освободени номера (от анулирани): <b>${(x.freed || []).map(escapeHtml).join(", ")}</b> — предлагат се при следващото издаване. <button class="btn btn-small" data-freeclr="${escapeAttr(k)}" title="Изчиства списъка — номерата няма да се предлагат повече">Изчисти</button></div>` : ""}
       </div>`).join("")}
     <div class="erp-dialog-actions"><button class="btn" id="invs-cancel">Отказ</button><button class="btn btn-primary" id="invs-save">Запази</button></div>`);
   wrap.querySelector("#invs-cancel").addEventListener("click", close);
+  wrap.querySelectorAll("[data-freeclr]").forEach(b => b.addEventListener("click", async () => {
+    const k = b.dataset.freeclr;
+    if (!confirm(`Да изчистя ли освободените номера на серия ${k}? Няма да се предлагат повече.`)) return;
+    delete s[k].freed; await erpInvSaveSeries(); close(); erpInvSeriesDialog();
+  }));
   wrap.querySelector("#invs-save").addEventListener("click", async () => {
     Object.keys(s).forEach(k => {
       s[k].label = wrap.querySelector("#invs-label-" + k).value.trim() || s[k].label;
@@ -513,6 +526,9 @@ async function erpInvForm(o) {
       <span class="erp-count">${escapeHtml(k.label || o.kind)}${o.docNo ? " № " + escapeHtml(o.docNo) : " (чернова)"}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
+      <button class="btn btn-small" id="inv-fix" title="Отваря документа за ръчна поправка ПРЕДИ печат (номерът и статусът се запазват)">✎ Ръчна корекция</button>
+      ${o.posted && o.status !== "анулирана" ? '<button class="btn btn-small btn-danger" id="inv-cancel" title="Анулира документа: вземането пада, продажбите се отвързват, а НОМЕРЪТ се освобождава и може да се даде на друг клиент">🚫 Анулирай</button>' : ""}
+      ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span>` : ""}
       ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
       ${o.posted && o.kind === "invoice" ? '<button class="btn btn-small" id="inv-make-credit" title="Ново кредитно известие по тази фактура (връщане/намаление)">➖ Кредитно</button><button class="btn btn-small" id="inv-make-debit" title="Ново дебитно известие по тази фактура (увеличение/допращане)">➕ Дебитно</button>' : ""}
       ${locked ? '<span class="erp-count">✓ Издадена — само преглед</span><button class="btn btn-small" id="inv-unlock" title="Отключва издадената фактура за ръчна поправка (номерът се запазва)">✎ Ръчна редакция</button>'
@@ -595,7 +611,7 @@ async function erpInvForm(o) {
 
       <h4 class="erp-group-head">Редове</h4>
       <table class="report-table erp-table inv-lines-tbl" id="inv-lines">
-        <thead><tr><th>Код</th><th>Наименование</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Стойност</th><th></th></tr></thead>
+        <thead><tr><th>Код</th><th>Наименование</th><th title="Поръчката на клиента за ТОЗИ ред — тя влиза в колоната Поръчка на печата">Поръчка</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Стойност</th><th></th></tr></thead>
         <tbody>${erpInvLinesHtml(o, locked)}</tbody>
       </table>
       ${locked ? "" : '<div class="erp-co-actions"><button class="btn btn-small" id="inv-add-prod">+ Продукт</button><button class="btn btn-small" id="inv-add-free">+ Свободен ред</button></div>'}
@@ -713,6 +729,17 @@ async function erpInvForm(o) {
   g("inv-ccountry", e => o.client.country = e.target.value);
   g("inv-note", e => o.note = e.target.value);
   const pr = document.getElementById("inv-print"); if (pr) pr.addEventListener("click", () => erpInvPrint(o));
+  const fx = document.getElementById("inv-fix");
+  if (fx) fx.addEventListener("click", () => {
+    if (locked) {
+      if (!confirm("Отварям документа за РЪЧНА корекция преди печат.\nНомерът и статусът се запазват; промените важат за печата и за вземането.\nПродължавам?")) return;
+      o.__editUnlocked = true; erpInvForm(o); return;
+    }
+    const first = document.querySelector("#inv-lines tbody input");
+    if (first) { first.scrollIntoView({ behavior: "smooth", block: "center" }); first.focus(); }
+    else alert("Документът е отворен за редакция — поправи го и натисни Печат.");
+  });
+  const cnl = document.getElementById("inv-cancel"); if (cnl) cnl.addEventListener("click", () => erpInvCancel(o));
   const ml = document.getElementById("inv-mail"); if (ml) ml.addEventListener("click", () => erpMailInvoice(o));
   const sv = document.getElementById("inv-save"); if (sv) sv.addEventListener("click", () => erpInvSaveClick(o));
   const iss = document.getElementById("inv-issue"); if (iss) iss.addEventListener("click", () => erpInvIssue(o));
@@ -748,12 +775,13 @@ function erpInvLinesHtml(o, locked) {
     <tr>
       <td data-label="Код">${locked ? escapeHtml(l.code || "") : `<input type="text" class="inv-code" data-i="${i}" value="${escapeAttr(l.code || "")}" style="width:80px" />`}${l.clientCode ? `<div class="erp-co-ccode">клиент: ${escapeHtml(l.clientCode)}</div>` : ""}</td>
       <td data-label="Наименование">${locked ? escapeHtml(l.name || "") : `<input type="text" class="inv-name" data-i="${i}" value="${escapeAttr(l.name || "")}" style="width:100%;min-width:160px" />`}</td>
+      <td data-label="Поръчка">${locked ? escapeHtml(l.orderRef || "") : `<input type="text" class="inv-ordref" data-i="${i}" value="${escapeAttr(l.orderRef || "")}" style="width:110px" placeholder="${escapeAttr(o.orderRef || "поръчка")}" title="Поръчката на клиента ЗА ТОЗИ ред. Празно = общата поръчка на фактурата." />`}</td>
       <td class="num" data-label="Кол.">${locked ? erpNum(l.qty) : `<input type="number" class="inv-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
       <td data-label="МЕ">${locked ? escapeHtml(l.unit || "") : `<input type="text" class="inv-unit" data-i="${i}" value="${escapeAttr(l.unit || "бр.")}" style="width:56px" />`}</td>
       <td class="num" data-label="Ед. цена">${locked ? erpNum(l.unitPrice) : `<input type="number" class="inv-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:100px" placeholder="0.00" />`}</td>
       <td class="num" data-label="Стойност">${erpInvMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), erpInvCur(o))}</td>
       <td class="erp-row-actions">${locked ? "" : `<button class="btn btn-small" data-rm="${i}">×</button>`}</td>
-    </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма редове.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Няма редове.</td></tr>`;
 }
 function erpInvWireLines(o, locked) {
   if (locked) return;
@@ -761,6 +789,7 @@ function erpInvWireLines(o, locked) {
   const line = el => o.lines[Number(el.dataset.i)];
   body.querySelectorAll(".inv-code").forEach(el => el.addEventListener("input", () => line(el).code = el.value));
   body.querySelectorAll(".inv-name").forEach(el => el.addEventListener("input", () => line(el).name = el.value));
+  body.querySelectorAll(".inv-ordref").forEach(el => el.addEventListener("input", () => line(el).orderRef = el.value));
   body.querySelectorAll(".inv-unit").forEach(el => el.addEventListener("input", () => line(el).unit = el.value));
   body.querySelectorAll(".inv-qty").forEach(el => el.addEventListener("input", () => { line(el).qty = erpToNum(el.value); erpInvLineSums(o); }));
   body.querySelectorAll(".inv-price").forEach(el => el.addEventListener("input", () => { line(el).unitPrice = erpToNum(el.value); erpInvLineSums(o); }));
@@ -840,10 +869,18 @@ async function erpInvIssue(o) {
   try {
     await erpInvLoadSeries();
     const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
-    o.docNo = String(ser.next);
+    // Освободени номера от АНУЛИРАНИ фактури — предлагат се преди новия номер,
+    // за да не остават дупки в номерацията (може за друг клиент).
+    const freed = (ser.freed || []).slice().sort((a, b) => Number(a) - Number(b));
+    let useNo = "";
+    if (freed.length) {
+      useNo = confirm(`♻ Има освободен номер от анулирана фактура: ${freed[0]}.\n\nОК = ползвам ${freed[0]}\nОтказ = нов номер ${ser.next}`) ? String(freed[0]) : "";
+    }
+    o.docNo = useNo || String(ser.next);
     o.posted = true; o.status = "издадена";
     await erpSaveInvoice(o);              // уникалният индекс ще хване евентуален дублат
-    ser.next = Math.floor(Number(ser.next) || 0) + 1;
+    if (useNo) ser.freed = freed.filter(x => String(x) !== useNo);
+    else ser.next = Math.floor(Number(ser.next) || 0) + 1;
     await erpInvSaveSeries();
     await erpLoadInvoices();
     // Издадената фактура става вземане от клиента (проформата не влиза).
@@ -862,6 +899,58 @@ async function erpInvIssue(o) {
     o.posted = false; o.status = "чернова"; o.docNo = null;
     if (btn) { btn.disabled = false; btn.textContent = "📤 Издай (вземи номер)"; }
     alert("Грешка при издаване: " + (e.message || e) + "\n(Ако номерът вече съществува — смени следващия номер в Серии.)");
+  }
+}
+
+/* ---------- 🚫 Анулиране на документ ----------
+   Документът остава в системата (следа), но: вземането пада, продажбите се
+   отвързват (може да се фактурират наново), а НОМЕРЪТ се освобождава — влиза
+   в списъка с освободени номера на серията и се предлага при следващото
+   издаване (може за друг клиент). */
+async function erpInvCancel(o) {
+  if (!o.posted) { alert("Черновата не се анулира — просто я промени или изтрий."); return; }
+  if (o.status === "анулирана") { alert("Документът вече е анулиран."); return; }
+  const no = o.docNo || "";
+  if (!confirm(`🚫 Да анулирам ли ${(INV_KINDS[o.kind] || {}).label || "документа"} № ${no}?\n\n`
+    + `• Вземането от клиента отпада\n`
+    + `• Продажбите се отвързват (може да се фактурират наново)\n`
+    + `• Номер ${no} се ОСВОБОЖДАВА и ще се предложи при следващото издаване\n\n`
+    + `Документът остава в списъка със статус „анулирана".`)) return;
+  const reason = prompt("Основание за анулиране (влиза в документа):", o.cancelReason || "") || "";
+  try {
+    await erpInvLoadSeries();
+    const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
+    if (no) {
+      const freed = (ser.freed || []).map(String);
+      if (!freed.includes(String(no))) freed.push(String(no));
+      ser.freed = freed.sort((a, b) => Number(a) - Number(b));
+      await erpInvSaveSeries();
+    }
+    o.cancelledNo = no;
+    o.docNo = null;                       // освобождава уникалния индекс doc_no
+    o.status = "анулирана";
+    o.cancelledAt = new Date().toISOString();
+    o.cancelReason = reason;
+    await erpSaveInvoice(o);
+    // Вземането по фактурата отпада.
+    try { if (typeof erpRecvRemoveForInvoice === "function") await erpRecvRemoveForInvoice(o.id); } catch (e) {}
+    // Продажбите се отвързват — да могат да се фактурират наново.
+    for (const sid of (o.fromSaleIds || [])) {
+      try {
+        const { data } = await sb.from("sales").select("id,data,posted").eq("id", sid).maybeSingle();
+        if (!data) continue;
+        const d = data.data || {};
+        delete d.invoiceNo; delete d.invoiceId;
+        await sb.from("sales").update({ data: d, posted: !!data.posted, updated_at: new Date().toISOString() }).eq("id", sid);
+        const local = ((typeof erpSales !== "undefined" && erpSales) || []).find(x => x.id === sid);
+        if (local) { delete local.invoiceNo; delete local.invoiceId; }
+      } catch (e) {}
+    }
+    await erpLoadInvoices();
+    alert(`✓ Документът е анулиран.\nНомер ${no} е освободен — ще ти се предложи при следващото издаване от серия ${o.seriesKey}.`);
+    erpRenderInvoices();
+  } catch (e) {
+    alert("Грешка при анулиране: " + (e.message || e));
   }
 }
 
@@ -941,7 +1030,7 @@ function erpInvPrintHTML(o, single) {
     return `<tr>
       <td class="c">${i + 1}</td>
       <td><b>${escapeHtml(l.name || "")}</b>${l.clientCode ? `<br><small>${en ? "client code" : "клиент"}: ${escapeHtml(l.clientCode)}</small>` : ""}</td>
-      <td class="c">${escapeHtml(o.orderRef || "- /")}</td>
+      <td class="c">${escapeHtml(l.orderRef || o.orderRef || "- /")}</td>
       <td class="c">${escapeHtml(l.code || "")}</td>
       <td class="r">${erpNum(l.qty)} ${escapeHtml(l.unit || "")}</td>
       <td class="r">${fm(l.unitPrice)}</td>
@@ -1286,4 +1375,124 @@ async function erpInvClearAll() {
   await erpLoadInvoices();
   erpRenderInvoices();
   alert("Готово. Фактурирането е изчистено.");
+}
+
+/* ---------- 📊 СПРАВКА ФАКТУРИ (вътрешни / външни / покупни) ----------
+   Период от дата до дата, три раздела и сваляне като файл (Excel) или
+   преглед/печат. Вътрешни/външни се различават по езика на серията
+   (BG серия = вътрешен пазар, EN серия = износ). Покупните идват от таб
+   Покупки. Всички суми се дават и в EUR за сравнимост. */
+function invRepEur(total, cur) { return (String(cur) === "BGN") ? (Number(total) || 0) / INV_EUR_BGN : (Number(total) || 0); }
+function invRepMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+async function erpInvReport() {
+  await erpInvLoadSeries();
+  if (!erpInvoices) { try { await erpLoadInvoices(); } catch (e) {} }
+  if (typeof erpPurchases !== "undefined" && !erpPurchases && typeof erpLoadPurchases === "function") {
+    try { await erpLoadPurchases(); } catch (e) {}
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const m0 = today.slice(0, 8) + "01";
+  const { wrap, close } = erpDialog(`
+    <h3>📊 Справка фактури</h3>
+    <div class="erp-toolbar" style="margin:0 0 8px">
+      <label class="erp-inline">От <input type="date" id="ir-from" value="${m0}" /></label>
+      <label class="erp-inline">До <input type="date" id="ir-to" value="${today}" /></label>
+      <label class="erp-inline"><input type="checkbox" id="ir-in" checked /> Вътрешни</label>
+      <label class="erp-inline"><input type="checkbox" id="ir-out" checked /> Външни (износ)</label>
+      <label class="erp-inline"><input type="checkbox" id="ir-pu" checked /> Покупни</label>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn btn-small" id="ir-xls">⬇ Свали (Excel)</button>
+      <button class="btn btn-small" id="ir-view">🖨 Преглед / печат</button>
+    </div>
+    <div id="ir-body" style="max-height:60vh;overflow:auto"></div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="ir-x">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
+  wrap.querySelector("#ir-x").addEventListener("click", close);
+
+  const build = () => {
+    const from = wrap.querySelector("#ir-from").value || "0000-01-01";
+    const to = wrap.querySelector("#ir-to").value || "9999-12-31";
+    const inOn = wrap.querySelector("#ir-in").checked;
+    const outOn = wrap.querySelector("#ir-out").checked;
+    const puOn = wrap.querySelector("#ir-pu").checked;
+    const inRange = d => { const x = String(d || "").slice(0, 10); return x && x >= from && x <= to; };
+
+    const sales = (erpInvoices || []).filter(o => inRange(o.issueDate));
+    const isEn = o => (((erpInvSeries || {})[o.seriesKey] || {}).lang === "en");
+    const salesSec = (list, title) => {
+      let sBase = 0, sVat = 0, sTot = 0;
+      const rows = list.sort((a, b) => String(a.issueDate || "").localeCompare(String(b.issueDate || ""))).map(o => {
+        const t = erpInvTotals(o); const cur = erpInvCur(o);
+        const status = o.status || (o.posted ? "издадена" : "чернова");
+        const eur = invRepEur(t.total, cur);
+        if (status !== "анулирана") { sBase += invRepEur(t.base, cur); sVat += invRepEur(t.vat, cur); sTot += eur; }
+        return [
+          o.docNo || (o.cancelledNo ? "(анул.) " + o.cancelledNo : "—"),
+          erpDMY(o.issueDate) || "", (o.client && o.client.name) || "",
+          (INV_KINDS[o.kind] || {}).label || o.kind, o.orderRef || "",
+          cur, invRepMoney(t.base), invRepMoney(t.vat), invRepMoney(t.total), invRepMoney(eur), status,
+        ];
+      });
+      rows.push(["", "", "", "", "", "ОБЩО EUR", invRepMoney(sBase), invRepMoney(sVat), "", invRepMoney(sTot), `${list.length} документа`]);
+      return {
+        title, headers: [
+          { label: "№" }, { label: "Дата" }, { label: "Клиент" }, { label: "Тип" }, { label: "Поръчка" },
+          { label: "Вал." }, { label: "Основа", num: true }, { label: "ДДС", num: true },
+          { label: "Общо", num: true }, { label: "Общо EUR", num: true }, { label: "Статус" },
+        ], rows,
+      };
+    };
+
+    const secs = [];
+    if (inOn) secs.push(salesSec(sales.filter(o => !isEn(o)), "🇧🇬 Вътрешни фактури (български пазар)"));
+    if (outOn) secs.push(salesSec(sales.filter(o => isEn(o)), "🌍 Външни фактури (износ)"));
+    if (puOn) {
+      const pu = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(p => inRange(p.date));
+      let pBase = 0, pVat = 0, pTot = 0;
+      const rows = pu.sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).map(p => {
+        const t = (typeof erpPuTotals === "function") ? erpPuTotals(p) : { base: 0, vat: 0, total: 0 };
+        const cur = (typeof erpPuCur === "function") ? erpPuCur(p) : (p.currency || "BGN");
+        const eur = invRepEur(t.total, cur);
+        pBase += invRepEur(t.base, cur); pVat += invRepEur(t.vat, cur); pTot += eur;
+        return [
+          p.invoiceNo || "—", erpDMY(p.date) || "", p.supplierName || "",
+          p.docType === "goods" ? "Стокова разписка" : "Фактура", p.expenseType || "",
+          cur, invRepMoney(t.base), invRepMoney(t.vat), invRepMoney(t.total), invRepMoney(eur),
+          p.paid ? "платена" : "за плащане",
+        ];
+      });
+      rows.push(["", "", "", "", "", "ОБЩО EUR", invRepMoney(pBase), invRepMoney(pVat), "", invRepMoney(pTot), `${pu.length} документа`]);
+      secs.push({
+        title: "🧾 Покупни фактури", headers: [
+          { label: "№" }, { label: "Дата" }, { label: "Доставчик" }, { label: "Документ" }, { label: "Вид разход" },
+          { label: "Вал." }, { label: "Основа", num: true }, { label: "ДДС", num: true },
+          { label: "Общо", num: true }, { label: "Общо EUR", num: true }, { label: "Статус" },
+        ], rows,
+      });
+    }
+    return { secs, from, to };
+  };
+
+  const draw = () => {
+    const { secs } = build();
+    wrap.querySelector("#ir-body").innerHTML = secs.map(sec => `
+      <h4 class="erp-group-head">${escapeHtml(sec.title)}</h4>
+      <table class="report-table erp-table">
+        <thead><tr>${sec.headers.map(h => `<th class="${h.num ? "num" : ""}">${escapeHtml(h.label)}</th>`).join("")}</tr></thead>
+        <tbody>${sec.rows.map((r, i) => `<tr${i === sec.rows.length - 1 ? ' style="font-weight:700;background:#f1f5f9"' : ""}>${r.map((c, j) => `<td class="${sec.headers[j] && sec.headers[j].num ? "num" : ""}">${escapeHtml(String(c))}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>`).join("") || `<p class="report-empty">Избери поне един вид документи.</p>`;
+  };
+  ["#ir-from", "#ir-to", "#ir-in", "#ir-out", "#ir-pu"].forEach(sel => wrap.querySelector(sel).addEventListener("change", draw));
+  wrap.querySelector("#ir-xls").addEventListener("click", () => {
+    const { secs, from, to } = build();
+    if (typeof reportExportXls !== "function") { alert("Експортният модул не е зареден. Презареди страницата."); return; }
+    reportExportXls(`spravka-fakturi-${from}_${to}`, `Справка фактури ${erpDMY(from)} — ${erpDMY(to)}`, secs);
+  });
+  wrap.querySelector("#ir-view").addEventListener("click", () => {
+    const { secs, from, to } = build();
+    if (typeof reportOpenView !== "function") { alert("Модулът за преглед не е зареден."); return; }
+    reportOpenView(`Справка фактури ${erpDMY(from)} — ${erpDMY(to)}`, secs);
+  });
+  draw();
 }

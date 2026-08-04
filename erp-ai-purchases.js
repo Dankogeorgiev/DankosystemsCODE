@@ -240,6 +240,7 @@ function erpPuAIDraw() {
           <label>Плащане <select id="pai-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${s.payStatus === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
           <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${erpDMY(s.dueDate)}</span>` : ""}</label>
         </div>
+        <div id="pai-dup"></div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход. Класификацията идва от избрания Вид разход. Плащането се въвежда на следващата стъпка.</p>
         <div id="pai-rows">${s.rows.map(erpPuAIRowHtml).join("")}</div>
         <div class="erp-sale-totals" id="pai-totals"></div>
@@ -256,7 +257,8 @@ function erpPuAIDraw() {
       if (p && p.expenseType) { s.expenseType = p.expenseType; const el = document.getElementById("pai-etype"); if (el) el.value = p.expenseType; }
     }
   });
-  document.getElementById("pai-no").addEventListener("input", e => s.invoiceNo = e.target.value);
+  document.getElementById("pai-no").addEventListener("input", e => { s.invoiceNo = e.target.value; erpPuAIDupCheck(); });
+  erpPuAIDupCheck();
   document.getElementById("pai-date").addEventListener("input", e => s.date = e.target.value);
   document.getElementById("pai-cur").addEventListener("change", e => s.currency = e.target.value);
   document.getElementById("pai-etype").addEventListener("change", e => s.expenseType = e.target.value);
@@ -265,6 +267,26 @@ function erpPuAIDraw() {
   if (typeof erpAISetupViewer === "function") erpAISetupViewer();
   erpPuAIWireRows();
   erpPuAITotalsBox();
+}
+
+/* ⚠ Предупреждение за ВЕЧЕ въведена фактура със същия номер — още докато
+   гледаш разчетеното, а не чак при потвърждаване. */
+function erpPuAIDupCheck() {
+  const box = document.getElementById("pai-dup"); if (!box) return;
+  const s = PAI; box.innerHTML = "";
+  if (!s || !s.invoiceNo || typeof erpPuEq !== "function") return;
+  const dups = ((typeof erpPurchases !== "undefined" && erpPurchases) || [])
+    .filter(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
+  if (!dups.length) return;
+  const d = dups[0];
+  box.innerHTML = `<div class="erp-error" style="margin:6px 0;padding:8px 10px">
+    ⚠ <b>Фактура № ${escapeHtml(s.invoiceNo)} ВЕЧЕ е въведена</b> — ${escapeHtml(d.supplierName || "?")} · ${escapeHtml(erpDMY(d.date) || "?")} · ${d.posted ? "ЗАПРИХОДЕНА" : "чернова"}${dups.length > 1 ? ` (и още ${dups.length - 1})` : ""}.
+    <button class="btn btn-small" id="pai-dup-open">Отвори съществуващата</button></div>`;
+  const b = box.querySelector("#pai-dup-open");
+  if (b) b.addEventListener("click", () => {
+    if (!confirm("Отварям вече въведената фактура. Разчетеното сега ще се загуби. Продължавам?")) return;
+    if (typeof erpOpenPurchase === "function") erpOpenPurchase(d.id);
+  });
 }
 
 /* Сверка на сумите: сборът на редовете срещу тоталите, ПРОЧЕТЕНИ от документа.
@@ -349,6 +371,7 @@ async function erpPuAIConfirm() {
   if (bad.length) { alert("Има редове с количество ≤ 0."); return; }
   if (!s.expenseType && !confirm("Не е избран Вид разход. Да създам черновата без него? (може да се добави и после във формата)")) return;
   // Дубликат: същият № на фактура вече въведен (напр. сканирана два пъти).
+  try { if (typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}   // свежа база — да хванем и въведеното междувременно
   if (s.invoiceNo && typeof erpPuEq === "function") {
     const dup = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).find(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
     if (dup && !confirm(`⚠ Фактура № ${s.invoiceNo} ВЕЧЕ е въведена: ${dup.supplierName || "?"} · ${dup.posted ? "ЗАПРИХОДЕНА" : "чернова"}.\nАко е същата фактура — спри (има я в списъка).\nДа създам ли въпреки това ВТОРИ запис?`)) return;

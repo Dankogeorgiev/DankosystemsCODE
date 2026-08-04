@@ -145,11 +145,24 @@ function erpPuMonthCards() {
     <div class="pay-card pay-card-total"><div class="pay-card-l">Σ Покупки С ДДС · ${lbl}</div><div class="pay-card-v">${money(net + vat)} EUR</div><div class="pay-card-n">&nbsp;</div></div>`;
 }
 
+/* ДДС ставка НА РЕДА: празно = ставката на документа. Така една фактура може
+   да носи ред с ДДС и ред без (Идънред, Йетел). */
+function erpPuLineVat(o, l) {
+  const v = (l && l.vatRate !== undefined && l.vatRate !== null && l.vatRate !== "") ? Number(l.vatRate) : Number(o.vatRate != null ? o.vatRate : 20);
+  return isNaN(v) ? 0 : v;
+}
 function erpPuTotals(o) {
-  const base = (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
-  const rate = Number(o.vatRate != null ? o.vatRate : 20);
-  const vat = base * rate / 100;
-  return { base, vat, total: base + vat, rate };
+  let base = 0, vat = 0;
+  const byRate = {};
+  (o.lines || []).forEach(l => {
+    const amt = (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0);
+    const r = erpPuLineVat(o, l);
+    base += amt; vat += amt * r / 100;
+    byRate[r] = (byRate[r] || 0) + amt;
+  });
+  const rates = Object.keys(byRate).map(Number).sort((a, b) => b - a);
+  const rate = rates.length === 1 ? rates[0] : Number(o.vatRate != null ? o.vatRate : 20);
+  return { base, vat, total: base + vat, rate, byRate, rates, mixed: rates.length > 1 };
 }
 
 /* ---------- Списък (папки + търсене) ----------
@@ -171,6 +184,7 @@ async function erpRenderPurchases() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
+      <button class="btn btn-small" id="pu-dups" title="Намира фактури, въведени два пъти (един и същ номер) и позволява да изтриеш излишната">🔁 Дубликати</button>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
@@ -190,6 +204,7 @@ async function erpRenderPurchases() {
   erpPuMonthCards();
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
+  document.getElementById("pu-dups").addEventListener("click", erpPuDupsReport);
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
@@ -295,16 +310,16 @@ async function erpRenderPurchaseForm(o) {
         <span class="erp-muted" id="pu-file-status"></span></div>
 
       <h4 class="erp-group-head">Редове${hasType ? ` <span class="erp-muted">— ${matType ? "🧱 " : ""}${escapeHtml(o.expenseType)}</span>` : ""}</h4>
-      ${hasType ? "" : '<p class="hint">⬆ Първо избери <b>Вид разход</b> — той определя редовете: 🧱 материален вид → редове с нашите кодове от склада (заприходяват се); останалите → редове разход/услуга.</p>'}
-      ${(hasType || (o.lines || []).length) ? `<table class="report-table erp-table" id="pu-lines">
-        <thead><tr><th>Артикул</th><th>Код</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th class="num">Сума</th><th></th></tr></thead>
+      ${hasType ? "" : '<p class="hint">⬆ Добре е да избереш <b>Вид разход</b> (класификацията за счетоводството): 🧱 материален вид → редове с нашите кодове от склада (заприходяват се); останалите → редове разход/услуга. Може и без него — просто добави ред.</p>'}
+      ${true ? `<table class="report-table erp-table" id="pu-lines">
+        <thead><tr><th>Артикул</th><th>Код</th><th class="num">Кол.</th><th>МЕ</th><th class="num">Ед. цена</th><th title="ДДС на реда — за фактури със смесени ставки">ДДС %</th><th class="num">Сума</th><th></th></tr></thead>
         <tbody>${erpPuLinesHtml(o, locked)}</tbody>
       </table>` : ""}
-      ${hasType ? `<div class="erp-co-actions">
+      <div class="erp-co-actions">
         ${matType
-          ? '<button class="btn btn-small btn-primary" id="pu-add-mat">+ Материал — наш код (склад)</button><button class="btn btn-small" id="pu-add-exp" title="Ред от фактурата, който не влиза в склада (услуга, транспорт по нея и т.н.)">+ Друг ред (без склад)</button>'
-          : '<button class="btn btn-small btn-primary" id="pu-add-exp">+ Ред (разход/услуга)</button><button class="btn btn-small" id="pu-add-mat" title="Ако по изключение фактурата носи и стока за склада">+ Материал (склад)</button>'}
-      </div>` : ""}
+          ? '<button class="btn btn-small btn-primary" id="pu-add-mat">+ Материал — наш код (склад)</button><button class="btn btn-small" id="pu-add-exp" title="Ред от фактурата, който не влиза в склада (услуга, транспорт по нея и т.н.)">+ Добави ред (без склад)</button>'
+          : '<button class="btn btn-small btn-primary" id="pu-add-exp">+ Добави ред (разход/услуга)</button><button class="btn btn-small" id="pu-add-mat" title="Ако фактурата носи и стока за склада">+ Материал (склад)</button>'}
+      </div>
       ${erpPuProfileChipsHtml(o)}
       <datalist id="pu-articles">${articles.map(a => `<option value="${escapeAttr(a)}"></option>`).join("")}</datalist>
       <div class="erp-sale-totals" id="pu-totals"></div>
@@ -360,9 +375,13 @@ function erpPuLinesHtml(o, locked) {
       <td class="num" data-label="Кол.">${ro ? erpNum(l.qty) : `<input type="number" class="pu-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || ""))}" style="width:80px" />`}</td>
       <td data-label="МЕ">${ro ? escapeHtml(l.unit || "") : `<input type="text" class="pu-unit" data-i="${i}" value="${escapeAttr(l.unit || "бр.")}" style="width:52px" />`}</td>
       <td class="num" data-label="Ед. цена">${ro ? erpNum(l.unitPrice) : `<input type="number" class="pu-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="—" />`}</td>
+      <td data-label="ДДС %">${ro ? erpPuLineVat(o, l) + "%" : `<select class="pu-lvat" data-i="${i}" title="ДДС за ТОЗИ ред. „по документа" = общата ставка. Така една фактура може да има ред с ДДС и ред без.">
+        <option value="" ${(l.vatRate === undefined || l.vatRate === null || l.vatRate === "") ? "selected" : ""}>по док. (${Number(o.vatRate != null ? o.vatRate : 20)}%)</option>
+        ${["20", "9", "0"].map(r => `<option value="${r}" ${String(l.vatRate) === r ? "selected" : ""}>${r}%</option>`).join("")}
+      </select>`}</td>
       <td class="num" data-label="Сума">${erpPuMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), erpPuCur(o))}</td>
       <td class="erp-row-actions">${ro ? "" : `<button class="btn btn-small" data-rm="${i}">×</button>`}</td>
-    </tr>`; }).join("") || `<tr><td colspan="7" class="report-empty">Няма редове. Добави материал или разход.</td></tr>`;
+    </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма редове. Добави материал или разход.</td></tr>`;
 }
 function erpPuWireLines(o, locked) {
   const body = document.querySelector("#pu-lines tbody"); if (!body) return;
@@ -371,6 +390,7 @@ function erpPuWireLines(o, locked) {
   body.querySelectorAll(".pu-unit").forEach(el => el.addEventListener("input", () => line(el).unit = el.value));
   body.querySelectorAll(".pu-qty").forEach(el => el.addEventListener("input", () => { line(el).qty = erpToNum(el.value); erpPuLineSums(o); }));
   body.querySelectorAll(".pu-price").forEach(el => el.addEventListener("input", () => { line(el).unitPrice = erpToNum(el.value); erpPuLineSums(o); }));
+  body.querySelectorAll(".pu-lvat").forEach(el => el.addEventListener("change", () => { const l = line(el); if (el.value === "") delete l.vatRate; else l.vatRate = Number(el.value); erpPuTotalsBox(o); }));
   body.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { o.lines.splice(Number(b.dataset.rm), 1); erpPuRefreshFull(o); }));
 }
 function erpPuLineSums(o) {
@@ -383,9 +403,13 @@ function erpPuTotalsBox(o) {
   const box = document.getElementById("pu-totals"); if (!box) return;
   const t = erpPuTotals(o); const cur = erpPuCur(o);
   const eur = cur === "BGN" ? ` <span class="erp-muted">≈ ${erpPuMoney(t.total / PU_EUR_BGN, "EUR")}</span>` : "";
+  const vatRows = t.mixed
+    ? (t.rates || []).map(r => `<tr><td>ДДС ${r}% <span class="erp-muted">(основа ${erpPuMoney(t.byRate[r], cur)})</span></td><td class="num">${erpPuMoney((t.byRate[r] || 0) * r / 100, cur)}</td></tr>`).join("")
+    : `<tr><td>ДДС ${t.rate}%</td><td class="num">${erpPuMoney(t.vat, cur)}</td></tr>`;
   box.innerHTML = `<table class="erp-sale-sum">
     <tr><td>Данъчна основа</td><td class="num">${erpPuMoney(t.base, cur)}</td></tr>
-    <tr><td>ДДС ${t.rate}%</td><td class="num">${erpPuMoney(t.vat, cur)}</td></tr>
+    ${vatRows}
+    ${t.mixed ? `<tr><td class="erp-muted">Σ ДДС (смесени ставки)</td><td class="num">${erpPuMoney(t.vat, cur)}</td></tr>` : ""}
     <tr class="grand"><td><b>Общо с ДДС</b></td><td class="num"><b>${erpPuMoney(t.total, cur)}${eur}</b></td></tr></table>`;
 }
 
@@ -794,6 +818,58 @@ function erpPuTypesReport() {
   render();
 }
 
+/* 🔁 ДУБЛИКАТИ — фактури с един и същ номер (двойно въвеждане).
+   Показва ги групирани, с дата/доставчик/сума/статус, за да се изтрие
+   излишната. Заприходена фактура се връща първо („↩ Върни за редакция"),
+   за да не остане склад от нея. */
+function erpPuDupsReport() {
+  const groups = {};
+  (erpPurchases || []).forEach(p => {
+    const k = erpPuEq(p.invoiceNo);
+    if (!k) return;
+    (groups[k] = groups[k] || []).push(p);
+  });
+  const dups = Object.values(groups).filter(g => g.length > 1)
+    .sort((a, b) => String(b[0].date || "").localeCompare(String(a[0].date || "")));
+  const body = dups.map(g => `
+    <div class="erp-lp-group" style="border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-bottom:8px">
+      <div><b>№ ${escapeHtml(g[0].invoiceNo || "")}</b> — ${g.length} записа</div>
+      <table class="report-table erp-table" style="margin:6px 0 0">
+        <thead><tr><th>Дата</th><th>Доставчик</th><th class="num">Сума</th><th>Статус</th><th></th></tr></thead>
+        <tbody>${g.map(p => {
+          const t = erpPuTotals(p);
+          return `<tr>
+            <td>${escapeHtml(erpDMY(p.date) || "")}</td>
+            <td>${escapeHtml(p.supplierName || "")}</td>
+            <td class="num">${erpPuMoney(t.total, erpPuCur(p))}</td>
+            <td>${p.posted ? "✓ заприходена" : "чернова"}${p.docType === "goods" ? " · стокова" : ""}</td>
+            <td class="erp-row-actions">
+              <button class="btn btn-small" data-dopen="${escapeAttr(String(p.id))}">Отвори</button>
+              <button class="btn btn-small btn-danger" data-ddel="${escapeAttr(String(p.id))}" ${p.posted ? 'title="Заприходена — първо я върни за редакция"' : ""}>🗑 Изтрий</button>
+            </td></tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>`).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>🔁 Дублирани фактури</h3>
+    <p class="hint">Групи с еднакъв номер (без значение интервали, водещи нули и регистър). Провери коя е излишната и я изтрий. <b>Заприходена</b> фактура първо се връща за редакция (от самата фактура), за да падне складът ѝ.</p>
+    <div style="max-height:60vh;overflow:auto">${body || '<p class="report-empty">✅ Няма дублирани номера.</p>'}</div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="pud-x">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
+  wrap.querySelector("#pud-x").addEventListener("click", close);
+  wrap.querySelectorAll("[data-dopen]").forEach(b => b.addEventListener("click", () => { close(); erpOpenPurchase(b.dataset.dopen); }));
+  wrap.querySelectorAll("[data-ddel]").forEach(b => b.addEventListener("click", async () => {
+    const p = (erpPurchases || []).find(x => String(x.id) === String(b.dataset.ddel));
+    if (!p) return;
+    if (p.posted) { alert(`Тази фактура е ЗАПРИХОДЕНА.\nОтвори я и натисни „↩ Върни за редакция" (складът се връща), после я изтрий.`); return; }
+    if (!confirm(`Да изтрия ли фактура № ${p.invoiceNo || "—"} · ${p.supplierName || ""} · ${erpDMY(p.date) || ""}?\n\nТова е необратимо.`)) return;
+    const { error } = await sb.from("purchases").delete().eq("id", p.id);
+    if (error) { alert("Грешка при изтриване: " + error.message); return; }
+    try { await erpLoadPurchases(); } catch (e) {}
+    close(); erpPuDupsReport();
+  }));
+}
+
 /* ---------- Заприходяване (само материалните редове; BGN→EUR за средната цена) ---------- */
 /* ---------- Фактура ↔ стокови разписки (месечно фактуриране на доставчик) ---------- */
 // Избор кои осчетоводени стокови покрива тази фактура (същия доставчик).
@@ -811,10 +887,53 @@ function erpPuCoversDialog(o) {
       <b>СР № ${escapeHtml(g.invoiceNo || "—")}</b> · ${escapeHtml(g.date || "")} · ${erpPuMoney(t.total, erpPuCur(g))}</label>`; }).join("");
   const { wrap, close } = erpDialog(`
     <h3>🧾 Кои стокови покрива фактурата?</h3>
-    <p class="hint">Осчетоводени стокови разписки от <b>${escapeHtml(o.supplierName)}</b> без покриваща фактура. Складът е вдигнат от тях — фактурата ще носи само сумата за плащане. Системата сверява сумите при осчетоводяване.</p>
-    <div style="max-height:44vh;overflow:auto;margin:8px 0">${rows}</div>
-    <div class="erp-dialog-actions"><button class="btn" id="pu-cv-cancel">Отказ</button><button class="btn btn-primary" id="pu-cv-ok">✔ Запиши избора</button></div>`);
+    <p class="hint">Осчетоводени стокови разписки от <b>${escapeHtml(o.supplierName)}</b> без покриваща фактура. Складът е вдигнат от тях — фактурата носи само сумата за плащане. <b>Важно:</b> фактурата трябва да има и СВОИ редове със сумата, иначе тя влиза с 0 в разходите. Бутонът долу ги попълва от избраните стокови.</p>
+    <div style="max-height:40vh;overflow:auto;margin:8px 0">${rows}</div>
+    <div class="erp-inline" id="pu-cv-sum" style="margin:6px 0;font-weight:700"></div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="pu-cv-cancel">Отказ</button>
+      <button class="btn" id="pu-cv-fill" title="Добавя по един ред на стокова разписка със сумата ѝ — така фактурата има стойност и сумите се равняват">⇩ Попълни редовете от избраните</button>
+      <button class="btn btn-primary" id="pu-cv-ok">✔ Запиши избора</button>
+    </div>`);
+  const eurOf = x => { const t = erpPuTotals(x); return (erpPuCur(x) === "BGN" ? t.total / PU_EUR_BGN : t.total); };
+  const chosen = () => [...wrap.querySelectorAll(".pu-cv-chk:checked")]
+    .map(c => cand.find(g => String(g.id) === String(c.dataset.id))).filter(Boolean);
+  const refreshSum = () => {
+    const list = chosen();
+    const sumG = list.reduce((a, g) => a + eurOf(g), 0);
+    const sumI = eurOf(o);
+    const d = Math.round((sumI - sumG) * 100) / 100;
+    const el = wrap.querySelector("#pu-cv-sum");
+    el.innerHTML = `Σ избрани стокови: ${erpPuMoney(Math.round(sumG * 100) / 100, "EUR")} · Σ тази фактура: ${erpPuMoney(Math.round(sumI * 100) / 100, "EUR")}`
+      + (Math.abs(d) > 0.02 ? ` · <span class="pay-neg">разлика ${erpPuMoney(d, "EUR")}</span>` : ` · <span class="pay-ok">равни ✓</span>`);
+  };
+  wrap.querySelectorAll(".pu-cv-chk").forEach(c => c.addEventListener("change", refreshSum));
+  refreshSum();
   wrap.querySelector("#pu-cv-cancel").addEventListener("click", close);
+  wrap.querySelector("#pu-cv-fill").addEventListener("click", () => {
+    const list = chosen();
+    if (!list.length) { alert("Първо отметни стоковите."); return; }
+    const cur = erpPuCur(o);
+    const conv = g => {
+      const t = erpPuTotals(g);
+      const gc = erpPuCur(g);
+      if (gc === cur) return t.base;
+      return gc === "BGN" ? t.base / PU_EUR_BGN : t.base * PU_EUR_BGN;   // основата в валутата на фактурата
+    };
+    o.lines = (o.lines || []).filter(l => !l.fromGoodsId);   // без старите авто-редове
+    list.forEach(g => {
+      const t = erpPuTotals(g);
+      o.lines.push({
+        groupName: o.expenseType || g.expenseType || "", article: `СР № ${g.invoiceNo || "—"} от ${erpDMY(g.date) || ""}`,
+        code: "", qty: 1, unit: "бр.", unitPrice: Math.round(conv(g) * 100) / 100,
+        vatRate: t.mixed ? undefined : t.rate, fromGoodsId: g.id,
+      });
+    });
+    o.coversIds = list.map(g => String(g.id));
+    close();
+    erpRenderPurchaseForm(o);
+    alert(`✓ Добавени ${list.length} реда със сумите на стоковите.\nПровери ги и запази фактурата.`);
+  });
   wrap.querySelector("#pu-cv-ok").addEventListener("click", async () => {
     o.coversIds = [...wrap.querySelectorAll(".pu-cv-chk:checked")].map(c => c.dataset.id);
     try { await erpSavePurchase(o); } catch (e) {}
@@ -836,6 +955,12 @@ async function erpPostCoveringInvoice(o) {
   msg += Math.abs(diff) > 0.02 ? `\n⚠ РАЗЛИКА: ${erpPuMoney(diff, "EUR")} — провери преди да продължиш!\n` : `\n✓ Сумите съвпадат.\n`;
   const matCount = (o.lines || []).filter(l => l.materialId).length;
   if (matCount) msg += `\n(Фактурата има ${matCount} материални реда — те НЯМА да пипат склада: заприходен е от стоковите.)\n`;
+  if (!(sumInv > 0)) {
+    alert(`⚠ Фактура № ${o.invoiceNo || "—"} е с нулева стойност — няма редове.\n\n`
+      + `Тогава тя влиза с 0 лв. в разходите и сумите се разминават.\n`
+      + `Отвори „🧾 Покрива стокови…" и натисни „⇩ Попълни редовете от избраните" (или въведи редовете на ръка).`);
+    return;
+  }
   msg += `\nОсчетоводявам само сумата (разход + плащане). Продължавам?`;
   if (!confirm(msg)) return;
   try { await erpSavePurchase(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }

@@ -464,6 +464,16 @@ async function erpRecvSyncFromInvoice(o) {
   await erpRecvSave();
 }
 
+/* Маха вземането по фактура — при АНУЛИРАНЕ на документа. Платените не се
+   пипат (парите са влезли — оправя се ръчно). */
+async function erpRecvRemoveForInvoice(invoiceId) {
+  if (!invoiceId) return;
+  await erpRecvLoad();
+  const before = (RECEIVABLES || []).length;
+  RECEIVABLES = (RECEIVABLES || []).filter(p => !(String(p.srcInvoiceId || "") === String(invoiceId) && !p.paid));
+  if (RECEIVABLES.length !== before) await erpRecvSave();
+}
+
 /* ---------- Вземане от ПРОДАЖБА БЕЗ ФАКТУРА (само стокова разписка) ----------
    Клиентът дължи парите и без фактура — записът влиза във Вземания с тип
    „Стокова", за да се следи (обща сума, просрочия, Пулс). При последващо
