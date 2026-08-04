@@ -567,6 +567,35 @@ let PROD_FREE_FIRST = true;       // неразпределените най-г�
    цялата ѝ картина наведнъж и се събира на едно място. */
 let PROD_OP = "";
 function opNorm(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+
+/* ---------- Семейства цехове (само в Планиране) ----------
+   Рецептите пращат заваряването в няколко цеха („Заваръчно", „Заваряване",
+   „Заваръчно роботи"…). В Планирането те са ЕДНО общо ЗАВАРЯВАНЕ — както
+   служителят го вижда в Цехове. Стойността на филтъра е „__fam:зав". */
+const WS_FAMILIES = [
+  { key: "__fam:зав", label: "ЗАВАРЯВАНЕ", re: /^зав/ },
+];
+function wsNorm(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+function wsFamilyOf(name) { const n = wsNorm(name); const f = WS_FAMILIES.find(x => x.re.test(n)); return f ? f.key : ""; }
+function wsFamilyLabel(key) { const f = WS_FAMILIES.find(x => x.key === key); return f ? f.label : key; }
+function wsIsFamily(sel) { return String(sel || "").startsWith("__fam:"); }
+// Реалните цехове зад избора (за списъците със служители).
+function wsMembers(sel) {
+  if (!wsIsFamily(sel)) return [sel];
+  return [...new Set([...workshopList(), ...(TASKS || []).map(t => t.workshop || "")])].filter(w => w && wsFamilyOf(w) === sel);
+}
+// Влиза ли задачата в избрания цех/семейство.
+function wsInScope(taskWs, sel) {
+  if (!sel || sel === "__all") return true;
+  if (wsIsFamily(sel)) return wsFamilyOf(taskWs) === sel;
+  return taskWs === sel;
+}
+// Служителите на избраното (цех, семейство или всички).
+function wsWorkersOf(sel) {
+  if (!sel || sel === "__all") return [...new Set(Object.values(WORKERS).flat())];
+  if (sel === "__mine") return [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))];
+  return [...new Set(wsMembers(sel).flatMap(w => WORKERS[w] || []))];
+}
 let WORKER_CAP = { def: 8, byWorker: {} };   // часове/ден за планиране
 
 async function openProduction() {
@@ -598,9 +627,7 @@ function updateWorkersCount() {
   if (!el) return;
   if (!PROD_MODE) { el.textContent = ""; return; }   // само в Планиране
   const ws = currentWorkshop();
-  const n = ws === "__all"
-    ? new Set(Object.values(WORKERS).flat()).size
-    : (WORKERS[ws] || []).length;
+  const n = wsWorkersOf(ws).length;
   el.textContent = n ? ` (${n})` : "";
 }
 
@@ -643,9 +670,18 @@ function renderProdWsBar() {
   const sel = document.getElementById("task-workshop");
   const cur = sel ? sel.value : "__all";
   const cnt = {};
-  (TASKS || []).forEach(t => { if (taskIsOpen(t)) cnt[t.workshop] = (cnt[t.workshop] || 0) + 1; });
+  (TASKS || []).forEach(t => { if (taskIsOpen(t)) { const k = wsFamilyOf(t.workshop) || t.workshop; cnt[k] = (cnt[k] || 0) + 1; } });
   const btn = (val, label, n) =>
     `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
+  // Заваряванията са ЕДИН чип (семейство) — както е в Цехове.
+  const chips = [];
+  const famDone = {};
+  workshopList().forEach(w => {
+    const f = wsFamilyOf(w);
+    if (f) { if (!famDone[f]) { famDone[f] = 1; chips.push({ val: f, label: wsFamilyLabel(f) }); } }
+    else chips.push({ val: w, label: w });
+  });
+  WS_FAMILIES.forEach(f => { if (!famDone[f.key] && cnt[f.key]) chips.push({ val: f.key, label: f.label }); });
   // Операциите през ВСИЧКИ цехове (една и съща операция често е разпръсната).
   const ops = prodOpIndex();
   const opSel = `<label class="prod-op-lbl">⚙ Операция
@@ -660,7 +696,7 @@ function renderProdWsBar() {
       ${cur !== "__all" ? `<button type="button" class="prod-op-ws" data-ows="__all">↺ всички цехове</button>` : ""}
       <span class="prod-op-tip">Маркирай редовете и ги събери с „🔀 Прехвърли в цех".</span>
     </div>` : "";
-  bar.innerHTML = workshopList().map(w => btn(w, w, cnt[w] || 0)).join("") + opSel + opInfo;
+  bar.innerHTML = chips.map(c => btn(c.val, c.label, cnt[c.val] || 0)).join("") + opSel + opInfo;
   renderProdLoadBar();
   const opEl = bar.querySelector("#prod-op");
   if (opEl) opEl.addEventListener("change", () => {
@@ -705,7 +741,7 @@ function capOf(worker) {
 }
 async function workerCapDialog() {
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const names = wsWorkersOf(ws);
   const { wrap, close } = erpDialog(`
     <h3>⚙ Дневен капацитет (часове/ден)</h3>
     <p class="hint" style="margin:-4px 0 8px">Спрямо него се смята „~N дни работа" на всеки служител. Празно = по подразбиране.</p>
@@ -834,7 +870,7 @@ function shiftDayISO(offset) {
 }
 function shiftPlanDialog(preWorker) {
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const names = wsWorkersOf(ws);
   if (!names.length) { alert("В този цех още няма служители — добави ги от бутона Служители."); return; }
   let worker = preWorker || names[0];
   let day = shiftDayISO(0);
@@ -869,7 +905,7 @@ function shiftPlanDialog(preWorker) {
     return (op && op.per > 0) ? rem * op.per : 0;
   };
   const build = () => {
-    const mine = (TASKS || []).filter(t => taskIsOpen(t) && (ws === "__all" || t.workshop === ws) && taskAssignees(t).includes(worker));
+    const mine = (TASKS || []).filter(t => taskIsOpen(t) && wsInScope(t.workshop, ws) && taskAssignees(t).includes(worker));
     // Първо вече планираните за деня (по seq), после останалите (по срок).
     const planned = mine.filter(t => t.plan && t.plan.day === day && t.plan.worker === worker)
       .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
@@ -973,7 +1009,7 @@ function shiftPlanDialog(preWorker) {
 function printDayPlan(dayISO, onlyWorker, seqIds) {
   if (typeof dayISO !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) dayISO = "";   // пази от подаден event
   const ws = currentWorkshop();
-  const all = (TASKS || []).filter(t => taskIsOpen(t) && (ws === "__all" || t.workshop === ws));
+  const all = (TASKS || []).filter(t => taskIsOpen(t) && wsInScope(t.workshop, ws));
   let rows = all, note = "";
   // Печат за ЕДИН служител (от прозореца „План за смяната"): само неговите
   // задачи, в реда от списъка — дори още незаписан.
@@ -1020,7 +1056,7 @@ function printDayPlan(dayISO, onlyWorker, seqIds) {
     th{background:#f1f5f9}td.r{text-align:right}
     @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
     <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
-    <h1>${onlyWorker ? "План за смяната — " + escapeHtml(onlyWorker) : "Дневен план"} · ${escapeHtml(ws === "__all" ? "всички цехове" : ws)} · ${d}</h1>${note ? `<p style="color:#92400e;font-size:12px;margin:0 0 8px">${escapeHtml(note.trim())}</p>` : ""}${body}</body></html>`;
+    <h1>${onlyWorker ? "План за смяната — " + escapeHtml(onlyWorker) : "Дневен план"} · ${escapeHtml(ws === "__all" ? "всички цехове" : (wsIsFamily(ws) ? wsFamilyLabel(ws) : ws))} · ${d}</h1>${note ? `<p style="color:#92400e;font-size:12px;margin:0 0 8px">${escapeHtml(note.trim())}</p>` : ""}${body}</body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
@@ -1148,7 +1184,7 @@ function renderProdLoadBar() {
     host.insertAdjacentElement("afterend", bar);
   }
   const ws = currentWorkshop();
-  const rows = (TASKS || []).filter(t => taskIsOpen(t) && (ws === "__all" || t.workshop === ws));
+  const rows = (TASKS || []).filter(t => taskIsOpen(t) && wsInScope(t.workshop, ws));
   const times = (typeof ERP !== "undefined" && ERP.prodTimes && ERP.prodTimes.byCode) || null;
   const secOf = t => {
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
@@ -1320,16 +1356,16 @@ function renderWorkshopSelect() {
   sel.disabled = false;
   const cur = sel.value;
   sel.innerHTML = `<option value="__all">Всички цехове</option>` +
-    workshopList().map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
+    workshopList().map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("")
+    // В Планиране заваряванията са едно общо (стойността се пази тук).
+    + (PROD_MODE ? WS_FAMILIES.map(f => `<option value="${escapeAttr(f.key)}">${escapeHtml(f.label)} (всички заваръчни)</option>`).join("") : "");
   sel.value = cur || workshopList()[0] || "__all";
 }
 function renderWorkerFilter() {
   const sel = document.getElementById("task-worker-filter");
   const cur = sel.value;
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())]
-    : ws === "__mine" ? [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))]
-    : (WORKERS[ws] || []);
+  const names = wsWorkersOf(ws);
   sel.innerHTML = `<option value="">Всички служители</option>` +
     names.map(n => `<option>${escapeHtml(n)}</option>`).join("");
   sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
@@ -1341,9 +1377,7 @@ function renderWorkerBar() {
   const bar = document.getElementById("worker-bar");
   if (!bar) return;
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())]
-    : ws === "__mine" ? [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))]
-    : (WORKERS[ws] || []);
+  const names = wsWorkersOf(ws);
   const active = document.getElementById("task-worker-filter").value;
   if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>`; return; }
   if (!workerBarOpen) {
@@ -1460,7 +1494,7 @@ function renderTasks() {
   let rows = TASKS.filter(t => {
     if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
     if (ws === "__mine") { if (!myWorkshops().includes(t.workshop)) return false; }
-    else if (ws !== "__all" && t.workshop !== ws) return false;
+    else if (!wsInScope(t.workshop, ws)) return false;
     if (isW) {
       // Цеховият изглед показва ВСИЧКИ задачи на цеха — същото, което вижда
       // офисът (преди чуждите се криеха и списъците се разминаваха).
@@ -1590,7 +1624,10 @@ function renderTasks() {
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
-    const wsWorkers = WORKERS[t.workshop] || [];
+    // При обединено ЗАВАРЯВАНЕ служителите идват от всички заваръчни цехове,
+    // за да може задачата да се възложи и когато цехът ѝ е записан с друго име.
+    const fam = wsFamilyOf(t.workshop);
+    const wsWorkers = fam ? wsWorkersOf(fam) : (WORKERS[t.workshop] || []);
     const assignees = taskAssignees(t);
     const addOpts = [`<option value="">+ служител…</option>`]
       .concat(wsWorkers.filter(n => !assignees.includes(n)).map(n => `<option>${escapeHtml(n)}</option>`));
@@ -1634,7 +1671,7 @@ function renderTasks() {
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
         : `<select class="t-thick"><option value="">—</option>${THICKNESS_OPTIONS.map(v => `<option ${t.thickness === v ? "selected" : ""}>${v}</option>`).join("")}</select>`}</td>
-      <td data-label="Операция" title="${escapeAttr(t.operation || t.workshop || "")}">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}${Number(t.opsPerUnit) > 1 ? ` <span class="t-opsper" title="Операцията се прави ${t.opsPerUnit} пъти на всеки брой (напр. ${t.opsPerUnit} огъвки)">×${t.opsPerUnit}/бр.</span>` : ""}</td>
+      <td data-label="Операция" title="${escapeAttr(t.operation || t.workshop || "")}">${escapeHtml(t.operation) || (ws === "__all" || wsIsFamily(ws) ? escapeHtml(t.workshop) : "—")}${Number(t.opsPerUnit) > 1 ? ` <span class="t-opsper" title="Операцията се прави ${t.opsPerUnit} пъти на всеки брой (напр. ${t.opsPerUnit} огъвки)">×${t.opsPerUnit}/бр.</span>` : ""}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>
@@ -1753,10 +1790,10 @@ function exportWorkshopTasksExcel() {
   });
   if (!rows.length) { alert("Няма задачи за експорт по текущия филтър."); return; }
 
-  const showWs = ws === "__all";
+  const showWs = ws === "__all" || wsIsFamily(ws);
   const head = ["Поръчка №", "Клиент", "Продукт", "Код", "Операция", "Кол-во", "Произв.", "Остатък", "Срок", "Отговорник"];
   if (showWs) head.unshift("Цех");
-  const title = "Задачи — " + (showWs ? "Всички цехове" : ws) + (worker ? " · " + worker : "") + " · " + todayStr();
+  const title = "Задачи — " + (ws === "__all" ? "Всички цехове" : (wsIsFamily(ws) ? wsFamilyLabel(ws) : ws)) + (worker ? " · " + worker : "") + " · " + todayStr();
   const aoa = [[title], [], head];
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
@@ -1779,7 +1816,7 @@ function renderBulkBar(rows, ws) {
   const bulk = document.getElementById("task-bulk");
   if (amWorker()) { bulk.hidden = true; return; }
   bulk.hidden = false;
-  const wsNames = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const wsNames = wsWorkersOf(ws);
   const manualRows = rows.filter(isManualTask);
   bulk.innerHTML = `Маркирани: <strong id="bulk-count">${selectedTasks.size}</strong> ·
     Възложи на: <select id="bulk-worker"><option value="">— избери —</option>${wsNames.map(n => `<option>${escapeHtml(n)}</option>`).join("")}</select>
@@ -2283,7 +2320,7 @@ function openExtraActivityDialog() {
   const worker = amWorker() ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
   if (amWorker() && !worker) { alert("Първо избери кой си (горе)."); return; }
   const ws = currentWorkshop();
-  const wsName = ws === "__all" ? ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.workshop) || "") : ws;
+  const wsName = (ws === "__all" || wsIsFamily(ws)) ? ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.workshop) || "") : ws;
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   wrap.innerHTML = `
