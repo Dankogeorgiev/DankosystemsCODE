@@ -694,27 +694,42 @@ async function seriesMergeDialog() {
   });
 }
 
-/* Планът за смяната, както го вижда САМИЯТ служител в своя профил —
-   същият ред, който офисът е задал в „Планиране на производство". */
-function renderMyShiftPlan() {
-  const box = document.getElementById("my-shift-plan");
-  if (!box) return;
+/* Планът за смяната за САМИЯ служител — БЕЗ да сменяме изгледа му:
+   само бутон в лентата горе, който отваря списъка. Редът е същият,
+   зададен от офиса в „Планиране на производство". */
+function myShiftPlanTasks() {
   const me = MY_WORKER || "";
-  if (!amWorker() || !me) { box.hidden = true; box.innerHTML = ""; return; }
+  if (!me) return [];
   const today = todayStr();
-  const mine = (TASKS || []).filter(t => !t.done && t.plan && t.plan.worker === me && t.plan.day === today)
+  return (TASKS || []).filter(t => !t.done && t.plan && t.plan.worker === me && t.plan.day === today)
     .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
-  if (!mine.length) { box.hidden = true; box.innerHTML = ""; return; }
-  box.hidden = false;
-  box.innerHTML = `<div class="msp-head">📅 ПЛАН ЗА СМЯНАТА — ${escapeHtml(me)} · ${typeof erpDMY === "function" ? erpDMY(today) : today}
-      <span class="msp-sub">по този ред е разпределена работата ти за днес</span></div>
-    <ol class="msp-list">${mine.map(t => {
-      const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-      const nos = taskOrderNos(t);
-      const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ");
-      return `<li><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
-        <span class="msp-meta">${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}${escapeHtml(t.operation || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}</span></li>`;
-    }).join("")}</ol>`;
+}
+function renderMyShiftPlan() {
+  const btn = document.getElementById("tasks-myplan");
+  if (!btn) return;
+  const list = amWorker() ? myShiftPlanTasks() : [];
+  btn.hidden = !list.length;
+  btn.textContent = `📅 План за смяната (${list.length})`;
+}
+function myShiftPlanDialog() {
+  const list = myShiftPlanTasks();
+  const today = todayStr();
+  if (!list.length) { alert("За днес няма зададен план за смяната."); return; }
+  const rows = list.map((t, i) => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    const nos = taskOrderNos(t);
+    const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ");
+    return `<div class="msp-row"><span class="msp-n">${i + 1}</span>
+      <span class="msp-b"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
+      <small>${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}${escapeHtml(t.operation || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}</small></span></div>`;
+  }).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>📅 План за смяната — ${escapeHtml(MY_WORKER || "")} · ${typeof erpDMY === "function" ? erpDMY(today) : today}</h3>
+    <p class="hint" style="margin:-4px 0 8px">Работи по този ред. Отчитането е както обикновено — от таблицата със задачите.</p>
+    <div class="erp-lp-list" style="max-height:60vh;overflow:auto">${rows}</div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="msp-close">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector("#msp-close").addEventListener("click", close);
 }
 
 /* 📅 ПЛАН ЗА СМЯНАТА — подреждане на задачите на един служител за днес/утре.
@@ -3345,6 +3360,8 @@ function tInit() {
   btn.addEventListener("click", () => { prodModeOff(); openTasks(); });
   const pBtn = document.getElementById("btn-production");
   if (pBtn) pBtn.addEventListener("click", openProduction);
+  const myPlanBtn = document.getElementById("tasks-myplan");
+  if (myPlanBtn) myPlanBtn.addEventListener("click", myShiftPlanDialog);
   const packBtn = document.getElementById("btn-packing-ws");
   if (packBtn) packBtn.addEventListener("click", () => openWorkshopDirect("Опаковане/Експедиция"));
   document.getElementById("tasks-close").addEventListener("click", () => {

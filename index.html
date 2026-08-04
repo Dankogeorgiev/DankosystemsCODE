@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=312" />
+  <link rel="stylesheet" href="styles.css?v=313" />
   <link rel="stylesheet" href="erp.css?v=297" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 603</p>
+      <p class="login-version">версия 604</p>
     </form>
   </div>
 
@@ -390,6 +390,7 @@
           <button id="tasks-welding-rachno" class="btn btn-paint" hidden onclick="location.href='zavarka-rachno/'">✋ Заваръчно ръчно</button>
           <button id="tasks-rogosh" class="btn btn-paint" hidden>🔧 ЦЕХ РОГОШ</button>
           <button id="tasks-nit" class="btn btn-paint" hidden>🔩 ЗАНИТВАНЕ</button>
+          <button id="tasks-myplan" class="btn btn-plan" hidden title="Планът за смяната, зададен от офиса">📅 План за смяната</button>
           <button id="tasks-leave" class="btn btn-leave">🏖 Поискай отпуск</button>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
@@ -429,7 +430,6 @@
         <div id="identity-picker" class="identity-picker" hidden></div>
         <div id="task-bulk" class="task-bulk" hidden></div>
         <div id="tasks-daily" class="tasks-daily" hidden></div>
-        <div id="my-shift-plan" class="my-shift-plan" hidden></div>
         <table class="report-table tasks-table">
           <colgroup>
             <col style="width:4%" />
@@ -619,7 +619,7 @@
   <script src="report-export.js?v=1"></script>
   <script src="app.js?v=249"></script>
   <script src="quality.js?v=2"></script>
-  <script src="tasks.js?v=303"></script>
+  <script src="tasks.js?v=304"></script>
   <script src="laser-fill.js?v=3"></script>
   <script src="master-report.js?v=4"></script>
   <script src="prod-report.js?v=166"></script>
