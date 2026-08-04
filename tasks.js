@@ -703,24 +703,51 @@ async function seriesMergeDialog() {
 /* Планът за смяната за САМИЯ служител — БЕЗ да сменяме изгледа му:
    само бутон в лентата горе, който отваря списъка. Редът е същият,
    зададен от офиса в „Планиране на производство". */
-function myShiftPlanTasks() {
+/* За кой ден има ЗАПИСАН план от офиса: днес, иначе утре, иначе няма. */
+function myPlanDay() {
+  const me = MY_WORKER || "";
+  if (!me) return "";
+  const has = d => (TASKS || []).some(t => taskIsOpen(t) && t.plan && t.plan.worker === me && t.plan.day === d);
+  const today = todayStr();
+  if (has(today)) return today;
+  const tom = shiftDayISO(1);
+  if (has(tom)) return tom;
+  return "";
+}
+/* Задачите за прозореца. С ден → планираните за него, в реда на офиса.
+   БЕЗ ден (офисът още не е записал план) → всичките му възложени задачи по
+   срок, за да не остава служителят без списък. */
+function myShiftPlanTasks(day) {
   const me = MY_WORKER || "";
   if (!me) return [];
-  const today = todayStr();
-  return (TASKS || []).filter(t => taskIsOpen(t) && t.plan && t.plan.worker === me && t.plan.day === today)
-    .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
+  if (day) {
+    return (TASKS || []).filter(t => taskIsOpen(t) && t.plan && t.plan.worker === me && t.plan.day === day)
+      .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
+  }
+  return (TASKS || []).filter(t => taskIsOpen(t) && taskAssignees(t).includes(me))
+    .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
 }
 function renderMyShiftPlan() {
   const btn = document.getElementById("tasks-myplan");
   if (!btn) return;
-  const list = amWorker() ? myShiftPlanTasks() : [];
-  btn.hidden = !list.length;
-  btn.textContent = `📅 План за смяната (${list.length})`;
+  const me = MY_WORKER || "";
+  const day = myPlanDay();
+  const list = me ? myShiftPlanTasks(day) : [];
+  btn.hidden = !me || !list.length;
+  if (btn.hidden) return;
+  const dTxt = d => (typeof erpDMY === "function" ? erpDMY(d) : d);
+  btn.textContent = day
+    ? (day === todayStr() ? `📅 План за смяната (${list.length})` : `📅 План за ${dTxt(day)} (${list.length})`)
+    : `📅 Моите задачи (${list.length})`;
+  btn.title = day
+    ? "Планът за смяната, зададен от офиса"
+    : "Офисът още не е записал ред за днес — това са всичките ти задачи, подредени по срок";
 }
 function myShiftPlanDialog() {
-  const list = myShiftPlanTasks();
-  const today = todayStr();
-  if (!list.length) { alert("За днес няма зададен план за смяната."); return; }
+  const day = myPlanDay();
+  const list = myShiftPlanTasks(day);
+  const today = day || todayStr();
+  if (!list.length) { alert("Нямаш възложени задачи в момента."); return; }
   const rows = list.map((t, i) => {
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
     const nos = taskOrderNos(t);
@@ -730,8 +757,10 @@ function myShiftPlanDialog() {
       <small>${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}${escapeHtml(t.operation || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}</small></span></div>`;
   }).join("");
   const { wrap, close } = erpDialog(`
-    <h3>📅 План за смяната — ${escapeHtml(MY_WORKER || "")} · ${typeof erpDMY === "function" ? erpDMY(today) : today}</h3>
-    <p class="hint" style="margin:-4px 0 8px">Работи по този ред. Отчитането е както обикновено — от таблицата със задачите.</p>
+    <h3>${day ? "📅 План за смяната" : "📅 Моите задачи"} — ${escapeHtml(MY_WORKER || "")} · ${typeof erpDMY === "function" ? erpDMY(today) : today}</h3>
+    <p class="hint" style="margin:-4px 0 8px">${day
+      ? "Работи по този ред. Отчитането е както обикновено — от таблицата със задачите."
+      : "Офисът още не е записал ред за деня — това са всичките ти задачи, подредени по срок. Отчитането е както обикновено, от таблицата."}</p>
     <div class="erp-lp-list" style="max-height:60vh;overflow:auto">${rows}</div>
     <div class="erp-dialog-actions"><button class="btn btn-primary" id="msp-close">Затвори</button></div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
