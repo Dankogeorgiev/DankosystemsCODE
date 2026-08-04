@@ -1563,3 +1563,8 @@ tr.times-click:hover td { background: #ecfdf5; }
 .lfill-alarm .ua-actions .btn { background: #fff; color: #b3261e; font-weight: 700; }
 .lf-warn { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; border-radius: 10px; padding: 8px 12px; margin: 0 0 8px; font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { #btn-laser-fill.lf-alarm, #btn-laser-fill.lf-alarm .lf-badge { animation: none; } }
+
+/* 🗄 Резервно копие — редовете в прозореца */
+.bk-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 2px; border-bottom: 1px dashed #e2e8f0; font-size: 13px; }
+.bk-row .bk-t { font-weight: 600; }
+.bk-done { margin-top: 10px; padding: 8px 10px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; font-size: 13px; }

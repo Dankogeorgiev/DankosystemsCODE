@@ -317,8 +317,10 @@ function erpRenderImport() {
         ${erpImportPreview(erpImportFiles[0].rows)}
       ` : ""}
       <div id="erp-import-report"></div>
+      ${typeof erpBackupSectionHtml === "function" ? erpBackupSectionHtml() : ""}
     </div>`;
 
+  if (typeof erpBackupWire === "function") erpBackupWire();
   document.getElementById("erp-xlsx").addEventListener("change", erpOnFilesChosen);
   document.getElementById("erp-import-clear").addEventListener("click", () => { erpImportFiles = []; erpRenderImport(); });
   document.getElementById("erp-import-run").addEventListener("click", erpRunImport);
