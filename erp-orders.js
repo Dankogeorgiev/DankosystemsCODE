@@ -1408,7 +1408,7 @@ function erpFlowMatNeeded(tasks) {
 
 // Пуска детайл за производство ЗА СКЛАД (без заявка). Минава по цеховете и щом
 // последната операция се отчете, готовите бройки влизат в Склад детайли.
-async function erpProduceToStock(productId, qty) {
+async function erpProduceToStock(productId, qty, opts) {
   if (typeof produceAllowed === "function" && !produceAllowed()) { alert("Пускането в производство към момента е позволено само на Данко и Григор."); return { error: true }; }
   try { await erpEnsureLoaded(); } catch (e) { alert("Грешка при зареждане на ЕРП: " + (e.message || e)); return { error: true }; }
   const p = ERP.prodById[productId] || {};
@@ -1423,10 +1423,12 @@ async function erpProduceToStock(productId, qty) {
   }
   const sid = "stock-" + productId + "-" + Date.now();
   const res = await erpFlowApply({
-    clientName: "ЗА СКЛАД", deadline: "", sampleId: sid, sampleType: "stock",
-    orderNo: (p.code || "") + " за склад", toStock: true,
+    clientName: (opts && opts.clientName) || "ЗА СКЛАД", deadline: "", sampleId: sid, sampleType: "stock",
+    orderNo: (opts && opts.orderNo) || ((p.code || "") + " за склад"), toStock: true,
   }, [{ productId, qty: q }]);
-  return res;
+  // Номерът на веригата се връща — така викащият може да намери задачите ѝ
+  // (напр. ПЪЛНЕЖ отбелязва вече свършената първа операция).
+  return Object.assign({ sampleId: sid }, res || {});
 }
 
 // Изтегля мострата/поръчката от производство: маха задачите ѝ по цеховете
