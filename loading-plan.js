@@ -12,6 +12,7 @@ let LP_GOODS = [];        // детайли от Склад детайли (за
 let LP_MONDAY = null;     // текущо разглеждан понеделник (Date)
 let LP_LOADED = false;
 let LP_ORDERS = [];       // активните клиентски заявки (за „📋 Добави заявка")
+let LP_SALES = [];        // осчетоводените продажби (по тях се мери изпълнението)
 
 // Разпознава детайл/възел (Склад детайли), както в erp-detail-stock.
 function lpIsDetail(p) {
@@ -98,6 +99,7 @@ async function openLoadingPlan() {
   // Заявките и наличностите идват фоново — планът се пре-рисува, щом дойдат.
   (async () => {
     try { await lpLoadOrders(); } catch (e) {}
+    try { await lpLoadSales(); } catch (e) {}
     try { if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded(); } catch (e) {}
     if (!document.getElementById("loading-modal").hidden) lpRender();
   })();
@@ -154,6 +156,102 @@ async function lpLinesFromOrder(o) {
   }).filter(Boolean);
 }
 
+/* ---------- ИЗПЪЛНЕНИЕ: какво реално е излязло (по продажбите) ----------
+   Мери се с осчетоводените ПРОДАЖБИ с дата В СЕДМИЦАТА на плана. Каквото не е
+   излязло, остава „неизпълнено" и се предлага за прехвърляне в следващата. */
+async function lpLoadSales() {
+  try {
+    if ((typeof erpSales === "undefined" || !erpSales) && typeof erpLoadSales === "function") await erpLoadSales();
+    LP_SALES = ((typeof erpSales !== "undefined" && erpSales) || []).filter(s => s.posted);
+  } catch (e) { LP_SALES = []; }
+}
+function lpWeekEnd(mondayStr) {
+  const d = new Date(mondayStr + "T00:00:00Z");
+  return lpMondayStr(lpAddDays(d, 6));
+}
+/* Изпратено по този запис (код → бройки) — продажби в неговата седмица. */
+function lpShippedMap(x) {
+  const from = x.week, to = lpWeekEnd(x.week);
+  const out = {};
+  const cl = String(x.client || "").trim().toLowerCase();
+  (LP_SALES || []).forEach(sa => {
+    const d = String(sa.date || "").slice(0, 10);
+    if (!d || d < from || d > to) return;
+    const sameOrder = x.orderId && String(sa.fromOrderId || "") === String(x.orderId);
+    const sameClient = !x.orderId && cl && String(sa.clientName || "").trim().toLowerCase() === cl;
+    if (!sameOrder && !sameClient) return;
+    (sa.lines || []).forEach(l => {
+      const c = String(l.code || "").trim(); if (!c) return;
+      out[c] = (out[c] || 0) + (lpToNum(l.qty) || 0);
+    });
+  });
+  return out;
+}
+/* Обобщение на изпълнението: планирано/изпратено/остава (по бройки) + редове. */
+function lpProgress(x) {
+  const ship = lpShippedMap(x);
+  const lines = lpItemLines(x).map(l => {
+    const plan = lpToNum(l.qty);
+    const sent = l.code ? Math.min(plan, lpToNum(ship[String(l.code).trim()])) : 0;
+    return { l, plan, sent, left: Math.max(0, plan - sent), tracked: !!l.code };
+  });
+  const plan = lines.reduce((s, r) => s + r.plan, 0);
+  const sent = lines.reduce((s, r) => s + r.sent, 0);
+  const doneN = lines.filter(r => r.plan > 0 && r.left <= 0).length;
+  return { lines, plan, sent, left: Math.max(0, plan - sent), pct: plan > 0 ? Math.round(sent / plan * 100) : 0, doneN, n: lines.length };
+}
+/* Неизпълненото от ПРЕДИШНИ седмици (до 8 назад), което още не е прехвърлено. */
+function lpPendingBefore(mondayStr) {
+  return (LP_ITEMS || []).filter(x => {
+    if (x.week >= mondayStr || x.carried) return false;
+    const d = (new Date(mondayStr + "T00:00:00Z") - new Date(x.week + "T00:00:00Z")) / 864e5;
+    if (d > 56) return false;                       // по-старо от 8 седмици не гоним
+    return lpProgress(x).left > 0;
+  });
+}
+/* Прехвърля неизпълненото в показваната седмица (слива по заявка). */
+async function lpCarryOver() {
+  const target = lpMondayStr(LP_MONDAY);
+  const src = lpPendingBefore(target);
+  if (!src.length) { alert("Няма неизпълнено за прехвърляне."); return; }
+  const txt = src.map(x => `• ${x.client || ""}${x.orderNo ? " № " + x.orderNo : ""} — остават ${lpFmtNum(lpProgress(x).left)} бр.`).join("\n");
+  if (!confirm(`Да прехвърля ли неизпълненото в тази седмица?\n\n${txt}\n\nБройките се намаляват с вече изпратеното; старите записи остават като история.`)) return;
+  src.forEach(x => {
+    const pr = lpProgress(x);
+    const left = pr.lines.filter(r => r.left > 0).map(r => {
+      const k = r.plan > 0 ? r.left / r.plan : 1;   // кг и палети следват остатъка
+      return {
+        code: r.l.code || "", name: r.l.name || r.l.goods || "", qty: r.left,
+        kg: lpToNum(r.l.kg) ? Math.round(lpToNum(r.l.kg) * k * 10) / 10 : "",
+        pallets: lpToNum(r.l.pallets) ? Math.round(lpToNum(r.l.pallets) * k * 100) / 100 : "",
+      };
+    });
+    if (!left.length) return;
+    // Ако същата заявка вече е в целевата седмица — сливаме редовете.
+    const same = x.orderId && LP_ITEMS.find(y => y.week === target && String(y.orderId || "") === String(x.orderId));
+    if (same) {
+      const byCode = {};
+      lpItemLines(same).forEach(l => { byCode[String(l.code || l.name || "")] = l; });
+      left.forEach(l => {
+        const k = String(l.code || l.name || "");
+        if (byCode[k]) { byCode[k].qty = lpToNum(byCode[k].qty) + l.qty; }
+        else same.lines = (same.lines || []).concat([l]);
+      });
+      same.carriedFrom = x.week;
+    } else {
+      LP_ITEMS.push({
+        id: "lp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6),
+        week: target, client: x.client || "", lines: left, note: x.note || "",
+        orderNo: x.orderNo || "", due: x.due || "", orderId: x.orderId || null,
+        carriedFrom: x.week, createdAt: new Date().toISOString(),
+      });
+    }
+    x.carried = target;
+  });
+  await lpSave();
+  lpRender();
+}
+
 /* ---------- Рендиране ---------- */
 function lpRender() {
   const v = document.getElementById("loading-view");
@@ -165,37 +263,56 @@ function lpRender() {
     .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")) || (a.client || "").localeCompare(b.client || "", "bg"));
   const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
   const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
-  const totLines = items.reduce((s, x) => s + lpItemLines(x).filter(l => l.code || l.goods).length, 0);
+  const totLines = items.reduce((s, x) => s + lpItemLines(x).filter(l => l.code || l.goods || l.name).length, 0);
+  // Изпълнение на седмицата (по бройки) + неизпълненото от предишните.
+  const wPlan = items.reduce((s, x) => s + lpProgress(x).plan, 0);
+  const wSent = items.reduce((s, x) => s + lpProgress(x).sent, 0);
+  const wPct = wPlan > 0 ? Math.round(wSent / wPlan * 100) : 0;
+  const wDone = items.filter(x => { const p = lpProgress(x); return p.plan > 0 && p.left <= 0; }).length;
+  const pend = lpPendingBefore(mondayStr);
+  const pendQty = pend.reduce((s, x) => s + lpProgress(x).left, 0);
 
   const card = x => {
-    const lines = lpItemLines(x);
+    const pr = lpProgress(x);
     const kg = lpItemKg(x), pal = lpItemPal(x);
-    const rows = lines.map(l => {
-      const nm = l.code ? `<b>${escapeHtml(l.code)}</b> ${escapeHtml(l.name || "")}` : escapeHtml(l.goods || "");
+    const rows = pr.lines.map(r => {
+      const l = r.l;
+      const nm = l.code ? `<b>${escapeHtml(l.code)}</b> ${escapeHtml(l.name || "")}` : escapeHtml(l.goods || l.name || "");
       const have = l.code ? lpStockOfCode(l.code) : null;
-      const q = lpToNum(l.qty);
-      const ready = (have == null || !q) ? "" : (have >= q
+      const done = r.plan > 0 && r.left <= 0;
+      const sent = !r.tracked ? `<span class="lp-muted" title="Редът няма код — не се следи по продажбите">—</span>`
+        : (done ? `<span class="lp-ok">✅ ${lpFmtNum(r.sent)}</span>`
+          : (r.sent > 0 ? `<span class="lp-part">${lpFmtNum(r.sent)} · остават ${lpFmtNum(r.left)}</span>`
+            : `<span class="lp-none">още не</span>`));
+      const ready = (have == null || !r.plan || done) ? "" : (have >= r.left
         ? `<span class="lp-ok">✅ готово</span>`
-        : `<span class="lp-part" title="в Склад детайли">⏳ ${lpFmtNum(have)} от ${lpFmtNum(q)}</span>`);
-      return `<tr>
+        : `<span class="lp-part" title="в Склад детайли">⏳ ${lpFmtNum(have)} от ${lpFmtNum(r.left)}</span>`);
+      return `<tr class="${done ? "lp-row-done" : ""}">
         <td>${nm}</td>
-        <td class="num">${q ? lpFmtNum(q) + " бр." : "—"}</td>
+        <td class="num">${r.plan ? lpFmtNum(r.plan) + " бр." : "—"}</td>
+        <td class="num">${sent}</td>
         <td class="num">${l.pallets !== "" && l.pallets != null ? lpFmtNum(l.pallets) : "—"}</td>
         <td class="num">${l.kg !== "" && l.kg != null ? lpFmtNum(l.kg) : "—"}</td>
         <td>${ready}</td></tr>`;
     }).join("");
-    return `<div class="lp-card">
+    const badge = pr.plan <= 0 ? ""
+      : (pr.left <= 0 ? `<span class="lp-badge lp-b-ok">✅ изпълнена</span>`
+        : (pr.sent > 0 ? `<span class="lp-badge lp-b-part">🟡 ${pr.pct}% · остават ${lpFmtNum(pr.left)} бр.</span>`
+          : `<span class="lp-badge lp-b-no">⬜ още не е тръгвала</span>`));
+    return `<div class="lp-card${pr.plan > 0 && pr.left <= 0 ? " lp-card-done" : ""}">
       <div class="lp-card-h">
         <span class="lp-cl">${escapeHtml(x.client || "—")}</span>
         ${x.orderNo ? `<span class="lp-no">📋 № ${escapeHtml(String(x.orderNo))}</span>` : ""}
         ${x.due ? `<span class="lp-due">срок ${escapeHtml(lpFmtDate(x.due))}</span>` : ""}
+        ${x.carriedFrom ? `<span class="lp-carry" title="Прехвърлена от предишна седмица">⤳ от ${escapeHtml(lpFmtDate(x.carriedFrom))}</span>` : ""}
+        ${badge}
         <span class="spacer" style="flex:1"></span>
         <span class="lp-sum"><b>${lpFmtNum(pal)}</b> пал. · <b>${lpFmtNum(kg)}</b> кг</span>
         <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
         <button class="btn btn-small lp-del" data-id="${x.id}" title="Махни от плана">×</button>
       </div>
       <table class="report-table lp-lines">
-        <thead><tr><th>Изделие</th><th class="num">Бройки</th><th class="num">Палети</th><th class="num">Кг</th><th>В склада</th></tr></thead>
+        <thead><tr><th>Изделие</th><th class="num">План</th><th class="num">Изпратено</th><th class="num">Палети</th><th class="num">Кг</th><th>В склада</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${x.note ? `<div class="lp-note">📝 ${escapeHtml(x.note)}</div>` : ""}
@@ -214,11 +331,18 @@ function lpRender() {
       <button class="btn btn-small btn-primary" id="lp-add-order">📋 Добави заявка</button>
     </div>
     <div class="lp-stats">
-      <span>Заявки за експедиция: <b>${items.length}</b></span>
+      <span>Заявки за експедиция: <b>${items.length}</b>${wDone ? ` <span class="lp-ok">(${wDone} изпълнени)</span>` : ""}</span>
       <span>Изделия: <b>${totLines}</b></span>
       <span>Палети: <b>${lpFmtNum(totPal)}</b></span>
       <span>Общо тегло: <b>${lpFmtNum(totKg)}</b> кг</span>
+      ${wPlan > 0 ? `<span>Изпълнение: <b>${wPct}%</b> <span class="lp-muted">(${lpFmtNum(wSent)} от ${lpFmtNum(wPlan)} бр.)</span></span>` : ""}
+      ${wPlan > 0 ? `<span class="lp-bar"><span style="width:${wPct}%"></span></span>` : ""}
     </div>
+    ${pend.length ? `<div class="lp-carrybar">
+      <span>⤳ От предишни седмици <b>не са излезли</b> ${pend.length} ${pend.length === 1 ? "заявка" : "заявки"} (${lpFmtNum(pendQty)} бр.):
+        ${pend.slice(0, 4).map(x => escapeHtml((x.client || "") + (x.orderNo ? " № " + x.orderNo : ""))).join(" · ")}${pend.length > 4 ? " …" : ""}</span>
+      <button class="btn btn-small btn-primary" id="lp-carry">⤳ Прехвърли ги тук</button>
+    </div>` : ""}
     ${items.length ? items.map(card).join("") : `<p class="report-empty">Няма планирани експедиции за тази седмица. Натисни „📋 Добави заявка".</p>`}`;
 
   v.querySelector("#lp-prev").addEventListener("click", () => { LP_MONDAY = lpAddDays(LP_MONDAY, -7); lpRender(); });
@@ -227,6 +351,7 @@ function lpRender() {
   v.querySelector("#lp-add").addEventListener("click", () => lpOpenForm(null));
   v.querySelector("#lp-add-order").addEventListener("click", lpOrderPicker);
   v.querySelector("#lp-print").addEventListener("click", () => lpPrintWeek(items, wk, sunday));
+  const cb = v.querySelector("#lp-carry"); if (cb) cb.addEventListener("click", lpCarryOver);
   v.querySelectorAll(".lp-edit").forEach(b => b.addEventListener("click", () => lpOpenForm(b.dataset.id)));
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
 }
@@ -402,13 +527,13 @@ function lpPrintWeek(items, wk, sunday) {
   const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
   const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
   const body = items.map(x => {
-    const lines = lpItemLines(x);
     return `<h3>${escapeHtml(x.client || "—")}${x.orderNo ? " · заявка № " + escapeHtml(String(x.orderNo)) : ""}${x.due ? " · срок " + lpFmtDate(x.due) : ""}
         <span style="float:right;font-weight:400">${lpFmtNum(lpItemPal(x))} пал. · ${lpFmtNum(lpItemKg(x))} кг</span></h3>
-      <table><thead><tr><th>Код</th><th>Изделие</th><th class="r">Бройки</th><th class="r">Палети</th><th class="r">Кг</th><th style="width:90px">Готово ✓</th></tr></thead>
-      <tbody>${lines.map(l => `<tr><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || l.goods || "")}</td>
-        <td class="r">${l.qty ? lpFmtNum(l.qty) : ""}</td><td class="r">${l.pallets !== "" && l.pallets != null ? lpFmtNum(l.pallets) : ""}</td>
-        <td class="r">${l.kg !== "" && l.kg != null ? lpFmtNum(l.kg) : ""}</td><td></td></tr>`).join("")}</tbody></table>
+      <table><thead><tr><th>Код</th><th>Изделие</th><th class="r">План</th><th class="r">Изпратено</th><th class="r">Палети</th><th class="r">Кг</th><th style="width:80px">Готово ✓</th></tr></thead>
+      <tbody>${lpProgress(x).lines.map(r => `<tr><td>${escapeHtml(r.l.code || "")}</td><td>${escapeHtml(r.l.name || r.l.goods || "")}</td>
+        <td class="r">${r.plan ? lpFmtNum(r.plan) : ""}</td><td class="r">${r.tracked ? lpFmtNum(r.sent) : ""}</td>
+        <td class="r">${r.l.pallets !== "" && r.l.pallets != null ? lpFmtNum(r.l.pallets) : ""}</td>
+        <td class="r">${r.l.kg !== "" && r.l.kg != null ? lpFmtNum(r.l.kg) : ""}</td><td></td></tr>`).join("")}</tbody></table>
       ${x.note ? `<p style="margin:2px 0 10px;font-size:12px">📝 ${escapeHtml(x.note)}</p>` : ""}`;
   }).join("");
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>План за седмица ${wk.week}</title>
