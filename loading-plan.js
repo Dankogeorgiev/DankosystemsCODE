@@ -1,13 +1,17 @@
-/* Данко Системс — „🚚 План за товарене".
-   Седмичен план: избор на клиент, стока, килограми, палети и забележка за всяко
-   товарене. Започва от седмица 29 (2026). Данните се пазят в app_config
-   (id='loading_plan'), без нужда от нов SQL. Ползва глобалния sb и escapeHtml/escapeAttr. */
+/* Данко Системс — „🚚 План за седмицата (експедиция)".
+   Кратък и ясен план: КОИ ЗАЯВКИ излизат тази седмица, с колко палета и кила.
+   Цяла клиентска заявка влиза с един клик („📋 Добави заявка") — редовете и
+   бройките се попълват от недоставеното, кг и палети идват от ОПАКОВКИ — и
+   после се РЕДАКТИРАТ (маха се това, което няма да излезе).
+   Колоната „В склада" показва готово ли е изделието (Склад детайли).
+   Данните се пазят в app_config (id='loading_plan'), без нов SQL. */
 
 let LP_ITEMS = [];        // [{ id, week (понеделник YYYY-MM-DD), client, goods, kg, pallets, note, createdAt }]
 let LP_CLIENTS = [];      // имена на клиенти (от partners kind=customer)
 let LP_GOODS = [];        // детайли от Склад детайли (за избор на стока) — "код · име"
 let LP_MONDAY = null;     // текущо разглеждан понеделник (Date)
 let LP_LOADED = false;
+let LP_ORDERS = [];       // активните клиентски заявки (за „📋 Добави заявка")
 
 // Разпознава детайл/възел (Склад детайли), както в erp-detail-stock.
 function lpIsDetail(p) {
@@ -89,8 +93,14 @@ async function openLoadingPlan() {
     await Promise.all([lpLoad(), lpLoadClients(), lpLoadGoods()]);
     LP_LOADED = true;
   }
-  if (!LP_MONDAY) LP_MONDAY = lpMondayOfISOWeek(2026, 29);   // започваме от седмица 29
+  if (!LP_MONDAY) LP_MONDAY = lpMondayOfDate(new Date());   // отваря се на ТЕКУЩАТА седмица
   lpRender();
+  // Заявките и наличностите идват фоново — планът се пре-рисува, щом дойдат.
+  (async () => {
+    try { await lpLoadOrders(); } catch (e) {}
+    try { if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded(); } catch (e) {}
+    if (!document.getElementById("loading-modal").hidden) lpRender();
+  })();
 }
 function closeLoadingPlan() { document.getElementById("loading-modal").hidden = true; }
 
@@ -104,6 +114,44 @@ function lpItemLines(x) {
 function lpItemKg(x) { return lpItemLines(x).reduce((s, l) => s + lpToNum(l.kg), 0); }
 function lpItemPal(x) { return lpItemLines(x).reduce((s, l) => s + lpToNum(l.pallets), 0); }
 
+/* ---------- Заявките на клиенти (за „+ Добави заявка") ---------- */
+async function lpLoadOrders() {
+  try {
+    if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders();
+    LP_ORDERS = ((typeof erpCOList !== "undefined" && erpCOList) || []).filter(o => (o.status || "") !== "завършена");
+  } catch (e) { LP_ORDERS = []; }
+}
+// Недоставеното по ред (това влиза в плана по подразбиране).
+function lpLineLeft(l) {
+  const q = lpToNum(l.qty), d = lpToNum(l.delivered);
+  return Math.max(0, q - d);
+}
+// Наличност на код в Склад детайли (за колоната „готово").
+function lpStockOfCode(code) {
+  if (typeof ERP === "undefined" || !ERP.products) return null;
+  const c = String(code || "").trim(); if (!c) return null;
+  const p = (ERP.products || []).find(x => String(x.code || "").trim() === c);
+  if (!p) return null;
+  return Number((ERP.prodStock && ERP.prodStock[p.id]) != null ? ERP.prodStock[p.id] : p.stock) || 0;
+}
+
+/* Заявка → редове за плана: недоставените бройки + кг и палети от ОПАКОВКИ. */
+async function lpLinesFromOrder(o) {
+  let pack = [];
+  try { if (typeof erpPackDocRows === "function") pack = await erpPackDocRows(o); } catch (e) { pack = []; }
+  const byKey = {};
+  (pack || []).forEach(r => { byKey[String(r.code || "")] = r; });
+  return (o.lines || []).map(l => {
+    const left = lpLineLeft(l) || lpToNum(l.qty);
+    const pr = byKey[String(l.code || "")] || {};
+    // Кг/палети се смятат за ПЛАНИРАНОТО количество, не за цялата заявка.
+    const share = (pr.qty > 0) ? (left / pr.qty) : 1;
+    const kg = pr.netKg ? Math.round(pr.netKg * share * 10) / 10 : "";
+    const pal = pr.pallets ? Math.round(pr.pallets * share * 100) / 100 : "";
+    return { code: l.code || "", name: l.ourName || l.name || "", qty: left, kg, pallets: pal };
+  }).filter(l => l.qty > 0 || l.code);
+}
+
 /* ---------- Рендиране ---------- */
 function lpRender() {
   const v = document.getElementById("loading-view");
@@ -112,90 +160,174 @@ function lpRender() {
   const wk = lpISOWeek(LP_MONDAY);
   const sunday = lpAddDays(LP_MONDAY, 6);
   const items = LP_ITEMS.filter(x => x.week === mondayStr)
-    .sort((a, b) => (a.client || "").localeCompare(b.client || "", "bg") || String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+    .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")) || (a.client || "").localeCompare(b.client || "", "bg"));
   const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
   const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
+  const totLines = items.reduce((s, x) => s + lpItemLines(x).filter(l => l.code || l.goods).length, 0);
 
-  const rowsArr = [];
-  items.forEach(x => {
+  const card = x => {
     const lines = lpItemLines(x);
-    const n = lines.length;
-    lines.forEach((ln, idx) => {
-      let tr = `<tr class="lp-erow">`;
-      if (idx === 0) tr += `<td data-label="Клиент" rowspan="${n}"><b>${escapeHtml(x.client || "—")}</b>${n > 1 ? ` <span class="lp-muted">(${n} стоки)</span>` : ""}</td>`;
-      tr += `<td data-label="Стока">${escapeHtml(ln.goods || "")}</td>
-        <td class="num" data-label="Кг">${ln.kg != null && ln.kg !== "" ? lpFmtNum(ln.kg) : "—"}</td>
-        <td class="num" data-label="Палети">${ln.pallets != null && ln.pallets !== "" ? lpFmtNum(ln.pallets) : "—"}</td>`;
-      if (idx === 0) {
-        tr += `<td data-label="Забележка" rowspan="${n}">${escapeHtml(x.note || "")}</td>
-          <td class="lp-actions" rowspan="${n}">
-            <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
-            <button class="btn btn-small lp-del" data-id="${x.id}" title="Изтрий">×</button>
-          </td>`;
-      }
-      tr += `</tr>`;
-      rowsArr.push(tr);
-    });
-  });
-  const rows = rowsArr.join("");
+    const kg = lpItemKg(x), pal = lpItemPal(x);
+    const rows = lines.map(l => {
+      const nm = l.code ? `<b>${escapeHtml(l.code)}</b> ${escapeHtml(l.name || "")}` : escapeHtml(l.goods || "");
+      const have = l.code ? lpStockOfCode(l.code) : null;
+      const q = lpToNum(l.qty);
+      const ready = (have == null || !q) ? "" : (have >= q
+        ? `<span class="lp-ok">✅ готово</span>`
+        : `<span class="lp-part" title="в Склад детайли">⏳ ${lpFmtNum(have)} от ${lpFmtNum(q)}</span>`);
+      return `<tr>
+        <td>${nm}</td>
+        <td class="num">${q ? lpFmtNum(q) + " бр." : "—"}</td>
+        <td class="num">${l.pallets !== "" && l.pallets != null ? lpFmtNum(l.pallets) : "—"}</td>
+        <td class="num">${l.kg !== "" && l.kg != null ? lpFmtNum(l.kg) : "—"}</td>
+        <td>${ready}</td></tr>`;
+    }).join("");
+    return `<div class="lp-card">
+      <div class="lp-card-h">
+        <span class="lp-cl">${escapeHtml(x.client || "—")}</span>
+        ${x.orderNo ? `<span class="lp-no">📋 № ${escapeHtml(String(x.orderNo))}</span>` : ""}
+        ${x.due ? `<span class="lp-due">срок ${escapeHtml(lpFmtDate(x.due))}</span>` : ""}
+        <span class="spacer" style="flex:1"></span>
+        <span class="lp-sum"><b>${lpFmtNum(pal)}</b> пал. · <b>${lpFmtNum(kg)}</b> кг</span>
+        <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
+        <button class="btn btn-small lp-del" data-id="${x.id}" title="Махни от плана">×</button>
+      </div>
+      <table class="report-table lp-lines">
+        <thead><tr><th>Изделие</th><th class="num">Бройки</th><th class="num">Палети</th><th class="num">Кг</th><th>В склада</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${x.note ? `<div class="lp-note">📝 ${escapeHtml(x.note)}</div>` : ""}
+    </div>`;
+  };
 
   v.innerHTML = `
     <div class="lp-toolbar">
-      <button class="btn btn-small" id="lp-prev">◀ предишна</button>
+      <button class="btn btn-small" id="lp-prev">◀</button>
       <div class="lp-weeklabel">Седмица <b>${wk.week}</b> <span class="lp-muted">· ${lpFmtDM(LP_MONDAY)}–${lpFmtDM(sunday)}.${sunday.getUTCFullYear()}</span></div>
-      <button class="btn btn-small" id="lp-next">следваща ▶</button>
-      <button class="btn btn-small" id="lp-today" title="Върни се на седмица 29">⌂ Седмица 29</button>
+      <button class="btn btn-small" id="lp-next">▶</button>
+      <button class="btn btn-small" id="lp-today" title="Текущата седмица">⌂ Тази седмица</button>
       <span class="spacer" style="flex:1"></span>
-      <button class="btn btn-small btn-primary" id="lp-add">+ Ново товарене</button>
+      <button class="btn btn-small" id="lp-print" title="Разпечатай плана за седмицата">🖨</button>
+      <button class="btn btn-small" id="lp-add">+ Ръчно</button>
+      <button class="btn btn-small btn-primary" id="lp-add-order">📋 Добави заявка</button>
     </div>
-    <table class="report-table lp-table">
-      <thead><tr><th>Клиент</th><th>Стока</th><th class="num">Кг</th><th class="num">Палети</th><th>Забележка</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="6" class="report-empty">Няма товарения за тази седмица. Натисни „+ Ново товарене".</td></tr>`}</tbody>
-      ${items.length ? `<tfoot><tr class="lp-total">
-        <td>ОБЩО (${items.length} ${items.length === 1 ? "товарене" : "товарения"})</td><td></td>
-        <td class="num"><b>${lpFmtNum(totKg)}</b> кг</td>
-        <td class="num"><b>${lpFmtNum(totPal)}</b> палети</td>
-        <td colspan="2"></td>
-      </tr></tfoot>` : ""}
-    </table>`;
+    <div class="lp-stats">
+      <span>Заявки за експедиция: <b>${items.length}</b></span>
+      <span>Изделия: <b>${totLines}</b></span>
+      <span>Палети: <b>${lpFmtNum(totPal)}</b></span>
+      <span>Общо тегло: <b>${lpFmtNum(totKg)}</b> кг</span>
+    </div>
+    ${items.length ? items.map(card).join("") : `<p class="report-empty">Няма планирани експедиции за тази седмица. Натисни „📋 Добави заявка".</p>`}`;
 
   v.querySelector("#lp-prev").addEventListener("click", () => { LP_MONDAY = lpAddDays(LP_MONDAY, -7); lpRender(); });
   v.querySelector("#lp-next").addEventListener("click", () => { LP_MONDAY = lpAddDays(LP_MONDAY, 7); lpRender(); });
-  v.querySelector("#lp-today").addEventListener("click", () => { LP_MONDAY = lpMondayOfISOWeek(2026, 29); lpRender(); });
+  v.querySelector("#lp-today").addEventListener("click", () => { LP_MONDAY = lpMondayOfDate(new Date()); lpRender(); });
   v.querySelector("#lp-add").addEventListener("click", () => lpOpenForm(null));
+  v.querySelector("#lp-add-order").addEventListener("click", lpOrderPicker);
+  v.querySelector("#lp-print").addEventListener("click", () => lpPrintWeek(items, wk, sunday));
   v.querySelectorAll(".lp-edit").forEach(b => b.addEventListener("click", () => lpOpenForm(b.dataset.id)));
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
 }
 
-/* ---------- Форма (ново/редакция) — един клиент, много стоки ---------- */
-function lpOpenForm(id) {
+function lpFmtDate(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ""); }
+function lpMondayOfDate(d) {
+  const u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = (u.getUTCDay() + 6) % 7;
+  return new Date(u.getTime() - day * 864e5);
+}
+
+/* ---------- 📋 Избор на заявка ---------- */
+async function lpOrderPicker() {
+  const v = document.getElementById("loading-view");
+  if (!LP_ORDERS || !LP_ORDERS.length) {
+    const old = v.innerHTML;
+    v.innerHTML = `<p class="erp-loading">Зареждам заявките…</p>`;
+    await lpLoadOrders();
+    try { if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded(); } catch (e) {}
+    lpRender();
+    if (!LP_ORDERS.length) { alert("Няма активни заявки от клиенти."); return; }
+  }
+  const planned = new Set(LP_ITEMS.filter(x => x.week === lpMondayStr(LP_MONDAY) && x.orderId).map(x => String(x.orderId)));
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  const rowsHtml = q => LP_ORDERS
+    .filter(o => !q || `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""}`.toLowerCase().includes(q))
+    .sort((a, b) => String(a.deadline || "9999").localeCompare(String(b.deadline || "9999")))
+    .slice(0, 200)
+    .map(o => {
+      const n = (o.lines || []).length;
+      const left = (o.lines || []).reduce((s, l) => s + lpLineLeft(l), 0);
+      const tot = (o.lines || []).reduce((s, l) => s + lpToNum(l.qty), 0);
+      const done = planned.has(String(o.id));
+      return `<button type="button" class="lp-pick" data-id="${escapeAttr(String(o.id))}" ${done ? "disabled" : ""}>
+        <span class="lp-pick-l"><b>№ ${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? ` <span class="lp-muted">(${escapeHtml(o.clientNo)})</span>` : ""} · ${escapeHtml(o.clientName || "")}</span>
+        <span class="lp-pick-r">${o.deadline ? "срок " + lpFmtDate(o.deadline) : ""} · ${n} реда · остават ${lpFmtNum(left)} от ${lpFmtNum(tot)} бр.${done ? " · <b>вече в плана</b>" : ""}</span>
+      </button>`;
+    }).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box lp-form-box">
+      <h3>📋 Коя заявка ще излезе тази седмица?</h3>
+      <input type="search" id="lp-pq" placeholder="🔎 № / клиент…" autocomplete="off" />
+      <div id="lp-plist" class="lp-picklist">${rowsHtml("")}</div>
+      <div class="ask-actions"><button id="lp-pcancel" class="btn">Затвори</button></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#lp-pcancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  const bind = () => wrap.querySelectorAll(".lp-pick").forEach(b => b.addEventListener("click", async () => {
+    const o = LP_ORDERS.find(x => String(x.id) === String(b.dataset.id));
+    if (!o) return;
+    b.disabled = true; b.textContent = "Смятам…";
+    const lines = await lpLinesFromOrder(o);
+    close();
+    lpOpenForm(null, { client: o.clientName || "", orderId: o.id, orderNo: o.ourNo || o.clientNo || "", due: o.deadline || "", lines });
+  }));
+  bind();
+  const qi = wrap.querySelector("#lp-pq");
+  qi.addEventListener("input", () => { wrap.querySelector("#lp-plist").innerHTML = rowsHtml(qi.value.trim().toLowerCase()); bind(); });
+  setTimeout(() => qi.focus(), 50);
+}
+
+/* ---------- Форма (ново/редакция) ---------- */
+function lpOpenForm(id, preset) {
   const editing = id ? LP_ITEMS.find(x => x.id === id) : null;
   const mondayStr = lpMondayStr(LP_MONDAY);
   const wk = lpISOWeek(LP_MONDAY);
-  const initLines = editing ? lpItemLines(editing).map(l => ({ goods: l.goods || "", kg: l.kg, pallets: l.pallets })) : [{ goods: "", kg: "", pallets: "" }];
+  const src = editing || preset || {};
+  const initLines = (editing ? lpItemLines(editing) : (preset && preset.lines) || [{ code: "", name: "", qty: "", kg: "", pallets: "" }])
+    .map(l => ({ code: l.code || "", name: l.name || l.goods || "", qty: l.qty != null ? l.qty : "", kg: l.kg, pallets: l.pallets }));
   const lineRow = ln => `
-    <div class="lp-line-row">
-      <input type="text" class="lp-l-goods" list="lp-goods-list" value="${escapeAttr(ln.goods || "")}" placeholder="детайл (код/име)…" autocomplete="off" />
-      <input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" />
-      <input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="палети" />
-      <button type="button" class="btn btn-small lp-l-rm" title="Махни стоката">×</button>
-    </div>`;
+    <tr class="lp-line-row">
+      <td><input type="text" class="lp-l-code" value="${escapeAttr(ln.code || "")}" placeholder="код" style="width:90px" /></td>
+      <td><input type="text" class="lp-l-name" list="lp-goods-list" value="${escapeAttr(ln.name || "")}" placeholder="изделие" style="width:100%;min-width:150px" autocomplete="off" /></td>
+      <td><input type="number" class="lp-l-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.qty != null ? String(ln.qty) : "")}" placeholder="бр." style="width:80px" /></td>
+      <td><input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="пал." style="width:70px" /></td>
+      <td><input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" style="width:80px" /></td>
+      <td><button type="button" class="btn btn-small lp-l-rm" title="Махни реда">×</button></td>
+    </tr>`;
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   wrap.innerHTML = `
     <div class="overlay-box ask-box lp-form-box">
-      <h3>${editing ? "✎ Редакция на товарене" : "+ Ново товарене"} — седмица ${wk.week}</h3>
-      <label>Клиент *
-        <input type="text" id="lp-client" list="lp-clients" value="${escapeAttr(editing ? (editing.client || "") : "")}" placeholder="избери или въведи" autocomplete="off" />
-        <datalist id="lp-clients">${LP_CLIENTS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
-      </label>
-      <div class="lp-lines-head"><span>Стоки за товарене (детайл · кг · палети)</span></div>
-      <div id="lp-lines">${initLines.map(lineRow).join("")}</div>
+      <h3>${editing ? "✎ Редакция" : "+ В плана"} — седмица ${wk.week}${src.orderNo ? ` · заявка № ${escapeHtml(String(src.orderNo))}` : ""}</h3>
+      <div class="lp-form-grid">
+        <label>Клиент *
+          <input type="text" id="lp-client" list="lp-clients" value="${escapeAttr(src.client || "")}" placeholder="избери или въведи" autocomplete="off" />
+          <datalist id="lp-clients">${LP_CLIENTS.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist></label>
+        <label>Заявка № <input type="text" id="lp-orderno" value="${escapeAttr(String(src.orderNo || ""))}" placeholder="по желание" /></label>
+        <label>Срок <input type="date" id="lp-due" value="${escapeAttr(src.due || "")}" /></label>
+      </div>
+      <p class="hint" style="margin:6px 0">Махни редовете, които НЯМА да излязат тази седмица, или намали бройките — планът е за реалното.</p>
+      <table class="report-table lp-form-lines">
+        <thead><tr><th>Код</th><th>Изделие</th><th>Бройки</th><th>Палети</th><th>Кг</th><th></th></tr></thead>
+        <tbody id="lp-lines">${initLines.map(lineRow).join("")}</tbody>
+      </table>
       <datalist id="lp-goods-list">${LP_GOODS.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
-      <button type="button" id="lp-addline" class="btn btn-small">+ още стока</button>
-      <label>Забележка<textarea id="lp-note" rows="2" placeholder="по желание — напр. час, транспорт, специфики">${escapeHtml(editing ? (editing.note || "") : "")}</textarea></label>
+      <button type="button" id="lp-addline" class="btn btn-small">+ ред</button>
+      <label>Забележка<textarea id="lp-note" rows="2" placeholder="напр. транспорт, час, специфики">${escapeHtml(src.note || "")}</textarea></label>
       <div class="ask-actions">
-        <button id="lp-save" class="btn btn-primary">${editing ? "Запази" : "Добави"}</button>
+        <button id="lp-save" class="btn btn-primary">${editing ? "Запази" : "Добави в седмицата"}</button>
         <button id="lp-cancel" class="btn">Отказ</button>
       </div>
     </div>`;
@@ -210,10 +342,9 @@ function lpOpenForm(id) {
   });
   wireRm();
   wrap.querySelector("#lp-addline").addEventListener("click", () => {
-    const tmp = document.createElement("div"); tmp.innerHTML = lineRow({ goods: "", kg: "", pallets: "" });
+    const tmp = document.createElement("tbody"); tmp.innerHTML = lineRow({ code: "", name: "", qty: "", kg: "", pallets: "" });
     linesBox.appendChild(tmp.firstElementChild);
     wireRm();
-    const last = linesBox.querySelector(".lp-line-row:last-child .lp-l-goods"); if (last) last.focus();
   });
   wrap.querySelector("#lp-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
@@ -222,19 +353,27 @@ function lpOpenForm(id) {
     if (!client) { alert("Въведи клиент."); return; }
     const lines = [];
     linesBox.querySelectorAll(".lp-line-row").forEach(row => {
-      const goods = row.querySelector(".lp-l-goods").value.trim();
+      const code = row.querySelector(".lp-l-code").value.trim();
+      const name = row.querySelector(".lp-l-name").value.trim();
+      const qty = row.querySelector(".lp-l-qty").value.trim();
       const kg = row.querySelector(".lp-l-kg").value.trim();
       const pallets = row.querySelector(".lp-l-pallets").value.trim();
-      if (goods || kg || pallets) lines.push({ goods, kg, pallets });
+      if (code || name || qty || kg || pallets) lines.push({ code, name, qty, kg, pallets });
     });
-    if (!lines.length) { alert("Добави поне една стока."); return; }
+    if (!lines.length) { alert("Остави поне един ред."); return; }
     const note = wrap.querySelector("#lp-note").value.trim();
+    const orderNo = wrap.querySelector("#lp-orderno").value.trim();
+    const due = wrap.querySelector("#lp-due").value;
     const btn = wrap.querySelector("#lp-save"); btn.disabled = true; btn.textContent = "Записва…";
     if (editing) {
-      editing.client = client; editing.lines = lines; editing.note = note;
-      delete editing.goods; delete editing.kg; delete editing.pallets;   // мигриране към новия формат
+      Object.assign(editing, { client, lines, note, orderNo, due });
+      delete editing.goods; delete editing.kg; delete editing.pallets;
     } else {
-      LP_ITEMS.push({ id: "lp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6), week: mondayStr, client, lines, note, createdAt: new Date().toISOString() });
+      LP_ITEMS.push({
+        id: "lp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6),
+        week: mondayStr, client, lines, note, orderNo, due,
+        orderId: (preset && preset.orderId) || null, createdAt: new Date().toISOString(),
+      });
     }
     await lpSave();
     close();
@@ -243,10 +382,42 @@ function lpOpenForm(id) {
   setTimeout(() => { const c = wrap.querySelector("#lp-client"); if (c) c.focus(); }, 50);
 }
 
+/* ---------- 🖨 Разпечатка на седмицата ---------- */
+function lpPrintWeek(items, wk, sunday) {
+  if (!items.length) { alert("Няма какво да се печата за тази седмица."); return; }
+  const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
+  const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
+  const body = items.map(x => {
+    const lines = lpItemLines(x);
+    return `<h3>${escapeHtml(x.client || "—")}${x.orderNo ? " · заявка № " + escapeHtml(String(x.orderNo)) : ""}${x.due ? " · срок " + lpFmtDate(x.due) : ""}
+        <span style="float:right;font-weight:400">${lpFmtNum(lpItemPal(x))} пал. · ${lpFmtNum(lpItemKg(x))} кг</span></h3>
+      <table><thead><tr><th>Код</th><th>Изделие</th><th class="r">Бройки</th><th class="r">Палети</th><th class="r">Кг</th><th style="width:90px">Готово ✓</th></tr></thead>
+      <tbody>${lines.map(l => `<tr><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || l.goods || "")}</td>
+        <td class="r">${l.qty ? lpFmtNum(l.qty) : ""}</td><td class="r">${l.pallets !== "" && l.pallets != null ? lpFmtNum(l.pallets) : ""}</td>
+        <td class="r">${l.kg !== "" && l.kg != null ? lpFmtNum(l.kg) : ""}</td><td></td></tr>`).join("")}</tbody></table>
+      ${x.note ? `<p style="margin:2px 0 10px;font-size:12px">📝 ${escapeHtml(x.note)}</p>` : ""}`;
+  }).join("");
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>План за седмица ${wk.week}</title>
+    <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
+    h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 12px}
+    h3{font-size:14px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px}
+    th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left}
+    th{background:#f1f5f9}.r{text-align:right}
+    @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
+    <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
+    <h1>План за експедиция — седмица ${wk.week}</h1>
+    <h2>${lpFmtDM(LP_MONDAY)}–${lpFmtDM(sunday)}.${sunday.getUTCFullYear()} · ${items.length} заявки · ${lpFmtNum(totPal)} палета · ${lpFmtNum(totKg)} кг</h2>
+    ${body}</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
 async function lpDelete(id) {
   const x = LP_ITEMS.find(i => i.id === id);
   if (!x) return;
-  if (!confirm(`Да изтрия ли товаренето за „${x.client || ""}"?`)) return;
+  if (!confirm(`Да махна ли „${x.client || ""}"${x.orderNo ? " (№ " + x.orderNo + ")" : ""} от плана за седмицата?`)) return;
   LP_ITEMS = LP_ITEMS.filter(i => i.id !== id);
   await lpSave();
   lpRender();
