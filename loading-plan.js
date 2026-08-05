@@ -142,14 +142,16 @@ async function lpLinesFromOrder(o) {
   const byKey = {};
   (pack || []).forEach(r => { byKey[String(r.code || "")] = r; });
   return (o.lines || []).map(l => {
-    const left = lpLineLeft(l) || lpToNum(l.qty);
+    // САМО остатъкът: поръчано − вече доставено. Напълно доставен ред отпада.
+    const left = lpLineLeft(l);
+    if (!(left > 0)) return null;
     const pr = byKey[String(l.code || "")] || {};
     // Кг/палети се смятат за ПЛАНИРАНОТО количество, не за цялата заявка.
     const share = (pr.qty > 0) ? (left / pr.qty) : 1;
     const kg = pr.netKg ? Math.round(pr.netKg * share * 10) / 10 : "";
     const pal = pr.pallets ? Math.round(pr.pallets * share * 100) / 100 : "";
     return { code: l.code || "", name: l.ourName || l.name || "", qty: left, kg, pallets: pal };
-  }).filter(l => l.qty > 0 || l.code);
+  }).filter(Boolean);
 }
 
 /* ---------- Рендиране ---------- */
@@ -247,7 +249,11 @@ async function lpOrderPicker() {
     lpRender();
     if (!LP_ORDERS.length) { alert("Няма активни заявки от клиенти."); return; }
   }
-  const planned = new Set(LP_ITEMS.filter(x => x.week === lpMondayStr(LP_MONDAY) && x.orderId).map(x => String(x.orderId)));
+  const thisWeek = lpMondayStr(LP_MONDAY);
+  const planned = new Set(LP_ITEMS.filter(x => x.week === thisWeek && x.orderId).map(x => String(x.orderId)));
+  // Същата заявка, но планирана за ДРУГА седмица — само отбелязваме.
+  const otherWeek = {};
+  LP_ITEMS.forEach(x => { if (x.orderId && x.week !== thisWeek) otherWeek[String(x.orderId)] = x.week; });
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   const rowsHtml = q => LP_ORDERS
@@ -259,9 +265,14 @@ async function lpOrderPicker() {
       const left = (o.lines || []).reduce((s, l) => s + lpLineLeft(l), 0);
       const tot = (o.lines || []).reduce((s, l) => s + lpToNum(l.qty), 0);
       const done = planned.has(String(o.id));
-      return `<button type="button" class="lp-pick" data-id="${escapeAttr(String(o.id))}" ${done ? "disabled" : ""}>
+      const full = !(left > 0);                       // всичко по заявката е доставено
+      const ow = otherWeek[String(o.id)];
+      const nLeft = (o.lines || []).filter(l => lpLineLeft(l) > 0).length;
+      return `<button type="button" class="lp-pick" data-id="${escapeAttr(String(o.id))}" ${done || full ? "disabled" : ""}>
         <span class="lp-pick-l"><b>№ ${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? ` <span class="lp-muted">(${escapeHtml(o.clientNo)})</span>` : ""} · ${escapeHtml(o.clientName || "")}</span>
-        <span class="lp-pick-r">${o.deadline ? "срок " + lpFmtDate(o.deadline) : ""} · ${n} реда · остават ${lpFmtNum(left)} от ${lpFmtNum(tot)} бр.${done ? " · <b>вече в плана</b>" : ""}</span>
+        <span class="lp-pick-r">${o.deadline ? "срок " + lpFmtDate(o.deadline) + " · " : ""}${full
+          ? "<b>всичко е доставено</b>"
+          : `остават <b>${lpFmtNum(left)}</b> от ${lpFmtNum(tot)} бр. · ${nLeft} от ${n} реда`}${done ? " · <b>вече в плана</b>" : ""}${ow && !done ? ` · <span class="lp-muted">в плана за ${lpFmtDate(ow)}</span>` : ""}</span>
       </button>`;
     }).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
   wrap.innerHTML = `
@@ -280,6 +291,7 @@ async function lpOrderPicker() {
     if (!o) return;
     b.disabled = true; b.textContent = "Смятам…";
     const lines = await lpLinesFromOrder(o);
+    if (!lines.length) { alert(`Заявка № ${o.ourNo || "—"} няма недоставени бройки — няма какво да се планира.`); close(); return; }
     close();
     lpOpenForm(null, { client: o.clientName || "", orderId: o.id, orderNo: o.ourNo || o.clientNo || "", due: o.deadline || "", lines });
   }));
