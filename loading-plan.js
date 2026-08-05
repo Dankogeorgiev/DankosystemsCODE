@@ -89,6 +89,10 @@ async function lpLoadClients() {
 /* ---------- Отваряне ---------- */
 async function openLoadingPlan() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
+  if (typeof weekPlanAllowed === "function" && !weekPlanAllowed()) {
+    alert("Планът за седмицата към момента е позволен само на Данко и Григор.");
+    return;
+  }
   document.getElementById("loading-modal").hidden = false;
   if (!LP_LOADED) {
     await Promise.all([lpLoad(), lpLoadClients(), lpLoadGoods()]);

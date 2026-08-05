@@ -103,6 +103,13 @@ function produceAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return PRODUCE_EMAILS.map(x => x.toLowerCase()).includes(e);
 }
+// План за седмицата (какво излиза) — засега само Данко и Григор.
+// Останалите не виждат бутона и не могат да отворят модула.
+const WEEKPLAN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];  // Данко + Григор
+function weekPlanAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return WEEKPLAN_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
 // Осчетоводяване на продажба/фактура (изписване от склада + отмяна) —
 // само за изрично изброените. Останалите виждат всичко, но без бутоните.
 const POST_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];     // Данко + Григор
@@ -122,6 +129,9 @@ function applyAccess() {
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
   const lvBtn = document.getElementById("btn-leaves-main");
   if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
+  // План за седмицата — само Данко и Григор.
+  const wkBtn = document.getElementById("btn-loading");
+  if (wkBtn) wkBtn.style.display = weekPlanAllowed() ? "" : "none";
   const adminOnly = document.querySelectorAll(
     '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-erp,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {
