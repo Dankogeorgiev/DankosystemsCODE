@@ -1590,6 +1590,13 @@ tr.times-click:hover td { background: #ecfdf5; }
 .lp-pick-l { font-size: 13.5px; }
 .lp-pick-r { font-size: 12px; color: #64748b; }
 .lp-pick-warn { color: #b45309; font-weight: 700; }
+
+/* 🔩 Извадка „механизми за Занитване" */
+.lp-mech th, .lp-mech td { vertical-align: top; }
+.lp-mech-ok td { background: #f0fdf4; }
+.lp-mh-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.lp-mh { font-size: 11.5px; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 1px 8px; }
+.lp-mh.need { background: #fef3c7; color: #92400e; }
 /* Формата: широк прозорец и редове на РЕШЕТКА (колоните не могат да се разминат) */
 .ask-box.lp-form-box { max-width: min(960px, 96vw); width: min(960px, 96vw); }
 .lp-form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: end; }

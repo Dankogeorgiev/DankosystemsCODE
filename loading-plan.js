@@ -449,6 +449,7 @@ function lpRender() {
       <button class="btn btn-small" id="lp-next">▶</button>
       <button class="btn btn-small" id="lp-today" title="Текущата седмица">⌂ Тази седмица</button>
       <span class="spacer" style="flex:1"></span>
+      <button class="btn btn-small" id="lp-mech" title="Само механизмите от плана — за колегите в Занитване">🔩 Механизми</button>
       <button class="btn btn-small" id="lp-print" title="Разпечатай плана за седмицата">🖨</button>
       <button class="btn btn-small" id="lp-add">+ Ръчно</button>
       <button class="btn btn-small btn-primary" id="lp-add-order">📋 Добави заявка</button>
@@ -479,6 +480,7 @@ function lpRender() {
   v.querySelector("#lp-add").addEventListener("click", () => lpOpenForm(null));
   v.querySelector("#lp-add-order").addEventListener("click", lpOrderPicker);
   v.querySelector("#lp-print").addEventListener("click", () => lpPrintWeek(items, wk, sunday));
+  v.querySelector("#lp-mech").addEventListener("click", lpMechDialog);
   const cb = v.querySelector("#lp-carry"); if (cb) cb.addEventListener("click", lpCarryOver);
   v.querySelectorAll(".lp-edit").forEach(b => b.addEventListener("click", () => lpOpenForm(b.dataset.id)));
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
@@ -566,6 +568,152 @@ async function lpOrderPicker() {
   const qi = wrap.querySelector("#lp-pq");
   qi.addEventListener("input", () => { wrap.querySelector("#lp-plist").innerHTML = rowsHtml(qi.value.trim().toLowerCase()); bind(); });
   setTimeout(() => qi.focus(), 50);
+}
+
+/* ---------- 🔩 Извадка за ЗАНИТВАНЕ ----------
+   От плана за седмицата се вадят САМО механизмите (готовите комплекти и
+   половините), за да знаят колегите в Занитване какво да подготвят.
+   Списъците идват от nit.js — там са описани моделите и техните половини. */
+function lpNitIndex() {
+  const idx = {};
+  const add = (arr, kind, family) => (arr || []).forEach(f => {
+    const code = String(Array.isArray(f) ? f[0] : f.code || "").trim();
+    if (!code || idx[code]) return;                       // комплектите имат предимство
+    idx[code] = Array.isArray(f)
+      ? { code, name: f[1] || "", kind, family }
+      : { code, name: f.name || "", kind, family, left: f.left || "", right: f.right || "" };
+  });
+  if (typeof NIT_ITALY_FINALS !== "undefined") add(NIT_ITALY_FINALS, "final", "ИТАЛИЯ");
+  if (typeof NIT_MPK_FINALS !== "undefined") add(NIT_MPK_FINALS, "final", "МПК (потапящ)");
+  if (typeof NIT_ITALY_LEGS_L !== "undefined") add(NIT_ITALY_LEGS_L, "half", "ИТАЛИЯ");
+  if (typeof NIT_ITALY_LEGS_R !== "undefined") add(NIT_ITALY_LEGS_R, "half", "ИТАЛИЯ");
+  if (typeof NIT_MPK_LEGS_L !== "undefined") add(NIT_MPK_LEGS_L, "half", "МПК (потапящ)");
+  if (typeof NIT_MPK_LEGS_R !== "undefined") add(NIT_MPK_LEGS_R, "half", "МПК (потапящ)");
+  return idx;
+}
+function lpNitName(idx, code) {
+  const c = String(code || "").trim();
+  if (idx[c] && idx[c].name) return idx[c].name;
+  if (typeof ERP !== "undefined" && ERP.products) {
+    const p = (ERP.products || []).find(x => String(x.code || "").trim() === c);
+    if (p) return p.name || "";
+  }
+  return "";
+}
+/* Механизмите в седмицата: код → нужни бройки (само НЕизлязлото). */
+function lpMechRows(items) {
+  const idx = lpNitIndex();
+  const map = new Map();
+  (items || []).forEach(x => {
+    const who = (x.client || "") + (x.orderNo ? " № " + x.orderNo : "");
+    lpProgress(x).lines.forEach(r => {
+      if (!(r.left > 0)) return;                          // излязлото не се готви наново
+      const code = String(r.l.code || "").trim();
+      const nm = r.l.name || r.l.goods || "";
+      const hit = idx[code] ||
+        (/механи|mechanis|mecc\./i.test(nm) ? { code, name: nm, kind: "final", family: "" } : null);
+      if (!hit) return;
+      const k = code || nm;
+      if (!map.has(k)) map.set(k, { ...hit, code, name: hit.name || nm, need: 0, orders: new Set() });
+      const e = map.get(k);
+      e.need += r.left;
+      if (who.trim()) e.orders.add(who.trim());
+    });
+  });
+  return [...map.values()].sort((a, b) =>
+    String(a.family || "яя").localeCompare(String(b.family || "яя"), "bg") ||
+    String(a.name || "").localeCompare(String(b.name || ""), "bg"));
+}
+/* Половините на един комплект: какво липсва след наличното в склада. */
+function lpMechHalves(m, idx) {
+  const out = [];
+  [["ляв", m.left], ["десен", m.right]].forEach(([side, c]) => {
+    if (!c) return;
+    const have = lpStockOfCode(c);
+    out.push({ side, code: c, name: lpNitName(idx, c), have, make: Math.max(0, m.need - (have || 0)) });
+  });
+  return out;
+}
+function lpMechDialog() {
+  const mondayStr = lpMondayStr(LP_MONDAY);
+  const wk = lpISOWeek(LP_MONDAY), sunday = lpAddDays(LP_MONDAY, 6);
+  const items = LP_ITEMS.filter(x => x.week === mondayStr);
+  const idx = lpNitIndex();
+  const rows = lpMechRows(items);
+  const totNeed = rows.reduce((s, m) => s + m.need, 0);
+  const body = rows.map(m => {
+    const have = lpStockOfCode(m.code);
+    const make = Math.max(0, m.need - (have || 0));
+    const halves = m.kind === "final" ? lpMechHalves(m, idx) : [];
+    const hv = halves.map(h => `<span class="lp-mh${h.make > 0 ? " need" : ""}">${h.side}: <b>${escapeHtml(h.code)}</b> · в склада ${h.have == null ? "—" : lpFmtNum(h.have)}${h.make > 0 ? ` · <b>трябват ${lpFmtNum(h.make)}</b>` : " ✅"}</span>`).join("");
+    return `<tr class="${make > 0 ? "" : "lp-mech-ok"}">
+      <td><b>${escapeHtml(m.code || "—")}</b><div class="lp-muted" style="font-size:11px">${escapeHtml(m.family || "")}</div></td>
+      <td>${escapeHtml(m.name || "")}${m.kind === "half" ? ' <span class="lp-mh">половина</span>' : ""}
+        ${hv ? `<div class="lp-mh-wrap">${hv}</div>` : ""}
+        <div class="lp-muted" style="font-size:11px">за: ${escapeHtml([...m.orders].join(" · "))}</div></td>
+      <td class="num"><b>${lpFmtNum(m.need)}</b></td>
+      <td class="num">${have == null ? "—" : lpFmtNum(have)}</td>
+      <td class="num">${make > 0 ? `<b class="lp-part">${lpFmtNum(make)}</b>` : `<span class="lp-ok">✅ има</span>`}</td>
+    </tr>`;
+  }).join("");
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box lp-form-box">
+      <h3>🔩 Механизми за ЗАНИТВАНЕ — седмица ${wk.week} <span class="lp-muted">(${lpFmtDM(LP_MONDAY)}–${lpFmtDM(sunday)})</span></h3>
+      <p class="hint" style="margin:0 0 8px">Само механизмите от плана — без вече изпратеното. „За сглобяване" е нужното МИНУС наличното в Склад детайли.</p>
+      ${rows.length ? `<div style="max-height:56vh;overflow:auto">
+        <table class="report-table lp-mech">
+          <thead><tr><th style="width:90px">Код</th><th>Механизъм</th><th class="num">Нужни</th><th class="num">В склада</th><th class="num">За сглобяване</th></tr></thead>
+          <tbody>${body}</tbody>
+        </table></div>
+        <p class="lp-muted" style="margin:6px 0 0">Общо ${rows.length} ${rows.length === 1 ? "модел" : "модела"} · ${lpFmtNum(totNeed)} бр. по плана.</p>`
+      : `<p class="report-empty">В плана за тази седмица няма механизми.</p>`}
+      <div class="ask-actions">
+        ${rows.length ? `<button id="lp-mech-print" class="btn btn-primary">🖨 Разпечатай за Занитване</button>` : ""}
+        <button id="lp-mech-close" class="btn">Затвори</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#lp-mech-close").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  const pb = wrap.querySelector("#lp-mech-print");
+  if (pb) pb.addEventListener("click", () => lpMechPrint(rows, wk, sunday));
+}
+function lpMechPrint(rows, wk, sunday) {
+  const idx = lpNitIndex();
+  const body = rows.map(m => {
+    const have = lpStockOfCode(m.code);
+    const make = Math.max(0, m.need - (have || 0));
+    const halves = m.kind === "final" ? lpMechHalves(m, idx) : [];
+    const hv = halves.length
+      ? `<div class="halves">${halves.map(h => `${h.side}: <b>${escapeHtml(h.code)}</b> — в склада ${h.have == null ? "—" : lpFmtNum(h.have)}${h.make > 0 ? `, <b>трябват ${lpFmtNum(h.make)}</b>` : " ✔"}`).join(" &nbsp;|&nbsp; ")}</div>`
+      : "";
+    return `<tr>
+      <td>${escapeHtml(m.code || "")}</td>
+      <td>${escapeHtml(m.name || "")}${m.kind === "half" ? " (половина)" : ""}${hv}</td>
+      <td class="r"><b>${lpFmtNum(m.need)}</b></td>
+      <td class="r">${have == null ? "" : lpFmtNum(have)}</td>
+      <td class="r"><b>${make > 0 ? lpFmtNum(make) : "—"}</b></td>
+      <td></td><td></td></tr>`;
+  }).join("");
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Занитване — седмица ${wk.week}</title>
+    <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
+    h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 12px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #94a3b8;padding:5px 6px;font-size:12px;text-align:left;vertical-align:top}
+    th{background:#f1f5f9}.r{text-align:right}
+    .halves{font-size:11px;color:#444;margin-top:2px}
+    @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
+    <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
+    <h1>🔩 ЗАНИТВАНЕ — какво трябва за седмица ${wk.week}</h1>
+    <h2>${lpFmtDM(LP_MONDAY)}–${lpFmtDM(sunday)}.${sunday.getUTCFullYear()} · ${rows.length} модела · ${lpFmtNum(rows.reduce((s, m) => s + m.need, 0))} бр. по плана</h2>
+    <table><thead><tr><th style="width:70px">Код</th><th>Механизъм (и половини)</th><th class="r" style="width:60px">Нужни</th><th class="r" style="width:60px">В склада</th><th class="r" style="width:75px">За сглобяване</th><th style="width:70px">Готови</th><th style="width:90px">Забележка</th></tr></thead>
+    <tbody>${body}</tbody></table></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
 }
 
 /* ---------- Форма (ново/редакция) ---------- */
