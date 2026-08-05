@@ -280,6 +280,53 @@ async function lpCarryOver() {
   lpRender();
 }
 
+/* ---------- Външен изглед: „в плана ли е тази заявка" ----------
+   Ползва се от „Заявки от клиенти" (erp-customer-orders.js). Чете само
+   записите (без клиенти/стоки), за да не бави списъка. */
+let LP_ITEMS_READY = false;
+let LP_ITEMS_LOADING = null;
+async function lpEnsureItems() {
+  if (LP_LOADED || LP_ITEMS_READY) return;
+  if (!LP_ITEMS_LOADING) LP_ITEMS_LOADING = lpLoad().then(() => { LP_ITEMS_READY = true; LP_ITEMS_LOADING = null; });
+  await LP_ITEMS_LOADING;
+}
+/* Записите в плана за дадена заявка (по orderId; резервно по наш № + клиент).
+   Прехвърлените (x.carried) се пропускат — те живеят в новата седмица. */
+function lpEntriesForOrder(o) {
+  if (!o) return [];
+  const id = String(o.id || "");
+  const no = String(o.ourNo || "").trim().toLowerCase();
+  const cl = String(o.clientName || "").trim().toLowerCase();
+  return (LP_ITEMS || []).filter(x => {
+    if (x.carried) return false;
+    if (x.orderId && id) return String(x.orderId) === id;
+    if (!x.orderId && no) {
+      return String(x.orderNo || "").trim().toLowerCase() === no &&
+        (!cl || String(x.client || "").trim().toLowerCase() === cl);
+    }
+    return false;
+  }).sort((a, b) => String(a.week).localeCompare(String(b.week)));
+}
+/* Кратко резюме за списъка: null (не е в план) или
+   { week, weekNo, plan, sent, left, pct, late, weeks, done, more } */
+function lpOrderPlanInfo(o) {
+  const ent = lpEntriesForOrder(o);
+  if (!ent.length) return null;
+  // Водещ е най-ранният запис с остатък; ако всичко е излязло — последният.
+  const open = ent.filter(x => lpProgress(x).left > 0);
+  const x = open[0] || ent[ent.length - 1];
+  const pr = lpProgress(x);
+  const late = lpLate(x);
+  const d = new Date(x.week + "T00:00:00Z");
+  return {
+    week: x.week, weekNo: lpISOWeek(d).week, from: lpFmtDM(d), to: lpFmtDM(lpAddDays(d, 6)),
+    plan: pr.plan, sent: pr.sent, left: pr.left, pct: pr.pct,
+    done: pr.plan > 0 && pr.left <= 0,
+    late: !!late && pr.left > 0, weeks: late ? late.weeks : 0, orig: late ? late.orig : "",
+    more: ent.length > 1 ? ent.length - 1 : 0,
+  };
+}
+
 /* ---------- Рендиране ---------- */
 function lpRender() {
   const v = document.getElementById("loading-view");

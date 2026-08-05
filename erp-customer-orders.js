@@ -142,6 +142,39 @@ function erpCOStatusCell(o) {
     <div class="co-progress" title="доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр."><div class="co-progress-fill" style="width:${p.pct}%"></div></div>`;
 }
 
+/* ---------- „В плана за седмицата ли е?" ----------
+   Показва се до статуса. Данните идват от loading-plan.js (app_config
+   „loading_plan"); ако модулът още не е зареден — клетката стои празна и
+   се попълва, щом дойде (erpCOPlanFill). */
+function erpCOPlanCell(o) {
+  const inf = (typeof lpOrderPlanInfo === "function") ? lpOrderPlanInfo(o) : null;
+  if (!inf) return `<span class="erp-muted co-plan-no" title="Заявката не е включена в план за седмица">—</span>`;
+  const wk = `седм. ${inf.weekNo}`;
+  const more = inf.more ? ` <span class="erp-muted">+${inf.more}</span>` : "";
+  const per = `${inf.from}–${inf.to}`;
+  if (inf.done) return `<span class="co-plan ok" title="Планирана за ${per} и вече е излязла напълно">🚚 ${wk} ✅</span>${more}`;
+  if (inf.late) return `<span class="co-plan late" title="Изостава с ${inf.weeks === 1 ? "1 седмица" : inf.weeks + " седмици"} — първо планирана за седмицата от ${erpDMY(inf.orig)}. Сега е в ${per}.">🚚 ${wk} ⚠</span>${more}`;
+  if (inf.sent > 0) return `<span class="co-plan part" title="Планирана за ${per}: излезли ${erpNum(inf.sent)} от ${erpNum(inf.plan)} бр.">🚚 ${wk} · ${inf.pct}%</span>${more}`;
+  return `<span class="co-plan" title="Планирана за ${per} — ${erpNum(inf.plan)} бр.">🚚 ${wk}</span>${more}`;
+}
+/* Същото, но с думи — за формата на заявката (под падащия статус). */
+function erpCOPlanLine(o) {
+  const inf = (typeof lpOrderPlanInfo === "function") ? lpOrderPlanInfo(o) : null;
+  if (!inf) return `<span class="erp-muted co-plan-no">🚚 не е в план за седмица</span>`;
+  const per = `седмица ${inf.weekNo} (${inf.from}–${inf.to})`;
+  if (inf.done) return `<span class="co-plan ok">🚚 ${per} — излязла напълно ✅</span>`;
+  if (inf.late) return `<span class="co-plan late">🚚 ${per} — ⚠ изостава с ${inf.weeks === 1 ? "1 седмица" : inf.weeks + " седмици"} (първо планирана за ${erpDMY(inf.orig)})</span>`;
+  if (inf.sent > 0) return `<span class="co-plan part">🚚 ${per} — излезли ${erpNum(inf.sent)} от ${erpNum(inf.plan)} бр. (${inf.pct}%)</span>`;
+  return `<span class="co-plan">🚚 ${per} — планирани ${erpNum(inf.plan)} бр.</span>`;
+}
+/* Допълва клетките, след като планът се зареди фоново. */
+function erpCOPlanFill() {
+  document.querySelectorAll("#co-orders-table td[data-plan-for]").forEach(td => {
+    const o = (erpCOList || []).find(x => String(x.id) === td.dataset.planFor);
+    if (o) td.innerHTML = erpCOPlanCell(o);
+  });
+}
+
 /* ---------- Списъкът: ред + папки по клиент ----------
    При подредба „Клиент (А→Я)" клиентите с 2+ заявки се групират в ПАПКА —
    клик върху нея разгъва/скрива заявките на клиента. */
@@ -157,6 +190,7 @@ function erpCORowHtml(o) {
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
             <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
             <td data-label="Статус">${erpCOStatusCell(o)}</td>
+            <td data-label="План" data-plan-for="${o.id}">${erpCOPlanCell(o)}</td>
             <td data-label="Файл">${erpCOFileCell(o)}</td>
             <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`;
@@ -169,7 +203,7 @@ function erpCOListHtml(rows) {
   for (const [c, list] of groups) {
     const open = erpCOOpenClients.has(c);   // всеки клиент е в папка (и с 1 заявка)
     const sum = list.reduce((s, o) => s + (o.lines || []).reduce((t, l) => t + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0), 0);
-    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="10">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} ${list.length === 1 ? "заявка" : "заявки"} <span class="sell-cell erp-muted">· общо ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
+    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="11">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} ${list.length === 1 ? "заявка" : "заявки"} <span class="sell-cell erp-muted">· общо ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
     if (open) out += list.map(erpCORowHtml).join("");
   }
   return out;
@@ -396,7 +430,7 @@ async function erpRenderCustomerOrders() {
     const tb = document.querySelector("#co-orders-table tbody");
     if (!tb) { erpRenderCustomerOrders(); return; }
     const list = erpCOSortRows(erpCOList.slice());
-    tb.innerHTML = erpCOListHtml(list) || `<tr><td colspan="10" class="report-empty">Няма съвпадения.</td></tr>`;
+    tb.innerHTML = erpCOListHtml(list) || `<tr><td colspan="11" class="report-empty">Няма съвпадения.</td></tr>`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
     tb.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
@@ -434,10 +468,10 @@ async function erpRenderCustomerOrders() {
     </div>
     ${stockHtml}
     <table class="report-table erp-table" id="co-orders-table">
-      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th>Файл</th><th></th></tr></thead>
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th title="В кой седмичен план за експедиция е включена заявката">План</th><th>Файл</th><th></th></tr></thead>
       <tbody>
         ${erpCOListHtml(rows) ||
-          `<tr><td colspan="10" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
+          `<tr><td colspan="11" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
       </tbody>
     </table>`;
 
@@ -472,6 +506,16 @@ async function erpRenderCustomerOrders() {
     if (erpCOOpenClients.has(c)) erpCOOpenClients.delete(c); else erpCOOpenClients.add(c);
     erpCORefreshTable();
   }));
+  // Планът за седмицата се чете фоново — клетките „План" се допълват след това.
+  if (typeof lpEnsureItems === "function") {
+    (async () => {
+      try {
+        await lpEnsureItems();
+        if (typeof lpLoadSales === "function" && !(typeof LP_SALES !== "undefined" && LP_SALES && LP_SALES.length)) await lpLoadSales();
+      } catch (e) {}
+      erpCOPlanFill();
+    })();
+  }
 }
 
 /* ---------- 📚 Архив (изпълнени заявки) ----------
@@ -572,6 +616,7 @@ async function erpRenderCOForm(o) {
           <select id="co-status">
             ${["нова", "в производство", "готова за продажба", "частично завършена", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
           </select>
+          <span class="co-plan-line" id="co-plan-line">${o.id ? erpCOPlanLine(o) : ""}</span>
           ${(function () { const p = erpCOPct(o); return p.del > 0 ? `<span class="co-pct-info" title="по доставените бройки от редовете">✔ доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр. — <b>${p.pct}%</b></span><div class="co-progress"><div class="co-progress-fill" style="width:${p.pct}%"></div></div>` : ""; })()}</label>
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
@@ -629,6 +674,17 @@ async function erpRenderCOForm(o) {
     if (m && erpCOFillPrices(o)) erpCORefreshLines(o);   // авто-цени за клиента
   });
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
+  // Редът „в плана за седмицата" се допълва, щом планът дойде фоново.
+  if (o.id && typeof lpEnsureItems === "function") {
+    (async () => {
+      try {
+        await lpEnsureItems();
+        if (typeof lpLoadSales === "function" && !(typeof LP_SALES !== "undefined" && LP_SALES && LP_SALES.length)) await lpLoadSales();
+      } catch (e) {}
+      const el = document.getElementById("co-plan-line");
+      if (el) el.innerHTML = erpCOPlanLine(o);
+    })();
+  }
   const addClientBtn = document.getElementById("co-add-client");
   if (addClientBtn) addClientBtn.addEventListener("click", () => erpCOAddClient(o));
 

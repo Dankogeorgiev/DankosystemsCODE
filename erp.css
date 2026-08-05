@@ -633,6 +633,14 @@ img.ai-doc-content { max-width: none; }
 .co-progress-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #16a34a); border-radius: 4px; }
 .co-pct-info { display: block; font-size: 12px; color: #475569; margin-top: 4px; }
 
+/* „В плана за седмицата ли е заявката" — колона до Статус + ред във формата */
+.co-plan { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 999px; background: #e0e7ff; color: #3730a3; white-space: nowrap; }
+.co-plan.part { background: #fef3c7; color: #92400e; }
+.co-plan.ok { background: #dcfce7; color: #166534; }
+.co-plan.late { background: #fee2e2; color: #b91c1c; }
+.co-plan-no { font-size: 12px; }
+.co-plan-line { display: block; margin-top: 4px; }
+
 /* „Производство за склад" като една кликаема заявка в списъка */
 .co-stock-one { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; margin-bottom: 10px; }
 .co-stock-one:hover { background: #fef3c7; border-color: #f59e0b; }
