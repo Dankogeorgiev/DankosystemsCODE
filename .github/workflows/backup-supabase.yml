@@ -58,16 +58,39 @@ jobs:
       - name: Дъмп на базата
         run: |
           set -euo pipefail
+          # Изчистваме случайни интервали/нови редове от копирането.
+          URL="$(printf '%s' "$DB_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          # Трябва да е URI. Ако е копиран редът с „psql …" или само хостът,
+          # pg_dump го взима за име на база и търси сървър на локален сокет.
+          case "$URL" in
+            postgres://*|postgresql://*) ;;
+            *)
+              echo "::error::SUPABASE_DB_URL не е валиден адрес. Трябва да започва с postgresql:// — например postgresql://postgres.hwbblteomrrahfrsyuow:ПАРОЛА@aws-0-eu-west-1.pooler.supabase.com:5432/postgres . (Ако си копирал реда, който започва с 'psql', вземи вместо него формата URI от Supabase → Connect → Session pooler.)"
+              exit 1;;
+          esac
+          # Диагностика БЕЗ паролата: потребител и хост:порт.
+          rest="${URL#*://}"; userinfo="${rest%%@*}"; hostpart="${rest#*@}"
+          user="${userinfo%%:*}"; hostport="${hostpart%%/*}"
+          echo "Връзка: потребител=$user · хост=$hostport"
+          case "$user" in
+            postgres.*) ;;
+            *) echo "::warning::Потребителят е '$user'. При Session pooler трябва да е postgres.<код на проекта> — иначе базата отказва.";;
+          esac
+          case "$hostport" in
+            *pooler.supabase.com:5432) ;;
+            *:6543) echo "::warning::Порт 6543 е Transaction pooler — pg_dump не работи през него. Трябва Session pooler на 5432.";;
+            *) echo "::warning::Хостът не изглежда като Shared pooler (aws-0-…pooler.supabase.com:5432).";;
+          esac
           DATE=$(date -u +%Y-%m-%d)
           echo "STAMP=$DATE" >> $GITHUB_ENV
           # pg_dump 17 в контейнер — работи и срещу по-стар сървър.
           docker run --rm -v "$PWD:/out" postgres:17-alpine \
             pg_dump --no-owner --no-privileges --schema=public -Fc \
-                    -f "/out/supabase-$DATE.dump" "$DB_URL"
+                    -f "/out/supabase-$DATE.dump" "$URL"
           # Втора, четима версия (обикновен SQL) — удобна за поглед с очи.
           docker run --rm -v "$PWD:/out" postgres:17-alpine \
             pg_dump --no-owner --no-privileges --schema=public --clean --if-exists \
-                    -f "/out/supabase-$DATE.sql" "$DB_URL"
+                    -f "/out/supabase-$DATE.sql" "$URL"
           ls -lh supabase-$DATE.*
 
       - name: Заключване с парола (AES256)
