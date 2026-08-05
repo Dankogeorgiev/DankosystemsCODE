@@ -309,15 +309,16 @@ function lpOpenForm(id, preset) {
   const src = editing || preset || {};
   const initLines = (editing ? lpItemLines(editing) : (preset && preset.lines) || [{ code: "", name: "", qty: "", kg: "", pallets: "" }])
     .map(l => ({ code: l.code || "", name: l.name || l.goods || "", qty: l.qty != null ? l.qty : "", kg: l.kg, pallets: l.pallets }));
+  // Редовете са РЕШЕТКА (grid), не таблица — колоните не могат да се разминат.
   const lineRow = ln => `
-    <tr class="lp-line-row">
-      <td data-l="Код"><input type="text" class="lp-l-code" value="${escapeAttr(ln.code || "")}" placeholder="код" /></td>
-      <td data-l="Изделие"><input type="text" class="lp-l-name" list="lp-goods-list" value="${escapeAttr(ln.name || "")}" placeholder="изделие" autocomplete="off" /></td>
-      <td data-l="Бройки"><input type="number" class="lp-l-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.qty != null ? String(ln.qty) : "")}" placeholder="бр." /></td>
-      <td data-l="Палети"><input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="пал." /></td>
-      <td data-l="Кг"><input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" /></td>
-      <td class="lp-l-x"><button type="button" class="btn btn-small lp-l-rm" title="Махни реда">×</button></td>
-    </tr>`;
+    <div class="lp-lgrid lp-line-row">
+      <input type="text" class="lp-l-code" value="${escapeAttr(ln.code || "")}" placeholder="код" />
+      <input type="text" class="lp-l-name" list="lp-goods-list" value="${escapeAttr(ln.name || "")}" placeholder="изделие" autocomplete="off" />
+      <input type="number" class="lp-l-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.qty != null ? String(ln.qty) : "")}" placeholder="бр." />
+      <input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="пал." />
+      <input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" />
+      <button type="button" class="btn btn-small lp-l-rm" title="Махни реда">×</button>
+    </div>`;
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   wrap.innerHTML = `
@@ -332,11 +333,8 @@ function lpOpenForm(id, preset) {
       </div>
       <p class="hint" style="margin:6px 0">Махни редовете, които НЯМА да излязат тази седмица, или намали бройките — планът е за реалното.</p>
       <div class="lp-lines-wrap">
-        <table class="lp-form-lines">
-          <colgroup><col class="c-code" /><col class="c-name" /><col class="c-qty" /><col class="c-pal" /><col class="c-kg" /><col class="c-x" /></colgroup>
-          <thead><tr><th>Код</th><th>Изделие</th><th class="num">Бройки</th><th class="num">Палети</th><th class="num">Кг</th><th></th></tr></thead>
-          <tbody id="lp-lines">${initLines.map(lineRow).join("")}</tbody>
-        </table>
+        <div class="lp-lgrid lp-lgrid-head"><span>Код</span><span>Изделие</span><span>Бройки</span><span>Палети</span><span>Кг</span><span></span></div>
+        <div id="lp-lines">${initLines.map(lineRow).join("")}</div>
       </div>
       <datalist id="lp-goods-list">${LP_GOODS.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
       <button type="button" id="lp-addline" class="btn btn-small">+ ред</button>
@@ -357,7 +355,7 @@ function lpOpenForm(id, preset) {
   });
   wireRm();
   wrap.querySelector("#lp-addline").addEventListener("click", () => {
-    const tmp = document.createElement("tbody"); tmp.innerHTML = lineRow({ code: "", name: "", qty: "", kg: "", pallets: "" });
+    const tmp = document.createElement("div"); tmp.innerHTML = lineRow({ code: "", name: "", qty: "", kg: "", pallets: "" });
     linesBox.appendChild(tmp.firstElementChild);
     wireRm();
     const last = linesBox.querySelector(".lp-line-row:last-child .lp-l-code"); if (last) last.focus();
