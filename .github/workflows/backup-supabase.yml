@@ -1,7 +1,11 @@
 name: Резервно копие на Supabase (дневно)
 
-# Прави пълен pg_dump на базата всяка нощ, КРИПТИРА го и го качва като
-# артефакт в GitHub (пази се 90 дни). Не пипа нищо в базата — само чете.
+# Прави пълен pg_dump на базата ПЛЮС копие на файловете от Storage (кофата
+# „drawings" — чертежи, PDF-и на фактури), КРИПТИРА всичко и го качва като
+# артефакт в GitHub (пази се 90 дни). Не пипа нищо — само чете.
+#
+# Списъкът с файловете идва от самата база (storage.objects), а файловете се
+# теглят от публичните им адреси — затова НЕ е нужен service_role ключ.
 #
 # ⚠ ЗАЩО КРИПТИРАНЕ: това хранилище е ПУБЛИЧНО, а артефактите на публично
 # хранилище са достъпни за всеки. Затова копието се заключва с парола (AES256)
@@ -30,7 +34,7 @@ name: Резервно копие на Supabase (дневно)
 #
 # ВЪЗСТАНОВЯВАНЕ:
 #   gpg --decrypt --output backup.tar supabase-2026-08-05.tar.gpg
-#   tar -xf backup.tar
+#   tar -xf backup.tar          → .dump, .sql и папка storage/ с файловете
 #   pg_restore --no-owner --no-privileges -d "ВРЪЗКАТА" supabase-2026-08-05.dump
 #   (само една таблица:  pg_restore ... -t tasks)
 
@@ -111,16 +115,63 @@ jobs:
           # Втора, четима версия (обикновен SQL) — удобна за поглед с очи.
           run_dump --clean --if-exists -f "/out/supabase-$DATE.sql"
           ls -lh supabase-$DATE.*
+          # Данните за връзката минават към следващата стъпка (без паролата).
+          {
+            echo "PGHOST_=$host"; echo "PGPORT_=$port"; echo "PGUSER_=$user"; echo "PGDB_=$dbname";
+          } >> $GITHUB_ENV
+
+      - name: Файловете от Storage (чертежи, PDF-и)
+        run: |
+          set -euo pipefail
+          DATE="$STAMP"
+          BASE="https://hwbblteomrrahfrsyuow.supabase.co/storage/v1/object/public"
+          # 1) Списъкът с файловете — от базата (storage.objects).
+          if [ -n "${DB_PASS:-}" ]; then
+            docker run --rm -v "$PWD:/out" -e PGPASSWORD="$DB_PASS" postgres:17-alpine \
+              psql -h "$PGHOST_" -p "$PGPORT_" -U "$PGUSER_" -d "$PGDB_" -At \
+                   -c "select bucket_id || '/' || name from storage.objects where name is not null and name not like '%.emptyFolderPlaceholder' order by 1" \
+              > files.txt
+          else
+            URL="$(printf '%s' "$DB_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            docker run --rm -v "$PWD:/out" postgres:17-alpine \
+              psql "$URL" -At \
+                   -c "select bucket_id || '/' || name from storage.objects where name is not null and name not like '%.emptyFolderPlaceholder' order by 1" \
+              > files.txt
+          fi
+          N=$(wc -l < files.txt | tr -d ' ')
+          echo "Файлове в Storage: $N"
+          if [ "$N" = "0" ]; then
+            echo "Няма файлове — стъпката приключва."
+            exit 0
+          fi
+          # 2) Теглене от публичните адреси (кофата е публична за четене).
+          mkdir -p storage
+          ok=0; bad=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            enc=$(python3 -c "import sys,urllib.parse;print('/'.join(urllib.parse.quote(p) for p in sys.argv[1].split('/')))" "$f")
+            if curl -sfL --max-time 120 --create-dirs -o "storage/$f" "$BASE/$enc"; then
+              ok=$((ok+1))
+            else
+              bad=$((bad+1)); echo "::warning::Не се изтегли: $f"
+            fi
+          done < files.txt
+          echo "Изтеглени: $ok · пропуснати: $bad · общо: $(du -sh storage | cut -f1)"
+          rm -f files.txt
 
       - name: Заключване с парола (AES256)
         run: |
           set -euo pipefail
           DATE="$STAMP"
-          tar -cf "backup-$DATE.tar" "supabase-$DATE.dump" "supabase-$DATE.sql"
+          if [ -d storage ]; then
+            tar -cf "backup-$DATE.tar" "supabase-$DATE.dump" "supabase-$DATE.sql" storage
+          else
+            tar -cf "backup-$DATE.tar" "supabase-$DATE.dump" "supabase-$DATE.sql"
+          fi
           gpg --batch --yes --symmetric --cipher-algo AES256 --compress-algo 2 \
               --passphrase "$PASS" -o "supabase-$DATE.tar.gpg" "backup-$DATE.tar"
           # Незащитените файлове НЕ напускат машината.
-          rm -f "supabase-$DATE.dump" "supabase-$DATE.sql" "backup-$DATE.tar"
+          rm -rf "supabase-$DATE.dump" "supabase-$DATE.sql" "backup-$DATE.tar" storage
           ls -lh "supabase-$DATE.tar.gpg"
 
       - name: Качване на копието
