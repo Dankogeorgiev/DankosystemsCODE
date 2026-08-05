@@ -511,6 +511,64 @@ function taskMaterialShort(t) {
   });
   return short.length ? short : null;
 }
+/* Поточна ли е задачата — пусната от заявка по рецепта (има връзки нагоре и
+   надолу по веригата). Такава НЕ се трие поединично. */
+function isFlowTask(t) {
+  const s = t && t.source;
+  return !!(s && (s.flow || s.kind === "series" || s.seq));
+}
+
+/* Какво зависи от тази задача: следващата операция (prevKey) и сглобяванията,
+   които я чакат (gate). За обяснението защо не се трие. */
+function flowTaskDependents(t) {
+  const key = t && t.source && t.source.seriesKey;
+  if (!key) return { next: [], gates: [] };
+  const next = [], gates = [];
+  (TASKS || []).forEach(x => {
+    const s = x.source; if (!s || String(x.id) === String(t.id)) return;
+    if (s.prevKey === key) next.push(x);
+    if (Array.isArray(s.gate) && s.gate.some(g => (typeof g === "string" ? g : (g && g.key)) === key)) gates.push(x);
+  });
+  return { next, gates };
+}
+
+/* Прозорецът вместо триене: обяснява и предлага правилните два изхода. */
+function flowTaskCloseDialog(t) {
+  const d = flowTaskDependents(t);
+  const nos = (typeof taskOrderNos === "function") ? taskOrderNos(t) : [];
+  const line = x => `<div class="erp-lp-item" style="cursor:default"><b>${escapeHtml(x.workshop || "")}</b> · ${escapeHtml(x.operation || "")} — ${escapeHtml(x.code || "")} ${escapeHtml(x.product || "")}</div>`;
+  const { wrap, close } = erpDialog(`
+    <h3>⛔ Поточна задача не се трие</h3>
+    <p class="hint" style="margin:-4px 0 8px">
+      <b>${escapeHtml(t.code || "")} ${escapeHtml(t.product || "")}</b> · ${escapeHtml(t.operation || "")} · ${escapeHtml(t.workshop || "")}
+      ${nos.length ? `<br>Заявка № ${escapeHtml(nos.join(", "))}` : ""}</p>
+    <p class="hint">Тази задача е брънка от веригата на заявката. Изтриването ѝ:</p>
+    <ul class="hint" style="margin:0 0 8px 18px">
+      <li>оставя <b>следващата операция да чака вечно</b> (чете „произведени 0" от липсващата);</li>
+      <li>кара <b>сглобяването да спре да чака</b> тази част (мисли я за налична);</li>
+      <li>оставя движенията ѝ в склада — при повторно пускане бройките влизат <b>втори път</b>.</li>
+    </ul>
+    ${(d.next.length || d.gates.length) ? `<h4 class="erp-group-head">Зависят от нея (${d.next.length + d.gates.length})</h4>
+      <div class="erp-lp-list" style="max-height:24vh;overflow:auto">${d.next.map(line).join("")}${d.gates.map(line).join("")}</div>` : ""}
+    <h4 class="erp-group-head">Правилните два изхода</h4>
+    <p class="hint" style="margin:0 0 8px">
+      <b>1. Спиране на цялата заявка</b> — ЕРП → Заявки → „↩ Изтегли от производство". Маха всички задачи наведнъж, чисти движенията и връща резервираната наличност.<br>
+      <b>2. Само да се махне от екрана</b> — „🗄 Закрий" отдолу. Отива в 🗄 Архив производство, веригата остава цяла, връща се по всяко време.</p>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="ftc-x">Отказ</button>
+      <button class="btn btn-primary" id="ftc-close">🗄 Закрий задачата</button>
+    </div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector("#ftc-x").addEventListener("click", close);
+  wrap.querySelector("#ftc-close").addEventListener("click", async () => {
+    if (!confirm(`Да закрия ли задачата?\n\nОтива в 🗄 Архив производство. Нищо не се трие — отчетите, движенията и веригата остават. Може да я върнеш от „🧹 Стари задачи → Виж закритите".`)) return;
+    t.closed = true; t.closedAt = new Date().toISOString();
+    await tSaveTask(t);
+    close(); renderTasks();
+    if (PROD_MODE) renderProdWsBar();
+  });
+}
+
 function taskStatus(t) {
   if (t && t.closed) return "done";   // ръчно закрита (🧹 Стари задачи) — отива в архива
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
@@ -1703,7 +1761,9 @@ function renderTasks() {
         ${(t.source && t.source.flow) ? `<button type="button" class="btn btn-small t-scrap" title="Брак при настройка — връща спешно нарязване към първата операция">⚠ Брак</button>` : ""}
         ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="btn btn-small t-move" title="Прехвърли операцията в друг цех">🔀 Цех</button>
-        <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
+        ${isFlowTask(t)
+          ? `<button type="button" class="btn btn-small t-del" title="Задачата е от заявка — не се трие. Тук се закрива (отива в архива), а веригата остава цяла.">🗄</button>`
+          : `<button type="button" class="remove-row t-del" title="Изтрий ръчната задача">×</button>`}`}
       </td>`;
     const filesCell = tr.querySelector(".t-files");
     const addBtn = filesCell.querySelector(".tf-add");
@@ -1965,12 +2025,19 @@ async function moveBulkDialog() {
 async function deleteBulk() {
   if (amWorker()) return;
   if (!selectedTasks.size) { alert("Първо маркирай задачи — с тикчетата отляво или бутона „✋ Маркирай ръчните\"."); return; }
-  const ids = [...selectedTasks];
-  const manual = ids.filter(id => { const t = TASKS.find(x => x.id === id); return t && isManualTask(t); }).length;
-  const flow = ids.length - manual;
-  if (!confirm(`Да изтрия ли ${ids.length} маркирани задачи?`
-    + `\n\n✋ ръчни: ${manual}`
-    + (flow ? `\n⚙ системни (от поток): ${flow} — внимание!` : "")
+  const marked = [...selectedTasks].map(id => (TASKS || []).find(x => String(x.id) === String(id))).filter(Boolean);
+  const flowOnes = marked.filter(isFlowTask);
+  const ids = marked.filter(t => !isFlowTask(t)).map(t => t.id);
+  if (!ids.length) {
+    alert(`Маркираните ${flowOnes.length} задачи са ПОТОЧНИ (пуснати от заявка) и не се трият оттук.\n\n`
+      + `Триенето им къса веригата: следващата операция увисва, а сглобяването спира да чака частта.\n\n`
+      + `Вместо това:\n`
+      + `• спиране на цялата заявка → ЕРП → Заявки → „↩ Изтегли от производство"\n`
+      + `• махане на един ред от екрана → „🗄 Закрий" (обратимо, веригата остава цяла)`);
+    return;
+  }
+  if (!confirm(`Да изтрия ли ${ids.length} ръчни задачи?`
+    + (flowOnes.length ? `\n\n⛔ ${flowOnes.length} поточни (от заявка) се ПРОПУСКАТ — те се спират от заявката.` : "")
     + `\n\nТова е необратимо. Ръчните не са в Склад детайли, така че складът не се променя.`)) return;
   let done = 0;
   for (let i = 0; i < ids.length; i += 100) {
@@ -2543,6 +2610,10 @@ async function editTask(t) {
 
 async function deleteTask(t) {
   if (amWorker()) return;
+  // ⛔ Поточна задача НЕ се трие: тя е брънка от веригата на заявката.
+  // Триенето къса връзките (следващата операция увисва на 0, а сглобяването
+  // спира да чака липсващата част) и оставя движенията ѝ в склада.
+  if (isFlowTask(t)) { flowTaskCloseDialog(t); return; }
   if (!confirm("Изтриване на задачата?")) return;
   const { error } = await sb.from("tasks").delete().eq("id", t.id);
   if (error) { alert("Грешка: " + error.message); return; }
@@ -2552,7 +2623,10 @@ async function deleteTask(t) {
 
 async function deleteWorkshop(ws) {
   if (amWorker()) return;
-  const ids = TASKS.filter(t => t.workshop === ws).map(t => t.id);
+  const inWs = TASKS.filter(t => t.workshop === ws);
+  const flowN = inWs.filter(isFlowTask).length;
+  if (flowN) { alert(`Цех „${ws}" има ${flowN} ПОТОЧНИ задачи (от заявки) — не може да се изтрие.\n\nПърво спри или довърши заявките (ЕРП → Заявки → „↩ Изтегли от производство").`); return; }
+  const ids = inWs.map(t => t.id);
   if (!confirm(`Да изтрия цех „${ws}“ и неговите ${ids.length} задачи?`)) return;
   for (let i = 0; i < ids.length; i += 100) {
     const { error } = await sb.from("tasks").delete().in("id", ids.slice(i, i + 100));
@@ -2574,9 +2648,14 @@ async function clearWorkshopTasks() {
   if (amWorker()) return;
   const ws = currentWorkshop();
   if (ws === "__all") { alert("Първо избери конкретен цех от менюто горе."); return; }
-  const list = TASKS.filter(t => t.workshop === ws);
-  if (!list.length) { alert("Няма задачи за цех „" + ws + "“."); return; }
-  if (!confirm(`Да изтрия ВСИЧКИ ${list.length} задачи за цех „${ws}“?\n(Вписаното производство за тях също се изтрива.)`)) return;
+  const allWs = TASKS.filter(t => t.workshop === ws);
+  const list = allWs.filter(t => !isFlowTask(t));
+  const flowN = allWs.length - list.length;
+  if (!allWs.length) { alert("Няма задачи за цех „" + ws + "“."); return; }
+  if (!list.length) { alert(`Всички ${flowN} задачи на „${ws}" са ПОТОЧНИ (от заявки) и не се трият оттук — спират се от заявката („↩ Изтегли от производство").`); return; }
+  if (!confirm(`Да изтрия ли ${list.length} РЪЧНИ задачи за цех „${ws}“?`
+    + (flowN ? `\n\n⛔ ${flowN} поточни се пропускат — те се спират от заявката.` : "")
+    + `\n\n(Вписаното производство за ръчните също се изтрива.)`)) return;
   const ids = list.map(t => t.id);
   const paths = list.flatMap(t => (t.files || []).map(f => f.path)).filter(Boolean);
   if (paths.length) await sb.storage.from(BUCKET).remove(paths);
