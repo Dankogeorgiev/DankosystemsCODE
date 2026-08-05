@@ -311,12 +311,12 @@ function lpOpenForm(id, preset) {
     .map(l => ({ code: l.code || "", name: l.name || l.goods || "", qty: l.qty != null ? l.qty : "", kg: l.kg, pallets: l.pallets }));
   const lineRow = ln => `
     <tr class="lp-line-row">
-      <td><input type="text" class="lp-l-code" value="${escapeAttr(ln.code || "")}" placeholder="код" style="width:90px" /></td>
-      <td><input type="text" class="lp-l-name" list="lp-goods-list" value="${escapeAttr(ln.name || "")}" placeholder="изделие" style="width:100%;min-width:150px" autocomplete="off" /></td>
-      <td><input type="number" class="lp-l-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.qty != null ? String(ln.qty) : "")}" placeholder="бр." style="width:80px" /></td>
-      <td><input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="пал." style="width:70px" /></td>
-      <td><input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" style="width:80px" /></td>
-      <td><button type="button" class="btn btn-small lp-l-rm" title="Махни реда">×</button></td>
+      <td data-l="Код"><input type="text" class="lp-l-code" value="${escapeAttr(ln.code || "")}" placeholder="код" /></td>
+      <td data-l="Изделие"><input type="text" class="lp-l-name" list="lp-goods-list" value="${escapeAttr(ln.name || "")}" placeholder="изделие" autocomplete="off" /></td>
+      <td data-l="Бройки"><input type="number" class="lp-l-qty" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.qty != null ? String(ln.qty) : "")}" placeholder="бр." /></td>
+      <td data-l="Палети"><input type="number" class="lp-l-pallets" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.pallets != null ? String(ln.pallets) : "")}" placeholder="пал." /></td>
+      <td data-l="Кг"><input type="number" class="lp-l-kg" min="0" step="any" inputmode="decimal" value="${escapeAttr(ln.kg != null ? String(ln.kg) : "")}" placeholder="кг" /></td>
+      <td class="lp-l-x"><button type="button" class="btn btn-small lp-l-rm" title="Махни реда">×</button></td>
     </tr>`;
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
@@ -331,10 +331,13 @@ function lpOpenForm(id, preset) {
         <label>Срок <input type="date" id="lp-due" value="${escapeAttr(src.due || "")}" /></label>
       </div>
       <p class="hint" style="margin:6px 0">Махни редовете, които НЯМА да излязат тази седмица, или намали бройките — планът е за реалното.</p>
-      <table class="report-table lp-form-lines">
-        <thead><tr><th>Код</th><th>Изделие</th><th>Бройки</th><th>Палети</th><th>Кг</th><th></th></tr></thead>
-        <tbody id="lp-lines">${initLines.map(lineRow).join("")}</tbody>
-      </table>
+      <div class="lp-lines-wrap">
+        <table class="lp-form-lines">
+          <colgroup><col class="c-code" /><col class="c-name" /><col class="c-qty" /><col class="c-pal" /><col class="c-kg" /><col class="c-x" /></colgroup>
+          <thead><tr><th>Код</th><th>Изделие</th><th class="num">Бройки</th><th class="num">Палети</th><th class="num">Кг</th><th></th></tr></thead>
+          <tbody id="lp-lines">${initLines.map(lineRow).join("")}</tbody>
+        </table>
+      </div>
       <datalist id="lp-goods-list">${LP_GOODS.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
       <button type="button" id="lp-addline" class="btn btn-small">+ ред</button>
       <label>Забележка<textarea id="lp-note" rows="2" placeholder="напр. транспорт, час, специфики">${escapeHtml(src.note || "")}</textarea></label>
@@ -357,6 +360,7 @@ function lpOpenForm(id, preset) {
     const tmp = document.createElement("tbody"); tmp.innerHTML = lineRow({ code: "", name: "", qty: "", kg: "", pallets: "" });
     linesBox.appendChild(tmp.firstElementChild);
     wireRm();
+    const last = linesBox.querySelector(".lp-line-row:last-child .lp-l-code"); if (last) last.focus();
   });
   wrap.querySelector("#lp-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });

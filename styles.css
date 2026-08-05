@@ -1589,7 +1589,33 @@ tr.times-click:hover td { background: #ecfdf5; }
 .lp-pick:disabled { opacity: .55; cursor: default; }
 .lp-pick-l { font-size: 13.5px; }
 .lp-pick-r { font-size: 12px; color: #64748b; }
-.lp-form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; }
-.lp-form-lines { font-size: 13px; margin: 4px 0; }
-.lp-form-lines td, .lp-form-lines th { padding: 3px 4px; }
-@media (max-width: 700px) { .lp-form-grid { grid-template-columns: 1fr; } }
+/* Формата: широк прозорец и таблица с фиксирани колони (заглавията да съвпадат) */
+.ask-box.lp-form-box { max-width: min(960px, 96vw); width: min(960px, 96vw); }
+.lp-form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: end; }
+.lp-form-grid label { margin: 0; }
+.lp-lines-wrap { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin: 4px 0 8px; }
+.lp-form-lines { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.lp-form-lines col.c-code { width: 15%; }
+.lp-form-lines col.c-name { width: 40%; }
+.lp-form-lines col.c-qty  { width: 13%; }
+.lp-form-lines col.c-pal  { width: 12%; }
+.lp-form-lines col.c-kg   { width: 13%; }
+.lp-form-lines col.c-x    { width: 7%;  }
+.lp-form-lines th { background: #f1f5f9; font-size: 12px; font-weight: 700; color: #475569; text-align: left; padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+.lp-form-lines th.num { text-align: right; }
+.lp-form-lines td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; }
+.lp-form-lines td.lp-l-x { text-align: center; }
+.ask-box .lp-form-lines input[type="text"],
+.ask-box .lp-form-lines input[type="number"] { width: 100%; box-sizing: border-box; margin: 0; padding: 5px 7px; font-size: 13px; }
+.ask-box .lp-form-lines input[type="number"] { text-align: right; }
+.lp-form-lines .lp-l-rm { padding: 2px 8px; }
+@media (max-width: 780px) {
+  .lp-form-grid { grid-template-columns: 1fr; }
+  /* На телефон редовете стават карти — иначе колоните се смачкват */
+  .lp-form-lines, .lp-form-lines tbody, .lp-form-lines tr, .lp-form-lines td { display: block; width: auto; }
+  .lp-form-lines thead, .lp-form-lines colgroup { display: none; }
+  .lp-form-lines tr { border: 1px solid #e2e8f0; border-radius: 10px; margin: 6px; padding: 4px 8px; }
+  .lp-form-lines td { display: flex; align-items: center; gap: 8px; border: none; padding: 3px 0; }
+  .lp-form-lines td::before { content: attr(data-l); flex: 0 0 70px; font-size: 12px; color: #64748b; font-weight: 700; }
+  .lp-form-lines td.lp-l-x { justify-content: flex-end; }
+}
