@@ -204,6 +204,25 @@ function lpProgress(x) {
   const doneN = lines.filter(r => r.plan > 0 && r.left <= 0).length;
   return { lines, plan, sent, left: Math.max(0, plan - sent), pct: plan > 0 ? Math.round(sent / plan * 100) : 0, doneN, n: lines.length };
 }
+/* ---------- ИЗОСТАВАНЕ ----------
+   Записът помни от коя седмица е тръгнал (carriedOrig) и колко пъти е местен
+   (carryN). По-старите записи знаят само предишната седмица (carriedFrom) —
+   за тях броим едно прехвърляне. */
+function lpWeeksBetween(a, b) {
+  if (!a || !b) return 0;
+  return Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 6048e5);
+}
+function lpLate(x) {
+  const orig = x.carriedOrig || x.carriedFrom || "";
+  if (!orig) return null;
+  return {
+    orig,
+    from: x.carriedFrom || orig,
+    weeks: Math.max(1, lpWeeksBetween(orig, x.week)),
+    times: Number(x.carryN) || 1,
+  };
+}
+function lpWeeksWord(n) { return n === 1 ? "1 седмица" : n + " седмици"; }
 /* Неизпълненото от ПРЕДИШНИ седмици (до 8 назад), което още не е прехвърлено. */
 function lpPendingBefore(mondayStr) {
   return (LP_ITEMS || []).filter(x => {
@@ -242,12 +261,17 @@ async function lpCarryOver() {
         else same.lines = (same.lines || []).concat([l]);
       });
       same.carriedFrom = x.week;
+      // Изостава от най-ранната планирана седмица на двете слети.
+      const o = [same.carriedOrig, x.carriedOrig, x.week].filter(Boolean).sort()[0];
+      same.carriedOrig = o;
+      same.carryN = Math.max(Number(same.carryN) || 0, (Number(x.carryN) || 0) + 1);
     } else {
       LP_ITEMS.push({
         id: "lp_" + Date.now() + "_" + Math.floor(Math.random() * 1e6),
         week: target, client: x.client || "", lines: left, note: x.note || "",
         orderNo: x.orderNo || "", due: x.due || "", orderId: x.orderId || null,
-        carriedFrom: x.week, createdAt: new Date().toISOString(),
+        carriedFrom: x.week, carriedOrig: x.carriedOrig || x.week,
+        carryN: (Number(x.carryN) || 0) + 1, createdAt: new Date().toISOString(),
       });
     }
     x.carried = target;
@@ -276,8 +300,14 @@ function lpRender() {
   const pend = lpPendingBefore(mondayStr);
   const pendQty = pend.reduce((s, x) => s + lpProgress(x).left, 0);
 
+  // Изостанали: прехвърляни от предишна седмица и още неизпълнени.
+  const lateItems = items.filter(x => lpLate(x) && lpProgress(x).left > 0);
+  const lateQty = lateItems.reduce((s, x) => s + lpProgress(x).left, 0);
+
   const card = x => {
     const pr = lpProgress(x);
+    const late = lpLate(x);
+    const isLate = !!late && pr.left > 0;
     const kg = lpItemKg(x), pal = lpItemPal(x);
     const rows = pr.lines.map(r => {
       const l = r.l;
@@ -303,12 +333,16 @@ function lpRender() {
       : (pr.left <= 0 ? `<span class="lp-badge lp-b-ok">✅ изпълнена</span>`
         : (pr.sent > 0 ? `<span class="lp-badge lp-b-part">🟡 ${pr.pct}% · остават ${lpFmtNum(pr.left)} бр.</span>`
           : `<span class="lp-badge lp-b-no">⬜ още не е тръгвала</span>`));
-    return `<div class="lp-card${pr.plan > 0 && pr.left <= 0 ? " lp-card-done" : ""}">
+    const lateChip = !late ? ""
+      : (isLate
+        ? `<span class="lp-late" title="Първо планирана за седмицата от ${escapeAttr(lpFmtDate(late.orig))}. Прехвърляна ${late.times} ${late.times === 1 ? "път" : "пъти"}; последно от ${escapeAttr(lpFmtDate(late.from))}.">⚠ ИЗОСТАВА с ${lpWeeksWord(late.weeks)}</span>`
+        : `<span class="lp-carry" title="Прехвърлена от седмицата на ${escapeAttr(lpFmtDate(late.from))} — вече е изпълнена">⤳ наваксана</span>`);
+    return `<div class="lp-card${pr.plan > 0 && pr.left <= 0 ? " lp-card-done" : ""}${isLate ? " lp-card-late" : ""}">
       <div class="lp-card-h">
         <span class="lp-cl">${escapeHtml(x.client || "—")}</span>
         ${x.orderNo ? `<span class="lp-no">📋 № ${escapeHtml(String(x.orderNo))}</span>` : ""}
         ${x.due ? `<span class="lp-due">срок ${escapeHtml(lpFmtDate(x.due))}</span>` : ""}
-        ${x.carriedFrom ? `<span class="lp-carry" title="Прехвърлена от предишна седмица">⤳ от ${escapeHtml(lpFmtDate(x.carriedFrom))}</span>` : ""}
+        ${lateChip}
         ${badge}
         <span class="spacer" style="flex:1"></span>
         <span class="lp-sum"><b>${lpFmtNum(pal)}</b> пал. · <b>${lpFmtNum(kg)}</b> кг</span>
@@ -341,7 +375,12 @@ function lpRender() {
       <span>Общо тегло: <b>${lpFmtNum(totKg)}</b> кг</span>
       ${wPlan > 0 ? `<span>Изпълнение: <b>${wPct}%</b> <span class="lp-muted">(${lpFmtNum(wSent)} от ${lpFmtNum(wPlan)} бр.)</span></span>` : ""}
       ${wPlan > 0 ? `<span class="lp-bar"><span style="width:${wPct}%"></span></span>` : ""}
+      ${lateItems.length ? `<span class="lp-late-sum">⚠ Изостават: <b>${lateItems.length}</b> ${lateItems.length === 1 ? "заявка" : "заявки"} · ${lpFmtNum(lateQty)} бр.</span>` : ""}
     </div>
+    ${lateItems.length ? `<div class="lp-latebar">
+      <span>⚠ <b>Изостава от плана</b> — прехвърлено от предишни седмици и още неизпълнено:
+        ${lateItems.map(x => escapeHtml((x.client || "") + (x.orderNo ? " № " + x.orderNo : "")) + ` <span class="lp-late-w">(${lpWeeksWord(lpLate(x).weeks)})</span>`).join(" · ")}</span>
+    </div>` : ""}
     ${pend.length ? `<div class="lp-carrybar">
       <span>⤳ От предишни седмици <b>не са излезли</b> ${pend.length} ${pend.length === 1 ? "заявка" : "заявки"} (${lpFmtNum(pendQty)} бр.):
         ${pend.slice(0, 4).map(x => escapeHtml((x.client || "") + (x.orderNo ? " № " + x.orderNo : ""))).join(" · ")}${pend.length > 4 ? " …" : ""}</span>
@@ -531,7 +570,9 @@ function lpPrintWeek(items, wk, sunday) {
   const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
   const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
   const body = items.map(x => {
-    return `<h3>${escapeHtml(x.client || "—")}${x.orderNo ? " · заявка № " + escapeHtml(String(x.orderNo)) : ""}${x.due ? " · срок " + lpFmtDate(x.due) : ""}
+    const late = lpLate(x);
+    const isLate = !!late && lpProgress(x).left > 0;
+    return `<h3${isLate ? ' class="late"' : ""}>${escapeHtml(x.client || "—")}${x.orderNo ? " · заявка № " + escapeHtml(String(x.orderNo)) : ""}${x.due ? " · срок " + lpFmtDate(x.due) : ""}${isLate ? ` · <b>⚠ ИЗОСТАВА с ${lpWeeksWord(late.weeks)}</b> (планирана за ${lpFmtDate(late.orig)})` : ""}
         <span style="float:right;font-weight:400">${lpFmtNum(lpItemPal(x))} пал. · ${lpFmtNum(lpItemKg(x))} кг</span></h3>
       <table><thead><tr><th>Код</th><th>Изделие</th><th class="r">План</th><th class="r">Изпратено</th><th class="r">Палети</th><th class="r">Кг</th><th style="width:80px">Готово ✓</th></tr></thead>
       <tbody>${lpProgress(x).lines.map(r => `<tr><td>${escapeHtml(r.l.code || "")}</td><td>${escapeHtml(r.l.name || r.l.goods || "")}</td>
@@ -544,6 +585,7 @@ function lpPrintWeek(items, wk, sunday) {
     <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
     h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 12px}
     h3{font-size:14px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    h3.late{background:#fee2e2;border-left:4px solid #dc2626}
     table{width:100%;border-collapse:collapse;margin-bottom:6px}
     th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left}
     th{background:#f1f5f9}.r{text-align:right}
