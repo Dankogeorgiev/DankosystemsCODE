@@ -141,15 +141,53 @@ function lpStockOfCode(code) {
   return Number((ERP.prodStock && ERP.prodStock[p.id]) != null ? ERP.prodStock[p.id] : p.stock) || 0;
 }
 
+/* ---------- Двойно планиране ----------
+   Каквото вече стои в план за друга седмица (и още не е излязло), НЕ бива да
+   влиза втори път. Затова остатъкът за планиране е:
+   поръчано − доставено − вече планирано (неизлязло) в другите седмици. */
+function lpPlanKey(l) { return String((l && (l.code || l.ourName || l.name || l.goods)) || "").trim().toLowerCase(); }
+function lpPlannedLeftForOrder(orderId, exceptId) {
+  const out = {};
+  if (!orderId) return out;
+  (LP_ITEMS || []).forEach(x => {
+    if (x.carried) return;                                    // прехвърлен — живее в новата седмица
+    if (String(x.orderId || "") !== String(orderId)) return;
+    if (exceptId && String(x.id) === String(exceptId)) return;
+    lpProgress(x).lines.forEach(r => {
+      const k = lpPlanKey(r.l); if (!k) return;
+      out[k] = (out[k] || 0) + r.left;                         // само неизлязлото
+    });
+  });
+  return out;
+}
+/* Колко още може да се планира по заявката (бройки и брой редове). */
+function lpOrderToPlan(o, exceptId) {
+  const already = lpPlannedLeftForOrder(o && o.id, exceptId);
+  let qty = 0, rows = 0;
+  (o && o.lines || []).forEach(l => {
+    const left = Math.max(0, lpLineLeft(l) - (already[lpPlanKey(l)] || 0));
+    if (left > 0) { qty += left; rows++; }
+  });
+  return { qty, rows, already };
+}
+/* Седмиците (освен подадената), в които заявката вече присъства. */
+function lpOtherWeeksOfOrder(orderId, exceptWeek) {
+  return [...new Set((LP_ITEMS || [])
+    .filter(x => !x.carried && x.orderId && String(x.orderId) === String(orderId) && x.week !== exceptWeek)
+    .map(x => x.week))].sort();
+}
+function lpWeekNoOf(mondayStr) { return lpISOWeek(new Date(mondayStr + "T00:00:00Z")).week; }
+
 /* Заявка → редове за плана: недоставените бройки + кг и палети от ОПАКОВКИ. */
 async function lpLinesFromOrder(o) {
   let pack = [];
   try { if (typeof erpPackDocRows === "function") pack = await erpPackDocRows(o); } catch (e) { pack = []; }
   const byKey = {};
   (pack || []).forEach(r => { byKey[String(r.code || "")] = r; });
+  const already = lpPlannedLeftForOrder(o.id);
   return (o.lines || []).map(l => {
-    // САМО остатъкът: поръчано − вече доставено. Напълно доставен ред отпада.
-    const left = lpLineLeft(l);
+    // САМО остатъкът: поръчано − доставено − вече планирано в друга седмица.
+    const left = Math.max(0, lpLineLeft(l) - (already[lpPlanKey(l)] || 0));
     if (!(left > 0)) return null;
     const pr = byKey[String(l.code || "")] || {};
     // Кг/палети се смятат за ПЛАНИРАНОТО количество, не за цялата заявка.
@@ -466,9 +504,6 @@ async function lpOrderPicker() {
   }
   const thisWeek = lpMondayStr(LP_MONDAY);
   const planned = new Set(LP_ITEMS.filter(x => x.week === thisWeek && x.orderId).map(x => String(x.orderId)));
-  // Същата заявка, но планирана за ДРУГА седмица — само отбелязваме.
-  const otherWeek = {};
-  LP_ITEMS.forEach(x => { if (x.orderId && x.week !== thisWeek) otherWeek[String(x.orderId)] = x.week; });
   const wrap = document.createElement("div");
   wrap.className = "overlay ask-overlay";
   const rowsHtml = q => LP_ORDERS
@@ -479,20 +514,28 @@ async function lpOrderPicker() {
       const n = (o.lines || []).length;
       const left = (o.lines || []).reduce((s, l) => s + lpLineLeft(l), 0);
       const tot = (o.lines || []).reduce((s, l) => s + lpToNum(l.qty), 0);
-      const done = planned.has(String(o.id));
+      const done = planned.has(String(o.id));         // вече е в ТАЗИ седмица
       const full = !(left > 0);                       // всичко по заявката е доставено
-      const ow = otherWeek[String(o.id)];
-      const nLeft = (o.lines || []).filter(l => lpLineLeft(l) > 0).length;
-      return `<button type="button" class="lp-pick" data-id="${escapeAttr(String(o.id))}" ${done || full ? "disabled" : ""}>
+      const tp = lpOrderToPlan(o);                    // остатък СЛЕД другите седмици
+      const ow = lpOtherWeeksOfOrder(o.id, thisWeek);
+      const owTxt = ow.map(w => "седм. " + lpWeekNoOf(w)).join(", ");
+      const allPlanned = !full && !done && !(tp.qty > 0);
+      const dis = done || full || allPlanned;
+      let right;
+      if (full) right = "<b>всичко е доставено</b>";
+      else if (done) right = "<b>вече е в плана за тази седмица</b>";
+      else if (allPlanned) right = `<b class="lp-pick-warn">вече е планирана изцяло — ${escapeHtml(owTxt)}</b>`;
+      else right = `остават <b>${lpFmtNum(tp.qty)}</b> от ${lpFmtNum(tot)} бр. · ${tp.rows} от ${n} реда`
+        + (ow.length ? ` · <span class="lp-pick-warn">част е в ${escapeHtml(owTxt)}</span>` : "");
+      return `<button type="button" class="lp-pick" data-id="${escapeAttr(String(o.id))}" ${dis ? "disabled" : ""}${ow.length ? ` data-other="${escapeAttr(owTxt)}"` : ""}>
         <span class="lp-pick-l"><b>№ ${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? ` <span class="lp-muted">(${escapeHtml(o.clientNo)})</span>` : ""} · ${escapeHtml(o.clientName || "")}</span>
-        <span class="lp-pick-r">${o.deadline ? "срок " + lpFmtDate(o.deadline) + " · " : ""}${full
-          ? "<b>всичко е доставено</b>"
-          : `остават <b>${lpFmtNum(left)}</b> от ${lpFmtNum(tot)} бр. · ${nLeft} от ${n} реда`}${done ? " · <b>вече в плана</b>" : ""}${ow && !done ? ` · <span class="lp-muted">в плана за ${lpFmtDate(ow)}</span>` : ""}</span>
+        <span class="lp-pick-r">${o.deadline ? "срок " + lpFmtDate(o.deadline) + " · " : ""}${right}</span>
       </button>`;
     }).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
   wrap.innerHTML = `
     <div class="overlay-box ask-box lp-form-box">
       <h3>📋 Коя заявка ще излезе тази седмица?</h3>
+      <p class="hint" style="margin:0 0 6px">Показва се само това, което още <b>не е планирано</b>. Заявка от предишна седмица не се добавя наново — прехвърля се с бутона „⤳ Прехвърли ги тук".</p>
       <input type="search" id="lp-pq" placeholder="🔎 № / клиент…" autocomplete="off" />
       <div id="lp-plist" class="lp-picklist">${rowsHtml("")}</div>
       <div class="ask-actions"><button id="lp-pcancel" class="btn">Затвори</button></div>
@@ -504,9 +547,18 @@ async function lpOrderPicker() {
   const bind = () => wrap.querySelectorAll(".lp-pick").forEach(b => b.addEventListener("click", async () => {
     const o = LP_ORDERS.find(x => String(x.id) === String(b.dataset.id));
     if (!o) return;
+    // Част от заявката вече е планирана другаде — казваме го ясно и добавяме
+    // САМО непланираното, за да не се брои едно и също два пъти.
+    if (b.dataset.other) {
+      const tp = lpOrderToPlan(o);
+      const ok = confirm(`Заявка № ${o.ourNo || "—"} вече е в плана за ${b.dataset.other}.\n\n`
+        + `Тук ще добавя само непланираното до момента — ${lpFmtNum(tp.qty)} бр.\n`
+        + `Ако искаш всичко да излезе в тази седмица, първо махни заявката от ${b.dataset.other}.\n\nДа продължа ли?`);
+      if (!ok) return;
+    }
     b.disabled = true; b.textContent = "Смятам…";
     const lines = await lpLinesFromOrder(o);
-    if (!lines.length) { alert(`Заявка № ${o.ourNo || "—"} няма недоставени бройки — няма какво да се планира.`); close(); return; }
+    if (!lines.length) { alert(`Заявка № ${o.ourNo || "—"} няма какво да се планира — всичко е доставено или вече е в плана за друга седмица.`); close(); return; }
     close();
     lpOpenForm(null, { client: o.clientName || "", orderId: o.id, orderNo: o.ourNo || o.clientNo || "", due: o.deadline || "", lines });
   }));
