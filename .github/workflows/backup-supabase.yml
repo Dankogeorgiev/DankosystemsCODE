@@ -19,6 +19,11 @@ name: Резервно копие на Supabase (дневно)
 #    postgresql://postgres.hwbblteomrrahfrsyuow:ПАРОЛА@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
 #    GitHub → Settings → Secrets and variables → Actions → New repository secret
 #
+# 2б) Secret SUPABASE_DB_PASSWORD (ПРЕПОРЪЧВА СЕ)
+#    Само паролата на базата, както си е — без кодиране и без скоби. Когато я
+#    има, тя се подава отделно (PGPASSWORD) и специалните знаци в нея НЕ могат
+#    да счупят адреса. Тогава паролата в SUPABASE_DB_URL се пренебрегва.
+#
 # 3) Secret BACKUP_PASSPHRASE
 #    Дълга парола, която ЗАПАЗВАШ отделно (мениджър на пароли / хартия в сейфа).
 #    Без нея копието НЕ може да се отвори — включително от теб.
@@ -42,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DB_PASS: ${{ secrets.SUPABASE_DB_PASSWORD }}
       PASS: ${{ secrets.BACKUP_PASSPHRASE }}
     steps:
       - name: Проверка на настройките
@@ -83,14 +89,27 @@ jobs:
           esac
           DATE=$(date -u +%Y-%m-%d)
           echo "STAMP=$DATE" >> $GITHUB_ENV
-          # pg_dump 17 в контейнер — работи и срещу по-стар сървър.
-          docker run --rm -v "$PWD:/out" postgres:17-alpine \
-            pg_dump --no-owner --no-privileges --schema=public -Fc \
-                    -f "/out/supabase-$DATE.dump" "$URL"
+          host="${hostport%%:*}"; port="${hostport#*:}"
+          if [ "$port" = "$host" ]; then port=5432; fi
+          case "$hostpart" in
+            */*) dbname="${hostpart#*/}"; dbname="${dbname%%\?*}";;
+            *)   dbname="";;
+          esac
+          if [ -z "$dbname" ]; then dbname=postgres; fi
+          # Ако паролата е дадена ОТДЕЛНО — подаваме я през PGPASSWORD и не
+          # минава през адреса. Така никакъв знак в нея не може да счупи нищо.
+          if [ -n "${DB_PASS:-}" ]; then
+            echo "Парола: от secret SUPABASE_DB_PASSWORD (извън адреса)"
+            run_dump() { docker run --rm -v "$PWD:/out" -e PGPASSWORD="$DB_PASS" postgres:17-alpine \
+              pg_dump --no-owner --no-privileges --schema=public -h "$host" -p "$port" -U "$user" -d "$dbname" "$@"; }
+          else
+            echo "Парола: от адреса (ако има специални знаци, добави secret SUPABASE_DB_PASSWORD)"
+            run_dump() { docker run --rm -v "$PWD:/out" postgres:17-alpine \
+              pg_dump --no-owner --no-privileges --schema=public "$URL" "$@"; }
+          fi
+          run_dump -Fc -f "/out/supabase-$DATE.dump"
           # Втора, четима версия (обикновен SQL) — удобна за поглед с очи.
-          docker run --rm -v "$PWD:/out" postgres:17-alpine \
-            pg_dump --no-owner --no-privileges --schema=public --clean --if-exists \
-                    -f "/out/supabase-$DATE.sql" "$URL"
+          run_dump --clean --if-exists -f "/out/supabase-$DATE.sql"
           ls -lh supabase-$DATE.*
 
       - name: Заключване с парола (AES256)
