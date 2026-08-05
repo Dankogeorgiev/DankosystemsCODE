@@ -701,15 +701,18 @@ function lpMechPrint(rows, wk, sunday) {
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Занитване — седмица ${wk.week}</title>
     <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
     h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 12px}
-    table{width:100%;border-collapse:collapse}
-    th,td{border:1px solid #94a3b8;padding:5px 6px;font-size:12px;text-align:left;vertical-align:top}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}
+    th,td{border:1px solid #94a3b8;padding:5px 6px;font-size:12px;text-align:left;vertical-align:top;word-wrap:break-word}
     th{background:#f1f5f9}.r{text-align:right}
+    thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}
     .halves{font-size:11px;color:#444;margin-top:2px}
     @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
     <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
     <h1>🔩 ЗАНИТВАНЕ — какво трябва за седмица ${wk.week}</h1>
     <h2>${lpFmtDM(LP_MONDAY)}–${lpFmtDM(sunday)}.${sunday.getUTCFullYear()} · ${rows.length} модела · ${lpFmtNum(rows.reduce((s, m) => s + m.need, 0))} бр. по плана</h2>
-    <table><thead><tr><th style="width:70px">Код</th><th>Механизъм (и половини)</th><th class="r" style="width:60px">Нужни</th><th class="r" style="width:60px">В склада</th><th class="r" style="width:75px">За сглобяване</th><th style="width:70px">Готови</th><th style="width:90px">Забележка</th></tr></thead>
+    <table><colgroup><col style="width:9%"><col><col style="width:8%"><col style="width:9%">
+      <col style="width:11%"><col style="width:9%"><col style="width:13%"></colgroup>
+    <thead><tr><th>Код</th><th>Механизъм (и половини)</th><th class="r">Нужни</th><th class="r">В склада</th><th class="r">За сглобяване</th><th>Готови</th><th>Забележка</th></tr></thead>
     <tbody>${body}</tbody></table></body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
@@ -812,6 +815,11 @@ function lpOpenForm(id, preset) {
 }
 
 /* ---------- 🖨 Разпечатка на седмицата ---------- */
+/* Едни и същи колони за ВСИЧКИ таблици в разпечатката (иначе всяка заявка
+   си мери ширините сама и колоните се разминават). */
+const LP_PRINT_COLS = `<colgroup>
+  <col style="width:9%"><col><col style="width:9%"><col style="width:11%">
+  <col style="width:9%"><col style="width:9%"><col style="width:10%"></colgroup>`;
 function lpPrintWeek(items, wk, sunday) {
   if (!items.length) { alert("Няма какво да се печата за тази седмица."); return; }
   const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
@@ -821,7 +829,7 @@ function lpPrintWeek(items, wk, sunday) {
     const isLate = !!late && lpProgress(x).left > 0;
     return `<h3${isLate ? ' class="late"' : ""}>${escapeHtml(x.client || "—")}${x.orderNo ? " · заявка № " + escapeHtml(String(x.orderNo)) : ""}${x.due ? " · срок " + lpFmtDate(x.due) : ""}${isLate ? ` · <b>⚠ ИЗОСТАВА с ${lpWeeksWord(late.weeks)}</b> (планирана за ${lpFmtDate(late.orig)})` : ""}
         <span style="float:right;font-weight:400">${lpFmtNum(lpItemPal(x))} пал. · ${lpFmtNum(lpItemKg(x))} кг</span></h3>
-      <table><thead><tr><th>Код</th><th>Изделие</th><th class="r">План</th><th class="r">Изпратено</th><th class="r">Палети</th><th class="r">Кг</th><th style="width:80px">Готово ✓</th></tr></thead>
+      <table>${LP_PRINT_COLS}<thead><tr><th>Код</th><th>Изделие</th><th class="r">План</th><th class="r">Изпратено</th><th class="r">Палети</th><th class="r">Кг</th><th>Готово ✓</th></tr></thead>
       <tbody>${lpProgress(x).lines.map(r => `<tr><td>${escapeHtml(r.l.code || "")}</td><td>${escapeHtml(r.l.name || r.l.goods || "")}</td>
         <td class="r">${r.plan ? lpFmtNum(r.plan) : ""}</td><td class="r">${r.tracked ? lpFmtNum(r.sent) : ""}</td>
         <td class="r">${r.l.pallets !== "" && r.l.pallets != null ? lpFmtNum(r.l.pallets) : ""}</td>
@@ -831,11 +839,12 @@ function lpPrintWeek(items, wk, sunday) {
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>План за седмица ${wk.week}</title>
     <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
     h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 12px}
-    h3{font-size:14px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    h3{font-size:14px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px;break-after:avoid;page-break-after:avoid}
     h3.late{background:#fee2e2;border-left:4px solid #dc2626}
-    table{width:100%;border-collapse:collapse;margin-bottom:6px}
-    th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px;table-layout:fixed}
+    th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left;word-wrap:break-word}
     th{background:#f1f5f9}.r{text-align:right}
+    thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}
     @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
     <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
     <h1>План за експедиция — седмица ${wk.week}</h1>
