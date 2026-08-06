@@ -69,7 +69,11 @@
   .entry .nm{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:7px}
   .entry .det{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
   .entry select{font-size:12px;padding:4px 6px}
-  .entry input[type=number]{width:46px}
+  .entry input[type=number]{width:52px}
+  .entry .cntwrap{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto}
+  .entry .cntlab{font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase}
+  .entry .det{display:flex;align-items:center;gap:6px;margin-top:5px}
+  .entry .perin{width:60px;text-align:right;font-weight:700}
   .loopbox{position:relative;background:radial-gradient(120% 120% at 50% 40%,#fff,#E9EDF2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .loopbox svg{width:100%;height:auto;display:block}
   #loop3d{width:100%;height:480px;display:block}
@@ -162,9 +166,12 @@
         <div class="note">Редове = напречни железа на подвеската.</div>
       </fieldset>
       <fieldset>
-        <legend><span>Детайли (каталог)</span><button class="btn" id="addGroup">+ папка</button></legend>
-        <div class="palette" id="palette"></div>
-        <div class="note">Това е базата с детайли. Закачаш ги по редовете на подвеската (вдясно). Числото е <b>бр/ред</b>.</div>
+        <legend id="catToggle" style="cursor:pointer"><span><span id="catChev" class="fchev">▸</span> Детайли (каталог)</span><span class="lab" id="catHint">папки — натисни</span></legend>
+        <div id="catalogBody" hidden>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn" id="addGroup">+ папка</button></div>
+          <div class="palette" id="palette"></div>
+          <div class="note">Незадължителна база с папки/детайли. Броенето е по <b>ръчно въведения брой</b> детайли на подвеска (вдясно).</div>
+        </div>
       </fieldset>
     </div>
 
@@ -172,10 +179,9 @@
     <div class="stagewrap">
       <div class="panel">
         <fieldset><legend><span>Състав на линията сега</span><button class="btn" id="addEntry">+ подвески</button></legend>
-          <div class="compgrid">
-            <div class="compcol"><div class="collab">Подвески на линията</div><div id="entryList"></div></div>
-            <div class="compcol"><div class="collab">Какво има по подвеската (по редове)</div><div id="entryConfig"></div></div>
-          </div>
+          <div class="collab">Подвески на линията</div>
+          <div id="entryList"></div>
+          <div class="note">Задай колко <b>подвески</b> от всеки вид са на линията и колко <b>детайла</b> има на всяка подвеска.</div>
         </fieldset>
       </div>
       <div class="loopbox">
@@ -189,11 +195,9 @@
         <div class="stat"><div class="k">Изтекло (боядисване)</div><div class="v" id="r_elapsed">0:00</div><div class="vsub" id="r_pause">паузи 0:00</div></div>
         <div class="stat"><div class="k">Темп (бр/час)</div><div class="v" id="r_eta">–</div><div class="vsub" id="r_etasub">при текущия състав</div></div>
       </div>
-      <div class="collab" style="margin:2px 0 6px">Отчет по детайли</div>
-      <table class="bd"><thead><tr><th>Детайл</th><th>Боядисани (бр.)</th><th>На линията (бр.)</th></tr></thead><tbody id="bdBody"></tbody></table>
-      <div class="collab" style="margin:16px 0 6px">Отчет по подвески</div>
-      <table class="bd"><thead><tr><th>Подвеска</th><th>Минали (бр.)</th><th>На линията (бр.)</th></tr></thead><tbody id="hgBody"></tbody></table>
-      <p class="note"><b>Идея:</b> горе задаваш състава (тип подвеска + детайл + брой). Същите подвески се движат по затворения контур и минават през неподвижната кабина — там стават „боядисани". Старт пуска, Пауза = почивка (реално време), корекцията сверява при засечка. Сменяш състава по всяко време — линията се преизчислява.</p>
+      <div class="collab" style="margin:2px 0 6px">Отчет по подвески</div>
+      <table class="bd"><thead><tr><th>Подвеска</th><th>Минали (подв.)</th><th>Боядисани (детайли)</th><th>На линията (подв.)</th></tr></thead><tbody id="hgBody"></tbody></table>
+      <p class="note"><b>Как работи:</b> задаваш колко подвески от всеки вид са на линията и колко детайла има на всяка. Същите подвески се въртят и минават през кабината — там детайлите стават „боядисани". Старт пуска, Пауза = почивка (реално време), а при СТАРТ/Край въвеждаш реалния номер за засечка.</p>
     </div>
   </div>
 </div>
@@ -242,7 +246,7 @@ let entries=[
 let selEntry=entries[0].id, paintToday=['#3B6FB0'];
 let hangers=[];   // [{type, part}] в реда на боядисване
 let phi=0, running=false, runSec=0, pauseSec=0, last=0;
-let painted={};   // {детайл id: кумулативно боядисани детайли (бр.)}
+let paintedPc={}; // {тип подвеска id: кумулативно боядисани детайли (бр.)}
 let paintedH={};  // {тип подвеска id: кумулативно минали подвески (бр.)}
 let batches=[];   // записани партиди за деня (при смяна на цвят / край на деня)
 let anchored=false;   // закотвена ли е смяната (въведен начален номер при СТАРТ)
@@ -253,9 +257,7 @@ const RAL_HEX={"1000":"#bebd7f","1001":"#c2b078","1002":"#c6a664","1003":"#e5be0
 const RAL_NAME={"1015":"светла слонова кост","1018":"цинково жълто","1023":"транспортно жълто","2004":"чисто оранжево","3000":"огнено червено","3005":"винено червено","3020":"транспортно червено","5010":"генцианово синьо","5015":"небесно синьо","5017":"транспортно синьо","6005":"мъхово зелено","6018":"жълто-зелено","7016":"антрацитно сиво","7024":"графитно сиво","7035":"светло сиво","7040":"прозоречно сиво","8017":"шоколадово кафяво","9005":"черно","9006":"бяло алуминий","9010":"чисто бяло","9016":"трафик бяло","9011":"графитно черно"};
 const ralName=r=>RAL_NAME[String(r||'').replace(/[^0-9]/g,'')]||'';
 const ralToHex=r=>RAL_HEX[String(r||'').replace(/[^0-9]/g,'')]||null;
-function currentHangerInfo(){const L0=L();if(!L0)return null;const i=Math.floor(loopPos());if(!hangers[i])return null;const hg=hangers[i];const ht=H(hg.type);
-  const dets=[...new Set((hg.rowParts||[]).map(r=>P(r&&r.p)).filter(Boolean).map(p=>p.name))];
-  return{ht,detText:dets.join(', ')||'—'};}
+function currentHangerInfo(){const L0=L();if(!L0)return null;const i=Math.floor(loopPos());const hg=hangers[i];if(!hg)return null;return{ht:H(hg.type),n:hg.n||0};}
 
 const $=id=>document.getElementById(id);
 const H=id=>hangerTypes.find(h=>h.id===id);
@@ -263,24 +265,24 @@ const P=id=>parts.find(p=>p.id===id);
 // ред = {p: детайл id|null, n: ръчен брой|null}. n=null → ползва бр/ред от каталога.
 function rowObj(x){if(x&&typeof x==='object')return{p:(x.p!=null?x.p:null),n:(x.n!=null?x.n:null)};if(typeof x==='number')return{p:x,n:null};return{p:null,n:null};}
 function rowCount(r){const p=P(r&&r.p);if(!p)return 0;return r.n!=null?Math.max(0,r.n):p.perRow;}
-function normalizeEntry(e){const h=H(e.hanger),n=h?h.rows:0;if(!Array.isArray(e.rowParts))e.rowParts=[];
-  if(e.part!=null&&e.rowParts.length===0){for(let i=0;i<n;i++)e.rowParts.push({p:e.part,n:null});delete e.part;}
-  e.rowParts=e.rowParts.map(rowObj);
-  while(e.rowParts.length<n)e.rowParts.push({p:null,n:null});
-  if(e.rowParts.length>n)e.rowParts.length=n;return e;}
-const cap=e=>{const h=H(e.hanger);if(!h)return 0;normalizeEntry(e);return e.rowParts.reduce((s,r)=>s+rowCount(r),0);};
-function buildHangers(){hangers=[];entries.forEach(e=>{normalizeEntry(e);for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,rowParts:e.rowParts.map(r=>({p:r.p,n:r.n}))});});}
+// Отчитаме само БРОЯ детайли на подвеска (e.per). Ако идваме от стар състав
+// (с редове), сумираме еднократно редовете като начална стойност.
+function normalizeEntry(e){
+  if(e.per==null){let s=0;if(Array.isArray(e.rowParts))e.rowParts.forEach(x=>{const r=rowObj(x),p=P(r.p);if(p)s+=(r.n!=null?Math.max(0,r.n):p.perRow);});e.per=s>0?s:18;}
+  e.per=Math.max(0,e.per|0);return e;}
+const cap=e=>{normalizeEntry(e);return e.per;};   // детайли на една подвеска
+function buildHangers(){hangers=[];entries.forEach(e=>{normalizeEntry(e);for(let i=0;i<e.count;i++)hangers.push({type:e.hanger,n:e.per});});}
 // Еднократно махане на демо-детайлите от тестовете.
 function cleanupDemoParts(){const demo=['Дребен детайл','Тръба с планка'];const before=parts.length;parts=parts.filter(p=>!demo.includes(p.name));return parts.length!==before;}
 const L=()=>hangers.length;
 // Непрекъснат конвейер: phi расте без спиране; позицията в обиколката е phi % L.
 const loopPos=()=>{const L0=L();return L0?((phi%L0)+L0)%L0:0;};
 const revolutions=()=>{const L0=L();return L0?Math.floor(phi/L0):0;};
-const totalPainted=()=>Object.values(painted).reduce((s,n)=>s+n,0);
-// Добавя/маха детайлите на една подвеска към кумулативния отчет.
+const totalPainted=()=>Object.values(paintedPc).reduce((s,n)=>s+n,0);
+// Добавя/маха детайлите на една подвеска към кумулативния отчет (по вид подвеска).
 function addHangerPieces(idx,sign){const hg=hangers[idx];if(!hg)return;
   paintedH[hg.type]=(paintedH[hg.type]||0)+sign;if(paintedH[hg.type]<=0)delete paintedH[hg.type];
-  (hg.rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;painted[p.id]=(painted[p.id]||0)+sign*pieces;if(painted[p.id]<=0)delete painted[p.id];});}
+  paintedPc[hg.type]=(paintedPc[hg.type]||0)+sign*(hg.n||0);if(paintedPc[hg.type]<=0)delete paintedPc[hg.type];}
 // Натрупва подвеските, минали кабината между две позиции (или маха при връщане).
 function accrue(fromP,toP){const L0=L();if(!L0)return;
   if(toP>fromP){for(let q=Math.floor(fromP)+1;q<=Math.floor(toP);q++)addHangerPieces(((q-1)%L0+L0)%L0,1);}
@@ -318,13 +320,12 @@ function renderPalette(){normalizeGroups();
       ${open?`<div class="fbody">${gp.map(partRow).join('')||'<div class="note">празна папка — натисни „+ детайл“</div>'}</div>`:''}</div>`;}).join('');}
 const hangerOpts=s=>hangerTypes.map(h=>`<option value="${h.id}"${h.id===s?' selected':''}>${h.name}</option>`).join('');
 function renderEntries(){$('entryList').innerHTML=entries.map(e=>{const h=H(e.hanger);normalizeEntry(e);
-  const used=e.rowParts.filter(Boolean).length,n=h?h.rows:0;
-  return `<div class="entry${e.id===selEntry?' sel':''}" data-sel="${e.id}">
-    <input class="cnt" type="number" value="${e.count}" data-e="${e.id}" data-f="count" onclick="event.stopPropagation()">
+  return `<div class="entry">
+    <span class="cntwrap"><input class="cnt" type="number" min="0" value="${e.count}" data-e="${e.id}" data-f="count"><span class="cntlab">подв.</span></span>
     <div class="meta"><div class="nm"><span class="dot" style="background:${h?h.color:'#ccc'}"></span>
-      <select data-e="${e.id}" data-f="hanger" onclick="event.stopPropagation()">${hangerOpts(e.hanger)}</select></div>
-      <div class="det">${used}/${n} реда заредени · <b>${cap(e)}</b> бр/подв.</div></div>
-    <button class="btn x" data-dele="${e.id}" onclick="event.stopPropagation()">×</button></div>`;}).join('')
+      <select data-e="${e.id}" data-f="hanger">${hangerOpts(e.hanger)}</select></div>
+      <div class="det"><span class="lab">детайли на подвеска</span><input class="perin" type="number" min="0" value="${e.per}" data-e="${e.id}" data-f="per"><span class="lab">бр.</span></div></div>
+    <button class="btn x" data-dele="${e.id}">×</button></div>`;}).join('')
     ||'<div class="note">Няма подвески. Натисни „+ подвески“.</div>';}
 function partInitials(nm){return (nm||'').replace(/[^A-Za-zА-Яа-я0-9 ]/g,'').split(/\s+/).filter(Boolean).map(w=>w[0]).join('').slice(0,2).toUpperCase();}
 function partThumb(p,sz){if(!p)return '';const s=sz||26;return p.img
@@ -391,7 +392,7 @@ function drawLoop(){
   s+=`<text x="${cx}" y="${cy-4}" font-size="26" font-weight="700" fill="#1F3864" text-anchor="middle" font-family="Space Grotesk">${totalPainted().toLocaleString('bg')}</text>`;
   s+=`<text x="${cx}" y="${cy+18}" font-size="12" fill="#6B7686" text-anchor="middle">боядисани детайли (днес)</text>`;
   const ci=currentHangerInfo();
-  s+=`<text x="${cx}" y="${cy+40}" font-size="13" font-weight="700" fill="#1F3864" text-anchor="middle">${ci?'сега: '+((ci.ht&&ci.ht.name)||'—')+' · '+ci.detText:'✓ всичко боядисано'}</text>`;
+  s+=`<text x="${cx}" y="${cy+40}" font-size="13" font-weight="700" fill="#1F3864" text-anchor="middle">${ci?'сега: '+((ci.ht&&ci.ht.name)||'—')+' · '+ci.n+' детайла':'✓ всичко боядисано'}</text>`;
   s+=`</svg>`;
   $('loop').innerHTML=s;
 }
@@ -399,9 +400,8 @@ function drawLoop(){
 /* ===== обобщение ===== */
 function update(){
   const Lc=L(),capLine=Math.round(+$('capacity').value||0);
-  // детайли на линията сега (една обиколка) — общо и по детайл
-  let onLine=0; const perDetail={};
-  for(let k=0;k<Lc;k++){(hangers[k].rowParts||[]).forEach(r=>{const p=P(r&&r.p);if(!p)return;const pieces=r.n!=null?Math.max(0,r.n):p.perRow;onLine+=pieces;perDetail[p.id]=(perDetail[p.id]||0)+pieces;});}
+  // детайли на линията сега (една обиколка) = сбор от ръчно въведените бройки
+  let onLine=0; for(let k=0;k<Lc;k++)onLine+=hangers[k].n||0;
   const tot=totalPainted();
   $('r_done').textContent=tot.toLocaleString('bg'); $('r_pct').textContent='обиколки: '+revolutions();
   $('r_left').textContent=onLine.toLocaleString('bg');
@@ -410,24 +410,17 @@ function update(){
   $('r_elapsed').textContent=fmt(runSec); $('r_pause').textContent='паузи '+fmt(pauseSec);
   const rate=speed(); if($('rateHint'))$('rateHint').textContent='≈ '+(rate?rate.toFixed(1).replace('.',','):'—')+' подв/час';
   const piecesPerHour=Lc?rate*onLine/Lc:0; $('r_eta').textContent=piecesPerHour?Math.round(piecesPerHour).toLocaleString('bg'):'–';
-  // отчет по детайл: кумулативно боядисани + колко са на линията сега
-  const ids=new Set([...Object.keys(painted),...Object.keys(perDetail)]);
-  const rows=[...ids].map(id=>{const p=P(+id);return p?{name:p.name,color:p.color||'#64748b',done:painted[id]||0,line:perDetail[id]||0}:null;}).filter(Boolean).sort((a,b)=>b.done-a.done||b.line-a.line);
-  $('bdBody').innerHTML=rows.map(a=>
-    `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
-    `<td><b>${a.done.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
-    ||'<tr><td colspan="3" class="note">няма заредени детайли</td></tr>';
-  // отчет по подвески: кумулативно минали + колко са на линията сега
-  const hOnLine={}; entries.forEach(e=>{const h=H(e.hanger);if(!h)return;hOnLine[h.id]=(hOnLine[h.id]||0)+(+e.count||0);});
-  const hids=new Set([...Object.keys(paintedH),...Object.keys(hOnLine)]);
-  const hrows=[...hids].map(id=>{const h=H(+id);return h?{name:h.name,color:h.color,done:paintedH[id]||0,line:hOnLine[id]||0}:null;}).filter(Boolean).sort((a,b)=>b.done-a.done||b.line-a.line);
+  // отчет по подвески: минали подвески + боядисани детайли + колко са на линията сега
+  const hOnLine={}; entries.forEach(e=>{const h=H(e.hanger);if(!h)return;normalizeEntry(e);hOnLine[h.id]=(hOnLine[h.id]||0)+(+e.count||0);});
+  const hids=new Set([...Object.keys(paintedH),...Object.keys(paintedPc),...Object.keys(hOnLine)]);
+  const hrows=[...hids].map(id=>{const h=H(+id);return h?{name:h.name,color:h.color,pass:paintedH[id]||0,pc:paintedPc[id]||0,line:hOnLine[id]||0}:null;}).filter(Boolean).sort((a,b)=>b.pc-a.pc||b.pass-a.pass);
   $('hgBody').innerHTML=hrows.map(a=>
     `<tr><td><div class="nm2"><span class="dot" style="background:${a.color}"></span>${a.name}</div></td>`+
-    `<td><b>${a.done.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
-    ||'<tr><td colspan="3" class="note">няма подвески</td></tr>';
+    `<td>${a.pass.toLocaleString('bg')}</td><td><b>${a.pc.toLocaleString('bg')}</b></td><td>${a.line.toLocaleString('bg')}</td></tr>`).join('')
+    ||'<tr><td colspan="4" class="note">няма подвески</td></tr>';
   const ci=currentHangerInfo(),np=$('nowPainting');
   if(np)np.innerHTML='<span class="lab2">на кабината сега</span>'+(ci
-    ?`<b>№${boothNum()}</b><span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'};margin-left:4px"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.detText}</span>`
+    ?`<b>№${boothNum()}</b><span class="dot" style="background:${(ci.ht&&ci.ht.color)||'#ccc'};margin-left:4px"></span><b>${(ci.ht&&ci.ht.name)||'—'}</b><span style="color:var(--muted)">· ${ci.n} детайла</span>`
     :'<span style="color:var(--muted)">— линията е празна —</span>');
   if(window.Loop3D&&Loop3D.active){try{Loop3D.frame();}catch(e){Loop3D.fail(e);}}else{drawLoop();}
   // Ръчно завъртане е достъпно само в покой (преди СТАРТ / след Край) — без отчитане.
@@ -436,7 +429,7 @@ function update(){
   const jh=$('jogHint'); if(jh)jh.hidden=!idle;
   const lpEl=$('loop'); if(lpEl)lpEl.classList.toggle('jog',idle);
 }
-function refresh(){normalizeGroups();buildHangers();renderHangers();renderPalette();renderEntries();renderConfig();renderColor();update();}
+function refresh(){normalizeGroups();buildHangers();renderHangers();renderPalette();renderEntries();renderColor();update();}
 
 /* ===== анимация ===== */
 function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
@@ -448,8 +441,8 @@ function tick(ts){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;
 document.addEventListener('input',e=>{const t=e.target;
   if(t.dataset.h){const h=H(+t.dataset.h);if(t.dataset.f==='name')h.name=t.value;else h.rows=Math.max(1,+t.value||1);refresh();}
   else if(t.dataset.p&&t.dataset.f!=='group'){const p=P(+t.dataset.p);if(p){if(t.dataset.f==='name')p.name=t.value;else if(t.dataset.f==='color')p.color=t.value;else p.perRow=Math.max(0,+t.value||0);refresh();}}
-  else if(t.dataset.e&&t.dataset.f==='count'){entries.find(x=>x.id===+t.dataset.e).count=Math.max(0,+t.value||0);refresh();}
-  else if(t.dataset.cfgn){const en=entries.find(x=>x.id===+t.dataset.cfgn);if(en){normalizeEntry(en);en.rowParts[+t.dataset.row].n=(t.value===''?null:Math.max(0,+t.value||0));buildHangers();renderEntries();update();const tot=document.querySelector('#entryConfig .cfg-total');if(tot)tot.innerHTML='Общо: <b>'+cap(en)+' бр/подв.</b>';}}
+  else if(t.dataset.e&&t.dataset.f==='count'){const en=entries.find(x=>x.id===+t.dataset.e);if(en){en.count=Math.max(0,+t.value||0);buildHangers();update();}}
+  else if(t.dataset.e&&t.dataset.f==='per'){const en=entries.find(x=>x.id===+t.dataset.e);if(en){en.per=Math.max(0,+t.value||0);buildHangers();update();}}
   else if(t.id==='paintRal'){paintRal=t.value.trim();const hx=ralToHex(paintRal);if(hx){$('paint').value=hx;if(paintToday.length)paintToday[paintToday.length-1]=hx;}renderColor();update();}
   else if(['capacity','belt','pitch','preview'].includes(t.id))update();});
 document.addEventListener('change',e=>{const t=e.target;
@@ -469,12 +462,14 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-sel],[data
   if(tog){toggleGroup(+tog.dataset.toggle);return;}});
 $('addHanger').onclick=()=>{hangerTypes.push({id:nid(),name:'Нова подвеска',rows:3,color:PAL[hangerTypes.length%PAL.length]});refresh();};
 $('addGroup').onclick=addGroup;
-$('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,rowParts:[]};entries.push(e);selEntry=e.id;refresh();};
-// Записва текущата партида (боядисано по детайл/подвеска) в дневния отчет.
+$('catToggle').onclick=()=>{const b=$('catalogBody');b.hidden=!b.hidden;$('catChev').textContent=b.hidden?'▸':'▾';const h=$('catHint');if(h)h.textContent=b.hidden?'папки — натисни':'натисни, за да скриеш';};
+$('addEntry').onclick=()=>{const e={id:nid(),hanger:hangerTypes[0].id,count:1,per:18};entries.push(e);selEntry=e.id;refresh();};
+// Записва текущата партида в дневния отчет: минали подвески и боядисани детайли по вид подвеска.
 function bankBatch(reason){const tot=totalPainted();if(tot<=0)return false;
-  const byDetail={};Object.keys(painted).forEach(id=>{const p=P(+id);byDetail[p?p.name:('#'+id)]=painted[id];});
-  const byHanger={};Object.keys(paintedH).forEach(id=>{const h=H(+id);byHanger[h?h.name:('#'+id)]=paintedH[id];});
-  batches.push({id:'b'+Date.now().toString(36),ral:paintRal||'',color:$('paint').value,total:tot,byDetail,byHanger,runSec:Math.round(runSec),at:new Date().toISOString(),reason:reason||''});
+  const byHanger={},byHangerPc={};
+  Object.keys(paintedH).forEach(id=>{const h=H(+id);byHanger[h?h.name:('#'+id)]=paintedH[id];});
+  Object.keys(paintedPc).forEach(id=>{const h=H(+id);byHangerPc[h?h.name:('#'+id)]=paintedPc[id];});
+  batches.push({id:'b'+Date.now().toString(36),ral:paintRal||'',color:$('paint').value,total:tot,byHanger,byHangerPc,runSec:Math.round(runSec),at:new Date().toISOString(),reason:reason||''});
   return true;}
 $('newColor').onclick=()=>{
   const tot=totalPainted();
@@ -482,7 +477,7 @@ $('newColor').onclick=()=>{
   const newRal=prompt('Нов RAL цвят (напр. 9005):', paintRal||'');
   if(newRal===null)return;   // отказ
   bankBatch('смяна на цвят');                 // запиши старата партида
-  painted={};paintedH={};phi=0;runSec=0;pauseSec=0;   // нулирай за новата
+  paintedPc={};paintedH={};phi=0;runSec=0;pauseSec=0;   // нулирай за новата
   paintRal=(newRal||'').trim();
   const hx=ralToHex(paintRal);if(hx)$('paint').value=hx;
   paintToday.push($('paint').value);
@@ -493,25 +488,26 @@ $('startBtn').onclick=()=>{
     const ans=prompt('СТАРТ — кой номер подвеска е на кабината (БОЯДИСВАНЕ) сега?\n(1–'+L0+')', String(boothNum()||1));
     if(ans===null)return;
     const n=parseInt(ans,10); if(!(n>=1&&n<=L0)){alert('Невалиден номер.');return;}
-    phi=n-1; painted={}; paintedH={};   // закотви позицията + нов отчет за смяната
+    phi=n-1; paintedPc={}; paintedH={};   // закотви позицията + нов отчет за смяната
     anchored=true;
   }
   running=!running;
   $('startBtn').textContent=running?'❚❚ ПАУЗА (почивка)':(anchored?'▶ ПРОДЪЛЖИ':'▶ СТАРТ');
   $('startBtn').dataset.p=running?'0':'1';
   update();};
-$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;painted={};paintedH={};runSec=0;pauseSec=0;running=false;anchored=false;$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';update();};
+$('resetBtn').onclick=()=>{if(!confirm('Нова партида: да нулирам ли броячите (боядисани, обиколки, време)?'))return;phi=0;paintedPc={};paintedH={};runSec=0;pauseSec=0;running=false;anchored=false;$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';update();};
 // Ръчно завъртане (само в покой, без отчитане)
 $('jogBack').onclick=()=>{if(anchored)return;phi=Math.round(phi)-1;update();};
 $('jogFwd').onclick=()=>{if(anchored)return;phi=Math.round(phi)+1;update();};
 $('loop').addEventListener('click',e=>{if(anchored)return;const g=e.target.closest('[data-hi]');if(!g)return;phi=+g.dataset.hi;update();});
 // Сглобява дневния отчет от записаните партиди.
-function buildDayReport(){const totalsByDetail={},totalsByHanger={},paints=new Set();
+function buildDayReport(){const totalsByHanger={},totalsByHangerPc={},paints=new Set();let total=0;
   batches.forEach(bt=>{if(bt.ral)paints.add(bt.ral);
-    Object.entries(bt.byDetail||{}).forEach(([k,v])=>totalsByDetail[k]=(totalsByDetail[k]||0)+v);
-    Object.entries(bt.byHanger||{}).forEach(([k,v])=>totalsByHanger[k]=(totalsByHanger[k]||0)+v);});
-  const total=Object.values(totalsByDetail).reduce((s,n)=>s+n,0),now=new Date();
-  return{id:'r'+Date.now().toString(36),date:now.toISOString().slice(0,10),endedAt:now.toISOString(),by:(window.PAINT_USER||''),batches:batches.slice(),totalsByDetail,totalsByHanger,paints:[...paints],total,runSec:Math.round(runSec)};}
+    Object.entries(bt.byHanger||{}).forEach(([k,v])=>totalsByHanger[k]=(totalsByHanger[k]||0)+v);
+    Object.entries(bt.byHangerPc||{}).forEach(([k,v])=>{totalsByHangerPc[k]=(totalsByHangerPc[k]||0)+v;total+=v;});});
+  const now=new Date();
+  // totalsByDetail оставяме празно (вече не отчитаме по детайли); брой детайли е в total и по подвеска.
+  return{id:'r'+Date.now().toString(36),date:now.toISOString().slice(0,10),endedAt:now.toISOString(),by:(window.PAINT_USER||''),batches:batches.slice(),totalsByDetail:{},totalsByHanger,totalsByHangerPc,paints:[...paints],total,runSec:Math.round(runSec)};}
 $('endDayBtn').onclick=async()=>{
   if(!confirm('Край на работния ден?\n\nЩе те питам на кой номер подвеска спираш, после отчетът се записва за админите във „Времена" и броячите за деня се нулират.'))return;
   const L0=L();
@@ -527,7 +523,7 @@ $('endDayBtn').onclick=async()=>{
   if(batches.length===0){alert('Няма боядисано за деня — няма какво да се отчете.');$('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';anchored=false;refresh();return;}
   const report=buildDayReport();
   let ok=false; try{ if(window.paintSaveReport) ok=await window.paintSaveReport(report); }catch(e){}
-  batches=[];painted={};paintedH={};phi=0;runSec=0;pauseSec=0;anchored=false;   // нулирай деня
+  batches=[];paintedPc={};paintedH={};phi=0;runSec=0;pauseSec=0;anchored=false;   // нулирай деня
   $('startBtn').textContent='▶ СТАРТ';$('startBtn').dataset.p='0';
   refresh();
   alert(ok?('Работният ден е приключен.\nОтчетът ('+report.total.toLocaleString('bg')+' бр.) е изпратен във „Времена" за админите.'):'Денят е нулиран, но отчетът не се качи (няма връзка с облака). Опитай пак при връзка.');
@@ -542,6 +538,7 @@ refresh();requestAnimationFrame(tick);
 <script src="loop3d.js?v=2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
-<script src="sync.js?v=156"></script>
+<script src="../quality.js?v=2"></script>
+<script src="sync.js?v=157"></script>
 </body>
 </html>

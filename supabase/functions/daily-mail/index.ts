@@ -1,0 +1,156 @@
+// ============================================================
+// Данко Системс — АВТОМАТИЧЕН сутрешен имейл (100% без човек).
+// Вика се по график от pg_cron (виж cron-setup.sql) всяка сутрин.
+// Съдържание: просрочени ВЗЕМАНИЯ от клиенти + ЗАДЪЛЖЕНИЯ с
+// наближаващ/изтекъл падеж + маркираните „За днес" за Кристина.
+// Ако няма нищо за докладване — не изпраща (без спам).
+//
+// Деплой:  функция daily-mail (Verify JWT OFF)
+// Тайни:   BREVO_API_KEY, FROM_EMAIL, FROM_NAME (същите като send-inquiry)
+//          OFFICE_EMAIL (по избор — до кого да стига; иначе FROM_EMAIL)
+// SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY се подават автоматично.
+// ============================================================
+
+function esc(s: unknown) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)); }
+function money(n: number) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmt(d: string) { const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || ""); }
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok");
+  const url = Deno.env.get("SUPABASE_URL") || "";
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const apiKey = (Deno.env.get("BREVO_API_KEY") || "").trim();
+  const fromEmail = (Deno.env.get("FROM_EMAIL") || "").trim();
+  const fromName = (Deno.env.get("FROM_NAME") || "Данко Системс").trim();
+  const office = (Deno.env.get("OFFICE_EMAIL") || fromEmail).trim();
+  if (!url || !key) return Response.json({ error: "Липсва SUPABASE_URL/SERVICE_ROLE_KEY" }, { status: 500 });
+  if (!apiKey || !fromEmail) return Response.json({ error: "Липсва BREVO_API_KEY или FROM_EMAIL" }, { status: 500 });
+
+  // Четем вземания + задължения от app_config (както ги пази приложението).
+  const resp = await fetch(`${url}/rest/v1/app_config?id=in.(receivables,payables)&select=id,data`, {
+    headers: { apikey: key, authorization: "Bearer " + key },
+  });
+  if (!resp.ok) return Response.json({ error: "Грешка при четене: " + resp.status }, { status: 502 });
+  const rows: any[] = await resp.json();
+  const recv = (rows.find(r => r.id === "receivables")?.data?.list || []) as any[];
+  const pay = (rows.find(r => r.id === "payables")?.data?.list || []) as any[];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const in3 = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+
+  const recvOver = recv.filter(p => !p.paid && p.dueDate && p.dueDate < today)
+    .sort((a, b) => String(a.dueDate).localeCompare(b.dueDate));
+  const paySoon = pay.filter(p => !p.paid && ((p.dueDate && p.dueDate <= in3) || p.forToday))
+    .sort((a, b) => String(a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
+
+  // Производството ВЧЕРА — от вечния дневник production_log (какво е свършено).
+  const yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const SKIP_WORKERS = new Set(["Григор Байков", "Тестов", "тестов", "Тест"]);
+  let prodRows: any[] = [];
+  try {
+    const pr = await fetch(`${url}/rest/v1/production_log?select=data&data->>date=eq.${yday}`, {
+      headers: { apikey: key, authorization: "Bearer " + key },
+    });
+    if (pr.ok) prodRows = ((await pr.json()) as any[]).map(r => r.data || {}).filter(d => !SKIP_WORKERS.has(String(d.worker || "").trim()));
+  } catch (e) { /* без производствена секция при грешка */ }
+  const byShop: Record<string, { qty: number; cnt: number }> = {};
+  const byWorker: Record<string, { qty: number; ws: string }> = {};
+  prodRows.forEach(d => {
+    const q = Number(d.qty) || 0; const ws = d.workshop || "—";
+    (byShop[ws] = byShop[ws] || { qty: 0, cnt: 0 }); byShop[ws].qty += q; byShop[ws].cnt++;
+    const w = d.worker || "—"; (byWorker[w] = byWorker[w] || { qty: 0, ws }); byWorker[w].qty += q;
+  });
+  const prodTotal = prodRows.reduce((s, d) => s + (Number(d.qty) || 0), 0);
+
+  // 📅 ПОНЕДЕЛНИК: седмичен план — очаквани заявки по ритъма на клиентите
+  // (медиана на интервалите/количествата от историята) за 14 дни + закъснели.
+  let planRows: any[] = [];
+  try {
+    if (new Date().getDay() === 1) {
+      const H = { apikey: key, authorization: "Bearer " + key };
+      const coR = await fetch(`${url}/rest/v1/customer_orders?select=data`, { headers: H });
+      const cos: any[] = coR.ok ? await coR.json() : [];
+      const ev: Record<string, { d: string; q: number }[]> = {};
+      cos.map(r => r.data || {}).forEach((o: any) => {
+        const cl = String(o.clientName || "").trim(); if (!cl || !o.date) return;
+        (o.lines || []).forEach((l: any) => {
+          const q = Number(String(l.qty ?? "").replace(",", ".")) || 0;
+          if (!q || !l.code) return;
+          const k = cl + "¦" + String(l.code).trim();
+          (ev[k] = ev[k] || []).push({ d: o.date, q });
+        });
+      });
+      const med = (a: number[]) => { const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+      const t0 = new Date(today);
+      Object.keys(ev).forEach(k => {
+        const rows = ev[k].sort((a, b) => a.d.localeCompare(b.d));
+        if (rows.length < 2) return;
+        const gaps: number[] = [];
+        for (let i = 1; i < rows.length; i++) { const g = Math.round((new Date(rows[i].d).getTime() - new Date(rows[i - 1].d).getTime()) / 864e5); if (g > 0) gaps.push(g); }
+        if (!gaps.length) return;
+        const per = Math.round(med(gaps));
+        if (per > 200) return;
+        const last = rows[rows.length - 1].d;
+        const next = new Date(new Date(last).getTime() + per * 864e5).toISOString().slice(0, 10);
+        const days = Math.round((new Date(next).getTime() - t0.getTime()) / 864e5);
+        if (days < -14 || days > 14) return;
+        const idx = k.indexOf("¦");
+        planRows.push({ client: k.slice(0, idx), code: k.slice(idx + 1), qty: Math.round(med(rows.map(r => r.q))), next, days, per });
+      });
+      planRows.sort((a, b) => a.days - b.days);
+      planRows = planRows.slice(0, 15);
+    }
+  } catch (e) { /* планът е бонус — не спира писмото */ }
+
+  if (!recvOver.length && !paySoon.length && !prodRows.length && !planRows.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
+
+  const sum = (arr: any[], f: string) => arr.reduce((s, p) => s + (Number(String(p[f]).replace(",", ".")) || 0), 0);
+  const tbl = (head: string, rws: string) => `<table style="border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:13px">
+    <tr style="background:#ecfdf5;color:#065f46">${head}</tr>${rws}</table>`;
+  const td = (v: string, r = false) => `<td style="border:1px solid #cbd5e1;padding:5px 7px${r ? ";text-align:right" : ""}">${v}</td>`;
+  const th = (v: string) => `<th style="border:1px solid #cbd5e1;padding:5px 7px;text-align:left">${v}</th>`;
+
+  let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">
+    <h2 style="color:#0f766e">Сутрешен отчет — ${fmt(today)}</h2>`;
+  if (recvOver.length) {
+    html += `<h3 style="color:#991b1b">⚠ Просрочени вземания от клиенти: ${recvOver.length} бр. · ${money(sum(recvOver, "amount"))} EUR</h3>`
+      + tbl(th("Клиент") + th("Фактура") + th("Падеж") + th("Сума EUR"),
+        recvOver.map(p => `<tr>${td(esc(p.client))}${td(esc(p.invoiceNo))}${td(fmt(p.dueDate))}${td(money(Number(p.amount) || 0), true)}</tr>`).join(""));
+  }
+  if (paySoon.length) {
+    html += `<h3 style="color:#92400e">💳 Задължения за плащане (до 3 дни / „За днес"): ${paySoon.length} бр. · ${money(sum(paySoon, "amountVat"))} EUR</h3>`
+      + tbl(th("Доставчик") + th("Фактура") + th("Падеж") + th("С ДДС EUR") + th(""),
+        paySoon.map(p => `<tr>${td(esc(p.supplier))}${td(esc(p.invoiceNo))}${td(fmt(p.dueDate))}${td(money(Number(p.amountVat) || 0), true)}${td(p.forToday ? "☀ За днес" : "")}</tr>`).join(""));
+  }
+  if (prodRows.length) {
+    const shopRows = Object.entries(byShop).sort((a, b) => b[1].qty - a[1].qty);
+    const workerRows = Object.entries(byWorker).sort((a, b) => b[1].qty - a[1].qty).slice(0, 15);
+    html += `<h3 style="color:#065f46">🏭 Свършено вчера (${fmt(yday)}): ${money(prodTotal).replace(",00", "")} бр. · ${prodRows.length} отчета</h3>`
+      + tbl(th("Цех") + th("Отчети") + th("Бройки"),
+        shopRows.map(([ws, d]) => `<tr>${td(esc(ws))}${td(String(d.cnt), true)}${td(String(Math.round(d.qty)), true)}</tr>`).join(""))
+      + `<h4 style="margin:4px 0">Топ служители</h4>`
+      + tbl(th("Служител") + th("Цех") + th("Бройки"),
+        workerRows.map(([w, d]) => `<tr>${td(esc(w))}${td(esc(d.ws))}${td(String(Math.round(d.qty)), true)}</tr>`).join(""));
+  }
+  if (planRows.length) {
+    html += `<h3 style="color:#1d4ed8">📅 План за седмицата — очаквани заявки (по ритъма на клиентите)</h3>`
+      + tbl(th("Очаквана") + th("Клиент") + th("Код") + th("~Бройки") + th("Ритъм"),
+        planRows.map(p => `<tr>${td(fmt(p.next) + (p.days < 0 ? " ⏰ закъсняла" : ""))}${td(esc(p.client))}${td("<b>" + esc(p.code) + "</b>")}${td(String(p.qty), true)}${td("на ~" + p.per + " дни")}</tr>`).join(""))
+      + `<p style="font-size:12px;color:#64748b">Подробният план (наличности, часове, пускане за склад) е в СИСТЕМАТА → Склад/ЕРП → 📅 План.</p>`;
+  }
+  html += `<p style="color:#64748b;font-size:12px">Автоматично писмо от СИСТЕМАТА (The Systems).</p></div>`;
+
+  const send = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": apiKey, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      sender: { email: fromEmail, name: fromName },
+      to: office.split(",").map(e => ({ email: e.trim() })).filter(x => x.email.includes("@")),
+      subject: `Сутрешен отчет ${fmt(today)}: произведени ${Math.round(prodTotal)} бр. · ${recvOver.length} просрочени вземания · ${paySoon.length} задължения`,
+      htmlContent: html,
+    }),
+  });
+  const data = await send.json().catch(() => ({}));
+  if (send.ok) return Response.json({ ok: true, recvOverdue: recvOver.length, payDue: paySoon.length });
+  return Response.json({ error: "Brevo отказа (" + send.status + "): " + ((data as any).message || "") }, { status: 502 });
+});

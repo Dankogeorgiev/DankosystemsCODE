@@ -11,16 +11,18 @@
     --mono:'IBM Plex Mono',ui-monospace,monospace;--disp:'Space Grotesk',system-ui,sans-serif;--body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}
   *{box-sizing:border-box}
   [hidden]{display:none!important}
+  html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
-  .wrap{max-width:1720px;margin:0 auto;padding:16px}
+  /* Kiosk оформление — всичко се побира на един екран (24") без скрол. */
+  .wrap{max-width:1840px;margin:0 auto;padding:10px 16px 12px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
   /* Горна лента с бутоните за деня */
-  .daybar{display:flex;gap:12px;margin-top:14px}
+  .daybar{display:flex;gap:12px;margin-top:10px;flex:0 0 auto}
   .daybar .daybtn{flex:1;font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.01em;border:1.5px solid var(--line);border-radius:10px;padding:15px 16px;cursor:pointer;background:#F1F4F9;color:var(--ink)}
   .daybar .daybtn:active{transform:translateY(1px)}
   .daybar .daybtn.start{background:#E7F3EC;color:var(--ok);border-color:#BFE0CC}
   .daybar .daybtn.start:hover{background:var(--ok);color:#fff;border-color:var(--ok)}
   .daybar .daybtn.end:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
-  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 14px;border-bottom:2px solid var(--ink)}
+  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:2px 2px 8px;border-bottom:2px solid var(--ink);flex:0 0 auto}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
   .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
   .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
@@ -30,17 +32,23 @@
   .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 
   /* ---- 3D сцена ---- */
-  #stage{position:relative;margin-top:12px;height:min(62vh,660px);min-height:360px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
-  #stage canvas{display:block;width:100%;height:100%}
+  #stage{position:relative;margin-top:10px;height:34vh;min-height:180px;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
+  #stage canvas{display:block;position:absolute;left:0;top:0;width:100%}
   #stageInfo{position:absolute;top:10px;left:12px;background:rgba(255,255,255,.82);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;max-width:62%}
   #stageInfo b{font-family:var(--disp)}
   #ralNow{position:absolute;top:10px;right:12px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.9);border-radius:9px;padding:7px 10px;font-size:12px}
   #ralNow i{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.2);display:inline-block}
 
   /* ---- операторски панел ---- */
-  .op{display:grid;grid-template-columns:1fr 420px;gap:18px;margin-top:16px}
+  .op{display:grid;grid-template-columns:1fr 400px;gap:16px;margin-top:12px;flex:1 1 0;min-height:0}
   @media(max-width:920px){.op{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-height:0;overflow:auto}
+  /* Левият панел: БОЯДИСВАНЕ винаги долу и видимо; подвески/заредени се
+     скролват вътрешно при по-нисък екран (напр. 24" на 150% мащаб). */
+  .panel.builder{display:flex;flex-direction:column;overflow:hidden}
+  .panel.builder .kolhead,.panel.builder .actions,.panel.builder .note{flex:0 0 auto}
+  .panel.builder .buildscroll{flex:1 1 auto;min-height:0;overflow:auto}
+  .panel.builder .actions{margin-top:12px}
   .panel h2{font-family:var(--disp);font-size:16px;margin:0 0 4px}
   .legendrow{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft);
     padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -121,6 +129,19 @@
   .ralbtn i{width:20px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.2);flex:none}
   .ralbtn b{font-family:var(--mono);font-size:11px;display:block}
   .ralbtn span{color:var(--muted);font-size:11px}
+  /* Ниски екрани (напр. 24" на 150% мащаб ≈ 720px) — компактно, за да се
+     събере всичко (подвески в 1 ред + бройки + БОЯДИСВАНЕ) без скрол.
+     В края на стиловете, за да надвие базовите правила. */
+  @media(max-height:840px){
+    #stage{height:30vh}
+    .daybar .daybtn{padding:11px 14px;font-size:14px}
+    .pods{gap:8px;margin-bottom:10px;grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+    .pod{padding:10px 6px;font-size:13.5px}
+    .pod .cap{font-size:8.5px}
+    .panel{padding:12px 14px}
+    .loaded li{padding:6px 9px}
+    .loaded input[type=number]{padding:5px 8px}
+  }
 </style>
 </head>
 <body>
@@ -156,7 +177,7 @@
   <!-- ============ Операторски панел ============ -->
   <div class="op">
     <!-- Нареждане на избрания кол -->
-    <div class="panel">
+    <div class="panel builder">
       <div class="kolhead">
         <span class="no" id="kolNo">КОЛ 1</span>
         <span class="badge entry" id="kolBadge">за боядисване</span>
@@ -164,10 +185,11 @@
         <span class="slots">Места: <b id="slotUse">0</b>/2</span>
       </div>
 
-      <div class="pods" id="pods"><!-- бутони за подвески --></div>
-
-      <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
-      <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
+      <div class="buildscroll">
+        <div class="pods" id="pods"><!-- бутони за подвески --></div>
+        <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
+        <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
+      </div>
 
       <div class="actions">
         <button class="paint" id="paintBtn" disabled>🎨 БОЯДИСВАНЕ</button>
@@ -559,7 +581,8 @@
 
   // ---- Закачане на бутоните ----
   function wire() {
-    $("paintBtn").onclick = sendToPaint;
+    // 🔍 Контрол на качеството преди отчитане (всяко 3-то с 60 сек.).
+    $("paintBtn").onclick = () => { if (typeof qcGate === "function") qcGate(sendToPaint); else sendToPaint(); };
     $("colorBtn").onclick = openColorDlg;
     $("loadBtn").onclick = loadNext;
     $("startDayBtn").onclick = startDay;
@@ -596,16 +619,27 @@
   scene.background = new THREE.Color(0xeef0ee);
   scene.fog = new THREE.Fog(0xeef0ee, 42, 95);
   function vp() { return { w: stage.clientWidth || 800, h: stage.clientHeight || 400 }; }
-  const camera = new THREE.PerspectiveCamera(42, vp().w / vp().h, 0.1, 500);
   // Фиксиран фронтален изглед — застопорен, без въртене/местене/зум.
   const VIEW_POS = new THREE.Vector3(0, 6.2, 18), VIEW_LOOK = new THREE.Vector3(0, 3.2, 0);
+  // Платното се рендерира по-високо (RENDER_ASPECT) и се измества нагоре
+  // (TOP_CROP), а лентата #stage изрязва празния под — така изгледът е
+  // същият, но напълва тясната лента без празно място.
+  const RENDER_ASPECT = 2.3, TOP_CROP = 0.16;
+  const camera = new THREE.PerspectiveCamera(42, RENDER_ASPECT, 0.1, 500);
   camera.position.copy(VIEW_POS); camera.lookAt(VIEW_LOOK);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.copy(VIEW_LOOK);
   controls.enableRotate = false; controls.enablePan = false; controls.enableZoom = false; controls.autoRotate = false;
-  function resize() { const { w, h } = vp(); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  function resize() {
+    const w = stage.clientWidth || 800;
+    const hRender = Math.round(w / RENDER_ASPECT);
+    renderer.setSize(w, hRender, false);
+    camera.aspect = RENDER_ASPECT; camera.updateProjectionMatrix();
+    canvas.style.height = hRender + "px";
+    canvas.style.top = Math.round(-hRender * TOP_CROP) + "px";
+  }
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb8bcb6, 0.95));
   const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(16, 26, 12); scene.add(sun);
@@ -796,6 +830,7 @@
 })();
 </script>
 
+<script src="../quality.js?v=2"></script>
 <script src="sync.js?v=3"></script>
 </body>
 </html>

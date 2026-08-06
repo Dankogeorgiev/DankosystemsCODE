@@ -78,6 +78,23 @@
   .stat{background:#F8FAFC;border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
   .stat .k{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
   .stat .v{font-family:var(--disp);font-weight:700;font-size:22px;margin-top:3px}
+
+  /* ===== Отчетен прозорец ===== */
+  .ovl{position:fixed;inset:0;background:rgba(31,56,100,.45);display:grid;place-items:center;z-index:900;padding:16px}
+  .ovl-box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 20px 18px;max-width:460px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.28);max-height:92vh;overflow:auto}
+  .ovl-box h3{font-family:var(--disp);margin:0 0 6px;font-size:19px}
+  .pd-task{font-size:13px;background:#F8FAFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:8px 0 4px}
+  .fld{display:block;margin:13px 0 0}
+  .fld .lb{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:5px;display:block}
+  .fld input,.fld textarea{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
+  .fld input[type=number]{font-family:var(--mono);text-align:right}
+  .fld>select{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px;outline:none}
+  .fld input:focus,.fld textarea:focus,.fld>select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .pd-time{display:flex;gap:7px}.pd-time input{flex:1 1 auto}
+  .pd-time select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;color:var(--ink);flex:0 0 76px}
+  .ovl-actions{display:flex;gap:8px;margin-top:18px}
+  .ovl-actions .btn{flex:1;text-align:center;padding:11px}
+  .ovl-hint{font-size:11.5px;color:var(--muted);margin:10px 0 0;line-height:1.5}
 </style>
 </head>
 <body>
@@ -137,9 +154,9 @@
       </div>
       <div class="stats" id="rdStats"></div>
       <div id="rdTable"></div>
-      <p class="note">Операторът въвежда заварените бройки в полето „днес" и натиска <b>Отчети</b>.
-        Това е отделна бройка за роботите. За да добавиш изделия към този робот, иди на
-        <a href="#razpredelenie">Разпределение</a>.</p>
+      <p class="note">Натисни <b>⏱ Отчети</b> на изделие → въведи брой заварени, време за цялото
+        количество, време за настройка и консумативи. Записва се на робота <b>и</b> в Цех
+        Заваряване. За да добавиш изделия към този робот, иди на <a href="#razpredelenie">Разпределение</a>.</p>
     </div>
   </section>
 </div>
@@ -152,17 +169,19 @@ const PALETTES={
 };
 /* 6-те клетки (имена преименуеми). Подредба 3×2 през CSS. */
 let robots=[
-  {id:1,name:'Робот 1',pal:'gray',size:0.78},   // физически по-малък робот
-  {id:2,name:'Робот 2',pal:'gray'},
-  {id:3,name:'Робот 3',pal:'red' },
-  {id:4,name:'Робот 4',pal:'gray'},
-  {id:5,name:'Робот 5',pal:'gray'},
-  {id:6,name:'Робот 6',pal:'gray'},
+  {id:1,name:'Робот 1 малък',pal:'gray',size:0.78},   // физически по-малък робот
+  {id:2,name:'Робот 2 среден',pal:'gray'},
+  {id:3,name:'Робот 3 червен',pal:'red' },
+  {id:4,name:'Робот 4 сух',pal:'gray'},
+  {id:5,name:'Робот 5 водно',pal:'gray'},
+  {id:6,name:'Робот 6 чакащ',pal:'gray'},
 ];
 let assign={};   // { "име на изделие": robotId }
 let prod={};     // { "име на изделие": заварени от роботи (общо) }
 let plog=[];     // дневник: [{date, robot, product, qty, worker, at}]
 let WELDING=[];  // заваръчни задачи от Цехове (на живо)
+let operators=[]; // служители за отчитане (цех „Заваръчно")
+let lastOp='';    // последно избран оператор (за удобство)
 let tasksLoaded=false;
 
 const $=id=>document.getElementById(id);
@@ -178,12 +197,13 @@ function weldingProducts(){
   WELDING.forEach(t=>{const p=(t.product||'').trim();if(!p)return;
     const o=m.get(p)||{product:p,ordered:0,orders:0};
     o.ordered+=Number(t.qty)||0;o.orders++;m.set(p,o);});
-  // включи и изделия, които вече са разпределени, но в момента ги няма в задачите
-  Object.keys(assign).forEach(p=>{if(!m.has(p))m.set(p,{product:p,ordered:0,orders:0});});
+  // Показват се САМО изделия с активна задача в Цех Заваръчно —
+  // списъкът тук е ОГЛЕДАЛО на цеха (старите разпределения се пазят тихо).
   return [...m.values()].sort((a,b)=>a.product.localeCompare(b.product,'bg'));
 }
 const orderedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.qty)||0;});return s;};
-const remainOf=p=>Math.max(0,orderedOf(p)-(prod[p]||0));
+const producedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.produced)||0;});return s;};
+const remainOf=p=>Math.max(0,orderedOf(p)-producedOf(p));
 const productsOfRobot=id=>weldingProducts().filter(o=>assign[o.product]===id);
 const unassignedCount=()=>weldingProducts().filter(o=>!assign[o.product]).length;
 
@@ -253,7 +273,7 @@ function renderDist(){
           <td class="prod-nm">${esc(o.product)}</td>
           <td class="num">${o.orders||0}</td>
           <td class="num">${num(o.ordered)}</td>
-          <td class="num">${num(prod[o.product]||0)}</td>
+          <td class="num">${num(producedOf(o.product))}</td>
           <td class="num">${num(rem)}</td>
           <td><select class="rsel" data-assign="${esc(o.product)}">
             <option value="0"${a?'':' selected'}>— избери —</option>${opts(a)}
@@ -271,7 +291,7 @@ function renderDetail(id){
   $('rdSub').innerHTML=`<span class="rdot" style="background:${p.dot}"></span>клетка №${r.id} · ${p.label}`;
   const items=productsOfRobot(id);
   const tOrd=items.reduce((s,o)=>s+orderedOf(o.product),0);
-  const tProd=items.reduce((s,o)=>s+(prod[o.product]||0),0);
+  const tProd=items.reduce((s,o)=>s+(producedOf(o.product)),0);
   const tRem=items.reduce((s,o)=>s+remainOf(o.product),0);
   $('rdStats').innerHTML=
     `<div class="stat"><div class="k">Изделия</div><div class="v">${items.length}</div></div>
@@ -286,12 +306,9 @@ function renderDetail(id){
         return `<tr class="${done?'done':''}">
           <td class="prod-nm">${esc(o.product)}</td>
           <td class="num">${num(o.ordered)}</td>
-          <td class="num"><b>${num(prod[o.product]||0)}</b></td>
+          <td class="num"><b>${num(producedOf(o.product))}</b></td>
           <td class="num">${done?'<span class="pill">✓ готово</span>':num(rem)}</td>
-          <td><div class="rep">
-            <input class="qin" type="number" min="1" placeholder="днес" data-qin="${esc(o.product)}">
-            <button class="btn pri" data-report="${esc(o.product)}">Отчети</button>
-          </div></td></tr>`;}).join('')}</tbody></table>`
+          <td><button class="btn pri" data-report="${escAttr(o.product)}">⏱ Отчети</button></td></tr>`;}).join('')}</tbody></table>`
       : '<div class="empty">Този робот още няма изделия. Добави му от <a href="#razpredelenie">Разпределение</a>.</div>');
 }
 
@@ -307,21 +324,115 @@ function route(){
 }
 window.addEventListener('hashchange',route);
 
-/* ===== Отчитане (отделна бройка за роботите) ===== */
-function reportProduced(product,id){
-  const r=robotById(id);if(!r)return;
-  const inp=document.querySelector('input[data-qin="'+cssEsc(product)+'"]');
-  const add=Number(String(inp&&inp.value||'').replace(',','.'));
-  if(!add||add<=0){alert('Въведи брой в полето „днес".');if(inp)inp.focus();return;}
-  let worker=window.PAINT_USER||'';
-  worker=prompt('Кой отчита? (име/имейл)',worker)||worker;
-  prod[product]=(prod[product]||0)+add;
-  plog.push({date:todayStr(),robot:id,product,qty:add,worker,at:new Date().toISOString()});
-  if(inp)inp.value='';
-  saveState();
-  renderDetail(id);
+/* ===== Отчетен прозорец ===== */
+function escAttr(s){return esc(s).replace(/'/g,'&#39;');}
+function timeSel(id,def){return `<select id="${id}">
+  <option value="sec"${def==='sec'?' selected':''}>сек</option>
+  <option value="min"${def==='min'?' selected':''}>мин</option>
+  <option value="hour"${def==='hour'?' selected':''}>час</option></select>`;}
+
+function openReport(product,robotId){
+  const r=robotById(robotId);if(!r)return;
+  const ordered=orderedOf(product),remain=remainOf(product);
+  const w=document.createElement('div');w.className='ovl';
+  w.innerHTML=`<div class="ovl-box">
+    <h3>⏱ Отчитане — ${esc(r.name)}</h3>
+    <div class="pd-task"><b>Изделие:</b> ${esc(product)}<br><span class="muted">Поръчано ${num(ordered)} · остават ${num(remain)}</span></div>
+    <label class="fld"><span class="lb">Брой заварени сега *</span><input id="rp-qty" type="number" min="1" step="any" inputmode="decimal" placeholder="0"></label>
+    <label class="fld"><span class="lb">Време за заварка на цялото количество</span><span class="pd-time"><input id="rp-order-v" type="number" min="0" step="any" placeholder="0">${timeSel('rp-order-u','min')}</span></label>
+    <label class="fld"><span class="lb">Време за настройка</span><span class="pd-time"><input id="rp-setup-v" type="number" min="0" step="any" placeholder="0">${timeSel('rp-setup-u','min')}</span></label>
+    <label class="fld"><span class="lb">Изразходени консумативи</span><textarea id="rp-cons" rows="2" placeholder="по желание — напр. тел, дюзи, газ"></textarea></label>
+    <label class="fld"><span class="lb">Оператор *</span>${operators.length
+      ? `<select id="rp-op"><option value="">— избери оператор —</option>${operators.map(n=>`<option${n===lastOp?' selected':''}>${esc(n)}</option>`).join('')}</select>`
+      : `<input id="rp-op" type="text" value="${escAttr(lastOp||window.PAINT_USER||'')}" placeholder="име на оператора">`}</label>
+    <p class="ovl-hint">При запис бройката се добавя на робота <b>и</b> се отчита в Цех Заваряване (машина = ${esc(r.name)}).</p>
+    <div class="ovl-actions"><button class="btn pri" id="rp-save">Запиши</button><button class="btn" id="rp-cancel">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(w);
+  const close=()=>w.remove();
+  w.addEventListener('click',e=>{if(e.target===w)close();});
+  w.querySelector('#rp-cancel').addEventListener('click',close);
+  w.querySelector('#rp-save').addEventListener('click',()=>{
+    // 🔍 Контрол на качеството преди всяко отчитане (всяко 3-то с 60 сек.).
+    if(typeof qcGate==='function')qcGate(rpDoSave);else rpDoSave();
+  });
+  async function rpDoSave(){
+    const qty=Number(String(w.querySelector('#rp-qty').value).replace(',','.'));
+    if(!qty||qty<=0){alert('Въведи брой заварени сега.');return;}
+    // Поточен гейт — СЪЩАТА проверка като в Цехове: не повече от наличното
+    // от предната операция. Проверява се ПРЕДИ каквото и да е записване.
+    if(window.FLOW_CREDIT&&FLOW_CREDIT.gateCheck&&window.__sbxRoboti){
+      const btn0=w.querySelector('#rp-save');btn0.disabled=true;btn0.textContent='Проверява…';
+      const g=await FLOW_CREDIT.gateCheck(window.__sbxRoboti,WELDING.filter(t=>(t.product||'').trim()===product&&t.id),qty).catch(()=>null);
+      btn0.disabled=false;btn0.textContent='Запиши';
+      if(g&&!g.ok){alert(g.msg);return;}
+    }
+    const readT=(vid,uid)=>{const v=Number(String(w.querySelector(vid).value).replace(',','.'));const u=w.querySelector(uid).value;const mult=u==='hour'?3600:(u==='min'?60:1);const sec=v>0?Math.round(v*mult):0;return sec?{v,unit:u,sec}:null;};
+    const tOrder=readT('#rp-order-v','#rp-order-u');
+    const tSetup=readT('#rp-setup-v','#rp-setup-u');
+    const consumables=(w.querySelector('#rp-cons').value||'').trim();
+    const worker=(w.querySelector('#rp-op').value||'').trim();
+    if(!worker){alert('Избери оператор.');return;}
+    lastOp=worker;
+    // 1) бройка на робота (споделено състояние)
+    prod[product]=(prod[product]||0)+qty;
+    const entry={date:todayStr(),robot:robotId,product,qty,worker,at:new Date().toISOString()};
+    if(tOrder)entry.tOrder=tOrder; if(tSetup)entry.tSetup=tSetup; if(consumables)entry.consumables=consumables;
+    plog.push(entry);
+    if(window.lineSaveSoon)window.lineSaveSoon();
+    close();renderDetail(robotId);
+    // 2) кредит към Цех Заваряване (задачите на Таня)
+    try{ await creditWeldingWorkshop(product,qty,{tOrder,tSetup,consumables},worker,r.name); await loadWeldingTasks(); }
+    catch(e){ console.warn('Заваръчно роботи: кредит към Цех',e); alert('Бройката е записана на робота, но неуспя записът в Цех Заваряване (връзка?). Опитай пак при връзка.'); }
+  }
+  setTimeout(()=>{const q=w.querySelector('#rp-qty');if(q)q.focus();},50);
 }
-function cssEsc(s){return String(s).replace(/(["\\])/g,'\\$1');}
+
+/* Отчита произведеното и в задачите на Цех Заваряване (по име на изделие).
+   Разпределя количеството по незавършените поръчки (по срок), а времената и
+   консумативите се записват веднъж (на първата поръчка), за да не се дублират. */
+async function creditWeldingWorkshop(product,qty,timeExtra,worker,robotName){
+  const c=window.__sbxRoboti; if(!c)return;   // няма връзка (напр. тест)
+  const rows=WELDING.filter(t=>(t.product||'').trim()===product&&t.id);
+  if(!rows.length)return;
+  const rem=t=>Math.max(0,(Number(t.qty)||0)-(Number(t.produced)||0));
+  const byDue=(a,b)=>String(a.due||'9999-99-99').localeCompare(String(b.due||'9999-99-99'))||String(a.createdAt||'').localeCompare(String(b.createdAt||''));
+  const open=rows.filter(t=>rem(t)>0).sort(byDue);
+  const targets=open.length?open:[rows.slice().sort(byDue)[0]];
+  let left=qty; const plan=[];
+  for(let i=0;i<targets.length;i++){const t=targets[i];
+    const give=(i===targets.length-1)?left:Math.min(rem(t),left);
+    if(give>0){plan.push({id:t.id,give});left-=give;}
+    if(left<=0)break;
+  }
+  let first=true;
+  const readyIds=new Set();   // заявки за проверка „готова за продажба"
+  for(const p of plan){
+    const {data}=await c.from('tasks').select('*').eq('id',p.id).maybeSingle();
+    if(!data||!data.data)continue;
+    const t={...data.data};
+    t.produced=(Number(t.produced)||0)+p.give;
+    t.logs=Array.isArray(t.logs)?t.logs:[];
+    const e={date:todayStr(),worker:worker||'',qty:p.give,machine:robotName};
+    if(first){if(timeExtra.tOrder)e.tOrder=timeExtra.tOrder;if(timeExtra.tSetup)e.tSetup=timeExtra.tSetup;if(timeExtra.consumables)e.consumables=timeExtra.consumables;}
+    if(window.FLOW_CREDIT)e.lid=Date.now().toString(36)+'-r-'+Math.random().toString(36).slice(2,6);
+    t.logs.push(e);
+    const done=(Number(t.qty)||0)>0&&(Number(t.produced)||0)>=(Number(t.qty)||0);
+    const {error}=await c.from('tasks').update({data:t,done,updated_at:new Date().toISOString()}).eq('id',p.id);
+    if(error)throw error;
+    // Складови последствия като в главното табло: изписване на вложените
+    // детайли от рецептата, заприходяване на готовото, вечен дневник.
+    if(window.FLOW_CREDIT){
+      try{ await FLOW_CREDIT.afterCredit(c,p.id,t); }catch(err){ console.warn('Заваръчно роботи: складови движения',err); }
+      try{ await FLOW_CREDIT.prodLog(c,p.id,t,e); }catch(err){}
+      const s=t.source; ((s&&s.orderIds)||[]).forEach(x=>readyIds.add(String(x)));
+    }
+    first=false;
+  }
+  if(window.FLOW_CREDIT&&readyIds.size){ try{ await FLOW_CREDIT.markOrdersReady(c,[...readyIds]); }catch(err){} }
+  // 🎨 Авто-боя: отчетът може да е отключил детайли за Бояджийно.
+  if(window.FLOW_CREDIT&&FLOW_CREDIT.autoPaint){ try{ await FLOW_CREDIT.autoPaint(c); }catch(err){} }
+}
 
 /* ===== Преименуване ===== */
 function renameRobot(id){
@@ -337,7 +448,7 @@ document.addEventListener('click',e=>{
   const ed=e.target.closest('[data-edit]');
   if(ed){e.preventDefault();e.stopPropagation();renameRobot(+ed.dataset.edit);return;}
   const rep=e.target.closest('[data-report]');
-  if(rep){const m=(location.hash||'').match(/^#robot-(\d+)$/);if(m)reportProduced(rep.dataset.report,+m[1]);return;}
+  if(rep){const m=(location.hash||'').match(/^#robot-(\d+)$/);if(m)openReport(rep.dataset.report,+m[1]);return;}
   const go=e.target.closest('.rcell[data-go]');
   if(go){location.hash='#robot-'+go.dataset.go;return;}
 });
@@ -350,8 +461,6 @@ document.addEventListener('change',e=>{
 document.addEventListener('keydown',e=>{
   if((e.key==='Enter'||e.key===' ')&&e.target.closest&&e.target.closest('.rcell[data-go]')){
     e.preventDefault();location.hash='#robot-'+e.target.closest('.rcell[data-go]').dataset.go;return;}
-  if(e.key==='Enter'&&e.target.matches&&e.target.matches('input[data-qin]')){
-    const m=(location.hash||'').match(/^#robot-(\d+)$/);if(m)reportProduced(e.target.dataset.qin,+m[1]);}
 });
 $('backBtn').addEventListener('click',e=>{e.preventDefault();location.hash='';});
 $('distBack').addEventListener('click',e=>{e.preventDefault();location.hash='';});
@@ -370,15 +479,32 @@ window.LINE_STATE={
   }
 };
 
+/* ===== Служители за отчитане (цех „Заваръчно") ===== */
+async function loadOperators(c){
+  try{
+    if(Array.isArray(window.__MOCK_OPERATORS)){operators=window.__MOCK_OPERATORS.slice();return;}
+    if(!c)return;
+    const {data}=await c.from('app_config').select('*').eq('id','workers').maybeSingle();
+    const ws=(data&&data.data&&data.data.workshops)||{};
+    let list=Array.isArray(ws['Заваръчно'])?ws['Заваръчно'].slice():[];
+    if(!list.length)Object.values(ws).forEach(a=>{if(Array.isArray(a))list.push(...a);});   // резерв: всички служители
+    operators=[...new Set(list.filter(Boolean).map(s=>String(s).trim()))].sort((a,b)=>a.localeCompare(b,'bg'));
+  }catch(e){console.warn('Заваръчно роботи: служители',e);}
+}
+
 /* ===== Четене на заваръчните задачи от Цехове ===== */
 async function loadWeldingTasks(){
   try{
-    if(Array.isArray(window.__MOCK_TASKS)){WELDING=window.__MOCK_TASKS.filter(t=>(t.workshop||'')==='Заваръчно');tasksLoaded=true;route();return;}
-    if(!window.supabase||!window.DANKO_CONFIG){tasksLoaded=true;route();return;}
+    if(Array.isArray(window.__MOCK_TASKS)){WELDING=window.__MOCK_TASKS.filter(t=>(t.workshop||'')==='Заваръчно');await loadOperators(null);tasksLoaded=true;route();return;}
+    if(!window.supabase||!window.DANKO_CONFIG){await loadOperators(null);tasksLoaded=true;route();return;}
     const c=window.__sbxRoboti||(window.__sbxRoboti=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
     const {data,error}=await c.from('tasks').select('*');
     if(error)throw error;
-    WELDING=(data||[]).map(r=>({...r.data,id:r.id})).filter(t=>(t.workshop||'')==='Заваръчно');
+    WELDING=(data||[]).map(r=>({...r.data,id:r.id}))
+      .filter(t=>(t.workshop||'')==='Заваръчно')
+      // както в Цехове: изпълнените задачи не влизат в списъка
+      .filter(t=>!((Number(t.qty)||0)>0&&(Number(t.produced)||0)>=(Number(t.qty)||0)));
+    await loadOperators(c);
     tasksLoaded=true;route();
   }catch(e){console.warn('Заваръчно роботи: задачи',e);tasksLoaded=true;route();}
 }
@@ -390,6 +516,9 @@ else loadWeldingTasks();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
+<script src="../ui-guards.js?v=1"></script>
+<script src="../quality.js?v=2"></script>
+<script src="../flow-credit.js?v=4"></script>
 <script src="sync.js?v=1"></script>
 </body>
 </html>
