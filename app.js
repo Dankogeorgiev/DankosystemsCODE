@@ -103,9 +103,9 @@ function produceAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return PRODUCE_EMAILS.map(x => x.toLowerCase()).includes(e);
 }
-// План за седмицата (какво излиза) — засега само Данко и Григор.
+// План за седмицата (какво излиза) — засега само изброените.
 // Останалите не виждат бутона и не могат да отворят модула.
-const WEEKPLAN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];  // Данко + Григор
+const WEEKPLAN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "angelov@dankosystems.com"];  // Данко, Григор, Ангелов
 function weekPlanAllowed() {
   const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return WEEKPLAN_EMAILS.map(x => x.toLowerCase()).includes(e);

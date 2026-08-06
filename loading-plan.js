@@ -90,7 +90,7 @@ async function lpLoadClients() {
 async function openLoadingPlan() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   if (typeof weekPlanAllowed === "function" && !weekPlanAllowed()) {
-    alert("Планът за седмицата към момента е позволен само на Данко и Григор.");
+    alert("Планът за седмицата към момента е позволен само на Данко, Григор и Ангелов.");
     return;
   }
   document.getElementById("loading-modal").hidden = false;
