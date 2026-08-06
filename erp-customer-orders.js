@@ -167,6 +167,53 @@ function erpCOPlanLine(o) {
   if (inf.sent > 0) return `<span class="co-plan part">🚚 ${per} — излезли ${erpNum(inf.sent)} от ${erpNum(inf.plan)} бр. (${inf.pct}%)</span>`;
   return `<span class="co-plan">🚚 ${per} — планирани ${erpNum(inf.plan)} бр.</span>`;
 }
+/* ---------- Документи по заявката: продажба и фактура ----------
+   Продажбата се свързва по fromOrderId, фактурата — през продажбата
+   (s.invoiceNo/s.invoiceId) или по „Поръчка на клиента" на фактурата. */
+function erpCODocsOf(o) {
+  const sales = ((typeof erpSales !== "undefined" && erpSales) || [])
+    .filter(s => s && String(s.fromOrderId || "") === String(o.id))
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  const invs = [];
+  const seen = new Set();
+  sales.forEach(s => {
+    if (!s.invoiceNo || seen.has(String(s.invoiceNo))) return;
+    seen.add(String(s.invoiceNo));
+    invs.push({ id: s.invoiceId || null, docNo: s.invoiceNo });
+  });
+  // Фактури, писани направо по номера на поръчката на клиента (без продажба).
+  const cn = String(o.clientNo || "").trim().toLowerCase();
+  const on = String(o.ourNo || "").trim().toLowerCase();
+  ((typeof erpInvoices !== "undefined" && erpInvoices) || []).forEach(i => {
+    if (!i || !i.docNo || seen.has(String(i.docNo))) return;
+    const ref = String(i.orderRef || "").trim().toLowerCase();
+    if (!ref) return;
+    const hit = (cn.length >= 3 && ref.includes(cn)) || (on && ref === on);
+    if (!hit) return;
+    seen.add(String(i.docNo));
+    invs.push({ id: i.id, docNo: i.docNo });
+  });
+  return { sales, invs };
+}
+function erpCODocsLine(o) {
+  if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) return "";
+  const { sales, invs } = erpCODocsOf(o);
+  if (!sales.length && !invs.length)
+    return `<span class="erp-muted co-docs-no">🧾 няма пусната продажба или фактура по тази заявка</span>`;
+  const sc = sales.map(s => `<button type="button" class="co-doc${s.posted ? " ok" : " draft"}" data-sale="${escapeAttr(String(s.id))}" title="${s.posted ? "Осчетоводена продажба" : "Чернова — още не е осчетоводена"} · ${escapeAttr(erpDMY(s.date))}. Клик — отвори.">💶 продажба № ${escapeHtml(String(s.saleNo || "—"))}${s.posted ? " ✓" : " (чернова)"}</button>`).join("");
+  const ic = invs.map(i => `<button type="button" class="co-doc inv" ${i.id ? `data-inv="${escapeAttr(String(i.id))}"` : ""} title="Издадена фактура${i.id ? ". Клик — отвори." : ""}">🧾 фактура № ${escapeHtml(String(i.docNo))}</button>`).join("");
+  return sc + ic;
+}
+function erpCODocsWire(root, o) {
+  (root || document).querySelectorAll("[data-sale]").forEach(b => b.addEventListener("click", e => {
+    e.preventDefault(); e.stopPropagation();
+    if (typeof erpOpenSale === "function") erpOpenSale(b.dataset.sale);
+  }));
+  (root || document).querySelectorAll("[data-inv]").forEach(b => b.addEventListener("click", e => {
+    e.preventDefault(); e.stopPropagation();
+    if (typeof erpOpenInvoice === "function") erpOpenInvoice(b.dataset.inv);
+  }));
+}
 /* Допълва клетките, след като планът се зареди фоново. */
 function erpCOPlanFill() {
   document.querySelectorAll("#co-orders-table td[data-plan-for]").forEach(td => {
@@ -617,6 +664,7 @@ async function erpRenderCOForm(o) {
             ${["нова", "в производство", "готова за продажба", "частично завършена", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
           </select>
           <span class="co-plan-line" id="co-plan-line">${o.id ? erpCOPlanLine(o) : ""}</span>
+          <span class="co-docs-line" id="co-docs-line">${o.id ? erpCODocsLine(o) : ""}</span>
           ${(function () { const p = erpCOPct(o); return p.del > 0 ? `<span class="co-pct-info" title="по доставените бройки от редовете">✔ доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр. — <b>${p.pct}%</b></span><div class="co-progress"><div class="co-progress-fill" style="width:${p.pct}%"></div></div>` : ""; })()}</label>
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
@@ -684,6 +732,18 @@ async function erpRenderCOForm(o) {
       const el = document.getElementById("co-plan-line");
       if (el) el.innerHTML = erpCOPlanLine(o);
     })();
+  }
+  // Продажбата/фактурата по заявката — също фоново (не бави отварянето).
+  if (o.id && !(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production)) {
+    (async () => {
+      try { if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales(); } catch (e) {}
+      try { if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices(); } catch (e) {}
+      const el = document.getElementById("co-docs-line");
+      if (!el) return;
+      el.innerHTML = erpCODocsLine(o);
+      erpCODocsWire(el, o);
+    })();
+    erpCODocsWire(document.getElementById("co-docs-line"), o);
   }
   const addClientBtn = document.getElementById("co-add-client");
   if (addClientBtn) addClientBtn.addEventListener("click", () => erpCOAddClient(o));

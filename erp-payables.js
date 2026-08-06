@@ -9,6 +9,7 @@ let PAYABLES = null;
 let pybFilter = "all";           // all | week | month | paid
 let pybQuery = "";               // 🔎 търсене (доставчик / № / артикул)
 let paySelected = new Set();     // избрани id за „плащане днес"
+let pybPurchTried = false;       // покупките се теглят веднъж (за покритите стокови)
 
 function payNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
 function pybIso(d) { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
@@ -25,6 +26,22 @@ function payMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocal
 function payEndOfWeek() { const d = new Date(); const off = (7 - d.getDay()) % 7; d.setDate(d.getDate() + off); return pybIso(d); }   // идваща неделя
 function payEndOfMonth() { const d = new Date(); return pybIso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
 function payDaysLeft(due) { if (!due) return null; const a = new Date(due + "T00:00:00"), b = new Date(payToday() + "T00:00:00"); return Math.round((a - b) / 864e5); }
+function payNorm(s) { return String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase(); }
+
+/* ---------- Частично плащане ----------
+   Задължението пази платеното до момента (paidAmount) и историята (payments).
+   „Остава" = сума с ДДС − платено; щом стигне 0, фактурата се затваря. */
+function payPaidSoFar(p) { return Math.round(payNum(p && p.paidAmount) * 100) / 100; }
+function payLeft(p) {
+  if (!p) return 0;
+  if (p.paid) return 0;
+  return Math.max(0, Math.round((payNum(p.amountVat) - payPaidSoFar(p)) * 100) / 100);
+}
+function payPartialTitle(p) {
+  const list = (p && p.payments) || [];
+  if (!list.length) return "";
+  return "Плащания: " + list.map(x => `${pybFmt(x.date)} — ${payMoney(x.amount)}`).join("; ");
+}
 
 async function erpPayLoad() {
   try { const { data } = await sb.from("app_config").select("data").eq("id", "payables").maybeSingle(); PAYABLES = (data && data.data && data.data.list) || []; }
@@ -37,13 +54,49 @@ async function erpPaySave() {
 }
 function payNextId() { let m = 0; (PAYABLES || []).forEach(p => { const n = Number(p.id) || 0; if (n > m) m = n; }); return m + 1; }
 
+/* ---------- Стокови разписки, покрити от фактура ----------
+   Стоковата вдига склада, но НЕ е плащане — парите идват с фактурата, която я
+   покрива. Ако и двете стоят в „Задължения", сумата се брои два пъти. */
+function pybCoveredGoods(rows) {
+  const pur = (typeof erpPurchases !== "undefined" && erpPurchases) || [];
+  if (!pur.length) return [];
+  const ids = new Set(), nos = new Set();
+  pur.forEach(g => {
+    if (g.docType !== "goods") return;
+    if (!g.coveredById && !g.coveredByNo) return;
+    ids.add(String(g.id));
+    if (g.invoiceNo) nos.add(payNorm(g.invoiceNo));
+  });
+  if (!ids.size) return [];
+  return (rows || []).filter(p =>
+    (p.srcPurchaseId && ids.has(String(p.srcPurchaseId))) ||
+    (p.invoiceNo && nos.has(payNorm(p.invoiceNo))));
+}
+async function pybRemoveCovered() {
+  const rows = pybCoveredGoods((PAYABLES || []).filter(p => !p.paid));
+  if (!rows.length) { alert("Няма такива задължения."); return; }
+  const txt = rows.slice(0, 12).map(p => `• № ${p.invoiceNo || "—"} ${p.supplier || ""} — ${payMoney(p.amountVat)}`).join("\n");
+  if (!confirm(`Да махна ли ${rows.length} задължения по стокови разписки, които вече са покрити от фактура?\n\n${txt}${rows.length > 12 ? "\n…" : ""}\n\nПлаща се фактурата, не стоковите.`)) return;
+  const kill = new Set(rows.map(p => p.id));
+  PAYABLES = (PAYABLES || []).filter(p => !kill.has(p.id));
+  paySelected.clear();
+  if (await erpPaySave()) erpRenderPayables();
+}
+
 /* ---------- Списък ---------- */
 async function erpRenderPayables() {
   const v = erpView();
   if (!PAYABLES) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpPayLoad(); }
   const eow = payEndOfWeek(), eom = payEndOfMonth();
   const unpaid = (PAYABLES || []).filter(p => !p.paid);
-  const sum = arr => arr.reduce((s, p) => s + payNum(p.amountVat), 0);
+  const sum = arr => arr.reduce((s, p) => s + payLeft(p), 0);
+  // Покупките трябват само за проверката „стокова, покрита от фактура" — теглят се
+  // веднъж фоново и екранът се пре-рисува.
+  if (!pybPurchTried && typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) {
+    pybPurchTried = true;
+    erpLoadPurchases().then(() => { if (document.querySelector(".pay-table")) erpRenderPayables(); }).catch(() => {});
+  }
+  const coveredRows = pybCoveredGoods(unpaid);
   const weekItems = unpaid.filter(p => p.dueDate && p.dueDate <= eow);
   const monthItems = unpaid.filter(p => p.dueDate && p.dueDate <= eom);
 
@@ -82,6 +135,12 @@ async function erpRenderPayables() {
       ${card("📅 До края на месеца", monthItems)}
       ${card("Σ Общо за плащане", unpaid, "pay-card-total")}
     </div>
+    ${coveredRows.length && pybFilter !== "paid" ? `<div class="pay-covered">
+      <span>⚠ <b>${coveredRows.length}</b> ${coveredRows.length === 1 ? "задължение е" : "задължения са"} по <b>стокови разписки</b>, вече покрити от фактура
+        (${payMoney(coveredRows.reduce((s, p) => s + payLeft(p), 0))} EUR). Плаща се фактурата — стоковите не са отделно плащане.</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small btn-primary" id="pyb-rmcov">🧹 Махни ги</button>
+    </div>` : ""}
     <div class="pay-scroll"><table class="report-table erp-table pay-table">
       <thead><tr>
         ${pybFilter === "paid" ? "" : '<th class="pay-chk"></th>'}
@@ -101,11 +160,14 @@ async function erpRenderPayables() {
           <td>${escapeHtml(p.supplier || "")}</td>
           <td>${escapeHtml(p.article || "")}</td>
           <td class="num">${payMoney(p.amount)}</td>
-          <td class="num"><b>${payMoney(p.amountVat)}</b></td>
+          <td class="num" title="${escapeAttr(payPartialTitle(p))}"><b>${payMoney(p.paid ? p.amountVat : payLeft(p))}</b>${
+            !p.paid && payPaidSoFar(p) > 0
+              ? `<div class="pay-part">от ${payMoney(p.amountVat)} · платени ${payMoney(payPaidSoFar(p))}</div>` : ""}</td>
           <td>${escapeHtml(p.payMethod || "Банка")}</td>
           ${pybFilter === "paid"
             ? `<td>${pybFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
-            : `<td class="erp-row-actions"><button class="btn btn-small ${p.forToday ? "pay-today-on" : ""}" data-today="${p.id}" title="Маркирай за плащане ДНЕС (за Крис)">☀ За днес${p.forToday ? " ✓" : ""}</button></td>`}
+            : `<td class="erp-row-actions"><button class="btn btn-small ${p.forToday ? "pay-today-on" : ""}" data-today="${p.id}" title="Маркирай за плащане ДНЕС (за Крис)">☀ За днес${p.forToday ? " ✓" : ""}</button>
+                <button class="btn btn-small" data-part="${p.id}" title="Частично плащане — въвеждаш колко се плаща сега, остатъкът остава в списъка">€ Частично</button></td>`}
         </tr>`; }).join("") || `<tr><td colspan="12" class="report-empty">${pybFilter === "paid" ? "Няма платени фактури." : "Няма задължения. Импортирай от GenCloud."}</td></tr>`}
       </tbody>
     </table></div>
@@ -124,6 +186,8 @@ async function erpRenderPayables() {
   const ca = document.getElementById("pay-clear-all"); if (ca) ca.addEventListener("click", erpPayClearAll);
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
   v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
+  v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpPayPartial(Number(b.dataset.part))));
+  const rmc = document.getElementById("pyb-rmcov"); if (rmc) rmc.addEventListener("click", pybRemoveCovered);
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpPayUnpay(Number(b.dataset.unpay))));
   erpPayBar();
 }
@@ -132,7 +196,7 @@ async function erpRenderPayables() {
 function erpPayBar() {
   const bar = document.getElementById("pay-paybar"); if (!bar) return;
   const sel = (PAYABLES || []).filter(p => paySelected.has(p.id) && !p.paid);
-  const tot = sel.reduce((s, p) => s + payNum(p.amountVat), 0);
+  const tot = sel.reduce((s, p) => s + payLeft(p), 0);
   if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Избери фактури с отметка, за да видиш сумата за плащане днес.</span>`; return; }
   bar.innerHTML = `
     <span class="pay-sel-info">Избрани: <b>${sel.length}</b> · за плащане: <b>${payMoney(tot)} EUR</b> (с ДДС)</span>
@@ -150,13 +214,44 @@ async function erpPayMarkPaid(ids) {
   const d = prompt(`Дата на плащане за ${ids.length} фактур${ids.length === 1 ? "а" : "и"} (ГГГГ-ММ-ДД):`, today);
   if (d === null) return;
   const date = (d || today).trim();
-  (PAYABLES || []).forEach(p => { if (ids.includes(p.id)) { p.paid = true; p.paidDate = date; p.forToday = false; } });
+  (PAYABLES || []).forEach(p => {
+    if (!ids.includes(p.id)) return;
+    const left = payLeft(p);
+    if (left > 0) p.payments = (p.payments || []).concat([{ date, amount: left }]);
+    p.paidAmount = Math.round(payNum(p.amountVat) * 100) / 100;
+    p.paid = true; p.paidDate = date; p.forToday = false;
+  });
   paySelected.clear();
   if (await erpPaySave()) erpRenderPayables();
+}
+/* Частично плащане: въвежда се платената сега сума; остатъкът остава да се дължи. */
+async function erpPayPartial(id) {
+  const p = (PAYABLES || []).find(x => x.id === id); if (!p) return;
+  const left = payLeft(p);
+  if (!(left > 0)) { alert("По тази фактура няма остатък за плащане."); return; }
+  const s = prompt(`Частично плащане — фактура № ${p.invoiceNo || "—"} (${p.supplier || ""}).\n`
+    + `Сума с ДДС: ${payMoney(p.amountVat)} EUR`
+    + (payPaidSoFar(p) > 0 ? `\nПлатени до момента: ${payMoney(payPaidSoFar(p))} EUR` : "")
+    + `\nОстават: ${payMoney(left)} EUR\n\nКолко се плаща сега?`, String(left).replace(".", ","));
+  if (s === null) return;
+  const amt = Math.round(payNum(s) * 100) / 100;
+  if (!(amt > 0)) { alert("Въведи сума, по-голяма от 0."); return; }
+  if (amt > left + 0.005 && !confirm(`Сумата (${payMoney(amt)}) е по-голяма от оставащата (${payMoney(left)}).\nДа я запиша ли така?`)) return;
+  const d = prompt("Дата на плащането (ГГГГ-ММ-ДД):", payToday());
+  if (d === null) return;
+  const date = (d || payToday()).trim();
+  p.payments = (p.payments || []).concat([{ date, amount: amt }]);
+  p.paidAmount = Math.round((payPaidSoFar(p) + amt) * 100) / 100;
+  if (payLeft(p) <= 0.005) { p.paid = true; p.paidDate = date; p.forToday = false; }
+  if (await erpPaySave()) {
+    erpRenderPayables();
+    if (!p.paid) alert(`Записано. Остават ${payMoney(payLeft(p))} EUR по фактура № ${p.invoiceNo || "—"}.`);
+  }
 }
 async function erpPayUnpay(id) {
   const p = (PAYABLES || []).find(x => x.id === id); if (!p) return;
   p.paid = false; p.paidDate = "";
+  p.paidAmount = 0; p.payments = [];   // връща се цялата сума като дължима
   if (await erpPaySave()) erpRenderPayables();
 }
 // „За днес" — флаг за Крис (кои да плати днес). Не е плащане.
@@ -252,6 +347,12 @@ async function erpPayClearAll() {
 async function erpPaySyncFromPurchase(o) {
   if (!o || !o.id) return;
   await erpPayLoad();
+  // Стоковата разписка НЕ е плащане — парите идват с фактурата, която я покрива.
+  if (o.docType === "goods") {
+    const i = (PAYABLES || []).findIndex(p => p.srcPurchaseId === o.id && !p.paid);
+    if (i >= 0) { PAYABLES.splice(i, 1); await erpPaySave(); }
+    return;
+  }
   const rate = (o.currency === "BGN") ? 1.95583 : 1;
   const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { base: 0, total: 0 };
   // Отложено (разсрочено) плащане, още неплатено → задължение. Ново поле payStatus
@@ -271,20 +372,48 @@ async function erpPaySyncFromPurchase(o) {
       amountVat: Math.round((t.total / rate) * 100) / 100,
       currency: "EUR", payMethod: "Банка", srcPurchaseId: o.id,
     };
-    if (idx >= 0) { if (PAYABLES[idx].paid) return; Object.assign(PAYABLES[idx], fields); }
-    else PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", forToday: false, ...fields });
+    if (idx >= 0) {
+      if (!PAYABLES[idx].paid) Object.assign(PAYABLES[idx], fields);
+    } else PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", forToday: false, ...fields });
     await erpPaySave();
   } else if (idx >= 0 && !PAYABLES[idx].paid) {
-    if (o.paid) { PAYABLES[idx].paid = true; PAYABLES[idx].paidDate = o.paidDate || payToday(); PAYABLES[idx].forToday = false; }
-    else PAYABLES.splice(idx, 1);   // Каса/веднага → не е задължение
+    const pb = PAYABLES[idx];
+    if (o.paid) {
+      const left = payLeft(pb);
+      if (left > 0) pb.payments = (pb.payments || []).concat([{ date: o.paidDate || payToday(), amount: left }]);
+      pb.paidAmount = Math.round(payNum(pb.amountVat) * 100) / 100;
+      pb.paid = true; pb.paidDate = o.paidDate || payToday(); pb.forToday = false;
+    } else PAYABLES.splice(idx, 1);   // Каса/веднага → не е задължение
     await erpPaySave();
   }
+  // Покриваща фактура: махаме задълженията по покритите стокови — плаща се само тя.
+  if ((o.coversIds || []).length) await erpPayDropCovered(o);
+}
+/* Маха от „Задължения" стоковите разписки, покрити от тази фактура. */
+async function erpPayDropCovered(o) {
+  const ids = new Set((o.coversIds || []).map(String));
+  if (!ids.size) return;
+  const nos = new Set();
+  try {
+    if ((typeof erpPurchases === "undefined" || !erpPurchases) && typeof erpLoadPurchases === "function") await erpLoadPurchases();
+    ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(g => {
+      if (ids.has(String(g.id)) && g.invoiceNo) nos.add(payNorm(g.invoiceNo));
+    });
+  } catch (e) {}
+  const before = (PAYABLES || []).length;
+  PAYABLES = (PAYABLES || []).filter(p => {
+    if (p.paid) return true;
+    if (p.srcPurchaseId && ids.has(String(p.srcPurchaseId))) return false;
+    if (p.invoiceNo && nos.has(payNorm(p.invoiceNo))) return false;
+    return true;
+  });
+  if (PAYABLES.length !== before) await erpPaySave();
 }
 
 /* ---------- Печат на списък за плащане (за Крис) ---------- */
 function erpPayPrint(items) {
-  const tot = items.reduce((s, p) => s + payNum(p.amountVat), 0);
-  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${escapeHtml(p.supplier || "")}</td><td>${pybFmt(p.dueDate)}</td><td class="r">${payMoney(p.amountVat)}</td></tr>`).join("");
+  const tot = items.reduce((s, p) => s + payLeft(p), 0);
+  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${escapeHtml(p.supplier || "")}</td><td>${pybFmt(p.dueDate)}</td><td class="r">${payMoney(payLeft(p))}${payPaidSoFar(p) > 0 ? `<br><small>частично: от ${payMoney(p.amountVat)}</small>` : ""}</td></tr>`).join("");
   const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>За плащане</title>
     <style>body{font-family:Arial,"DejaVu Sans",sans-serif;margin:18px;color:#111}h1{font-size:18px;color:#0f766e}
     table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;text-align:left}th{background:#ecfdf5}
