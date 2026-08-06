@@ -907,7 +907,7 @@ const NIT_COMBINE = [
   // (ASIA 101007+101008→101137 беше вързан пробно и МАХНАТ по искане на Данко.)
 ];
 
-async function nitCombineStock(extraPairs) {
+async function nitCombineStock(extraPairs, worker) {
   nitCombineStock.last = [];   // сглобените комплекти при ТОЗИ запис (за отчета)
   const ids = await nitStockIds();
   const mids = await nitMatIds();
@@ -965,6 +965,13 @@ async function nitCombineStock(extraPairs) {
       // да не преброи същата наличност.
       stockBy[ia] -= q; stockBy[ib] -= q;
     } catch (e) { /* при грешка ще се сглоби при следващия отчет */ }
+  }
+  // Сглобеният КОМПЛЕКТ бута напред и поточните задачи по неговия код. Иначе
+  // отчетът вдига само половините, а задачата „Занитване" на заявката (която е
+  // на кода на комплекта) си стои с 0 и заявката чака вечно.
+  if (nitCombineStock.last.length && typeof nitCreditFlow === "function") {
+    try { await nitCreditFlow(nitCombineStock.last.map(x => ({ code: x.code, delta: x.delta })), worker || "Занитване"); }
+    catch (e) { console.warn("нит→поток (сглобяване):", e); }
   }
 }
 
@@ -1637,7 +1644,7 @@ function nitRenderOps(v) {
     try { await nitSyncStock(r); } catch (e) {}
     // Авто-сглобяване на двете половини в готов механизъм (мин. от двете) +
     // контекстните Италия чифтове от този запис (NIT_PENDING_COMBINE).
-    try { await nitCombineStock(typeof NIT_PENDING_COMBINE !== "undefined" ? NIT_PENDING_COMBINE.splice(0) : null); } catch (e) {}
+    try { await nitCombineStock(typeof NIT_PENDING_COMBINE !== "undefined" ? NIT_PENDING_COMBINE.splice(0) : null, r.worker); } catch (e) {}
     const hasStocked = r.stocked && Object.values(r.stocked).some(x => Number(x) > 0);
     if (Object.keys(r.ops).length || hasStocked) NIT.records[key] = r; else delete NIT.records[key];
     const ok = await nitSave();
