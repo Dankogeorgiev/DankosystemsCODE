@@ -907,6 +907,37 @@ const NIT_COMBINE = [
   // (ASIA 101007+101008→101137 беше вързан пробно и МАХНАТ по искане на Данко.)
 ];
 
+/* Влагаме ли повече, отколкото има? Сборът по изделие от движенията на ТОЗИ
+   запис се сравнява с наличността. Само предупреждение — отчетът си минава. */
+async function nitNegativeWarn(moves) {
+  const net = {};
+  (moves || []).forEach(m => {
+    const q = Number(m.quantity) || 0;
+    if (!q || !m.product_id) return;
+    net[m.product_id] = (net[m.product_id] || 0) + q;
+  });
+  const ids = Object.keys(net).filter(id => net[id] < 0).map(Number);
+  if (!ids.length) return "";
+  const stock = {}, info = {};
+  try {
+    const { data } = await sb.from("v_product_stock").select("id,stock").in("id", ids);
+    (data || []).forEach(r => { stock[r.id] = Number(r.stock) || 0; });
+    const p = await sb.from("products").select("id,code,name").in("id", ids);
+    (p.data || []).forEach(r => { info[r.id] = r; });
+  } catch (e) { return ""; }
+  const bad = ids.filter(id => (stock[id] || 0) + net[id] < -0.001);
+  if (!bad.length) return "";
+  const rows = bad.map(id => {
+    const i = info[id] || {};
+    const have = stock[id] || 0, use = -net[id], left = have + net[id];
+    return `• ${i.code || id} ${i.name || ""}\n   в склада ${have} · влагаш ${use} → остава ${left}`;
+  }).join("\n");
+  return `⚠ ВНИМАНИЕ — тези отиват НА МИНУС в Склад детайли:\n\n${rows}\n\n`
+    + `Най-често това значи, че ПРЕДИШНАТА операция не е отчетена `
+    + `(например краката — „Крак колела", или заготовките).\n\n`
+    + `Отчетът се записва нормално. Провери и добави липсващата операция, за да излезе складът.`;
+}
+
 async function nitCombineStock(extraPairs, worker) {
   nitCombineStock.last = [];   // сглобените комплекти при ТОЗИ запис (за отчета)
   const ids = await nitStockIds();
@@ -1200,10 +1231,15 @@ async function nitSyncStock(rec) {
   nitSyncStock.last = applied.filter(a => a.delta).map(a => ({ op: a.op, code: a.code, delta: a.delta }));
   if (missing.length) alert("⚠ СКЛАДЪТ не бе обновен за: " + missing.join(", ") + "\n\nТези кодове не се намират в Продукти (или няма връзка с базата). Отчетът се записва нормално.");
   if (!moves.length && !matMoves.length) return true;
+  // Проверка ПРЕДИ движенията: какво отива на минус (обикновено значи, че
+  // предишната операция не е отчетена).
+  let negMsg = "";
+  try { negMsg = await nitNegativeWarn(moves); } catch (e) { negMsg = ""; }
   if (moves.length) {
     const { error } = await sb.from("product_movements").insert(moves);
     if (error) { alert("Отчетът ще се запише, но СКЛАДЪТ не се обнови: " + error.message + "\n\nПокажи това съобщение на Данко."); return false; }
   }
+  if (negMsg) alert(negMsg);
   if (matMoves.length) {
     const r2 = await sb.from("stock_movements").insert(matMoves);
     if (r2.error) alert("Детайлите са отчетени, но МАТЕРИАЛИТЕ (нитове/шайби) не се изписаха: " + r2.error.message);
