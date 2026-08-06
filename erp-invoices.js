@@ -34,6 +34,22 @@ async function erpSaveInvoice(o) {
   else { const { data: ins, error } = await sb.from("invoices").insert(row).select("id").single(); if (error) throw error; o.id = ins.id; }
 }
 
+/* ---------- Проформа: СОБСТВЕНА номерация ----------
+   Проформата НЕ е данъчен документ и не бива да яде фактурни номера.
+   Всяка серия си има свой брояч (pfNext) и префикс (pfPrefix), за да се
+   различава от фактурите на пръв поглед. */
+function invPfPrefix(ser) {
+  if (ser && ser.pfPrefix != null) return String(ser.pfPrefix);
+  return (ser && ser.lang === "en") ? "PF-" : "ПФ-";
+}
+function invPfNext(ser) { return Math.max(1, Math.floor(Number(ser && ser.pfNext) || 1)); }
+function invPfNo(ser) { return invPfPrefix(ser) + String(invPfNext(ser)).padStart(6, "0"); }
+// Номерът, който ще вземе ТОЗИ документ (за полето „Следващ номер").
+function invNextNoFor(o) {
+  const ser = (erpInvSeries || {})[o && o.seriesKey] || (erpInvSeries || {})["2"] || {};
+  return (o && o.kind === "proforma") ? invPfNo(ser) : String(ser.next || "");
+}
+
 /* ---------- Серии / номерация ---------- */
 async function erpInvLoadSeries() {
   if (erpInvSeries) return erpInvSeries;
@@ -448,12 +464,17 @@ async function erpInvSeriesDialog() {
   const { wrap, close } = erpDialog(`
     <h3>⚙ Серии и номера</h3>
     <p class="hint" style="margin:0 0 8px">Задай „следващ номер" за всяка серия. При издаване системата взима номера и увеличава с 1. <b>Внимание:</b> ако издавате фактури и от друг софтуер — номерата ще се бият. Тук трябва да е официалният издател.</p>
+    <p class="hint" style="margin:0 0 8px">🧾 <b>Проформите имат отделен брояч</b> — те не са данъчен документ и не изяждат фактурен номер. Смени префикса/номера, ако искаш друг вид номерация.</p>
     ${Object.entries(s).map(([k, x]) => `
       <div class="inv-series-row">
         <b>Серия ${escapeHtml(k)}</b>
         <label>Име <input type="text" id="invs-label-${k}" value="${escapeAttr(x.label || "")}" /></label>
         <label>Език <select id="invs-lang-${k}"><option value="bg" ${x.lang === "bg" ? "selected" : ""}>BG</option><option value="en" ${x.lang === "en" ? "selected" : ""}>EN</option></select></label>
         <label>Следващ № <input type="number" id="invs-next-${k}" value="${escapeAttr(String(x.next || 0))}" /></label>
+        <label title="Проформата не е данъчен документ — има собствен брояч, за да не яде фактурни номера">Проформа: префикс
+          <input type="text" id="invs-pfx-${k}" style="width:70px" value="${escapeAttr(invPfPrefix(x))}" /></label>
+        <label>Проформа: следващ № <input type="number" id="invs-pfnext-${k}" value="${escapeAttr(String(invPfNext(x)))}" /></label>
+        <div class="erp-muted" style="flex:1 0 100%;font-size:12px">Следваща проформа от тази серия: <b>${escapeHtml(invPfNo(x))}</b></div>
         ${(x.freed || []).length ? `<div class="erp-muted" style="flex:1 0 100%">♻ Освободени номера (от анулирани): <b>${(x.freed || []).map(escapeHtml).join(", ")}</b> — предлагат се при следващото издаване. <button class="btn btn-small" data-freeclr="${escapeAttr(k)}" title="Изчиства списъка — номерата няма да се предлагат повече">Изчисти</button></div>` : ""}
       </div>`).join("")}
     <div class="erp-dialog-actions"><button class="btn" id="invs-cancel">Отказ</button><button class="btn btn-primary" id="invs-save">Запази</button></div>`);
@@ -468,6 +489,8 @@ async function erpInvSeriesDialog() {
       s[k].label = wrap.querySelector("#invs-label-" + k).value.trim() || s[k].label;
       s[k].lang = wrap.querySelector("#invs-lang-" + k).value;
       s[k].next = Math.floor(Number(wrap.querySelector("#invs-next-" + k).value) || s[k].next);
+      s[k].pfPrefix = wrap.querySelector("#invs-pfx-" + k).value;
+      s[k].pfNext = Math.max(1, Math.floor(Number(wrap.querySelector("#invs-pfnext-" + k).value) || 1));
     });
     await erpInvSaveSeries(); close(); erpRenderInvoices();
   });
@@ -558,7 +581,8 @@ async function erpInvForm(o) {
         <label>Серия
           <select id="inv-series" ${locked ? "disabled" : ""}>${Object.entries(erpInvSeries).map(([sk, x]) => `<option value="${sk}" ${sk === o.seriesKey ? "selected" : ""}>${escapeHtml(sk + ". " + x.label)}</option>`).join("")}</select></label>
         <label>${o.posted ? "№ на документа" : "№ (който ще получи)"}
-          <input type="text" id="inv-nextno" class="inv-nextno" readonly value="${escapeAttr(o.posted ? (o.docNo || "") : String((erpInvSeries[o.seriesKey] || erpInvSeries["2"] || {}).next || ""))}" /></label>
+          <input type="text" id="inv-nextno" class="inv-nextno" readonly value="${escapeAttr(o.posted ? (o.docNo || "") : invNextNoFor(o))}" />
+          ${!o.posted && o.kind === "proforma" ? '<span class="erp-muted" style="font-size:11px">Проформата има собствена номерация — не взима фактурен номер.</span>' : ""}</label>
         <label>Тип
           <select id="inv-kind" ${locked ? "disabled" : ""}>${Object.entries(INV_KINDS).map(([kk, x]) => `<option value="${kk}" ${kk === o.kind ? "selected" : ""}>${x.label}</option>`).join("")}</select></label>
         <label>Дата на издаване <input type="date" id="inv-date" value="${escapeAttr(o.issueDate || "")}" ${locked ? "disabled" : ""} /></label>
@@ -694,7 +718,7 @@ async function erpInvForm(o) {
     o.seriesKey = e.target.value;
     // Обновява квадратчето с номера, който документът ще получи от тази серия.
     const nn = document.getElementById("inv-nextno");
-    if (nn && !o.posted) nn.value = String((erpInvSeries[o.seriesKey] || {}).next || "");
+    if (nn && !o.posted) nn.value = invNextNoFor(o);
   });
   g("inv-kind", e => { o.kind = e.target.value; erpInvForm(o); });
   g("inv-date", e => o.issueDate = e.target.value);
@@ -945,17 +969,24 @@ async function erpInvIssue(o) {
   try {
     await erpInvLoadSeries();
     const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
-    // Освободени номера от АНУЛИРАНИ фактури — предлагат се преди новия номер,
-    // за да не остават дупки в номерацията (може за друг клиент).
-    const freed = (ser.freed || []).slice().sort((a, b) => Number(a) - Number(b));
+    const isPf = o.kind === "proforma";
     let useNo = "";
-    if (freed.length) {
-      useNo = confirm(`♻ Има освободен номер от анулирана фактура: ${freed[0]}.\n\nОК = ползвам ${freed[0]}\nОтказ = нов номер ${ser.next}`) ? String(freed[0]) : "";
+    if (isPf) {
+      // Проформата взима номер от собствения си брояч — фактурните не се пипат.
+      o.docNo = invPfNo(ser);
+    } else {
+      // Освободени номера от АНУЛИРАНИ фактури — предлагат се преди новия номер,
+      // за да не остават дупки в номерацията (може за друг клиент).
+      const freed = (ser.freed || []).slice().sort((a, b) => Number(a) - Number(b));
+      if (freed.length) {
+        useNo = confirm(`♻ Има освободен номер от анулирана фактура: ${freed[0]}.\n\nОК = ползвам ${freed[0]}\nОтказ = нов номер ${ser.next}`) ? String(freed[0]) : "";
+      }
+      o.docNo = useNo || String(ser.next);
     }
-    o.docNo = useNo || String(ser.next);
     o.posted = true; o.status = "издадена";
     await erpSaveInvoice(o);              // уникалният индекс ще хване евентуален дублат
-    if (useNo) ser.freed = freed.filter(x => String(x) !== useNo);
+    if (isPf) ser.pfNext = invPfNext(ser) + 1;
+    else if (useNo) ser.freed = (ser.freed || []).filter(x => String(x) !== useNo);
     else ser.next = Math.floor(Number(ser.next) || 0) + 1;
     await erpInvSaveSeries();
     await erpLoadInvoices();
@@ -987,16 +1018,18 @@ async function erpInvCancel(o) {
   if (!o.posted) { alert("Черновата не се анулира — просто я промени или изтрий."); return; }
   if (o.status === "анулирана") { alert("Документът вече е анулиран."); return; }
   const no = o.docNo || "";
+  const isPf = o.kind === "proforma";
   if (!confirm(`🚫 Да анулирам ли ${(INV_KINDS[o.kind] || {}).label || "документа"} № ${no}?\n\n`
     + `• Вземането от клиента отпада\n`
     + `• Продажбите се отвързват (може да се фактурират наново)\n`
-    + `• Номер ${no} се ОСВОБОЖДАВА и ще се предложи при следващото издаване\n\n`
-    + `Документът остава в списъка със статус „анулирана".`)) return;
+    + (isPf ? `• Проформеният номер не се връща в оборот (не е данъчен документ)\n`
+            : `• Номер ${no} се ОСВОБОЖДАВА и ще се предложи при следващото издаване\n`)
+    + `\nДокументът остава в списъка със статус „анулирана".`)) return;
   const reason = prompt("Основание за анулиране (влиза в документа):", o.cancelReason || "") || "";
   try {
     await erpInvLoadSeries();
     const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
-    if (no) {
+    if (no && !isPf) {           // проформените номера не влизат в оборот
       const freed = (ser.freed || []).map(String);
       if (!freed.includes(String(no))) freed.push(String(no));
       ser.freed = freed.sort((a, b) => Number(a) - Number(b));
@@ -1023,7 +1056,9 @@ async function erpInvCancel(o) {
       } catch (e) {}
     }
     await erpLoadInvoices();
-    alert(`✓ Документът е анулиран.\nНомер ${no} е освободен — ще ти се предложи при следващото издаване от серия ${o.seriesKey}.`);
+    alert(isPf
+      ? `✓ Проформата е анулирана.\nФактурните номера не са пипани.`
+      : `✓ Документът е анулиран.\nНомер ${no} е освободен — ще ти се предложи при следващото издаване от серия ${o.seriesKey}.`);
     erpRenderInvoices();
   } catch (e) {
     alert("Грешка при анулиране: " + (e.message || e));
