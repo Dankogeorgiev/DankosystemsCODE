@@ -11,8 +11,13 @@ const QC_EVERY = 3;        // всяко трето отчитане е с от�
 const QC_SECONDS = 60;     // колко секунди се чака тогава
 
 /* Текстовете се СМЕНЯТ на всеки 2 дни (по календара — еднакво за всички),
-   за да не се превърнат в невидим шум. Все за качеството. */
+   за да не се превърнат в невидим шум. Все за качеството.
+   Въртенето започва от ПОНЕДЕЛНИК 10.08.2026 — първи е благодарственият
+   текст на Данко, после вървят напомнянията едно след друго. */
+const QC_START = "2026-08-10";
 const QC_TEXTS = [
+  // Благодарност — зелена, не червена (ok: true).
+  { ok: true, t: "БЛАГОДАРЯ, ЧЕ СЛЕДИТЕ КАЧЕСТВОТО.", s: "ДАНКО", n: "Заради вашето внимание клиентите ни се връщат. Продължавайте така.", w: "БЛАГОДАРЯ, ЧЕ СЛЕДИТЕ КАЧЕСТВОТО" },
   { t: "ПРОВЕРИ ЛИ КАЧЕСТВОТО?<br>РАЗМЕРИТЕ ОТГОВАРЯТ ЛИ?", s: "НАПРАВИ КОНТРОЛНО ИЗМЕРВАНЕ<br>И СВЕРКА С ЧЕРТЕЖА.", n: "Измери детайла и сверѝ с чертежа, преди да отчетеш.", w: "ПРОВЕРИ РАЗМЕРИТЕ И КАЧЕСТВОТО" },
   { t: "ИЗМЕРИ ЛИ ПОСЛЕДНИЯ ДЕТАЙЛ?", s: "ЕДИН БРАК ДНЕС Е<br>ЦЯЛА ПАРТИЯ УТРЕ.", n: "Вземи шублера и провери реалния размер сега.", w: "ИЗМЕРИ ПОСЛЕДНИЯ ДЕТАЙЛ" },
   { t: "СВЕРИ С ЧЕРТЕЖА!", s: "ПРАВИЛНИЯТ ЧЕРТЕЖ ЛИ Е?<br>ПРАВИЛНАТА РЕВИЗИЯ ЛИ Е?", n: "Виж номера и ревизията на чертежа, преди да отчетеш.", w: "СВЕРИ ЧЕРТЕЖА И РЕВИЗИЯТА" },
@@ -22,8 +27,13 @@ const QC_TEXTS = [
   { t: "ПЪРВИЯТ И ПОСЛЕДНИЯТ<br>ДЕТАЙЛ — ЗАДЪЛЖИТЕЛНО!", s: "ИЗМЕРИ ГИ И ДВАТА.", n: "Провери първия и последния от партидата.", w: "ИЗМЕРИ ПЪРВИЯ И ПОСЛЕДНИЯ" },
 ];
 function qcText() {
-  const days = Math.floor(Date.now() / 864e5);      // ден от епохата
-  return QC_TEXTS[Math.floor(days / 2) % QC_TEXTS.length];
+  // Дни от началната дата (местно време), за да се сменя в полунощ, не в 03:00.
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  const start = new Date(QC_START + "T00:00:00");
+  const days = Math.round((d - start) / 864e5);
+  const i = Math.floor(days / 2);                   // нов текст на всеки 2 дни
+  const n = QC_TEXTS.length;
+  return QC_TEXTS[(((i % n) + n) % n)];             // и преди началото — коректно
 }
 
 function qcCountKey() {
@@ -59,6 +69,10 @@ function qcEnsureStyles() {
     .qc-btn{background:#16a34a;color:#fff;border:none;border-radius:10px;padding:14px 26px;font-size:18px;font-weight:800;cursor:pointer;min-width:280px}
     .qc-btn:disabled{background:#cbd5e1;color:#64748b;cursor:not-allowed}
     .qc-cancel{background:none;border:none;color:#64748b;font-size:13px;margin-top:12px;cursor:pointer;text-decoration:underline}
+    .qc-box.qc-ok{border-color:#16a34a}
+    .qc-box.qc-ok .qc-title,.qc-box.qc-ok .qc-sub,.qc-box.qc-ok .qc-timer{color:#15803d}
+    .qc-box.qc-ok .qc-bar{background:#dcfce7}
+    .qc-box.qc-ok .qc-bar>div{background:linear-gradient(90deg,#4ade80,#16a34a)}
     @media (max-width:600px){.qc-title{font-size:23px}.qc-sub{font-size:18px}.qc-timer{font-size:48px}.qc-btn{min-width:0;width:100%}}`;
   document.head.appendChild(s);
 }
@@ -72,14 +86,14 @@ function qcGate(cb) {
   const ovl = document.createElement("div");
   ovl.className = "qc-ovl";
   ovl.innerHTML = `
-    <div class="qc-box">
+    <div class="qc-box${T.ok ? " qc-ok" : ""}">
       <p class="qc-title">${timed ? T.w : T.t}</p>
       <p class="qc-sub">${timed ? T.t.replace(/<br>/g, " ") : T.s}</p>
       ${timed ? `<div class="qc-timer" id="qc-timer">${QC_SECONDS}</div>
         <div class="qc-bar"><div id="qc-bar"></div></div>
         <p class="qc-note">${T.n} Бутонът се отключва след ${QC_SECONDS} секунди.</p>`
         : `<p class="qc-note">${T.n}</p>`}
-      <button class="qc-btn" id="qc-ok" ${timed ? "disabled" : ""}>${timed ? `Изчакай ${QC_SECONDS} сек.` : "✔ Потвърждавам качеството"}</button>
+      <button class="qc-btn" id="qc-ok" ${timed ? "disabled" : ""}>${timed ? `Изчакай ${QC_SECONDS} сек.` : (T.ok ? "✔ Разбрано — качеството е проверено" : "✔ Потвърждавам качеството")}</button>
       <br><button class="qc-cancel" id="qc-no">Откажи отчитането</button>
     </div>`;
   document.body.appendChild(ovl);
