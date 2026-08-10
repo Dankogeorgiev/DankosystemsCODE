@@ -653,6 +653,7 @@ img.ai-doc-content { max-width: none; }
 .co-doc.inv { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
 .co-doc:hover { filter: brightness(.95); }
 .co-docs-no { font-size: 12px; }
+.co-val-full { font-size: 11px; font-weight: 400; }
 
 /* „Производство за склад" като една кликаема заявка в списъка */
 .co-stock-one { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; margin-bottom: 10px; }

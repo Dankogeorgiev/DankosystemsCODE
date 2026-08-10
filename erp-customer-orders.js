@@ -19,7 +19,7 @@ function erpCOSortRows(rows) {
   if (erpCOClientFilter) out = out.filter(o => (o.clientName || "") === erpCOClientFilter);
   // Завършените се крият по подразбиране (освен при търсене или изрично избран статус).
   if (erpCOHideDone && !q && !erpCOStatusFilter) out = out.filter(o => (o.status || "нова") !== "завършена");
-  const val = o => (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+  const val = o => erpCOValueLeft(o);   // подрежда се по ОСТАВАЩАТА стойност
   const S = String;
   const cmp = {
     deadline: (a, b) => S(a.deadline || "9999-99-99").localeCompare(S(b.deadline || "9999-99-99")),   // най-скорошен срок отгоре
@@ -128,6 +128,25 @@ async function erpSaveCO(o) {
    Доставени бройки (l.delivered) спрямо поръчаните — за процента в списъка
    и формата. Заявка „в производство" с частични доставки носи ДВА баджа:
    статуса + „частично · N%" с лента на прогреса. */
+/* ---------- Стойност на заявката ----------
+   „Цялата" е поръчаното × цена, а в списъка се показва ОСТАВАЩАТА: недоставените
+   бройки × цена. Иначе частично изпълнените заявки надуват сумата с неща, които
+   вече са излезли и фактурирани. */
+function erpCOValue(o) {
+  return (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+}
+function erpCOValueLeft(o) {
+  return (o.lines || []).reduce((s, l) => {
+    const q = erpToNum(l.qty) || 0;
+    const d = Math.min(Math.max(0, Number(l.delivered) || 0), q);
+    return s + (q - d) * (erpToNum(l.unitPrice) || 0);
+  }, 0);
+}
+function erpCOValueCell(o) {
+  const tot = erpCOValue(o), left = erpCOValueLeft(o);
+  if (Math.abs(tot - left) < 0.005) return erpEur(tot);
+  return `<b>${erpEur(left)}</b><div class="erp-muted co-val-full" title="Цялата заявка ${erpEur(tot)}; разликата е вече доставена">от ${erpEur(tot)}</div>`;
+}
 function erpCOPct(o) {
   let tot = 0, del = 0;
   (o.lines || []).forEach(l => { const q = erpToNum(l.qty) || 0; tot += q; del += Math.min(Number(l.delivered) || 0, q); });
@@ -235,7 +254,7 @@ function erpCORowHtml(o) {
             <td data-label="Дата">${erpDMY(o.date)}</td>
             <td data-label="Срок">${erpDMY(o.deadline)}</td>
             <td class="num" data-label="Продукти">${(o.lines || []).length}</td>
-            <td class="num sell-cell" data-label="Стойност">${erpEur((o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0))}</td>
+            <td class="num sell-cell" data-label="Стойност">${erpCOValueCell(o)}</td>
             <td data-label="Статус">${erpCOStatusCell(o)}</td>
             <td data-label="План" data-plan-for="${o.id}">${erpCOPlanCell(o)}</td>
             <td data-label="Файл">${erpCOFileCell(o)}</td>
@@ -249,8 +268,8 @@ function erpCOListHtml(rows) {
   let out = "";
   for (const [c, list] of groups) {
     const open = erpCOOpenClients.has(c);   // всеки клиент е в папка (и с 1 заявка)
-    const sum = list.reduce((s, o) => s + (o.lines || []).reduce((t, l) => t + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0), 0);
-    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="11">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} ${list.length === 1 ? "заявка" : "заявки"} <span class="sell-cell erp-muted">· общо ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
+    const sum = list.reduce((s, o) => s + erpCOValueLeft(o), 0);
+    out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="11">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} ${list.length === 1 ? "заявка" : "заявки"} <span class="sell-cell erp-muted" title="Само недоставеното">· остава ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
     if (open) out += list.map(erpCORowHtml).join("");
   }
   return out;
@@ -478,6 +497,10 @@ async function erpRenderCustomerOrders() {
     if (!tb) { erpRenderCustomerOrders(); return; }
     const list = erpCOSortRows(erpCOList.slice());
     tb.innerHTML = erpCOListHtml(list) || `<tr><td colspan="11" class="report-empty">Няма съвпадения.</td></tr>`;
+    // Броячът и сумата горе следват филтъра.
+    const cnt = document.getElementById("erp-co-count");
+    if (cnt) cnt.innerHTML = `${list.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
+      ` <span class="sell-cell erp-muted" title="Сборът е само по НЕдоставеното — вече изпратеното не се брои">· остава ${erpEur(list.reduce((s, o) => s + erpCOValueLeft(o), 0))}</span>`}`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
     tb.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
@@ -490,13 +513,14 @@ async function erpRenderCustomerOrders() {
   const rows = erpCOSortRows(erpCOList.slice());
   const sortOpts = [
     ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
-    ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Стойност (голяма отгоре)"],
+    ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Остатъчна стойност (голяма отгоре)"],
   ];
   const statusOpts = ["нова", "в производство", "готова за продажба", "частично завършена", "завършена"];
   const clientOpts = [...new Set((erpCOList || []).map(o => o.clientName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">${rows.length} заявки</span>
+      <span class="erp-count" id="erp-co-count">${rows.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
+        ` <span class="sell-cell erp-muted" title="Сборът е само по НЕдоставеното — вече изпратеното не се брои">· остава ${erpEur(rows.reduce((s, o) => s + erpCOValueLeft(o), 0))}</span>`}</span>
       <input type="search" id="erp-co-q" placeholder="🔎 търси № / клиент / статус…" value="${escapeAttr(erpCOQuery)}" autocomplete="off" style="min-width:190px" />
       <label class="erp-inline">Статус
         <select id="erp-co-fstatus"><option value="">Всички</option>${statusOpts.map(s => `<option ${s === erpCOStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select>
@@ -515,7 +539,7 @@ async function erpRenderCustomerOrders() {
     </div>
     ${stockHtml}
     <table class="report-table erp-table" id="co-orders-table">
-      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell">Стойност</th><th>Статус</th><th title="В кой седмичен план за експедиция е включена заявката">План</th><th>Файл</th><th></th></tr></thead>
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell" title="Стойността на НЕдоставеното; отдолу с дребен шрифт е цялата заявка">Остава</th><th>Статус</th><th title="В кой седмичен план за експедиция е включена заявката">План</th><th>Файл</th><th></th></tr></thead>
       <tbody>
         ${erpCOListHtml(rows) ||
           `<tr><td colspan="11" class="report-empty">Още няма заявки. Натисни „+ Нова заявка".</td></tr>`}
@@ -870,8 +894,10 @@ function erpCOLineSums(o) {  // обновява сумите по редове 
 }
 function erpCOTotal(o) {
   const el = document.getElementById("co-total"); if (!el) return;
-  const t = (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
-  el.textContent = "Стойност на заявката: " + erpEur(t);
+  const t = erpCOValue(o), left = erpCOValueLeft(o);
+  el.textContent = Math.abs(t - left) < 0.005
+    ? "Стойност на заявката: " + erpEur(t)
+    : `Стойност на заявката: ${erpEur(t)} · остава за доставяне: ${erpEur(left)}`;
 }
 function erpCORefreshLines(o) {
   const body = document.querySelector("#co-lines tbody");
