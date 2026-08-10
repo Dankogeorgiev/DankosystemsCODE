@@ -74,7 +74,16 @@ async function renderPulse() {
   const num = v => (typeof erpToNum === "function") ? erpToNum(v) : (Number(v) || 0);
   const lineNet = arr => (arr || []).reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
   const money = (n, cur) => Math.round(n).toLocaleString("bg-BG") + " " + (cur === "BGN" ? "лв" : cur === "EUR" ? "€" : (cur || "€"));
-  const ordersValue = orders.reduce((s, o) => s + lineNet(o.lines), 0);
+  // Заявки: колко пари ОСТАВАТ за изпълнение (поръчано − вече доставено), само
+  // по активните. Цялата стойност е подвеждаща — част от нея вече е изпратена.
+  const lineLeft = arr => (arr || []).reduce((a, l) => {
+    const q = num(l.qty);
+    const d = Math.min(Math.max(0, Number(l.delivered) || 0), q);
+    return a + (q - d) * num(l.unitPrice);
+  }, 0);
+  const ordersValue = activeOrders.reduce((s, o) => s + lineNet(o.lines), 0);
+  const ordersLeft = activeOrders.reduce((s, o) => s + lineLeft(o.lines), 0);
+  const ordersDone = Math.max(0, ordersValue - ordersLeft);
   const month = today.slice(0, 7);
   // (картата „продажби месец" е премахната — фактурираното е меродавното)
 
@@ -161,7 +170,7 @@ async function renderPulse() {
       ${card("общо задължения (с ДДС)", money(paySum, "EUR"), "", "payables")}
       ${card("дължимо до края на месеца (с ДДС)", money(payMonthSum, "EUR") + " · " + payMonthItems.length + " бр.", payMonthItems.length ? "warn" : "", "payables")}
       ${card("задължения следващ месец (с ДДС)", money(payNextSum, "EUR") + " · " + payNextItems.length + " бр.", payNextItems.length ? "info" : "", "payables")}
-      ${card("общо заявки (стойност)", money(ordersValue, "EUR"), "money", "customer")}
+      ${card(`оставащи заявки · поръчани ${money(ordersValue, "EUR")}, доставени ${money(ordersDone, "EUR")}`, money(ordersLeft, "EUR"), "money", "customer")}
       ${card("платени заплати месец (банка + 005)", money(salMonth, "EUR"), "money", "finance")}
       ${card(vatDue >= 0 ? "ДДС за внасяне (месец)" : "ДДС за възстановяване (месец)", money(Math.abs(vatDue), "EUR"), vatDue >= 0 ? "warn" : "ok", "invoices")}
       ${card("произведено днес (бр.)", erpNum(todayQty), "ok", "tasks")}
