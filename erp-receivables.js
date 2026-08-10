@@ -66,10 +66,9 @@ async function erpRenderReceivables() {
   const rq = (recvQuery || "").toLowerCase().trim();
   if (rq) rows = rows.filter(p => `${p.client || ""} ${p.invoiceNo || ""}`.toLowerCase().includes(rq));
 
-  // Групиране по клиент (болд сбор + фактурите под него). Подредбата следва
-  // РЕДА ОТ ФАЙЛА на импорта (ord): първо експортните по азбучен ред, после
-  // вътрешните — както е в GenCloud справката. Записи без ord (от издадени
-  // фактури в Системата) отиват след тях, по азбучен ред.
+  // Групиране по клиент (болд сбор + фактурите под него), подредени по азбучен
+  // ред на името. Реда от файла на импорта (ord) вече се ползва само ВЪТРЕ в
+  // групата и за подсказката за сливане на разписани имена.
   // Ключът е НОРМАЛИЗИРАНОТО име (без разлики в главни/малки букви и интервали),
   // за да не се цепи един клиент на две групи (напр. „KROHNE" и „Krohne ").
   // Показва се името от импортирания запис (с ord), ако има такъв.
@@ -83,7 +82,11 @@ async function erpRenderReceivables() {
   const BIG = 1e12;
   const gOrd = {};
   Object.keys(groups).forEach(k => { gOrd[k] = Math.min(...groups[k].map(p => (p.ord != null && p.ord !== "") ? Number(p.ord) : BIG)); });
-  const clientNames = Object.keys(groups).sort((a, b) => (gOrd[a] - gOrd[b]) || gName[a].name.localeCompare(gName[b].name, "bg"));
+  // Клиентите вървят ПО АЗБУЧЕН РЕД — независимо дали записът е дошъл от импорт
+  // (има ord) или е от фактура, издадена в Системата. Преди подредбата беше по
+  // реда във файла на GenCloud и нашите фактури увисваха най-отдолу.
+  const clientNames = Object.keys(groups).sort((a, b) =>
+    gName[a].name.localeCompare(gName[b].name, "bg", { numeric: true, sensitivity: "base" }));
   clientNames.forEach(k => groups[k].sort((a, b) => {
     const ao = (a.ord != null && a.ord !== "") ? Number(a.ord) : BIG;
     const bo = (b.ord != null && b.ord !== "") ? Number(b.ord) : BIG;
