@@ -248,9 +248,11 @@ function erpPayBar() {
     <span class="pay-sel-info">Избрани: <b>${sel.length}</b> · за плащане: <b>${payMoney(tot)} EUR</b> (с ДДС)</span>
     <span class="spacer"></span>
     <button class="btn btn-small" id="pay-print">🖨 Списък за Крис</button>
+    <button class="btn btn-small" id="pay-xls" title="Същият списък, но в Excel">⬇ Excel (избраните)</button>
     <button class="btn btn-small btn-primary" id="pay-paysel">✓ Отбележи избраните като платени</button>`;
   document.getElementById("pay-paysel").addEventListener("click", () => erpPayMarkPaid([...paySelected]));
   document.getElementById("pay-print").addEventListener("click", () => erpPayPrint(sel));
+  document.getElementById("pay-xls").addEventListener("click", () => erpPayExportXls(pybSortRows(sel), "избрани за плащане"));
 }
 
 /* ---------- Платено / върни ---------- */
@@ -459,7 +461,7 @@ async function erpPayDropCovered(o) {
 /* ---------- ⬇ Excel (за Кристина) ----------
    Сваля ТОЧНО показаното: същия филтър, същото търсене, същата подредба.
    Отдолу има ред с общите суми. */
-function erpPayExportXls(rows) {
+function erpPayExportXls(rows, whatOverride) {
   if (typeof reportExportXls !== "function") { alert("Модулът за експорт не е зареден."); return; }
   if (!rows || !rows.length) { alert("Няма редове за сваляне."); return; }
   const paidView = pybFilter === "paid";
@@ -485,9 +487,12 @@ function erpPayExportXls(rows) {
   const tPaid = rows.reduce((s, p) => s + payPaidSoFar(p), 0);
   const tLeft = rows.reduce((s, p) => s + payLeft(p), 0);
   body.push(["", "", "", "", "ОБЩО (EUR)", `${rows.length} фактури`, "", payMoney(tVat), payMoney(tPaid), payMoney(tLeft), "", ""]);
-  const what = { all: "всички за плащане", today: "за днес", week: "тази седмица", month: "до края на месеца", paid: "платени (архив)" }[pybFilter] || pybFilter;
+  const what = whatOverride
+    || { all: "всички за плащане", today: "за днес", week: "тази седмица", month: "до края на месеца", paid: "платени (архив)" }[pybFilter]
+    || pybFilter;
   const sortLbl = (PYB_SORTS.find(x => x[0] === pybSort) || ["", ""])[1];
-  const title = `Задължения — ${what}${pybSupplier ? " · " + pybSupplier : ""}${pybQuery ? ' · търсене: "' + pybQuery + '"' : ""} · ${pybFmt(payToday())} · подредба: ${sortLbl}`;
+  const title = `Задължения — ${what} · ${pybFmt(payToday())}`
+    + (whatOverride ? "" : `${pybSupplier ? " · " + pybSupplier : ""}${pybQuery ? " · търсене: " + pybQuery : ""} · подредба: ${sortLbl}`);
   reportExportXls(`zadalzheniya-${payToday()}`, title, [{ headers, rows: body }]);
 }
 
