@@ -10,6 +10,8 @@ let pybFilter = "all";           // all | week | month | paid
 let pybQuery = "";               // 🔎 търсене (доставчик / № / артикул)
 let paySelected = new Set();     // избрани id за „плащане днес"
 let pybPurchTried = false;       // покупките се теглят веднъж (за покритите стокови)
+let pybSort = "due";             // подредба на списъка (виж PYB_SORTS)
+let pybSupplier = "";            // филтър по доставчик
 
 function payNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
 function pybIso(d) { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
@@ -53,6 +55,37 @@ async function erpPaySave() {
   return true;
 }
 function payNextId() { let m = 0; (PAYABLES || []).forEach(p => { const n = Number(p.id) || 0; if (n > m) m = n; }); return m + 1; }
+
+/* ---------- Подредба ----------
+   „По подразбиране" пази досегашното поведение: маркираните „за днес" отгоре,
+   после по падеж. Останалите са изричен избор на потребителя. */
+const PYB_SORTS = [
+  ["due", "Падеж (най-скорошен отгоре)"],
+  ["dueDesc", "Падеж (най-далечен отгоре)"],
+  ["supplier", "Доставчик (А→Я)"],
+  ["doc", "Дата на документа (нови отгоре)"],
+  ["amount", "Сума (голяма отгоре)"],
+  ["invoice", "№ на фактурата"],
+];
+function pybSortRows(rows) {
+  const S = String;
+  const byDue = (a, b) => S(a.dueDate || "9999").localeCompare(S(b.dueDate || "9999"));
+  const sec = (a, b) => (S(a.supplier || "").localeCompare(S(b.supplier || ""), "bg") || byDue(a, b));
+  const cmp = {
+    due: (a, b) => {
+      if (pybFilter === "paid") return S(b.paidDate || "").localeCompare(S(a.paidDate || ""));
+      const af = a.forToday ? 0 : 1, bf = b.forToday ? 0 : 1;   // „за днес" отгоре
+      if (af !== bf) return af - bf;
+      return byDue(a, b);
+    },
+    dueDesc: (a, b) => S(b.dueDate || "").localeCompare(S(a.dueDate || "")),
+    supplier: (a, b) => sec(a, b),
+    doc: (a, b) => S(b.docDate || "").localeCompare(S(a.docDate || "")) || sec(a, b),
+    amount: (a, b) => (payLeft(b) || payNum(b.amountVat)) - (payLeft(a) || payNum(a.amountVat)) || sec(a, b),
+    invoice: (a, b) => S(a.invoiceNo || "").localeCompare(S(b.invoiceNo || ""), "bg", { numeric: true }),
+  }[pybSort] || (() => 0);
+  return rows.slice().sort(cmp);
+}
 
 /* ---------- Стокови разписки, покрити от фактура ----------
    Стоковата вдига склада, но НЕ е плащане — парите идват с фактурата, която я
@@ -109,12 +142,10 @@ async function erpRenderPayables() {
   // 🔎 Търсене (в паметта): доставчик / № фактура / артикул. Картите горе остават общи.
   const pq = (pybQuery || "").toLowerCase().trim();
   if (pq) rows = rows.filter(p => `${p.supplier || ""} ${p.invoiceNo || ""} ${p.article || ""}`.toLowerCase().includes(pq));
-  rows = rows.slice().sort((a, b) => {
-    if (pybFilter === "paid") return String(b.paidDate || "").localeCompare(a.paidDate || "");
-    const af = a.forToday ? 0 : 1, bf = b.forToday ? 0 : 1;   // „за днес" отгоре
-    if (af !== bf) return af - bf;
-    return String(a.dueDate || "9999").localeCompare(b.dueDate || "9999");
-  });
+  if (pybSupplier) rows = rows.filter(p => String(p.supplier || "").trim() === pybSupplier);
+  const supplierOpts = [...new Set((PAYABLES || []).map(p => String(p.supplier || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "bg"));
+  rows = pybSortRows(rows);
 
   const card = (label, arr, hl) => `<div class="pay-card ${hl || ""}"><div class="pay-card-l">${label}</div><div class="pay-card-v">${payMoney(sum(arr))} EUR</div><div class="pay-card-n">${arr.length} фактури</div></div>`;
   const tab = (key, label) => `<button class="btn btn-small ${pybFilter === key ? "btn-primary" : ""}" data-pf="${key}">${label}</button>`;
@@ -128,7 +159,14 @@ async function erpRenderPayables() {
       ${tab("month", "📅 До края на месеца")}
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="pyb-q" placeholder="🔎 доставчик / № / артикул…" value="${escapeAttr(pybQuery)}" style="min-width:190px" autocomplete="off" />
+      <label class="erp-inline">Доставчик
+        <select id="pyb-supplier"><option value="">Всички</option>${supplierOpts.map(s => `<option ${s === pybSupplier ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}</select></label>
+      <label class="erp-inline">Подреди по
+        <select id="pyb-sort">${PYB_SORTS.map(([k, l]) => `<option value="${k}" ${k === pybSort ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      ${pybSupplier ? '<button class="btn btn-small" id="pyb-clearf">✕ Изчисти филтъра</button>' : ""}
       <span class="spacer"></span>
+      <span class="erp-count">${rows.length} ${rows.length === 1 ? "фактура" : "фактури"} · ${payMoney(rows.reduce((s, p) => s + (pybFilter === "paid" ? payNum(p.amountVat) : payLeft(p)), 0))} EUR</span>
+      <button class="btn btn-small" id="pyb-xls" title="Сваля точно това, което се вижда — със същия филтър и подредба">⬇ Excel</button>
     </div>
     <div class="pay-cards">
       ${card("📅 Тази седмица", weekItems, "pay-card-week")}
@@ -187,6 +225,14 @@ async function erpRenderPayables() {
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
   v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpPayPartial(Number(b.dataset.part))));
+  const sSel = document.getElementById("pyb-sort");
+  if (sSel) sSel.addEventListener("change", e => { pybSort = e.target.value; erpRenderPayables(); });
+  const supSel = document.getElementById("pyb-supplier");
+  if (supSel) supSel.addEventListener("change", e => { pybSupplier = e.target.value; paySelected.clear(); erpRenderPayables(); });
+  const clrF = document.getElementById("pyb-clearf");
+  if (clrF) clrF.addEventListener("click", () => { pybSupplier = ""; erpRenderPayables(); });
+  const xls = document.getElementById("pyb-xls");
+  if (xls) xls.addEventListener("click", () => erpPayExportXls(rows));
   const rmc = document.getElementById("pyb-rmcov"); if (rmc) rmc.addEventListener("click", pybRemoveCovered);
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpPayUnpay(Number(b.dataset.unpay))));
   erpPayBar();
@@ -408,6 +454,41 @@ async function erpPayDropCovered(o) {
     return true;
   });
   if (PAYABLES.length !== before) await erpPaySave();
+}
+
+/* ---------- ⬇ Excel (за Кристина) ----------
+   Сваля ТОЧНО показаното: същия филтър, същото търсене, същата подредба.
+   Отдолу има ред с общите суми. */
+function erpPayExportXls(rows) {
+  if (typeof reportExportXls !== "function") { alert("Модулът за експорт не е зареден."); return; }
+  if (!rows || !rows.length) { alert("Няма редове за сваляне."); return; }
+  const paidView = pybFilter === "paid";
+  const headers = [
+    { label: "Падеж" }, { label: "Дни", num: true }, { label: "№ Фактура" }, { label: "Дата док." },
+    { label: "Доставчик" }, { label: "Артикул" },
+    { label: "Сума без ДДС", num: true }, { label: "Сума с ДДС", num: true },
+    { label: "Платено", num: true }, { label: "Остава", num: true },
+    { label: "Плащане" }, { label: paidView ? "Платена на" : "Статус" },
+  ];
+  const body = rows.map(p => {
+    const dl = payDaysLeft(p.dueDate);
+    const st = p.paid ? "платена" : (payPaidSoFar(p) > 0 ? "частично платена" : (dl != null && dl < 0 ? "ПРОСРОЧЕНА" : "за плащане"));
+    return [
+      pybFmt(p.dueDate), (dl == null ? "" : dl), p.invoiceNo || "", pybFmt(p.docDate),
+      p.supplier || "", p.article || "",
+      payMoney(p.amount), payMoney(p.amountVat),
+      payPaidSoFar(p) ? payMoney(payPaidSoFar(p)) : "", payMoney(payLeft(p)),
+      p.payMethod || "Банка", paidView ? pybFmt(p.paidDate) : st,
+    ];
+  });
+  const tVat = rows.reduce((s, p) => s + payNum(p.amountVat), 0);
+  const tPaid = rows.reduce((s, p) => s + payPaidSoFar(p), 0);
+  const tLeft = rows.reduce((s, p) => s + payLeft(p), 0);
+  body.push(["", "", "", "", "ОБЩО (EUR)", `${rows.length} фактури`, "", payMoney(tVat), payMoney(tPaid), payMoney(tLeft), "", ""]);
+  const what = { all: "всички за плащане", today: "за днес", week: "тази седмица", month: "до края на месеца", paid: "платени (архив)" }[pybFilter] || pybFilter;
+  const sortLbl = (PYB_SORTS.find(x => x[0] === pybSort) || ["", ""])[1];
+  const title = `Задължения — ${what}${pybSupplier ? " · " + pybSupplier : ""}${pybQuery ? ' · търсене: "' + pybQuery + '"' : ""} · ${pybFmt(payToday())} · подредба: ${sortLbl}`;
+  reportExportXls(`zadalzheniya-${payToday()}`, title, [{ headers, rows: body }]);
 }
 
 /* ---------- Печат на списък за плащане (за Крис) ---------- */
