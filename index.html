@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=323" />
+  <link rel="stylesheet" href="styles.css?v=324" />
   <link rel="stylesheet" href="erp.css?v=300" />
 </head>
 <body>
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 644</p>
+      <p class="login-version">версия 645</p>
     </form>
   </div>
 
@@ -391,7 +391,7 @@
           <button id="tasks-rogosh" class="btn btn-paint" hidden>🔧 ЦЕХ РОГОШ</button>
           <button id="tasks-nit" class="btn btn-paint" hidden>🔩 ЗАНИТВАНЕ</button>
           <button id="tasks-myplan" class="btn btn-plan" hidden title="Планът за смяната, зададен от офиса">📅 План за смяната</button>
-          <button id="tasks-leave" class="btn btn-leave">🏖 Поискай отпуск</button>
+          <span id="tasks-leaveban" class="leave-ban"></span>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -475,7 +475,7 @@
       <div class="mini-head">
         <h3>🔧 ЦЕХ РОГОШ — сериен монтаж (дневен отчет)</h3>
         <span>
-          <button id="rogosh-leave" class="btn btn-small btn-leave">🏖 Поискай отпуск</button>
+          <span id="rogosh-leaveban" class="leave-ban"></span>
           <button id="rogosh-logout" class="btn btn-small btn-danger" hidden>Изход</button>
           <button id="rogosh-close" class="btn btn-small">Затвори</button>
         </span>
@@ -492,7 +492,7 @@
         <span>
           <button id="nit-alltasks" class="btn btn-small" title="Всички поточни задачи за цех Занитване от Цехове">📋 Всички задачи</button>
           <button id="nit-weekplan" class="btn btn-small" title="Приоритетите за седмицата (слагат се от заявките)">🗓 План за седмицата</button>
-          <button id="nit-leave" class="btn btn-small btn-leave">🏖 Поискай отпуск</button>
+          <span id="nit-leaveban" class="leave-ban"></span>
           <button id="nit-logout" class="btn btn-small btn-danger" hidden>Изход</button>
           <button id="nit-close" class="btn btn-small">Затвори</button>
         </span>
@@ -672,7 +672,7 @@
   <script src="erp-payroll.js?v=220"></script>
   <script src="erp-erptable.js?v=178"></script>
   <script src="erp-finance.js?v=179"></script>
-  <script src="erp-leaves.js?v=8"></script>
+  <script src="erp-leaves.js?v=9"></script>
   <script src="nav-back.js?v=164"></script>
   <script src="ui-guards.js?v=1"></script>
   <script src="assistant.js?v=179"></script>

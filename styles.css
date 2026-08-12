@@ -1445,6 +1445,10 @@ tr.times-click:hover td { background: #ecfdf5; }
 /* Цеховите преки пътища и „Поискай отпуск" не са за админския изглед */
 .prod-mode .tasks-head-actions .btn-paint,
 .prod-mode .tasks-head-actions .btn-leave { display: none; }
+/* Съобщение вместо бутона „Поискай отпуск" (Цехове / РОГОШ / ЗАНИТВАНЕ) */
+.leave-ban { display: inline-block; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;
+  border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 800; white-space: nowrap; }
+.leave-ban:empty { display: none; }
 /* Тесни падащи менюта — да не заемат половината лента */
 .prod-mode .tasks-controls select { max-width: 165px; font-size: 12.5px; padding: 4px 6px; }
 .prod-mode .tasks-controls input[type="search"] { max-width: 190px; font-size: 12.5px; }

@@ -279,11 +279,21 @@ function leaveRenderCalendar(box, titleEl) {
   box.innerHTML = `<div class="lv-grid lv-grid-wk">${cells}</div>`;
 }
 
-/* ---------- Бутон за служителите (в Цехове / РОГОШ / ЗАНИТВАНЕ) ---------- */
+/* ---------- Съобщение при служителите (в Цехове / РОГОШ / ЗАНИТВАНЕ) ----------
+   Вместо бутона „Поискай отпуск" стои надпис. Смяната на текста (или махането
+   му) е един ред тук: празен низ → нищо не се показва. */
+const LEAVES_NOTICE = "🚫 Отпуски за Август 2026 са забранени";
 function leavesInit() {
+  ["tasks-leaveban", "rogosh-leaveban", "nit-leaveban"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = LEAVES_NOTICE;
+    el.hidden = !LEAVES_NOTICE;
+  });
+  // Ако някъде е останал старият бутон — да не виси без действие.
   ["tasks-leave", "rogosh-leave", "nit-leave"].forEach(id => {
     const b = document.getElementById(id);
-    if (b) b.addEventListener("click", () => leaveRequestDialog({}));
+    if (b) b.hidden = true;
   });
 }
 document.addEventListener("DOMContentLoaded", leavesInit);
