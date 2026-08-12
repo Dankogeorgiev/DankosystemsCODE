@@ -437,7 +437,7 @@ async function leaveBalImport(file, done) {
 /* ---------- Отпуски от НАЧАЛНИЯ екран (без достъп до Финанси) ----------
    Списък с имейли, които виждат бутона „🏖 Отпуски" до Склад/ЕРП. Отваря същия
    офис изглед (чакащи, одобряване, календар, оставащи дни) в собствен прозорец. */
-const LEAVES_MAIN_EMAILS = ["angelov@dankosystems.com"];
+const LEAVES_MAIN_EMAILS = ["angelov@dankosystems.com", "grigor.baykov@dankosystems.com", "dankog@gmail.com"];
 function leavesMainAllowed() {
   const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return LEAVES_MAIN_EMAILS.includes(e);
