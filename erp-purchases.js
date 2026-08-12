@@ -311,7 +311,10 @@ async function erpRenderPurchaseForm(o) {
         <label id="pu-term-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pu-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" placeholder="напр. 30" /></label>
         <label id="pu-due-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Дата за плащане <input type="date" id="pu-due" value="${escapeAttr(due)}" /></label>
         <label id="pu-paid-wrap" ${st === "deferred" ? 'style="display:none"' : ""}>Платена на <input type="date" id="pu-paiddate" value="${escapeAttr(o.paidDate || "")}" /></label>
-        <label>Валута <select id="pu-cur"><option ${erpPuCur(o) === "BGN" ? "selected" : ""}>BGN</option><option ${erpPuCur(o) === "EUR" ? "selected" : ""}>EUR</option></select></label>
+        <label>Валута ${erpPuCur(o) === "BGN"
+          ? `<span class="pu-cur-old">BGN (стар документ)</span>
+             <button type="button" class="btn btn-small" id="pu-cur-eur" title="Разделя цените по редовете на 1.95583 и сменя валутата на EUR">⇄ Превърни в EUR</button>`
+          : `<select id="pu-cur" disabled title="Всички покупки се водят в евро"><option selected>EUR</option></select>`}</label>
         <label>ДДС ставка % <select id="pu-vat">${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
         <label>Вид разход <select id="pu-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === o.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
       </div>
@@ -357,7 +360,16 @@ async function erpRenderPurchaseForm(o) {
     if (prof && erpPuApplyProfile(o, prof)) erpRenderPurchaseForm(o);
   });
   document.getElementById("pu-pay").addEventListener("change", e => { o.payStatus = e.target.value; erpPuApplyPay(o); erpRenderPurchaseForm(o); });
-  document.getElementById("pu-cur").addEventListener("change", e => { o.currency = e.target.value; erpPuTotalsBox(o); });
+  const curEur = document.getElementById("pu-cur-eur");
+  if (curEur) curEur.addEventListener("click", () => {
+    if (!confirm(`Да превърна ли документа в ЕВРО?\n\nВсяка цена по редовете се дели на ${PU_EUR_BGN} (официалният курс), а валутата става EUR.\nПравѝ го само ако сумите в него са в лева.`)) return;
+    (o.lines || []).forEach(l => {
+      const p = erpToNum(l.unitPrice);
+      if (p) l.unitPrice = Math.round((p / PU_EUR_BGN) * 10000) / 10000;
+    });
+    o.currency = "EUR";
+    erpRenderPurchaseForm(o);
+  });
   document.getElementById("pu-vat").addEventListener("change", e => { o.vatRate = Number(e.target.value); erpPuTotalsBox(o); });
   document.getElementById("pu-etype").addEventListener("change", e => {
     const old = o.expenseType; o.expenseType = e.target.value;

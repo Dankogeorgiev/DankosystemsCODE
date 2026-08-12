@@ -660,6 +660,7 @@ img.ai-doc-content { max-width: none; }
 .pu-state.new { background: #e0e7ff; color: #3730a3; }
 .pu-state.warn { background: #fef3c7; color: #92400e; }
 .pu-state.ok { background: #dcfce7; color: #166534; }
+.pu-cur-old { display: inline-block; font-size: 12px; font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 4px 8px; margin-right: 6px; }
 
 /* „Производство за склад" като една кликаема заявка в списъка */
 .co-stock-one { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; margin-bottom: 10px; }
