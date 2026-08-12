@@ -1161,6 +1161,48 @@ async function erpCOToNitPlan(o) {
 }
 
 /* ---------- Пускане в производство (поточно, серии между поръчки) ---------- */
+/* Какво би дошло от склада при пускане на тази заявка — изделията И частите им.
+   Ползва същата разбивка като самото пускане (erpFlowSteps с карта наличности),
+   но само за преглед. Наличностите са ПРЯСНИ, минус резервираното от другите
+   заявки (flow_netting), за да не питаме за бройки, които са заети. */
+async function erpCOStockPreview(o, lines) {
+  if (typeof erpFlowSteps !== "function") return [];
+  const stock = {};
+  try {
+    const { data, error } = await erpSelectAll("v_product_stock", "id,stock");
+    if (error) return [];
+    (data || []).forEach(r => { stock[r.id] = Math.max(0, Number(r.stock) || 0); });
+  } catch (e) { return []; }
+  try {
+    const { data: cfg } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (cfg && cfg.data && cfg.data.byOrder) || {};
+    Object.entries(byOrder).forEach(([oid, per]) => {
+      if (String(oid) === String(o.id)) return;               // своята резервация не се брои
+      Object.entries(per || {}).forEach(([pid, q]) => {
+        stock[pid] = Math.max(0, (Number(stock[pid]) || 0) - (Number(q) || 0));
+      });
+    });
+  } catch (e) { /* без резервации — по-скоро ще попитаме, отколкото да пропуснем */ }
+  const consumed = {};
+  const topIds = new Set(lines.map(l => String(l.productId)));
+  const need = {};
+  lines.forEach(l => {
+    need[String(l.productId)] = (need[String(l.productId)] || 0) + l.qty;
+    try {
+      erpFlowSteps({ erpProductId: l.productId, erpQty: l.qty },
+        { stock, consumed, matSubs: o.matSubs || null });
+    } catch (e) {}
+  });
+  return Object.entries(consumed)
+    .filter(([, q]) => (Number(q) || 0) > 0)
+    .map(([pid, q]) => {
+      const p = (ERP.prodById || {})[pid] || {};
+      return { pid, code: p.code || "", name: p.name || ("№ " + pid), use: Number(q) || 0,
+        need: need[String(pid)] || Number(q) || 0, top: topIds.has(String(pid)) };
+    })
+    .sort((a, b) => (b.top - a.top) || String(a.code).localeCompare(String(b.code), "bg"));
+}
+
 async function erpCOProduce(o) {
   if (typeof produceAllowed === "function" && !produceAllowed()) { alert("Пускането в производство към момента е позволено само на Данко и Григор."); return; }
   if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
@@ -1204,19 +1246,20 @@ async function erpCOProduce(o) {
   if (already) msg += `\n\n♻ Вече има пуснато производство по тази заявка. НОВИТЕ редове/бройки ще се ДОБАВЯТ към него, а вече произведеното и отчетеното по цеховете СЕ ЗАПАЗВАТ (нищо не се пуска отначало).`;
   if (!confirm(msg)) return;
 
-  // Има ли ГОТОВИ бройки от самите изделия на склад? Ако са произведени за
-  // друга (още непродадена) заявка, не бива да се „изяждат" от тази — питаме.
-  let noNetTop = false;
-  const ready = lines.map(l => {
-    const p = (ERP.prodById || {})[l.productId] || {};
-    return { code: p.code || "", name: p.name || "", have: Number(p.stock) || 0, need: l.qty };
-  }).filter(x => x.have > 0);
+  // Какво БИ СЕ ВЗЕЛО от склада — не само готовите изделия, а и частите им.
+  // Наличностите се четат ПРЯСНО (кешът от отварянето на ЕРП остарява) и от тях
+  // се маха резервираното от другите заявки.
+  let noNet = false;
+  const ready = await erpCOStockPreview(o, lines);
   if (ready.length) {
-    noNetTop = await new Promise(resolve => {
+    noNet = await new Promise(resolve => {
       const { wrap, close } = erpDialog(`
-        <h3>📦 Има готови бройки на склад</h3>
-        <p class="hint">В Склад детайли има <b>готови</b> бройки от изделия в тази заявка. Ако са произведени за <b>друга заявка</b>, която още не е продадена/взета, избери „Произведи всичко наново" — наличните остават запазени за нея. Ако наистина са свободни — „Ползвай наличните".</p>
-        <ul>${ready.map(x => `<li><b>${escapeHtml(x.code)}</b> ${escapeHtml(x.name)} — налични <b>${erpNum(x.have)}</b> бр. · нужни ${erpNum(x.need)} бр.</li>`).join("")}</ul>
+        <h3>📦 За тази заявка има налични бройки в склада</h3>
+        <p class="hint">Ако са произведени за <b>друга заявка</b>, която още не е продадена/взета, избери „Произведи всичко наново" — наличните остават запазени за нея. Ако наистина са свободни — „Ползвай наличните" (толкова не се пуска в цех).</p>
+        <div style="max-height:46vh;overflow:auto"><table class="report-table erp-table">
+          <thead><tr><th>Код</th><th>Изделие</th><th class="num">Нужни</th><th class="num">От склада</th></tr></thead>
+          <tbody>${ready.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}${x.top ? "" : ' <span class="erp-muted">(част)</span>'}</td><td class="num">${erpNum(x.need)}</td><td class="num"><b>${erpNum(x.use)}</b></td></tr>`).join("")}</tbody>
+        </table></div>
         <div class="erp-dialog-actions">
           <button class="btn" id="nn-use">➖ Ползвай наличните (произвеждаме по-малко)</button>
           <button class="btn btn-primary" id="nn-new">🏭 Произведи ВСИЧКО наново (пази наличните)</button>
@@ -1229,7 +1272,8 @@ async function erpCOProduce(o) {
   const res = await erpFlowApply({
     clientName: o.clientName || "", deadline: o.deadline || "", sampleId: o.id,
     sampleType: "customer_order", orderNo: o.ourNo || "",
-    noNetTop,   // true = не пипай готовите бройки на склад (пазени за друга заявка)
+    noNet,      // true = складът изобщо не се пипа (нито изделията, нито частите)
+    noNetTop: noNet,
     matSubs: o.matSubs || null,   // смяна на материал само за тази поръчка (Щрипс → Шина)
     stockTop: true,   // готовото изделие влиза в Склад детайли при завършване (после се изписва с Продажба)
   }, lines);
@@ -1261,6 +1305,7 @@ async function erpCOProduce(o) {
   }
   alert(`Готово! Пуснах поточно производство.\n`
     + `Всяка операция приема детайлите постепенно, колкото са отчетени в предната.`
+    + (noNet ? `\n\n🏭 По твой избор складът НЕ е пипан — всичко се произвежда наново, наличните остават запазени.` : "")
     + (fs.length ? `\n\n📦 Взети от склад (не се пускат в цех):\n` + fs.map(f => `• ${f.code ? f.code + " " : ""}${f.name}: ${erpNum(f.qty)} бр.${f.wip ? ` (⏳ ${erpNum(f.wip)} бр. от тях идват от „Производство за склад" — още в цех)` : ""}`).join("\n") : "")
     + (matShort.length ? `\n\n⚠ НЯМА ДА СТИГНЕ МАТЕРИАЛ (виж таб „⚠ Липсващи материали"):\n` + matShort.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: нужно ${erpNum(m.need)}, налично ${erpNum(m.have)} ${m.unit || ""}`).join("\n") : "")
     + (miss.length ? `\n\n⚠ Сглобяване НЕ е пуснато — липсват детайли без рецепта/наличност:\n` + miss.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: ${erpNum(m.qty)} бр.`).join("\n") : "")
