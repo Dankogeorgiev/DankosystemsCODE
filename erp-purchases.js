@@ -186,6 +186,7 @@ async function erpRenderPurchases() {
       <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
       <button class="btn btn-small" id="pu-dups" title="Намира фактури, въведени два пъти (един и същ номер) и позволява да изтриеш излишната">🔁 Дубликати</button>
+      <button class="btn btn-small" id="pu-bgn" title="Проверка: кои документи са записани в лева">💱 В лева</button>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
@@ -206,6 +207,7 @@ async function erpRenderPurchases() {
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
   document.getElementById("pu-dups").addEventListener("click", erpPuDupsReport);
+  document.getElementById("pu-bgn").addEventListener("click", erpPuBgnReport);
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
@@ -886,6 +888,38 @@ function erpPuTypesReport() {
    Показва ги групирани, с дата/доставчик/сума/статус, за да се изтрие
    излишната. Заприходена фактура се връща първо („↩ Върни за редакция"),
    за да не остане склад от нея. */
+/* ---------- 💱 Проверка: документи в ЛЕВА ----------
+   Всички покупки се водят в евро. Тук се вижда кои записи са останали с
+   валута BGN — за да се провери дали не е грешка при въвеждане. */
+function erpPuBgnReport() {
+  const rows = (erpPurchases || []).filter(p => String(p.currency || "").toUpperCase() === "BGN")
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const tot = rows.reduce((s, p) => s + erpPuTotals(p).total, 0);
+  const body = rows.map(p => {
+    const t = erpPuTotals(p);
+    return `<tr>
+      <td>${escapeHtml(erpDMY(p.date) || "")}</td>
+      <td><b>${escapeHtml(p.invoiceNo || "—")}</b>${p.docType === "goods" ? ' <span class="erp-muted">стокова</span>' : ""}</td>
+      <td>${escapeHtml(p.supplierName || "")}</td>
+      <td class="num">${erpPuMoney(t.total, "BGN")}</td>
+      <td class="num erp-muted">${erpPuMoney(t.total / PU_EUR_BGN, "EUR")}</td>
+      <td>${p.posted ? "✓ заприходена" : "чернова"}</td>
+      <td class="erp-row-actions"><button class="btn btn-small" data-bopen="${escapeAttr(String(p.id))}">Отвори</button></td>
+    </tr>`;
+  }).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>💱 Документи, записани в ЛЕВА (${rows.length})</h3>
+    <p class="hint">Всички покупки се водят в евро. Ако някой от тези е въведен по погрешка в лева, отвори го и натисни „⇄ Превърни в EUR" — цените по редовете се делят на ${PU_EUR_BGN}. Ако документът наистина е в лева (стар), остави го както си е.</p>
+    ${rows.length ? `<div style="max-height:58vh;overflow:auto"><table class="report-table erp-table">
+      <thead><tr><th>Дата</th><th>№</th><th>Доставчик</th><th class="num">Сума (BGN)</th><th class="num">≈ EUR</th><th>Статус</th><th></th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><td colspan="3"><b>ОБЩО</b></td><td class="num"><b>${erpPuMoney(tot, "BGN")}</b></td><td class="num">${erpPuMoney(tot / PU_EUR_BGN, "EUR")}</td><td colspan="2"></td></tr></tfoot>
+    </table></div>` : `<p class="hint">✅ Няма нито един документ в лева — всичко е в евро.</p>`}
+    <div class="erp-dialog-actions"><span class="spacer" style="flex:1"></span><button class="btn" id="pu-bgn-close">Затвори</button></div>`);
+  wrap.querySelector("#pu-bgn-close").addEventListener("click", close);
+  wrap.querySelectorAll("[data-bopen]").forEach(b => b.addEventListener("click", () => { close(); erpOpenPurchase(b.dataset.bopen); }));
+}
+
 function erpPuDupsReport() {
   const groups = {};
   (erpPurchases || []).forEach(p => {
