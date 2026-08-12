@@ -82,7 +82,10 @@ function erpCOAddClient(o) {
     <label>Телефон<input type="text" id="nc-phone" /></label>
     <label>Имейл<input type="text" id="nc-email" /></label>
     <label>Град<input type="text" id="nc-city" /></label>
+    <label>Улица / адрес<input type="text" id="nc-street" /></label>
+    <label>ЕИК<input type="text" id="nc-eik" placeholder="за фактурите" /></label>
     <label>ДДС №<input type="text" id="nc-vat" /></label>
+    <label>МОЛ<input type="text" id="nc-mol" placeholder="управител / МОЛ" /></label>
     <div class="erp-dialog-actions"><button class="btn" id="nc-cancel">Отказ</button><button class="btn btn-primary" id="nc-save">Добави</button></div>
     <p class="save-status" id="nc-status"></p>`);
   wrap.querySelector("#nc-cancel").addEventListener("click", close);
@@ -91,11 +94,17 @@ function erpCOAddClient(o) {
     const status = wrap.querySelector("#nc-status");
     if (!name) { status.textContent = "Въведи име."; return; }
     const val = id => { const el = wrap.querySelector("#nc-" + id); const v = el ? el.value.trim() : ""; return v || null; };
-    const payload = { kind: "customer", name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), vat: val("vat") };
+    const payload = {
+      kind: "customer", name, person: val("person"), phone: val("phone"), email: val("email"),
+      city: val("city"), street: val("street"), vat: val("vat"), eik: val("eik"), mol: val("mol"),
+    };
     status.textContent = "Записва…";
-    const { data, error } = await sb.from("partners").insert(payload).select("id").single();
+    // Пази и полета, които базата още няма (ЕИК/МОЛ) — без промени по нея.
+    const { id, error } = (typeof erpPartnerSaveSafe === "function")
+      ? await erpPartnerSaveSafe(null, payload)
+      : await sb.from("partners").insert(payload).select("id").single().then(r => ({ id: r.data && r.data.id, error: r.error }));
     if (error) { status.textContent = "⚠ " + error.message; return; }
-    o.clientName = name; o.clientId = data.id;
+    o.clientName = name; o.clientId = id;
     erpClientsCache = null;                                     // клиентите да се презаредят
     if (typeof erpPartners !== "undefined") erpPartners = null; // и екранът Клиенти/Доставчици
     close();

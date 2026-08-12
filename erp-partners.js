@@ -5,10 +5,68 @@ let erpPartnerKind = "customer"; // customer | supplier
 let erpPartners = null;
 let erpPartnerSearch = "";
 
+/* ---------- Полета, които базата още няма (ЕИК/МОЛ) — БЕЗ SQL ----------
+   Ако таблицата partners няма колони eik/mol, стойностите се пазят в
+   app_config (id = "partners_extra": { byId: { "<id>": {eik, mol} } }) и се
+   сливат при зареждане. Така новият клиент се въвежда изцяло от екрана. */
+let PT_EXTRA = null;
+async function ptExtraLoad() {
+  if (PT_EXTRA) return PT_EXTRA;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "partners_extra").maybeSingle();
+    PT_EXTRA = (data && data.data && data.data.byId) || {};
+  } catch (e) { PT_EXTRA = {}; }
+  return PT_EXTRA;
+}
+async function ptExtraSave(id, fields) {
+  if (!id) return;
+  await ptExtraLoad();
+  const k = String(id);
+  const rec = { ...(PT_EXTRA[k] || {}), ...(fields || {}) };
+  Object.keys(rec).forEach(f => { if (!rec[f]) delete rec[f]; });
+  if (Object.keys(rec).length) PT_EXTRA[k] = rec; else delete PT_EXTRA[k];
+  const { error } = await sb.from("app_config")
+    .upsert({ id: "partners_extra", data: { byId: PT_EXTRA }, updated_at: new Date().toISOString() });
+  if (error) console.warn("partners_extra:", error.message || error);
+}
+function ptMergeExtra(list) {
+  (list || []).forEach(p => {
+    const x = PT_EXTRA && PT_EXTRA[String(p.id)];
+    if (!x) return;
+    if (!p.eik && x.eik) p.eik = x.eik;
+    if (!p.mol && x.mol) p.mol = x.mol;
+  });
+  return list;
+}
+/* Записва партньор БЕЗ да иска промени по базата: при липсваща колона пробва
+   пак без нея и слага стойността в app_config. Връща { id, error }. */
+async function erpPartnerSaveSafe(existing, payload) {
+  const doSave = async pl => existing
+    ? (await sb.from("partners").update(pl).eq("id", existing.id).select("id").single())
+    : (await sb.from("partners").insert(pl).select("id").single());
+  let res = await doSave(payload);
+  if (res.error && /column|schema cache/i.test(res.error.message || "")) {
+    const pl2 = { ...payload }; delete pl2.eik; delete pl2.mol;
+    res = await doSave(pl2);
+    if (!res.error) {
+      const id = existing ? existing.id : (res.data && res.data.id);
+      try { await ptExtraSave(id, { eik: payload.eik || "", mol: payload.mol || "" }); } catch (e) {}
+      return { id, error: null, viaExtra: true };
+    }
+  }
+  if (res.error) return { id: null, error: res.error };
+  const id = existing ? existing.id : (res.data && res.data.id);
+  // Колоните ги има → чистим стария резервен запис, ако е останал.
+  if (PT_EXTRA && PT_EXTRA[String(id)]) { try { await ptExtraSave(id, { eik: "", mol: "" }); } catch (e) {} }
+  return { id, error: null };
+}
+
 async function erpLoadPartners() {
   const { data, error } = await erpSelectAll("partners", "*");
   if (error) throw error;
   erpPartners = data || [];
+  await ptExtraLoad();
+  ptMergeExtra(erpPartners);
 }
 
 async function erpRenderPartners() {
@@ -102,15 +160,7 @@ function erpEditPartner(id) {
     if (!name) { wrap.querySelector("#pt-status").textContent = "Въведи име."; return; }
     const payload = { kind, name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), street: val("street"), country: val("country"), vat: val("vat"), eik: val("eik"), mol: val("mol"), note: val("note") };
     wrap.querySelector("#pt-status").textContent = "Записва…";
-    let error;
-    const doSave = async pl => p ? (await sb.from("partners").update(pl).eq("id", p.id)) : (await sb.from("partners").insert(pl));
-    ({ error } = await doSave(payload));
-    if (error && /column|schema cache/i.test(error.message || "")) {
-      // Базата още няма колоните eik/mol → записваме без тях и казваме какво да се пусне.
-      const pl2 = { ...payload }; delete pl2.eik; delete pl2.mol;
-      ({ error } = await doSave(pl2));
-      if (!error) alert("⚠ Записано, но БЕЗ ЕИК и МОЛ — базата няма тези колони още.\n\nПусни в Supabase → SQL Editor:\nALTER TABLE partners ADD COLUMN IF NOT EXISTS eik text;\nALTER TABLE partners ADD COLUMN IF NOT EXISTS mol text;\n\nСлед това ги попълни отново.");
-    }
+    const { error } = await erpPartnerSaveSafe(p, payload);
     if (error) { wrap.querySelector("#pt-status").textContent = "⚠ " + error.message; return; }
     close(); erpPartners = null; erpRenderPartners();
   });

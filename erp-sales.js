@@ -48,7 +48,12 @@ async function erpLoadSaleClients() {
   try {
     // "*" — за да идват ВСИЧКИ данни на клиента (ЕИК, МОЛ, адрес…) във фактурата.
     const { data } = await erpSelectAll("partners", "*", "kind", "customer");
-    return (data || []).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    const list = (data || []).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    // ЕИК/МОЛ може да са в резервния запис (ако базата няма тези колони).
+    try {
+      if (typeof ptExtraLoad === "function") { await ptExtraLoad(); ptMergeExtra(list); }
+    } catch (e) {}
+    return list;
   } catch { return []; }
 }
 
