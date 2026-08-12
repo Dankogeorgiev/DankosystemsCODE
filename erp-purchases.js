@@ -74,8 +74,9 @@ function erpPuAddDays(dateStr, days) {
   d.setDate(d.getDate() + (Number(days) || 0));
   return d.toISOString().slice(0, 10);
 }
-function erpPuCur(o) { return o.currency || "BGN"; }
-function erpPuMoney(n, cur) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (cur || "BGN"); }
+// Валутата по подразбиране е ЕВРО. BGN остава избираемо (стари документи).
+function erpPuCur(o) { return o.currency || "EUR"; }
+function erpPuMoney(n, cur) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (cur || "EUR"); }
 
 /* Статус на плащане (4 избора):
    deferred — Отложено по банка (разсрочено) → неплатена, отива в „Задължения";
@@ -241,9 +242,22 @@ function erpPuFillRows() {
   tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
 }
 
-function erpNewPurchase() {
+/* Нова фактура-разход. По подразбиране е в ЕВРО (BGN остава за избор при
+   стари/чуждестранни документи). Ако е подаден образец (seed) — пренася
+   доставчика и настройките от предишната, за да се въвеждат бързо една след
+   друга; номерът, редовете и файловете НЕ се пренасят. */
+function erpNewPurchase(seed) {
   const today = new Date().toISOString().slice(0, 10);
-  erpRenderPurchaseForm({ type: "фактура", supplierName: "", supplierId: null, invoiceNo: "", date: today, payStatus: "deferred", paymentMethod: "Банка", termDays: 0, dueDate: "", paid: false, paidDate: "", paidMethod: "", currency: "BGN", vatRate: 20, note: "", files: [], posted: false, lines: [] });
+  const s = seed || {};
+  erpRenderPurchaseForm({
+    type: "фактура", docType: s.docType || "invoice",
+    supplierName: s.supplierName || "", supplierId: s.supplierId || null,
+    invoiceNo: "", date: s.date || today,
+    payStatus: s.payStatus || "deferred", paymentMethod: s.paymentMethod || "Банка",
+    termDays: s.termDays || 0, dueDate: "", paid: false, paidDate: "", paidMethod: "",
+    currency: s.currency || "EUR", vatRate: s.vatRate != null ? s.vatRate : 20,
+    expenseType: s.expenseType || "", note: "", files: [], posted: false, lines: [],
+  });
 }
 function erpOpenPurchase(id) {
   const o = (erpPurchases || []).find(x => String(x.id) === String(id));
@@ -275,10 +289,12 @@ async function erpRenderPurchaseForm(o) {
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад</button>
       <span class="erp-count">${escapeHtml((o.docType === "goods" ? "Стокова разписка № " : "Фактура № ") + (o.invoiceNo || "")) || "Нов документ"}${o.docType !== "goods" && st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}${(o.coversIds || []).length ? ` · <span class="erp-muted">покрива ${(o.coversIds || []).length} стокови</span>` : ""}</span>
+      ${erpPuStateBadge(o)}
       <span class="spacer"></span>
+      <button class="btn btn-small" id="pu-next" title="Записва тази и отваря нова празна фактура със същия доставчик и настройки">➕ Следваща фактура</button>
       <button class="btn btn-small btn-primary" id="pu-save" title="Записва фактурата; ако има редове за склад — веднага ги и заприходява (пита за потвърждение)">${erpPuSaveLabel(o)}</button>
       ${locked
-        ? '<span class="erp-count">✓ Заприходена</span> <button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
+        ? '<button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
         : ""}
     </div>
     <div class="erp-co-form">
@@ -351,6 +367,7 @@ async function erpRenderPurchaseForm(o) {
   });
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
+  document.getElementById("pu-next").addEventListener("click", () => erpPuSaveClick(o, { next: true }));
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
   const addMat = document.getElementById("pu-add-mat"); if (addMat) addMat.addEventListener("click", () => erpPuAddMaterial(o));
   const addExp = document.getElementById("pu-add-exp"); if (addExp) addExp.addEventListener("click", () => { o.lines.push({ groupName: o.expenseType || "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
@@ -437,7 +454,7 @@ function erpPuSupplierProfile(name) {
   return {
     count: mine.length,
     payStatus: erpPuPayStatus(last), termDays: Number(last.termDays) || 0,
-    currency: last.currency || "BGN", vatRate: last.vatRate != null ? last.vatRate : 20,
+    currency: last.currency || "EUR", vatRate: last.vatRate != null ? last.vatRate : 20,
     expenseType: (mine.find(p => p.expenseType) || {}).expenseType || "",
     topArticles,
   };
@@ -533,7 +550,40 @@ function erpPuNeedsPost(o) {
   return (o.lines || []).some(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
 }
 function erpPuSaveLabel(o) { return erpPuNeedsPost(o) ? "💾 Запази и заприходи" : "💾 Запази"; }
-async function erpPuSaveClick(o) {
+/* Ясно на един поглед докъде е документът: нов / записан / заприходен. */
+function erpPuStateBadge(o) {
+  if (o.posted) {
+    const d = o.postedAt ? " · " + erpDMY(String(o.postedAt).slice(0, 10)) : "";
+    return `<span class="pu-state ok" title="Материалните редове са вдигнати в Склад материали и средните цени са обновени">✅ ЗАПРИХОДЕНА в склада${d}</span>`;
+  }
+  if (!o.id) return `<span class="pu-state new">🆕 нова — още не е записана</span>`;
+  return erpPuNeedsPost(o)
+    ? `<span class="pu-state warn" title="Записана е, но материалните ѝ редове още не са влезли в склада">💾 записана · ⏳ НЕ е заприходена</span>`
+    : `<span class="pu-state" title="Само разход — няма материални редове за склада">💾 записана</span>`;
+}
+/* Какво следва след успешен запис: остава, тръгва към следваща или към списъка.
+   Казва ЯСНО дали е само записана, или е и заприходена в склада. */
+function erpPuAfterSave(o, posted) {
+  const money = erpPuMoney(erpPuTotals(o).total, erpPuCur(o));
+  const { wrap, close } = erpDialog(`
+    <h3>${posted ? "✅ Заприходена в склада" : "💾 Записана"}</h3>
+    <p class="hint">${posted
+      ? "Материалните редове са вдигнати в Склад материали и средните цени са обновени."
+      : (erpPuNeedsPost(o)
+        ? `⏳ Документът е записан, но материалните му редове ОЩЕ НЕ са в склада. Натисни бутона „💾 Запази и заприходи“, когато си готов.`
+        : "Документът е записан. Няма материални редове — складът не се пипа.")}</p>
+    <p><b>${escapeHtml((o.docType === "goods" ? "Стокова № " : "Фактура № ") + (o.invoiceNo || "—"))}</b> · ${escapeHtml(o.supplierName || "")} · ${escapeHtml(erpDMY(o.date) || "")} · <b>${money}</b></p>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="pu-as-stay">✎ Остани в тази</button>
+      <button class="btn" id="pu-as-list">← Към списъка</button>
+      <button class="btn btn-primary" id="pu-as-next">➕ Въведи следваща</button>
+    </div>`);
+  wrap.querySelector("#pu-as-stay").addEventListener("click", close);
+  wrap.querySelector("#pu-as-list").addEventListener("click", () => { close(); erpRenderPurchases(); });
+  wrap.querySelector("#pu-as-next").addEventListener("click", () => { close(); erpNewPurchase(o); });
+}
+
+async function erpPuSaveClick(o, opts) {
   const btn = document.getElementById("pu-save");
   // Дубликат по № на фактурата — предупреждение още при записа.
   if (!o.posted && o.invoiceNo) {
@@ -546,12 +596,14 @@ async function erpPuSaveClick(o) {
     await erpSavePurchase(o); await erpLoadPurchases();
     try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
     if (erpPuNeedsPost(o)) {
-      await erpPostPurchase(o);   // пита за потвърждение; при успех пре-рендира формата
+      await erpPostPurchase(o, { silent: true });   // пита за потвърждение; при успех пре-рендира формата
       const b2 = document.getElementById("pu-save");
       if (b2) { b2.disabled = false; b2.textContent = erpPuSaveLabel(o); }
+      if (opts && opts.next) erpNewPurchase(o); else erpPuAfterSave(o, !!o.posted);
       return;
     }
     if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = erpPuSaveLabel(o); btn.disabled = false; } }, 1400); }
+    if (opts && opts.next) erpNewPurchase(o); else erpPuAfterSave(o, false);
   }
   catch (e) { if (btn) { btn.disabled = false; btn.textContent = erpPuSaveLabel(o); } alert("Грешка при запис: " + (e.message || e)); }
 }
@@ -975,7 +1027,7 @@ async function erpPostCoveringInvoice(o) {
   erpRenderPurchaseForm(o);
 }
 
-async function erpPostPurchase(o) {
+async function erpPostPurchase(o, opts) {
   if (o.posted) { alert("Вече е заприходена."); return; }
   // Фактура, ПОКРИВАЩА стокови разписки: складът е вдигнат от стоковите —
   // тук се осчетоводяват само парите (сумата отива в разходите/плащането).
@@ -1043,7 +1095,7 @@ async function erpPostPurchase(o) {
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSavePurchase(o); } catch {}
   await erpLoadAll(); await erpLoadPurchases();
-  alert(`Готово! Заприходени ${moves.length} материала. Средните цени (EUR) са обновени.`);
+  if (!(opts && opts.silent)) alert(`Готово! Заприходени ${moves.length} материала. Средните цени (EUR) са обновени.`);
   erpRenderPurchaseForm(o);
 }
 
