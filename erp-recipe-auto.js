@@ -22,6 +22,74 @@ function raRecipeContains(rootId, findId, seen) {
 }
 function raRecipeLineCount(pid) { return (ERP.linesByProduct[pid] || []).length; }
 
+/* ---------- Копие = НОВИ СВОИ ВЪЗЛИ ----------
+   Копираната рецепта не бива да има нищо общо с оригинала. Затова всеки възел
+   от нея се записва като НОВО изделие със своя рецепта (надолу по цялото
+   дърво). Материалите и операциите са общи каталози — те си остават каквито са.
+   Кодът на новия възел е следващият свободен номер (както се дават на ръка). */
+function raCodeIndex() {
+  const used = new Set();
+  let maxNum = 0;
+  (ERP.products || []).forEach(p => {
+    const c = String(p.code || "").trim();
+    if (!c) return;
+    used.add(c.toLowerCase());
+    if (/^\d{4,8}$/.test(c)) { const n = Number(c); if (n > maxNum) maxNum = n; }
+  });
+  return { used, maxNum };
+}
+function raNextCode(srcCode, idx) {
+  const c = String(srcCode || "").trim();
+  if (/^\d{4,8}$/.test(c) && idx.maxNum) {
+    const width = c.length;
+    for (let n = idx.maxNum + 1; n < idx.maxNum + 5000; n++) {
+      const s = String(n).padStart(width, "0");
+      if (!idx.used.has(s.toLowerCase())) { idx.used.add(s.toLowerCase()); idx.maxNum = n; return s; }
+    }
+  }
+  const base = c || "ВЪЗЕЛ";
+  for (let i = 2; i < 500; i++) {
+    const s = `${base}.${i}`;
+    if (!idx.used.has(s.toLowerCase())) { idx.used.add(s.toLowerCase()); return s; }
+  }
+  const f = `${base}.${Date.now()}`; idx.used.add(f.toLowerCase()); return f;
+}
+/* Прави СОБСТВЕНО копие на възел (и на неговите подвъзли) → id на новото изделие. */
+async function raCopyNode(childId, idx, map, created, depth) {
+  if (map[childId]) return map[childId];                  // един и същ възел — едно копие
+  if ((depth || 0) > 8) return childId;                   // предпазител срещу дълбоки/цикли
+  const src = ERP.prodById[childId];
+  if (!src) return childId;
+  const code = raNextCode(src.code, idx);
+  const ins = await sb.from("products").insert({
+    code, name: src.name || "",
+    is_semifinished: src.is_semifinished !== false,
+    group_name: src.group_name || null,
+    unit: src.unit || "бр.",
+    needs_recipe: !!src.needs_recipe,
+  }).select("id").single();
+  if (ins.error) throw ins.error;
+  const newId = ins.data.id;
+  map[childId] = newId;
+  created.push({ code, name: src.name || "", from: src.code || "" });
+  const lines = (ERP.linesByProduct[childId] || []).slice()
+    .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0));
+  const rows = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    let kid = l.child_product_id || null;
+    if (kid) kid = await raCopyNode(kid, idx, map, created, (depth || 0) + 1);
+    rows.push({
+      product_id: newId, position: i, quantity: l.quantity, unit: l.unit,
+      material_id: l.material_id || null, child_product_id: kid,
+      operation_id: l.operation_id || null,
+    });
+  }
+  const ok = rows.filter(r => r.material_id || r.child_product_id || r.operation_id);
+  if (ok.length) { const r = await sb.from("recipe_lines").insert(ok); if (r.error) throw r.error; }
+  return newId;
+}
+
 /* ---------- 1) Копирай рецепта от подобен продукт ---------- */
 function erpCopyRecipeFrom(targetId) {
   const target = ERP.prodById[targetId];
@@ -39,7 +107,7 @@ function erpCopyRecipeFrom(targetId) {
 
   const { wrap, close } = erpDialog(`
     <h3>📋 Копирай рецепта от подобен продукт</h3>
-    <p class="hint" style="margin:0 0 6px">За: <b>${escapeHtml(target.code || "")}</b> ${escapeHtml(target.name || "")}. Избери продукт с готова рецепта — тя се копира тук, после донагласяш.</p>
+    <p class="hint" style="margin:0 0 6px">За: <b>${escapeHtml(target.code || "")}</b> ${escapeHtml(target.name || "")}. Избери продукт с готова рецепта — тя се копира тук, после донагласяш. <b>Копието е самостоятелно</b>: възлите също се копират като нови изделия, нищо не остава общо с оригинала.</p>
     <input type="search" id="ra-q" placeholder="търси код или име…" />
     <div id="ra-list" class="erp-lp-list" style="max-height:52vh;overflow:auto"></div>
     <label class="erp-inline" style="margin-top:6px"><input type="checkbox" id="ra-replace" ${raRecipeLineCount(targetId) ? "checked" : ""} /> Замести текущата рецепта (иначе добавя най-отдолу)</label>
@@ -63,12 +131,11 @@ function erpCopyRecipeFrom(targetId) {
         .map(l => (ERP.prodById[l.child_product_id] || {}))
         .map(p => `${p.code || ""} ${p.name || ""}`.trim()).filter(Boolean);
       const kidTxt = kids.length
-        ? `\n\nℹ Рецептата ползва ${kids.length} възела — те са отделни изделия и остават ОБЩИ за двата продукта:\n`
+        ? `\n\nВъзлите също се копират — новият продукт получава СВОИ (нови кодове, същите имена):\n`
           + kids.slice(0, 8).map(k => "• " + k).join("\n") + (kids.length > 8 ? "\n…" : "")
-          + `\nПромяна в рецептата на самия ВЪЗЕЛ важи навсякъде, където се ползва.`
         : "";
       if (!confirm(`Да копирам ли рецептата на „${src.code || ""} ${src.name || ""}" (${raRecipeLineCount(sourceId)} реда)${replace ? " и да заместя текущата" : ""}?\n\n`
-        + `Копието е независимо — след това промените по тази рецепта НЕ засягат „${src.code || ""}" и обратно.${kidTxt}`)) return;
+        + `Копието няма нищо общо с оригинала — промените по него не го засягат и обратно.${kidTxt}`)) return;
       close();
       await erpDoCopyRecipe(targetId, sourceId, replace);
     }));
@@ -84,20 +151,33 @@ async function erpDoCopyRecipe(targetId, sourceId, replace) {
   try {
     if (replace) { const del = await sb.from("recipe_lines").delete().eq("product_id", targetId); if (del.error) throw del.error; }
     const start = replace ? 0 : raRecipeLineCount(targetId);
-    const rows = src.map((l, i) => ({
-      product_id: targetId, position: start + i, quantity: l.quantity, unit: l.unit,
-      material_id: l.material_id || null,
-      child_product_id: (Number(l.child_product_id) === Number(targetId)) ? null : (l.child_product_id || null),
-      operation_id: l.operation_id || null,
-    })).filter(r => r.material_id || r.child_product_id || r.operation_id);
-    const ins = await sb.from("recipe_lines").insert(rows);
+    // Всеки възел се копира като НОВО изделие — копието не дели нищо с оригинала.
+    const idx = raCodeIndex(), map = {}, created = [];
+    const rows = [];
+    for (let i = 0; i < src.length; i++) {
+      const l = src[i];
+      let kid = (Number(l.child_product_id) === Number(targetId)) ? null : (l.child_product_id || null);
+      if (kid) kid = await raCopyNode(kid, idx, map, created, 0);
+      rows.push({
+        product_id: targetId, position: start + i, quantity: l.quantity, unit: l.unit,
+        material_id: l.material_id || null, child_product_id: kid,
+        operation_id: l.operation_id || null,
+      });
+    }
+    const ok = rows.filter(r => r.material_id || r.child_product_id || r.operation_id);
+    const ins = await sb.from("recipe_lines").insert(ok);
     if (ins.error) throw ins.error;
     // Ако продуктът беше маркиран „чака рецепта" — вече има.
     try { const p = ERP.prodById[targetId]; if (p && p.needs_recipe) await sb.from("products").update({ needs_recipe: false }).eq("id", targetId); } catch (e) {}
     await erpReloadRecipe(targetId);
-    alert(`Готово! Копирани ${rows.length} реда — вече са СОБСТВЕНИ на този продукт.\n`
-      + `Промените по тях не се отразяват на изворния продукт (и обратно).\n\n`
-      + `Прегледай и донагласи количествата/възлите.`);
+    alert(`Готово! Копирани ${ok.length} реда.\n`
+      + (created.length
+        ? `\nНови СОБСТВЕНИ възли (${created.length}) — кодовете им са нови, имената са същите:\n`
+          + created.slice(0, 15).map(c => `• ${c.code} ${c.name}   (от ${c.from})`).join("\n")
+          + (created.length > 15 ? `\n…и още ${created.length - 15}` : "")
+        : "")
+      + `\n\nКопието няма нищо общо с оригинала — промените тук не го засягат.\n`
+      + `Прегледай, преименувай различните възли и донагласи количествата.`);
   } catch (e) { alert("Грешка при копиране: " + (e.message || e)); }
 }
 
