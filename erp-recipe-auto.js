@@ -56,7 +56,19 @@ function erpCopyRecipeFrom(targetId) {
       const sourceId = Number(b.dataset.id);
       const replace = wrap.querySelector("#ra-replace").checked;
       const src = ERP.prodById[sourceId];
-      if (!confirm(`Да копирам ли рецептата на „${src.code || ""} ${src.name || ""}" (${raRecipeLineCount(sourceId)} реда)${replace ? " и да заместя текущата" : ""}?`)) return;
+      // Копието е НЕЗАВИСИМО: редовете са нови и промяната по единия продукт не
+      // пипа другия. Общи остават само ВЪЗЛИТЕ (те са отделни изделия със свои
+      // рецепти) — казваме го ясно, за да няма изненади.
+      const kids = (ERP.linesByProduct[sourceId] || []).filter(l => l.child_product_id)
+        .map(l => (ERP.prodById[l.child_product_id] || {}))
+        .map(p => `${p.code || ""} ${p.name || ""}`.trim()).filter(Boolean);
+      const kidTxt = kids.length
+        ? `\n\nℹ Рецептата ползва ${kids.length} възела — те са отделни изделия и остават ОБЩИ за двата продукта:\n`
+          + kids.slice(0, 8).map(k => "• " + k).join("\n") + (kids.length > 8 ? "\n…" : "")
+          + `\nПромяна в рецептата на самия ВЪЗЕЛ важи навсякъде, където се ползва.`
+        : "";
+      if (!confirm(`Да копирам ли рецептата на „${src.code || ""} ${src.name || ""}" (${raRecipeLineCount(sourceId)} реда)${replace ? " и да заместя текущата" : ""}?\n\n`
+        + `Копието е независимо — след това промените по тази рецепта НЕ засягат „${src.code || ""}" и обратно.${kidTxt}`)) return;
       close();
       await erpDoCopyRecipe(targetId, sourceId, replace);
     }));
@@ -83,7 +95,9 @@ async function erpDoCopyRecipe(targetId, sourceId, replace) {
     // Ако продуктът беше маркиран „чака рецепта" — вече има.
     try { const p = ERP.prodById[targetId]; if (p && p.needs_recipe) await sb.from("products").update({ needs_recipe: false }).eq("id", targetId); } catch (e) {}
     await erpReloadRecipe(targetId);
-    alert(`Готово! Копирани ${rows.length} реда. Прегледай и донагласи количествата/възлите.`);
+    alert(`Готово! Копирани ${rows.length} реда — вече са СОБСТВЕНИ на този продукт.\n`
+      + `Промените по тях не се отразяват на изворния продукт (и обратно).\n\n`
+      + `Прегледай и донагласи количествата/възлите.`);
   } catch (e) { alert("Грешка при копиране: " + (e.message || e)); }
 }
 
