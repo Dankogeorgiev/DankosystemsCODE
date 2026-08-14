@@ -30,10 +30,19 @@ const pending = new Map(); // id -> sample (изчакват запис)
 /* ---------- Достъп (роли) ---------- */
 const EMAIL_TO_WORKSHOP = {
   laseri: "Лазери", cnc: "CNC цех", presi: "Преси", abkant: "Абкант",
-  zavarka: "Заваръчно", zanitvane: "Занитване", boyadjiino: "Бояджийно",
+  zavarka: "Заваръчно", zanitvane: "Занитване", nit: "Занитване", boyadjiino: "Бояджийно",
+  rogosh: "ЦЕХ РОГОШ",
 };
 function workshopFromEmail(e) {
   return EMAIL_TO_WORKSHOP[(e.split("@")[0] || "").toLowerCase()] || "";
+}
+// Профили с достъп до НЯКОЛКО цеха (виждат задачите на всичките).
+const EMAIL_TO_WORKSHOPS = {
+  rqz: ["Разкрой тръби", "Заготовки", "Заваръчно"],
+};
+function workshopsFromEmail(e) {
+  const arr = EMAIL_TO_WORKSHOPS[(e.split("@")[0] || "").toLowerCase()];
+  return Array.isArray(arr) && arr.length ? arr : null;
 }
 async function loadAccess(email) {
   let cfg = {};
@@ -44,25 +53,104 @@ async function loadAccess(email) {
   const byEmail = cfg.byEmail || {};
   const e = (email || "").toLowerCase();
   if (byEmail[e]) {
-    MY_ACCESS = { isAdmin: false, workshop: byEmail[e].workshop, email: e };
+    const r = byEmail[e] || {};
+    if (r.role === "admin" || r.admin === true) {
+      MY_ACCESS = { isAdmin: true, email: e };                               // пълен админ
+    } else if (r.role === "production" || r.production === true) {
+      MY_ACCESS = { isAdmin: true, email: e, production: true };             // цялото производство, без финансите
+    } else {
+      const ws = Array.isArray(r.workshops) && r.workshops.length ? r.workshops : null;
+      MY_ACCESS = { isAdmin: false, workshop: ws ? ws[0] : r.workshop, workshops: ws || undefined, email: e };   // цехов достъп (един или няколко цеха)
+    }
   } else if (e.endsWith("@danko.local")) {
-    // Всеки вътрешен @danko.local акаунт е цехов (не админ).
-    MY_ACCESS = { isAdmin: false, workshop: workshopFromEmail(e), email: e };
+    // Всеки вътрешен @danko.local акаунт е цехов (не админ). Някои виждат няколко цеха.
+    const multi = workshopsFromEmail(e);
+    if (multi) MY_ACCESS = { isAdmin: false, workshop: multi[0], workshops: multi, email: e };
+    else MY_ACCESS = { isAdmin: false, workshop: workshopFromEmail(e), email: e };
   } else {
     MY_ACCESS = { isAdmin: true, email: e };
   }
 }
+// Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
+const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com"];   // Данко, Кристина, Григор
+// Достъп до Пулс — отделно от Финансите.
+const PULSE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];   // Данко + Григор
+// Персонални поздрави при вход (по имейл).
+const LOGIN_GREETINGS = { "rusenmochukov@gmail.com": "Мачкай, Руси! 💪" };
+function showLoginGreeting() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const msg = LOGIN_GREETINGS[e];
+  if (!msg) return;
+  const t = document.createElement("div");
+  t.className = "login-greeting";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 600); }, 4000);
+}
+function financeAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return FINANCE_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
+function pulseAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return PULSE_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
+// Пускане в производство (заявки, поръчки, производство за склад) — само за
+// изрично изброените имейли. Останалите виждат всичко, но без бутона.
+const PRODUCE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];  // Данко + Григор
+function produceAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return PRODUCE_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
+// План за седмицата (какво излиза) — засега само изброените.
+// Останалите не виждат бутона и не могат да отворят модула.
+const WEEKPLAN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "angelov@dankosystems.com"];  // Данко, Григор, Ангелов
+function weekPlanAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return WEEKPLAN_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
+// Осчетоводяване на продажба/фактура (изписване от склада + отмяна) —
+// само за изрично изброените. Останалите виждат всичко, но без бутоните.
+const POST_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];     // Данко + Григор
+function postAllowed() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return POST_EMAILS.map(x => x.toLowerCase()).includes(e);
+}
+
 function applyAccess() {
+  const fin = document.getElementById("btn-finance");
+  if (fin) fin.style.display = financeAllowed() ? "" : "none";
+  // Пулс на НАЧАЛНИЯ екран — само за Данко (в ЕРП остава по PULSE_EMAILS).
+  const pulse = document.getElementById("btn-pulse");
+  if (pulse) pulse.style.display = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com" ? "" : "none";
+  const pulseErp = document.getElementById("erp-pulse-btn");
+  if (pulseErp) pulseErp.style.display = pulseAllowed() ? "" : "none";
+  // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
+  const lvBtn = document.getElementById("btn-leaves-main");
+  if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
+  // План за седмицата — само Данко и Григор.
+  const wkBtn = document.getElementById("btn-loading");
+  if (wkBtn) wkBtn.style.display = weekPlanAllowed() ? "" : "none";
   const adminOnly = document.querySelectorAll(
-    '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
+    '#btn-new,#btn-new-order,#btn-new-claim,#btn-claim-report,#btn-offer,#btn-erp,#btn-main-messages,#btn-contacts,#btn-painting,#btn-painting-manual,#btn-welding-roboti,#btn-welding-rachno');
   if (MY_ACCESS.isAdmin) {
     adminOnly.forEach(el => el.style.display = "");
     document.querySelector(".layout").style.display = "";
+    // Производствен достъп: крием финансовите ЕРП табове (Финанси/Пулс вече са скрити чрез financeAllowed).
+    const prod = !!MY_ACCESS.production;
+    document.querySelectorAll('.erp-tab[data-tab="sales"], .erp-tab[data-tab="pricelists"], .erp-tab[data-tab="purchases"]')
+      .forEach(el => el.style.display = prod ? "none" : "");
+    document.body.classList.toggle("hide-cost", prod);   // скрива себестойностите навсякъде
+    document.body.classList.toggle("hide-sell", prod);   // скрива продажните цени (Заявки)
     return;
   }
   // Цехов достъп: скриваме всичко освен „Цехове“ и отваряме модула заключен.
   adminOnly.forEach(el => el.style.display = "none");
   document.querySelector(".layout").style.display = "none";
+  // ЦЕХ РОГОШ е сериен монтаж — само дневен отчет (без списък със задачи).
+  if (MY_ACCESS.workshop === "ЦЕХ РОГОШ" && typeof openRogosh === "function") { openRogosh(); return; }
+  if (MY_ACCESS.workshop === "Занитване" && typeof openNit === "function") { openNit(); return; }
   if (typeof openTasks === "function") openTasks();
 }
 
@@ -159,6 +247,7 @@ async function newSample(type = "sample") {
   if (error) { alert("Грешка при създаване: " + error.message); return; }
   const s = rowToSample(data);
   samples.unshift(s);
+  markSampleSeen(s.id);   // създателят вече я „вижда" — без известие за собствената
   currentId = s.id;
   renderList();
   renderForm();
@@ -187,12 +276,120 @@ function searchText(s) {
   return (s.clientName + " " + s.sampleInfo).toLowerCase();
 }
 
+// Отваря „менюто" на даден тип (мостри/поръчки/рекламации): филтрира списъка
+// и показва началния екран — оттам с бутона се добавя нов запис.
+function openTypeMenu(type) {
+  const tf = document.getElementById("type-filter");
+  if (tf) tf.value = type;
+  currentId = null;
+  const rep = document.getElementById("report"); if (rep) rep.hidden = true;
+  renderList();
+  renderForm();   // показва welcome, когато няма избран запис
+}
+
+/* ---------- Известие за нови мостри (badge на „+ Мостра", както при съобщения) ----------
+   Всеки админ вижда колко НОВИ мостри за правене има (създадени от някого и още
+   непрегледани от него). „Видяно" се пази локално по имейл — щом админът отвори
+   мострата от списъка, тя се маркира като видяна и badge-ът намалява. */
+function sampleSeenKey() { return "seenSamples:" + ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase(); }
+function loadSeenSamples() {
+  let rec = null;
+  try { rec = JSON.parse(localStorage.getItem(sampleSeenKey()) || "null"); } catch (e) {}
+  if (!rec || !Array.isArray(rec.ids)) {
+    // Първо зареждане за този потребител — приемаме всички налични мостри за
+    // „видени" (базова линия), за да не светне badge за старите записи.
+    const ids = (samples || []).filter(s => (s.type || "sample") === "sample").map(s => s.id);
+    rec = { ids };
+    try { localStorage.setItem(sampleSeenKey(), JSON.stringify(rec)); } catch (e) {}
+  }
+  return new Set(rec.ids);
+}
+function markSampleSeen(id) {
+  if (id == null) return;
+  const seen = loadSeenSamples();
+  if (seen.has(id)) return;
+  seen.add(id);
+  try { localStorage.setItem(sampleSeenKey(), JSON.stringify({ ids: [...seen] })); } catch (e) {}
+}
+function newSamplesCount() {
+  if (!(MY_ACCESS && MY_ACCESS.isAdmin)) return 0;
+  const seen = loadSeenSamples();
+  return (samples || []).filter(s => (s.type || "sample") === "sample" && !s.completed && !seen.has(s.id)).length;
+}
+
+/* ---------- Напомняне за срок за изпълнение (ден преди срока) ---------- */
+// Статус на срока на мостра: „overdue" (просрочена) / „today" (днес) /
+// „tomorrow" (утре — ден преди срока) / null (още има време или няма срок).
+function sampleDueInfo(s) {
+  if (!s || (s.type || "sample") !== "sample" || s.completed || !s.deadline) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(s.deadline); if (isNaN(d.getTime())) return null; d.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  if (days < 0) return { k: "overdue", days, label: "просрочена", icon: "🔴" };
+  if (days === 0) return { k: "today", days, label: "днес е срокът", icon: "⏰" };
+  if (days === 1) return { k: "tomorrow", days, label: "утре е срокът", icon: "⏰" };
+  return null;   // повече от ден напред — още не напомняме
+}
+// Мостри с наближаващ/изтекъл срок (за напомнянето) — само за админи.
+function dueSoonSamples() {
+  if (!(MY_ACCESS && MY_ACCESS.isAdmin)) return [];
+  return (samples || []).map(s => ({ s, due: sampleDueInfo(s) })).filter(x => x.due);
+}
+// Рисува лентата с напомняне над списъка (ден преди срока / днес / просрочени).
+function renderDueReminder() {
+  const host = document.getElementById("due-reminder");
+  if (!host) return;
+  const list = dueSoonSamples();
+  if (!list.length) { host.hidden = true; host.innerHTML = ""; return; }
+  const order = { overdue: 0, today: 1, tomorrow: 2 };
+  list.sort((a, b) => (order[a.due.k] - order[b.due.k]) || (new Date(a.s.deadline) - new Date(b.s.deadline)));
+  const rows = list.slice(0, 6).map(x => {
+    const s = x.s, due = x.due;
+    const name = escapeHtml(s.clientName || "(без клиент)");
+    const info = escapeHtml(firstLine(s.sampleInfo) || "");
+    return `<button type="button" class="due-item due-${due.k}" data-goto="${s.id}" title="Отвори мострата">
+        <span class="due-ic">${due.icon}</span>
+        <span class="due-txt"><b>${name}</b>${info ? " · " + info : ""}</span>
+        <span class="due-when">${due.label} (${formatDate(s.deadline)})</span>
+      </button>`;
+  }).join("");
+  const more = list.length > 6 ? `<div class="due-more">…и още ${list.length - 6}</div>` : "";
+  host.innerHTML = `<div class="due-head">⏰ Напомняне за срок за изпълнение — <b>${list.length}</b> ${list.length === 1 ? "мостра" : "мостри"}</div>${rows}${more}`;
+  host.hidden = false;
+  host.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => {
+    const id = Number(b.dataset.goto);
+    const tf = document.getElementById("type-filter"); if (tf) tf.value = "sample";
+    markSampleSeen(id); currentId = id; renderList(); renderForm();
+  }));
+}
+
+// Бутон(и) за добавяне в списъка според избрания тип.
+function renderListAddBtn(tf) {
+  const host = document.getElementById("list-add");
+  if (!host) return;
+  const n = newSamplesCount();
+  const badge = n > 0 ? ` <span class="sample-new-badge msg-badge" title="Нови мостри за правене">${n}</span>` : "";
+  const one = (label, t) => `<button class="btn btn-primary btn-block list-add-btn" data-add="${t}">+ ${label}${t === "sample" ? badge : ""}</button>`;
+  if (tf === "sample") host.innerHTML = one("Нова мостра", "sample");
+  else if (tf === "order") host.innerHTML = one("Нова нестандартна поръчка", "order");
+  else if (tf === "claim") host.innerHTML = one("Нова рекламация", "claim");
+  else host.innerHTML = `<div class="list-add-row">
+      <button class="btn btn-small" data-add="sample">+ Мостра${badge}</button>
+      <button class="btn btn-small" data-add="order">+ Поръчка</button>
+      <button class="btn btn-small" data-add="claim">+ Рекламация</button></div>`;
+  host.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => {
+    const t = b.dataset.add;
+    if (t === "claim") newClaim(); else newSample(t);
+  }));
+}
+
 function renderList() {
   const ul = document.getElementById("sample-list");
   const term = document.getElementById("search").value.trim().toLowerCase();
   ul.innerHTML = "";
 
   const tf = document.getElementById("type-filter").value;
+  renderListAddBtn(tf);
   const filtered = samples.filter(s => {
     if (tf !== "all" && (s.type || "sample") !== tf) return false;
     return !term || searchText(s).includes(term);
@@ -200,10 +397,15 @@ function renderList() {
 
   document.getElementById("empty-list").style.display = filtered.length ? "none" : "block";
 
+  const seenSet = loadSeenSamples();
   filtered.forEach(s => {
     const li = document.createElement("li");
     if (s.id === currentId) li.classList.add("active");
     if (s.completed) li.classList.add("completed");
+    const isNew = (s.type || "sample") === "sample" && !s.completed && !seenSet.has(s.id);
+    if (isNew) li.classList.add("s-unseen");
+    const due = sampleDueInfo(s);
+    if (due) li.classList.add("s-due-" + due.k);
     if (s.type === "claim") {
       const badge = s.completed ? `<span class="badge badge-done">Приключена</span>` : "";
       const subj = (s.items || []).map(it => it.description || it.name).filter(Boolean)[0] || "Без описание";
@@ -218,14 +420,15 @@ function renderList() {
       const badge = s.completed ? `<span class="badge badge-done">Завършена</span>` : "";
       const dl = s.deadline ? ` · ⏱ ${formatDate(s.deadline)}` : "";
       li.innerHTML = `
-        <div class="s-type">${typeBadge(s)}</div>
+        <div class="s-type">${typeBadge(s)}${isNew ? ` <span class="s-new-flag">🆕 нова</span>` : ""}${due ? ` <span class="s-due-flag s-due-flag-${due.k}">${due.icon} ${escapeHtml(due.label)}</span>` : ""}</div>
         <div class="s-name">${escapeHtml(s.clientName) || "(без име на клиент)"} ${badge}</div>
         <div class="s-sub">${escapeHtml(firstLine(s.sampleInfo)) || "Без описание"}</div>
         <div class="s-progress">${done}/${OPERATIONS.length} операции${dl}</div>`;
     }
-    li.addEventListener("click", () => { currentId = s.id; renderList(); renderForm(); });
+    li.addEventListener("click", () => { markSampleSeen(s.id); currentId = s.id; renderList(); renderForm(); });
     ul.appendChild(li);
   });
+  renderDueReminder();
 }
 
 /* ---------- Форма ---------- */
@@ -265,6 +468,7 @@ function renderSampleForm(s) {
   renderProcess(s);
   renderAnalysisFiles(s);
   updateProgress(s);
+  if (typeof erpRenderOrderPanel === "function") erpRenderOrderPanel(s);
   setStatus("");
 }
 
@@ -846,6 +1050,7 @@ async function onSignedIn(s) {
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
   document.getElementById("user-email").textContent = s.user?.email || "";
   await loadAccess(s.user?.email || "");
+  showLoginGreeting();
 
   // Цехов акаунт: директно в цеха, без основния екран (мостри/контакти/рекламации).
   if (!MY_ACCESS.isAdmin) {
@@ -859,6 +1064,9 @@ async function onSignedIn(s) {
   renderList();
   renderForm();
   applyAccess();
+  // Напомнянето за срок зависи от текущата дата — опресняваме периодично, за да
+  // светне „утре е срокът" и когато приложението е оставено отворено през нощта.
+  if (!window._dueReminderTimer) window._dueReminderTimer = setInterval(() => { try { renderDueReminder(); } catch (e) {} }, 15 * 60 * 1000);
   if (typeof ensureMessagesBadge === "function") ensureMessagesBadge();
   // Директен линк към цех: ?cex=Лазери → отваря направо този цех
   try {
@@ -898,8 +1106,8 @@ function wireHandlers() {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("btn-logout").addEventListener("click", () => sb.auth.signOut());
 
-  document.getElementById("btn-new").addEventListener("click", () => newSample("sample"));
-  document.getElementById("btn-new-order").addEventListener("click", () => newSample("order"));
+  document.getElementById("btn-new").addEventListener("click", () => openTypeMenu("sample"));
+  document.getElementById("btn-new-order").addEventListener("click", () => openTypeMenu("order"));
   document.getElementById("btn-report-close").addEventListener("click", () => {
     document.getElementById("report").hidden = true; renderForm();
   });
@@ -939,7 +1147,7 @@ function wireHandlers() {
   });
 
   /* --- Рекламации --- */
-  document.getElementById("btn-new-claim").addEventListener("click", newClaim);
+  document.getElementById("btn-new-claim").addEventListener("click", () => openTypeMenu("claim"));
   document.getElementById("btn-claim-report").addEventListener("click", renderClaimRegister);
   document.getElementById("btn-claim-report-close").addEventListener("click", () => {
     document.getElementById("claim-report").hidden = true; renderForm();
@@ -1004,3 +1212,26 @@ async function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+/* ---------- Защита от случайно излизане от Системата ----------
+   1) Backspace ИЗВЪН поле за писане в някои браузъри/тъчпади прави "назад".
+   2) Страничният бутон на мишката / плъзгане наляво по тъчпада също.
+   Системата е една страница, затова "назад" я затваряше цялата (заедно с
+   отворените прозорци). Слагаме капан в историята: оставаме на място. */
+(function () {
+  const isTyping = el => {
+    if (!el) return false;
+    const t = (el.tagName || "").toLowerCase();
+    return t === "input" || t === "textarea" || t === "select" || el.isContentEditable;
+  };
+  document.addEventListener("keydown", e => {
+    if (e.key === "Backspace" && !isTyping(e.target)) e.preventDefault();
+  });
+  try {
+    history.pushState({ ds: 1 }, "", location.href);
+    window.addEventListener("popstate", () => {
+      // Връщаме се веднага на място — "назад" вече не затваря Системата.
+      history.pushState({ ds: 1 }, "", location.href);
+    });
+  } catch (e) { /* стар браузър без History API — оставяме както е */ }
+})();

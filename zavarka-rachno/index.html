@@ -12,7 +12,7 @@
   *{box-sizing:border-box}
   [hidden]{display:none!important}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
-  .wrap{max-width:1480px;margin:0 auto;padding:20px}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px}
   header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 16px;border-bottom:2px solid var(--ink)}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
   header.top .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
@@ -20,63 +20,120 @@
   .btn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   .btn.pri{background:var(--ink);color:#fff}.btn.pri:hover{background:#16294a}
   .btn:active{transform:translateY(1px)}
-  .note{font-size:12.5px;color:var(--muted);margin:14px 2px 18px;line-height:1.55}.note b{color:var(--ink-soft);font-weight:600}
-
-  /* --- решетка с маси (3 колони × 2 реда: горе 1/2/3 · долу 4/5/6) --- */
-  .tables{display:grid;gap:16px;grid-template-columns:repeat(3,1fr);max-width:1120px;
-    grid-template-areas:"t1 t2 t3" "t4 t5 t6"}
-  @media(max-width:900px){.tables{grid-template-columns:1fr 1fr;grid-template-areas:"t1 t2" "t3 t4" "t5 t6"}}
-  @media(max-width:560px){.tables{grid-template-columns:1fr;grid-template-areas:"t1" "t2" "t3" "t4" "t5" "t6"}}
-  .tcard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 14px 16px;cursor:pointer;
-    transition:border-color .12s,box-shadow .12s,transform .06s;display:flex;flex-direction:column;align-items:center;text-align:center}
-  .tcard:hover{border-color:var(--ink);box-shadow:0 6px 20px rgba(31,56,100,.12)}
-  .tcard:active{transform:translateY(1px)}
-  .tcard.has::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:4px;border-radius:4px;background:var(--ink)}
-  .tvis{width:100%;max-width:200px;margin:2px auto 6px}
-  .tvis svg{width:100%;height:auto;display:block}
-  .tname{font-family:var(--disp);font-weight:700;font-size:16px;margin-top:2px}
-  .tnum{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
-  .tmeta{margin-top:7px;font-size:13px;font-weight:600;color:var(--ink-soft);display:flex;align-items:center;gap:7px;min-height:20px}
-  .tmeta.empty{color:var(--muted);font-weight:500}
-  .tmeta .pcs{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:500}
-  .tedit{position:absolute;top:9px;right:9px;border:1px solid var(--line);background:#F1F4F9;border-radius:7px;padding:3px 7px;font-size:12px;cursor:pointer;color:var(--muted)}
-  .tedit:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
   .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:22px 2px 14px}
+  .lead{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft)}
+  .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.note b{color:var(--ink-soft);font-weight:600}
+  .badge{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;border-radius:20px;padding:2px 9px;margin-left:6px;background:#fdecea;color:var(--warn);border:1px solid #f3c4bf}
+  .badge.ok{background:#eaf5ef;color:var(--ok);border-color:#bfe3cd}
 
-  /* --- изглед на една маса --- */
-  .dwrap{max-width:920px}
-  .dhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
-  .dhead h2{font-family:var(--disp);font-size:22px;margin:0}
-  .dhead .dnum{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
-  .dsum{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px}
-  .pill{font-family:var(--mono);font-size:12px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:6px 13px}
-  .pill b{font-family:var(--disp);font-size:14px}
-  .pill.hero{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .tasklist{display:flex;flex-direction:column;gap:12px}
-  .tk{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
-  .tk.done{opacity:.62;background:#F6F8FB}
-  .tk-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  .tk-client{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-  .tk-due{font-family:var(--mono);font-size:12px;color:var(--warn)}
-  .tk-prod{font-family:var(--disp);font-weight:700;font-size:18px;margin:3px 0 2px;line-height:1.3}
-  .tk-sub{font-size:12.5px;color:var(--ink-soft)}
-  .tk-sub .code{font-family:var(--mono);background:#EEF2F7;border-radius:5px;padding:1px 6px;margin-right:6px}
-  .tk-files{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .tk-files img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
-  .tf-doc{font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:7px;padding:6px 9px;text-decoration:none;color:var(--ink)}
-  .tf-doc:hover{background:var(--ink);color:#fff}
-  .tk-prog{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px}
-  .bar{flex:1 1 auto;height:9px;background:#E4EAF1;border-radius:6px;overflow:hidden;min-width:80px}
-  .bar > i{display:block;height:100%;background:var(--ok);border-radius:6px}
-  .tk-nums{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
-  .tk-nums b{color:var(--ink)}
-  .tk-act{display:flex;align-items:center;gap:9px;margin-top:13px;flex-wrap:wrap}
-  .tk-act label{font-size:13px;color:var(--ink-soft)}
-  .tk-act input{font-family:var(--mono);font-size:15px;text-align:right;width:84px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
-  .tk-act input:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
-  .tk-done-badge{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ok);display:flex;align-items:center;gap:6px}
-  .empty-list{background:#F8FAFC;border:1px dashed var(--line);border-radius:12px;padding:26px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
-  .dot{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+  /* ===== Табло с маси ===== */
+  .cells{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:1040px;margin:0 auto}
+  @media(max-width:880px){.cells{grid-template-columns:1fr 1fr;max-width:720px}}
+  @media(max-width:560px){.cells{grid-template-columns:1fr;max-width:360px}}
+  .rcell{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 14px 14px;cursor:pointer;
+    font-family:inherit;color:inherit;transition:transform .08s,box-shadow .15s,border-color .15s}
+  .rcell:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(31,56,100,.12);border-color:var(--ink-soft)}
+  .rcell:active{transform:translateY(0)}
+  .rcell.has{border-left:4px solid var(--ink)}
+  .rcell .rnum{position:absolute;top:10px;left:12px;font-family:var(--disp);font-weight:700;font-size:15px;
+    width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:#F1F4F9;border:1px solid var(--line);color:var(--ink)}
+  .rcell .rart{width:100%;max-width:200px;margin:6px auto 4px}
+  .rcell .rart svg{width:100%;height:auto;display:block}
+  .rname-wrap{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:4px}
+  .rname{font-family:var(--disp);font-weight:600;font-size:17px}
+  .redit{font-size:12px;color:var(--muted);border:none;background:none;cursor:pointer;padding:3px;border-radius:6px;line-height:1}
+  .redit:hover{background:#F1F4F9;color:var(--ink)}
+  .rmeta{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:7px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center}
+  .rdot{display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}
+
+  /* ===== Таблици ===== */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  table.bd{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  table.bd th,table.bd td{text-align:right;padding:10px 12px;font-size:13px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.bd th{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:#F6F8FB}
+  table.bd td:first-child,table.bd th:first-child{text-align:left}
+  table.bd tr:last-child td{border-bottom:none}
+  table.bd tr.unassigned td{background:#FFF8F2}
+  table.bd tr.done td:first-child{color:var(--muted)}
+  .prod-nm{font-weight:600}
+  .num{font-family:var(--mono)}
+  .big{font-family:var(--disp);font-weight:700}
+  .muted{color:var(--muted)}
+  select.rsel{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:5px 7px;background:#fff;color:var(--ink);outline:none}
+  select.rsel:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .pill{display:inline-block;font-family:var(--mono);font-size:10px;border-radius:6px;padding:2px 7px;border:1px solid var(--line);color:var(--ink);background:#F1F4F9}
+  .empty{color:var(--muted);font-size:13px;padding:16px;text-align:center}
+
+  /* ===== Страница на маса ===== */
+  .rd-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+  .rd-art{width:150px;flex:0 0 auto}.rd-art svg{width:100%;height:auto;display:block}
+  .rd-title{font-family:var(--disp);font-weight:700;font-size:24px;margin:0;display:flex;align-items:center;gap:8px}
+  .rd-sub{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;display:flex;align-items:center;gap:6px}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+  .stat{background:#F8FAFC;border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+  .stat .k{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .stat .v{font-family:var(--disp);font-weight:700;font-size:22px;margin-top:3px}
+
+  /* ===== Отчетен прозорец ===== */
+  .ovl{position:fixed;inset:0;background:rgba(31,56,100,.45);display:grid;place-items:center;z-index:900;padding:16px}
+  .ovl-box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 20px 18px;max-width:460px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.28);max-height:92vh;overflow:auto}
+  .ovl-box h3{font-family:var(--disp);margin:0 0 6px;font-size:19px}
+  .pd-task{font-size:13px;background:#F8FAFC;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:8px 0 4px}
+  .fld{display:block;margin:13px 0 0}
+  .fld .lb{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:5px;display:block}
+  .fld input,.fld textarea{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#F8FAFC;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
+  .fld input[type=number]{font-family:var(--mono);text-align:right}
+  .fld select{width:100%;font-family:var(--body);font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 10px;outline:none}
+  .fld input:focus,.fld textarea:focus,.fld select:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(31,56,100,.10)}
+  .tbtns{display:flex;gap:8px;flex-wrap:wrap}
+  .rowacts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+
+  /* ===== Изделия на масата (карти — компактни на десктоп, стекнати на телефон) ===== */
+  .jobs{display:flex;flex-direction:column;gap:10px}
+  .job{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#F8FAFC;border:1px solid var(--line);border-radius:12px;padding:13px 16px}
+  .job.done{opacity:.62}
+  .job-main{flex:1 1 240px;min-width:0}
+  .job-nm{font-family:var(--disp);font-weight:700;font-size:16px;line-height:1.3}
+  .job-stats{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px}
+  .job-stats b{font-family:var(--disp);color:var(--ink);font-size:14px}
+  .job-stats b.ok{color:var(--ok)}
+  .job-acts{flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .job-acts .btn{padding:11px 16px;font-size:13px}
+  .job-work{font-size:12px;color:var(--ok);margin-top:7px;font-weight:600;line-height:1.4}
+  .btn.take{background:#FFF4E6;border-color:#F0C48A;color:#9A5B00}
+  .btn.take:hover{background:#E8821A;border-color:#E8821A;color:#fff}
+  .btn.taken{background:#eaf5ef;border-color:#bfe3cd;color:var(--ok)}
+  .btn.taken:hover{background:#d6ecdd;border-color:#bfe3cd;color:var(--ok)}
+  /* Разпределение — чипове за маси + „работи се" */
+  .tbl-scroll{overflow-x:auto}
+  .masel{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{font-family:var(--body);font-size:12px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:16px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+  .chip:hover{border-color:var(--ink)}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  td.work{font-size:12px;color:var(--ok);white-space:normal;min-width:130px}
+
+  @media(max-width:560px){
+    .wrap{padding:13px}
+    .rd-art{width:84px}
+    .rd-title{font-size:20px}
+    .stats{gap:8px}
+    .stat{min-width:0;flex:1 1 42%;padding:9px 11px}
+    .stat .v{font-size:19px}
+    .toolbar{margin:16px 2px 12px}
+    .ovl{padding:10px}
+    .panel{padding:14px}
+    .job{flex-direction:column;align-items:stretch;gap:10px}
+    .job-main{flex:0 0 auto}
+    .job-acts{width:100%}
+    .job-acts .btn{flex:1 1 auto;text-align:center;padding:12px}
+  }
+  .pd-time{display:flex;gap:7px}.pd-time input{flex:1 1 auto}
+  .pd-time select{font-family:var(--body);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;color:var(--ink);flex:0 0 76px}
+  .ovl-actions{display:flex;gap:8px;margin-top:18px}
+  .ovl-actions .btn{flex:1;text-align:center;padding:11px}
+  .ovl-hint{font-size:11.5px;color:var(--muted);margin:10px 0 0;line-height:1.5}
 </style>
 </head>
 <body>
@@ -95,53 +152,119 @@
       <a href="../" class="btn">← Към системата</a>
     </span></header>
 
-  <!-- ИЗГЛЕД: всички маси -->
-  <div id="tablesView">
-    <div class="note">Натисни своята маса, за да видиш какво има за заваряване. Задачите идват от
-      <b>Цехове → Заваръчно</b> — разпределя ги администратор. Като завариш, отбелязваш бройката тук и тя се връща в Цехове.</div>
-    <div class="tables" id="tables"></div>
-  </div>
+  <!-- ТАБЛО: 6-те маси -->
+  <section id="dash">
+    <div class="toolbar">
+      <span class="lead">Изберете маса (заварчик)</span>
+      <span class="tbtns">
+        <button class="btn" data-act="draw">📐 Искам чертеж</button>
+        <button class="btn" data-act="supply">📦 Снабдяване</button>
+        <a href="#razpredelenie" class="btn pri" id="distBtn">📋 Разпределение</a>
+      </span>
+    </div>
+    <div class="cells" id="cells"></div>
+    <p class="note" style="text-align:center;max-width:680px;margin:18px auto 0">
+      Изделията за заваряване идват от <b>Цехове</b> (цех „Заваръчно"). През
+      <b>Разпределение</b> ги пращаш към масите. Всяка маса показва своите
+      изделия и поръчани количества, а заварчикът отчита заварените — бройката
+      се връща и в Цех Заваряване, за да се придвижи изделието напред.</p>
+  </section>
 
-  <!-- ИЗГЛЕД: една маса -->
-  <div id="tableDetail" class="dwrap" hidden></div>
+  <!-- РАЗПРЕДЕЛЕНИЕ -->
+  <section id="dist" hidden>
+    <div class="toolbar">
+      <a href="#" class="btn" id="distBack">← Всички маси</a>
+      <span class="lead" id="distLead">Разпределение на изделията по маси</span>
+    </div>
+    <div class="panel">
+      <div id="distTable"></div>
+      <p class="note">Изделията се четат на живо от Цехове (цех „Заваръчно"). Избери маса за всяко
+        изделие. <b>Поръчано</b> = сборът от количествата на поръчките за това изделие.
+        <b>Заварени</b> = отчетеното от масите.</p>
+    </div>
+  </section>
+
+  <!-- ДЕТАЙЛ: страница на една маса -->
+  <section id="detail" hidden>
+    <div class="toolbar">
+      <a href="#" class="btn" id="backBtn">← Всички маси</a>
+      <span class="tbtns">
+        <button class="btn" data-act="draw">📐 Искам чертеж</button>
+        <button class="btn" data-act="supply">📦 Снабдяване</button>
+      </span>
+    </div>
+    <div class="panel">
+      <div class="rd-head">
+        <div class="rd-art" id="rdArt"></div>
+        <div>
+          <h2 class="rd-title" id="rdTitle">Маса</h2>
+          <div class="rd-sub" id="rdSub"></div>
+        </div>
+      </div>
+      <div class="stats" id="rdStats"></div>
+      <div id="rdTable"></div>
+      <p class="note">Натисни <b>✓ Запиши</b> на изделие → въведи брой заварени, време за цялото
+        количество и консумативи. Записва се на масата <b>и</b> в Цех Заваряване. Нужен ти е чертеж —
+        <b>📐 Искам чертеж</b> до бутона. За да добавиш изделия към тази маса, иди на
+        <a href="#razpredelenie">Разпределение</a>.</p>
+    </div>
+  </section>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="../config.js?v=137"></script>
-<script src="sync.js?v=2"></script>
 <script>
 /* ===== МОДЕЛ ===== */
-const CEX = "Ръчно заваръчно";
-const N_TABLES = 6;
-// Масите = работни места. Името е работно („Заваръчна Маса N“), после се
-// кръщава с името на служителя — и по него Таня възлага задачи в „Цехове“.
-let TABLES = Array.from({length:N_TABLES}, (_,i)=>({n:i+1, name:"Заваръчна Маса "+(i+1)}));
-let TASKS = [];        // задачи за заваряване (цех „Заваръчно“)
-let selN = null;       // отворената маса (номер) или null
-let inited = false;
+/* 6-те маси (работни места). Имената са на заварчиците, преименуеми с ✎.
+   Подредба 3×2 през CSS. */
+let tables=[
+  {id:1,name:'Панайот Петров'},
+  {id:2,name:'Николай Караиванов'},
+  {id:3,name:'Красимир Камовски'},
+  {id:4,name:'Димитър Димитров'},
+  {id:5,name:'Камен'},
+  {id:6,name:'Жоро Хубавеца'},
+];
+let assign={};   // { "изделие": [tableId, ...] } — една поръчка може на няколко маси
+let taken={};    // { "изделие": [{t:tableId, w:worker, at:iso}] } — кой работи сега
+let prod={};     // { "изделие": заварени ръчно (общо) }
+let plog=[];     // дневник: [{kind, date, table, product, qty, worker, at}]
+let WELDING=[];  // заваръчни задачи от Цехове (на живо)
+let tasksLoaded=false;
 
-const $ = id=>document.getElementById(id);
-const esc = s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const todayStr = ()=>new Date().toISOString().slice(0,10);
-const num = v=>{const n=Number(String(v==null?"":v).replace(",","."));return isFinite(n)?n:0;};
-const tableByN = n=>TABLES.find(t=>t.n===n);
+const $=id=>document.getElementById(id);
+const tableById=id=>tables.find(t=>t.id===id);
+const num=n=>Number(n||0).toLocaleString('bg');
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function escAttr(s){return esc(s).replace(/'/g,'&#39;');}
+function todayStr(){return new Date().toISOString().slice(0,10);}
+function fmtTime(iso){try{return new Date(iso).toLocaleTimeString('bg',{hour:'2-digit',minute:'2-digit'});}catch(e){return'';}}
+// assign може да е число (стар формат) или масив — нормализирай към масив.
+function assignedTables(p){const v=assign[p];return Array.isArray(v)?v.filter(Boolean):(v?[v]:[]);}
+function setAssigned(p,arr){if(arr&&arr.length)assign[p]=arr.slice();else delete assign[p];}
+function takersOf(p){return Array.isArray(taken[p])?taken[p]:[];}
+function takenByTable(p,tid){return takersOf(p).some(x=>x.t===tid);}
+// Текст „работи се от X (14:30), Y (15:10)"
+function takersText(p){return takersOf(p).map(x=>esc(x.w)+' ('+fmtTime(x.at)+')').join(', ');}
 
-function isDone(t){const q=num(t.qty),p=num(t.produced);return q>0&&p>=q;}
-function remaining(t){const q=num(t.qty);return q>0?Math.max(0,q-num(t.produced)):null;}
-// Задачите на дадена маса = възложените на нейното име (assignee).
-function tasksForName(name){return TASKS.filter(t=>(t.assignee||"")===name);}
-function pendingFor(name){return tasksForName(name).filter(t=>!isDone(t));}
-function remainingPcsFor(name){return pendingFor(name).reduce((s,t)=>{const r=remaining(t);return s+(r==null?0:r);},0);}
-// Заварено днес на тази маса (сбор от записите от днес).
-function weldedTodayFor(name){const d=todayStr();let s=0;
-  tasksForName(name).forEach(t=>(t.logs||[]).forEach(l=>{if(l&&l.date===d&&(l.worker===name||l.cex===CEX))s+=num(l.qty);}));
-  return s;}
+/* Различни изделия от заваръчните задачи + поръчано количество (сбор). */
+function weldingProducts(){
+  const m=new Map();
+  WELDING.forEach(t=>{const p=(t.product||'').trim();if(!p)return;
+    const o=m.get(p)||{product:p,ordered:0,orders:0};
+    o.ordered+=Number(t.qty)||0;o.orders++;m.set(p,o);});
+  // Показват се САМО изделия с активна задача в Цех Заваръчно —
+  // списъкът тук е ОГЛЕДАЛО на цеха (старите разпределения се пазят тихо).
+  return [...m.values()].sort((a,b)=>a.product.localeCompare(b.product,'bg'));
+}
+const orderedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.qty)||0;});return s;};
+const producedOf=p=>{let s=0;WELDING.forEach(t=>{if((t.product||'').trim()===p)s+=Number(t.produced)||0;});return s;};
+const remainOf=p=>Math.max(0,orderedOf(p)-producedOf(p));
+const productsOfTable=id=>weldingProducts().filter(o=>assignedTables(o.product).includes(id));
+const unassignedCount=()=>weldingProducts().filter(o=>assignedTables(o.product).length===0).length;
 
-/* ===== визуализация на заваръчна маса ===== */
+/* ===== Илюстрация: заваръчна маса (собствен SVG) ===== */
 function tableSVG(active){
-  const spark=active?"var(--spark)":"#C9B79A", glow=active?"#FF7A18":"#D9C6AB";
+  const spark=active?'var(--spark)':'#C9B79A', glow=active?'#FF7A18':'#D9C6AB';
   return `<svg viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <!-- искри при шева -->
     <g>
       <path d="M150 60 L164 44 M150 60 L172 60 M150 60 L162 75 M150 60 L150 41 M150 60 L138 47"
         stroke="${spark}" stroke-width="2.4" stroke-linecap="round"/>
@@ -149,23 +272,19 @@ function tableSVG(active){
       <circle cx="170" cy="48" r="1.7" fill="${glow}"/><circle cx="174" cy="64" r="1.5" fill="${glow}"/>
       <circle cx="160" cy="78" r="1.4" fill="${glow}"/><circle cx="136" cy="44" r="1.4" fill="${glow}"/>
     </g>
-    <!-- горелка -->
     <path d="M150 60 L181 30" stroke="#33507e" stroke-width="4" stroke-linecap="round"/>
     <rect x="173" y="20" width="16" height="10" rx="3" transform="rotate(42 181 25)" fill="#1F3864"/>
-    <!-- заваръчна маска -->
     <g>
       <rect x="40" y="32" width="35" height="31" rx="10" fill="#2C5BA6"/>
       <path d="M40 50 q-6 4 -3 12" fill="none" stroke="#2C5BA6" stroke-width="5" stroke-linecap="round"/>
       <rect x="45" y="43" width="26" height="11" rx="3" fill="#0E1B33"/>
       <rect x="48" y="45" width="20" height="6" rx="2" fill="#3BA0C9" opacity="0.75"/>
     </g>
-    <!-- плот на масата (с отвори за стяги) -->
     <rect x="18" y="64" width="164" height="15" rx="4" fill="#C7D0DC" stroke="#9FB0CF" stroke-width="1.5"/>
     <g fill="#8693a4">
       <circle cx="34" cy="71.5" r="2.1"/><circle cx="55" cy="71.5" r="2.1"/><circle cx="76" cy="71.5" r="2.1"/>
       <circle cx="97" cy="71.5" r="2.1"/><circle cx="118" cy="71.5" r="2.1"/><circle cx="139" cy="71.5" r="2.1"/><circle cx="160" cy="71.5" r="2.1"/>
     </g>
-    <!-- крака и стяга -->
     <g fill="#33507e"><rect x="33" y="79" width="10" height="53" rx="2"/><rect x="157" y="79" width="10" height="53" rx="2"/></g>
     <rect x="43" y="106" width="114" height="8" rx="2" fill="#46618f"/>
     <rect x="26" y="130" width="24" height="6" rx="2" fill="#1F3864"/>
@@ -173,145 +292,393 @@ function tableSVG(active){
   </svg>`;
 }
 
-/* ===== решетка с масите ===== */
-function renderTables(){
-  $("tables").innerHTML = TABLES.map(t=>{
-    const pend=pendingFor(t.name), pcs=remainingPcsFor(t.name), has=pend.length>0;
-    const meta = has
-      ? `<span class="dot" style="background:var(--ink)"></span>${pend.length} ${pend.length===1?"задача":"задачи"} <span class="pcs">· ${pcs} бр.</span>`
-      : `няма възложена работа`;
-    return `<div class="tcard${has?" has":""}" data-open="${t.n}" style="grid-area:t${t.n}">
-      <button class="tedit" data-edit="${t.n}" title="Преименувай работното място">✎</button>
-      <div class="tnum">Място ${t.n}</div>
-      <div class="tvis">${tableSVG(has)}</div>
-      <div class="tname">${esc(t.name)}</div>
-      <div class="tmeta${has?"":" empty"}">${meta}</div>
-    </div>`;
-  }).join("");
+/* ===== Табло ===== */
+function renderDash(){
+  $('cells').innerHTML=tables.map(r=>{
+    const items=productsOfTable(r.id);
+    const rem=items.reduce((s,o)=>s+remainOf(o.product),0);
+    const meta=!tasksLoaded?'зарежда…':(items.length?`${items.length} изд. · остават ${num(rem)}`:'няма изделия');
+    return `<div class="rcell${items.length?' has':''}" data-r="${r.id}" data-go="${r.id}" role="button" tabindex="0">
+      <span class="rnum">${r.id}</span>
+      <div class="rart">${tableSVG(items.length>0)}</div>
+      <div class="rname-wrap">
+        <span class="rname">${esc(r.name)}</span>
+        <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>
+      </div>
+      <div class="rmeta"><span class="rdot" style="background:${items.length?'var(--ink)':'#C9B79A'}"></span>${meta}</div>
+    </div>`;}).join('');
+  const ua=unassignedCount();
+  const db=$('distBtn');
+  if(db)db.innerHTML='📋 Разпределение'+(tasksLoaded&&ua?` <span class="badge" style="margin-left:4px">${ua} нераздадени</span>`:'');
 }
 
-/* ===== изглед на една маса ===== */
-function fileHtml(f){
-  if(!f||!f.url) return "";
-  if(String(f.type||"").startsWith("image/"))
-    return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" alt="${esc(f.name)}" title="${esc(f.name)}"></a>`;
-  return `<a class="tf-doc" href="${esc(f.url)}" target="_blank" rel="noopener">📎 ${esc(f.name||"чертеж")}</a>`;
+/* ===== Разпределение ===== */
+function renderDist(){
+  const list=weldingProducts();
+  $('distLead').textContent='Разпределение — '+list.length+' изделия от Цехове';
+  const chips=p=>{const on=assignedTables(p);
+    return `<div class="masel">${tables.map(r=>`<button type="button" class="chip${on.includes(r.id)?' on':''}" data-tog="${escAttr(p)}" data-tid="${r.id}">${esc(r.name)}</button>`).join('')}</div>`;};
+  $('distTable').innerHTML=!tasksLoaded
+    ? '<div class="empty">Зарежда изделията от Цехове…</div>'
+    : (list.length? `<div class="tbl-scroll"><table class="bd"><thead><tr>
+        <th>Изделие</th><th>Поръчано</th><th>Заварени</th><th>Остават</th><th>Работи се от</th><th>Маси (може няколко)</th>
+      </tr></thead><tbody>${list.map(o=>{const on=assignedTables(o.product);const rem=remainOf(o.product);const tk=takersOf(o.product);
+        return `<tr class="${on.length?'':'unassigned'}">
+          <td class="prod-nm">${esc(o.product)}</td>
+          <td class="num">${num(o.ordered)}</td>
+          <td class="num">${num(producedOf(o.product))}</td>
+          <td class="num">${num(rem)}</td>
+          <td class="work">${tk.length?('🔨 '+takersText(o.product)):'<span class="muted">—</span>'}</td>
+          <td>${chips(o.product)}</td></tr>`;}).join('')}</tbody></table></div>`
+      : '<div class="empty">Още няма заваръчни изделия в Цехове. Щом Таня качи задачи за цех „Заваръчно", ще се появят тук.</div>');
 }
-function taskCard(t){
-  const done=isDone(t), q=num(t.qty), p=num(t.produced), rem=remaining(t);
-  const pct=q>0?Math.min(100,Math.round(p/q*100)):0;
-  const files=(t.files||[]).map(fileHtml).join("");
-  const act = done
-    ? `<div class="tk-done-badge">✓ Заварено напълно</div>`
-    : `<div class="tk-act"><label for="in-${t.id}">Заварих сега:</label>
-        <input id="in-${t.id}" class="tk-inp" type="number" min="0" inputmode="numeric" placeholder="бр." data-id="${esc(t.id)}">
-        <button class="btn pri tk-rep" data-id="${esc(t.id)}">✓ Запиши</button></div>`;
-  return `<div class="tk${done?" done":""}">
-    <div class="tk-top"><span class="tk-client">${esc(t.client||"—")}</span>${t.due?`<span class="tk-due">⏳ ${esc(t.due)}</span>`:""}</div>
-    <div class="tk-prod">${esc(t.product||"(без описание)")}</div>
-    <div class="tk-sub">${t.code?`<span class="code">${esc(t.code)}</span>`:""}${esc(t.operation||"")}</div>
-    ${files?`<div class="tk-files">${files}</div>`:""}
-    <div class="tk-prog">
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <span class="tk-nums">${q>0?`<b>${p}</b> / ${q} бр.${rem!=null?` · остават <b>${rem}</b>`:""}`:`заварени: <b>${p}</b> бр.`}</span>
-    </div>
-    ${act}
+
+/* ===== Детайл (страница на маса) ===== */
+function renderDetail(id){
+  const r=tableById(id);if(!r){location.hash='';return;}
+  $('rdArt').innerHTML=tableSVG(true);
+  $('rdTitle').innerHTML=esc(r.name)+` <button class="redit" data-edit="${r.id}" title="Преименувай">✎</button>`;
+  $('rdSub').innerHTML=`<span class="rdot" style="background:var(--ink)"></span>работно място №${r.id}`;
+  const items=productsOfTable(id);
+  const tOrd=items.reduce((s,o)=>s+orderedOf(o.product),0);
+  const tProd=items.reduce((s,o)=>s+(producedOf(o.product)),0);
+  const tRem=items.reduce((s,o)=>s+remainOf(o.product),0);
+  $('rdStats').innerHTML=
+    `<div class="stat"><div class="k">Изделия</div><div class="v">${items.length}</div></div>
+     <div class="stat"><div class="k">Поръчано</div><div class="v">${num(tOrd)}</div></div>
+     <div class="stat"><div class="k">Заварени</div><div class="v">${num(tProd)}</div></div>
+     <div class="stat"><div class="k">Остават</div><div class="v">${num(tRem)}</div></div>`;
+  $('rdTable').innerHTML=!tasksLoaded
+    ? '<div class="empty">Зарежда…</div>'
+    : (items.length? `<div class="jobs">${items.map(o=>{const rem=remainOf(o.product),done=o.ordered>0&&rem===0;
+        const tk=takersOf(o.product), mine=tk.find(x=>x.t===id);
+        const workLine=tk.length?`<div class="job-work">🔨 Работи се: ${takersText(o.product)}</div>`:'';
+        const takeBtn=done?'':(mine
+          ? `<button class="btn taken" data-take="${escAttr(o.product)}" title="Пусни поръчката">✓ Взета ${fmtTime(mine.at)} · пусни</button>`
+          : `<button class="btn take" data-take="${escAttr(o.product)}">✋ Вземам поръчката</button>`);
+        return `<div class="job${done?' done':''}">
+          <div class="job-main">
+            <div class="job-nm">${esc(o.product)}</div>
+            <div class="job-stats">
+              <span>Поръчано <b>${num(o.ordered)}</b></span>
+              <span>Заварени <b>${num(producedOf(o.product))}</b></span>
+              <span>${done?'<b class="ok">✓ готово</b>':`Остават <b>${num(rem)}</b>`}</span>
+            </div>
+            ${workLine}
+          </div>
+          <div class="job-acts">
+            ${takeBtn}
+            <button class="btn pri" data-report="${escAttr(o.product)}">✓ Запиши брой</button>
+            <button class="btn" data-drawrow="${escAttr(o.product)}">📐 Искам чертеж</button>
+          </div>
+        </div>`;}).join('')}</div>`
+      : '<div class="empty">Тази маса още няма изделия. Добави ѝ от <a href="#razpredelenie">Разпределение</a>.</div>');
+}
+
+/* ===== Изгледи / рутиране ===== */
+function show(sec){['dash','dist','detail'].forEach(s=>{$(s).hidden=(s!==sec);});}
+function route(){
+  const h=location.hash||'';
+  const m=h.match(/^#masa-(\d+)$/);
+  if(h==='#razpredelenie'){show('dist');renderDist();}
+  else if(m){show('detail');renderDetail(+m[1]);}
+  else {show('dash');renderDash();}
+  window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',route);
+
+/* ===== Отчетен прозорец ===== */
+function timeSel(id,def){return `<select id="${id}">
+  <option value="sec"${def==='sec'?' selected':''}>сек</option>
+  <option value="min"${def==='min'?' selected':''}>мин</option>
+  <option value="hour"${def==='hour'?' selected':''}>час</option></select>`;}
+
+function openReport(product,tableId){
+  const r=tableById(tableId);if(!r)return;
+  const ordered=orderedOf(product),remain=remainOf(product);
+  const w=document.createElement('div');w.className='ovl';
+  w.innerHTML=`<div class="ovl-box">
+    <h3>✓ Записване — ${esc(r.name)}</h3>
+    <div class="pd-task"><b>Изделие:</b> ${esc(product)}<br><span class="muted">Поръчано ${num(ordered)} · остават ${num(remain)}</span></div>
+    <label class="fld"><span class="lb">Брой заварени сега *</span><input id="rp-qty" type="number" min="1" step="any" inputmode="decimal" placeholder="0"></label>
+    <label class="fld"><span class="lb">Време за заварка на цялото количество</span><span class="pd-time"><input id="rp-order-v" type="number" min="0" step="any" placeholder="0">${timeSel('rp-order-u','min')}</span></label>
+    <label class="fld"><span class="lb">Използвани консумативи</span><textarea id="rp-cons" rows="2" placeholder="по желание — напр. заваръчен тел, дискове, газ"></textarea></label>
+    <p class="ovl-hint">При запис бройката се отчита на масата <b>и</b> в Цех Заваряване, за да се придвижи изделието напред.</p>
+    <div class="ovl-actions"><button class="btn pri" id="rp-save">Запиши</button><button class="btn" id="rp-cancel">Отказ</button></div>
   </div>`;
-}
-function renderDetail(){
-  const t=tableByN(selN); if(!t){showTables();return;}
-  const all=tasksForName(t.name), pend=all.filter(x=>!isDone(x)), done=all.filter(isDone);
-  const ordered=[...pend, ...done];
-  const list = ordered.length
-    ? `<div class="tasklist">${ordered.map(taskCard).join("")}</div>`
-    : `<div class="empty-list">Няма възложени задачи за тази маса.<br>Изчакай администратор да разпредели работа в <b>Цехове → Заваръчно</b> към „${esc(t.name)}“.</div>`;
-  $("tableDetail").innerHTML =
-    `<button class="btn" id="backBtn">← Маси</button>
-     <div class="dhead" style="margin-top:14px">
-       <div><div class="dnum">Работно място ${t.n}</div><h2>${esc(t.name)}</h2></div>
-       <button class="tedit" id="detailEdit" title="Преименувай" style="position:static">✎ преименувай</button>
-     </div>
-     <div class="dsum">
-       <span class="pill hero">За заваряване: <b>${pend.length}</b> ${pend.length===1?"задача":"задачи"} · ${remainingPcsFor(t.name)} бр.</span>
-       <span class="pill">Заварени днес: <b>${weldedTodayFor(t.name)}</b> бр.</span>
-       <span class="pill">Завършени: <b>${done.length}</b></span>
-     </div>
-     ${list}`;
-}
-
-/* ===== навигация ===== */
-function showTables(){selN=null;$("tableDetail").hidden=true;$("tablesView").hidden=false;renderTables();}
-function openTable(n){selN=n;$("tablesView").hidden=true;$("tableDetail").hidden=false;renderDetail();}
-function render(){ if(selN==null) renderTables(); else renderDetail(); }
-
-/* ===== отчитане на заварено ===== */
-async function reportWeld(id){
-  const t=TASKS.find(x=>String(x.id)===String(id)); if(!t) return;
-  const inp=$("in-"+id); const add=num(inp&&inp.value);
-  if(add<=0){ alert("Въведи колко броя завари."); if(inp)inp.focus(); return; }
-  const rem=remaining(t);
-  if(rem!=null && add>rem && !confirm(`Това надхвърля оставащото (${rem} бр.). Да го запиша ли все пак?`)) return;
-  const name=(tableByN(selN)||{}).name || t.assignee || "";
-  if(!t.assignee) t.assignee=name;                 // поеми задачата, ако е без отговорник
-  t.produced=num(t.produced)+add;
-  t.logs=t.logs||[];
-  t.logs.push({date:todayStr(), worker:name, qty:add, cex:CEX, at:new Date().toISOString()});
-  if(inp){inp.disabled=true;}
-  const ok=await window.WELD.saveTask(t);
-  if(!ok){ alert("Грешка при запис. Провери връзката и опитай пак."); }
-  TASKS=await window.WELD.loadTasks();
-  render();
+  document.body.appendChild(w);
+  const close=()=>w.remove();
+  w.addEventListener('click',e=>{if(e.target===w)close();});
+  w.querySelector('#rp-cancel').addEventListener('click',close);
+  w.querySelector('#rp-save').addEventListener('click',()=>{
+    // 🔍 Контрол на качеството преди всяко отчитане (всяко 3-то с 60 сек.).
+    if(typeof qcGate==='function')qcGate(rpDoSave);else rpDoSave();
+  });
+  async function rpDoSave(){
+    const qty=Number(String(w.querySelector('#rp-qty').value).replace(',','.'));
+    if(!qty||qty<=0){alert('Въведи брой заварени сега.');return;}
+    // Поточен гейт — СЪЩАТА проверка като в Цехове: не повече от наличното
+    // от предната операция. Проверява се ПРЕДИ каквото и да е записване.
+    if(window.FLOW_CREDIT&&FLOW_CREDIT.gateCheck&&window.__sbxRachno){
+      const btn0=w.querySelector('#rp-save');btn0.disabled=true;btn0.textContent='Проверява…';
+      const g=await FLOW_CREDIT.gateCheck(window.__sbxRachno,WELDING.filter(t=>(t.product||'').trim()===product&&t.id),qty).catch(()=>null);
+      btn0.disabled=false;btn0.textContent='Запиши';
+      if(g&&!g.ok){alert(g.msg);return;}
+    }
+    const readT=(vid,uid)=>{const v=Number(String(w.querySelector(vid).value).replace(',','.'));const u=w.querySelector(uid).value;const mult=u==='hour'?3600:(u==='min'?60:1);const sec=v>0?Math.round(v*mult):0;return sec?{v,unit:u,sec}:null;};
+    const tOrder=readT('#rp-order-v','#rp-order-u');
+    const consumables=(w.querySelector('#rp-cons').value||'').trim();
+    const worker=r.name;                       // масата = заварчикът
+    // 1) бройка на масата (споделено състояние)
+    prod[product]=(prod[product]||0)+qty;
+    const entry={kind:'report',date:todayStr(),table:tableId,product,qty,worker,at:new Date().toISOString()};
+    if(tOrder)entry.tOrder=tOrder; if(consumables)entry.consumables=consumables;
+    plog.push(entry);
+    if(remainOf(product)<=0) delete taken[product];   // готово → вече никой не работи по нея
+    if(window.lineSaveSoon)window.lineSaveSoon();
+    const btn=w.querySelector('#rp-save'); btn.disabled=true; btn.textContent='Запазва…';
+    close();renderDetail(tableId);
+    // 2) кредит към Цех Заваряване (задачите на Таня)
+    try{ await creditWeldingWorkshop(product,qty,{tOrder,consumables},worker); await loadWeldingTasks(); }
+    catch(e){ console.warn('Ръчно заваръчно: кредит към Цех',e); alert('Бройката е записана на масата, но неуспя записът в Цех Заваряване (връзка?). Опитай пак при връзка.'); }
+  }
+  setTimeout(()=>{const q=w.querySelector('#rp-qty');if(q)q.focus();},50);
 }
 
-/* ===== преименуване на работно място ===== */
-async function renameTable(n){
-  const t=tableByN(n); if(!t) return;
-  const nv=prompt("Име на работното място (по-късно — име на служителя):", t.name);
-  if(nv===null) return;
-  const name=(nv||"").trim(); if(!name||name===t.name) return;
-  t.name=name;
-  if(window.lineSaveSoon) window.lineSaveSoon();            // сподели новото име
-  if(window.WELD) await window.WELD.ensureTableWorkers(TABLES.map(x=>x.name));   // за да го избира Таня
-  render();
+/* Отчита произведеното и в задачите на Цех Заваряване (по име на изделие).
+   Разпределя количеството по незавършените поръчки (по срок), а времето и
+   консумативите се записват веднъж (на първата поръчка), за да не се дублират. */
+async function creditWeldingWorkshop(product,qty,extra,worker){
+  const c=window.__sbxRachno; if(!c)return;   // няма връзка (напр. тест)
+  const rows=WELDING.filter(t=>(t.product||'').trim()===product&&t.id);
+  if(!rows.length)return;
+  const rem=t=>Math.max(0,(Number(t.qty)||0)-(Number(t.produced)||0));
+  const byDue=(a,b)=>String(a.due||'9999-99-99').localeCompare(String(b.due||'9999-99-99'))||String(a.createdAt||'').localeCompare(String(b.createdAt||''));
+  const open=rows.filter(t=>rem(t)>0).sort(byDue);
+  const targets=open.length?open:[rows.slice().sort(byDue)[0]];
+  let left=qty; const plan=[];
+  for(let i=0;i<targets.length;i++){const t=targets[i];
+    const give=(i===targets.length-1)?left:Math.min(rem(t),left);
+    if(give>0){plan.push({id:t.id,give});left-=give;}
+    if(left<=0)break;
+  }
+  let first=true;
+  const readyIds=new Set();   // заявки за проверка „готова за продажба"
+  for(const p of plan){
+    const {data}=await c.from('tasks').select('*').eq('id',p.id).maybeSingle();
+    if(!data||!data.data)continue;
+    const t={...data.data};
+    t.produced=(Number(t.produced)||0)+p.give;
+    t.logs=Array.isArray(t.logs)?t.logs:[];
+    const e={date:todayStr(),worker:worker||'',qty:p.give};
+    if(first){if(extra.tOrder)e.tOrder=extra.tOrder;if(extra.consumables)e.consumables=extra.consumables;}
+    if(window.FLOW_CREDIT)e.lid=Date.now().toString(36)+'-m-'+Math.random().toString(36).slice(2,6);
+    t.logs.push(e);
+    const done=(Number(t.qty)||0)>0&&(Number(t.produced)||0)>=(Number(t.qty)||0);
+    const {error}=await c.from('tasks').update({data:t,done,updated_at:new Date().toISOString()}).eq('id',p.id);
+    if(error)throw error;
+    // Складови последствия като в главното табло: изписване на вложените
+    // детайли от рецептата, заприходяване на готовото, вечен дневник.
+    if(window.FLOW_CREDIT){
+      try{ await FLOW_CREDIT.afterCredit(c,p.id,t); }catch(err){ console.warn('Ръчно заваръчно: складови движения',err); }
+      try{ await FLOW_CREDIT.prodLog(c,p.id,t,e); }catch(err){}
+      const s=t.source; ((s&&s.orderIds)||[]).forEach(x=>readyIds.add(String(x)));
+    }
+    first=false;
+  }
+  if(window.FLOW_CREDIT&&readyIds.size){ try{ await FLOW_CREDIT.markOrdersReady(c,[...readyIds]); }catch(err){} }
+  // 🎨 Авто-боя: отчетът може да е отключил детайли за Бояджийно.
+  if(window.FLOW_CREDIT&&FLOW_CREDIT.autoPaint){ try{ await FLOW_CREDIT.autoPaint(c); }catch(err){} }
 }
 
-/* ===== събития ===== */
-document.addEventListener("click", e=>{
-  const ed=e.target.closest("[data-edit]"); if(ed){ renameTable(+ed.dataset.edit); return; }
-  if(e.target.closest("#detailEdit")){ renameTable(selN); return; }
-  if(e.target.closest("#backBtn")){ showTables(); return; }
-  const rep=e.target.closest(".tk-rep"); if(rep){ reportWeld(rep.dataset.id); return; }
-  const card=e.target.closest("[data-open]"); if(card){ openTable(+card.dataset.open); return; }
+/* ===== Съобщения към админите (искане на чертеж / снабдяване) ===== */
+function sbxClient(){
+  if(!window.supabase||!window.DANKO_CONFIG)return null;
+  return window.__sbxRachno||(window.__sbxRachno=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
+}
+async function sendMsg(m){
+  const c=sbxClient(); if(!c){alert('Няма връзка с облака.');return false;}
+  try{ const {error}=await c.from('messages').insert({data:m}); if(error)throw error; return true; }
+  catch(e){ console.warn('Ръчно заваръчно: съобщение',e); alert('Неуспешно изпращане (връзка?). Опитай пак.'); return false; }
+}
+function tableSelect(id,prefill){
+  return `<select id="${id}">${tables.map(t=>`<option value="${t.id}"${t.id===prefill?' selected':''}>${esc(t.name)}</option>`).join('')}</select>`;
+}
+function curTableId(){const m=(location.hash||'').match(/^#masa-(\d+)$/);return m?+m[1]:null;}
+
+// 📐 Искане на чертеж → съобщение „въпрос" до админите
+function openDrawingReq(prefillId,prefillProduct){
+  const w=document.createElement('div');w.className='ovl';
+  w.innerHTML=`<div class="ovl-box">
+    <h3>📐 Искане на чертеж</h3>
+    <label class="fld"><span class="lb">От коя маса *</span>${tableSelect('dr-table',prefillId||tables[0].id)}</label>
+    <label class="fld"><span class="lb">Изделие / детайл</span><input id="dr-prod" type="text" placeholder="напр. Носеща рама RM-200" value="${escAttr(prefillProduct||'')}"></label>
+    <label class="fld"><span class="lb">Какъв чертеж искаш *</span><textarea id="dr-text" rows="3" placeholder="Опиши какъв чертеж / детайл ти трябва…"></textarea></label>
+    <p class="ovl-hint">Отива до администраторите (в „Съобщения → Въпроси"). Ще ти закачат чертежа към задачата.</p>
+    <div class="ovl-actions"><button class="btn pri" id="dr-send">Изпрати</button><button class="btn" id="dr-cancel">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(w);
+  const close=()=>w.remove();
+  w.addEventListener('click',e=>{if(e.target===w)close();});
+  w.querySelector('#dr-cancel').addEventListener('click',close);
+  w.querySelector('#dr-send').addEventListener('click',async()=>{
+    const text=(w.querySelector('#dr-text').value||'').trim();
+    if(!text){alert('Опиши какъв чертеж искаш.');return;}
+    const tid=+w.querySelector('#dr-table').value, tname=(tableById(tid)||{}).name||'';
+    const prod=(w.querySelector('#dr-prod').value||'').trim();
+    const now=new Date().toISOString();
+    const m={from:'worker',fromName:tname,fromEmail:window.PAINT_USER||'',workshop:'Заваръчно',
+      taskId:null,taskRef:prod,toEmail:'',toName:'',
+      text:'📐 Искане на чертеж'+(prod?' — '+prod:'')+'\n'+text,
+      status:'open',replies:[],seenByAdmin:false,seenByWorker:true,createdAt:now,updatedAt:now};
+    const b=w.querySelector('#dr-send');b.disabled=true;b.textContent='Изпраща…';
+    const ok=await sendMsg(m); if(!ok){b.disabled=false;b.textContent='Изпрати';return;}
+    close(); alert('Искането за чертеж е изпратено до администраторите. ✅');
+  });
+  setTimeout(()=>{const el=w.querySelector('#dr-text');if(el)el.focus();},50);
+}
+
+// 📦 Поръчка за снабдяване → съобщение „supply" до админите
+function openSupplyReq(prefillId){
+  const w=document.createElement('div');w.className='ovl';
+  w.innerHTML=`<div class="ovl-box">
+    <h3>📦 Нова поръчка за снабдяване</h3>
+    <label class="fld"><span class="lb">От коя маса *</span>${tableSelect('sp-table',prefillId||tables[0].id)}</label>
+    <label class="fld"><span class="lb">Какво е необходимо *</span><textarea id="sp-text" rows="4" placeholder="напр. заваръчен тел Ø1.0 — 2 ролки; газ CO₂; дискове за ъглошлайф…"></textarea></label>
+    <p class="ovl-hint">Поръчката стои отворена, докато админ я приеме. Влиза в „Съобщения → Поръчки за снабдяване".</p>
+    <div class="ovl-actions"><button class="btn pri" id="sp-send">Изпрати поръчката</button><button class="btn" id="sp-cancel">Отказ</button></div>
+  </div>`;
+  document.body.appendChild(w);
+  const close=()=>w.remove();
+  w.addEventListener('click',e=>{if(e.target===w)close();});
+  w.querySelector('#sp-cancel').addEventListener('click',close);
+  w.querySelector('#sp-send').addEventListener('click',async()=>{
+    const text=(w.querySelector('#sp-text').value||'').trim();
+    if(!text){alert('Опиши какво ти трябва.');return;}
+    const tid=+w.querySelector('#sp-table').value, tname=(tableById(tid)||{}).name||'';
+    const now=new Date().toISOString();
+    const m={type:'supply',from:'worker',fromName:tname,fromEmail:window.PAINT_USER||'',workshop:'Заваръчно',
+      taskId:null,taskRef:'',text,status:'open',acceptedBy:null,replies:[],
+      seenByAdmin:false,seenByWorker:true,createdAt:now,updatedAt:now};
+    const b=w.querySelector('#sp-send');b.disabled=true;b.textContent='Изпраща…';
+    const ok=await sendMsg(m); if(!ok){b.disabled=false;b.textContent='Изпрати поръчката';return;}
+    close(); alert('Поръчката за снабдяване е изпратена до администраторите. ✅');
+  });
+  setTimeout(()=>{const el=w.querySelector('#sp-text');if(el)el.focus();},50);
+}
+
+/* ===== Преименуване ===== */
+function renameTable(id){
+  const r=tableById(id);if(!r)return;
+  const nv=prompt('Име на масата (работно място №'+id+'):',r.name);
+  if(nv===null)return;
+  r.name=(nv.trim()||('Заваръчна Маса '+id));
+  saveState();route();
+}
+
+/* ===== Вземане на поръчка / разпределение по маси ===== */
+// Заварчик „взема" поръчката → записва кой и в колко часа е започнал (за анализ),
+// видимо в списъка с поръчки. Повторно натискане я „пуска".
+function toggleTake(p,tid){
+  const list=takersOf(p).slice(), i=list.findIndex(x=>x.t===tid);
+  const tname=(tableById(tid)||{}).name||'';
+  if(i>=0){ list.splice(i,1); }
+  else { const at=new Date().toISOString(); list.push({t:tid,w:tname,at}); plog.push({kind:'start',date:todayStr(),table:tid,product:p,worker:tname,at}); }
+  if(list.length)taken[p]=list; else delete taken[p];
+  saveState();
+  // Синхронизация с Цех Заваръчно: взелите масите стават ОТГОВОРНИЦИ на
+  // задачите за това изделие (вижда се от всички профили в Цехове).
+  syncTakenToTasks(p,list.map(x=>x.w).filter(Boolean)).catch(e=>console.warn('отговорник → Цех',e));
+}
+async function syncTakenToTasks(product,names){
+  const c=window.__sbxRachno; if(!c)return;
+  const rows=WELDING.filter(t=>(t.product||'').trim()===product&&t.id);
+  for(const w of rows){
+    try{
+      const {data}=await c.from('tasks').select('*').eq('id',w.id).maybeSingle();
+      if(!data||!data.data)continue;
+      const t={...data.data};
+      const a=[...new Set(names)];
+      t.assignees=a; t.assignee=a[0]||'';
+      await c.from('tasks').update({data:t,updated_at:new Date().toISOString()}).eq('id',w.id);
+    }catch(e){/* следващата задача */}
+  }
+}
+// Добавя/маха маса от разпределението на изделие (може няколко маси).
+function toggleAssign(p,tid){
+  const arr=assignedTables(p), i=arr.indexOf(tid);
+  if(i>=0)arr.splice(i,1); else arr.push(tid);
+  setAssigned(p,arr); saveState();
+}
+
+/* ===== Събития ===== */
+document.addEventListener('click',e=>{
+  const act=e.target.closest('[data-act]');
+  if(act){e.preventDefault();const tid=+(act.dataset.table||0)||curTableId();
+    if(act.dataset.act==='draw')openDrawingReq(tid);
+    else if(act.dataset.act==='supply')openSupplyReq(tid);
+    return;}
+  const ed=e.target.closest('[data-edit]');
+  if(ed){e.preventDefault();e.stopPropagation();renameTable(+ed.dataset.edit);return;}
+  const rep=e.target.closest('[data-report]');
+  if(rep){const m=(location.hash||'').match(/^#masa-(\d+)$/);if(m)openReport(rep.dataset.report,+m[1]);return;}
+  const take=e.target.closest('[data-take]');
+  if(take){e.preventDefault();const tid=curTableId();if(tid)toggleTake(take.dataset.take,tid);return;}
+  const tog=e.target.closest('[data-tog]');
+  if(tog){e.preventDefault();toggleAssign(tog.dataset.tog,+tog.dataset.tid);return;}
+  const drow=e.target.closest('[data-drawrow]');
+  if(drow){e.preventDefault();openDrawingReq(curTableId(),drow.dataset.drawrow);return;}
+  const go=e.target.closest('.rcell[data-go]');
+  if(go){location.hash='#masa-'+go.dataset.go;return;}
 });
-document.addEventListener("keydown", e=>{
-  if(e.key==="Enter" && e.target.classList && e.target.classList.contains("tk-inp")){ e.preventDefault(); reportWeld(e.target.dataset.id); }
+document.addEventListener('keydown',e=>{
+  if((e.key==='Enter'||e.key===' ')&&e.target.closest&&e.target.closest('.rcell[data-go]')){
+    e.preventDefault();location.hash='#masa-'+e.target.closest('.rcell[data-go]').dataset.go;return;}
 });
+$('backBtn').addEventListener('click',e=>{e.preventDefault();location.hash='';});
+$('distBack').addEventListener('click',e=>{e.preventDefault();location.hash='';});
 
-/* ===== състояние за споделяне (имена/нареждане на масите) ===== */
-window.LINE_STATE = {
-  serialize(){ return { tables: TABLES.map(t=>({n:t.n, name:t.name})) }; },
+/* ===== Споделяне на живо (през sync.js) ===== */
+function saveState(){if(window.lineSaveSoon)window.lineSaveSoon();route();}
+window.LINE_STATE={
+  serialize(){return {tables:tables.map(t=>({id:t.id,name:t.name})),assign,taken,prod,plog};},
   apply(doc){
-    if(!doc||!Array.isArray(doc.tables)) return;
-    doc.tables.forEach(d=>{ const t=tableByN(d.n); if(t&&d.name) t.name=d.name; });
-    render();
-  },
+    if(!doc)return;
+    if(Array.isArray(doc.tables))doc.tables.forEach(rr=>{const r=tableById(+rr.id);if(r&&typeof rr.name==='string'&&rr.name.trim())r.name=rr.name;});
+    if(doc.assign&&typeof doc.assign==='object')assign=doc.assign;
+    if(doc.taken&&typeof doc.taken==='object')taken=doc.taken;
+    if(doc.prod&&typeof doc.prod==='object')prod=doc.prod;
+    if(Array.isArray(doc.plog))plog=doc.plog;
+    route();
+  }
 };
 
-/* ===== старт (вика се от sync.js при готовност) ===== */
-async function init(){
-  if(inited) return; inited=true;
-  try{ await window.WELD.ensureTableWorkers(TABLES.map(t=>t.name)); }catch(e){}
-  TASKS = await window.WELD.loadTasks();
-  render();
-  window.WELD.subscribeTasks(async ()=>{
-    TASKS = await window.WELD.loadTasks();
-    const a = document.activeElement;
-    if (a && a.classList && a.classList.contains("tk-inp")) return;   // не пречи на въвеждащия в момента
-    render();
-  });
+/* ===== Четене на заваръчните задачи от Цехове ===== */
+async function loadWeldingTasks(){
+  try{
+    if(Array.isArray(window.__MOCK_TASKS)){WELDING=window.__MOCK_TASKS.filter(t=>(t.workshop||'')==='Заваръчно');tasksLoaded=true;route();return;}
+    if(!window.supabase||!window.DANKO_CONFIG){tasksLoaded=true;route();return;}
+    const c=window.__sbxRachno||(window.__sbxRachno=window.supabase.createClient(DANKO_CONFIG.SUPABASE_URL,DANKO_CONFIG.SUPABASE_ANON_KEY));
+    const {data,error}=await c.from('tasks').select('*');
+    if(error)throw error;
+    WELDING=(data||[]).map(r=>({...r.data,id:r.id}))
+      .filter(t=>{const w=(t.workshop||'');return w==='Заваръчно'||w==='Заварки';})
+      // както в Цехове: изпълнените задачи не влизат в списъка
+      .filter(t=>!((Number(t.qty)||0)>0&&(Number(t.produced)||0)>=(Number(t.qty)||0)));
+    tasksLoaded=true;route();
+  }catch(e){console.warn('Ръчно заваръчно: задачи',e);tasksLoaded=true;route();}
 }
-renderTables();   // покажи масите веднага (имената се обновяват при зареждане)
-if(window.WELD){ window.WELD.onReady = init; if(window.WELD.ready) init(); }
+
+/* ===== Старт ===== */
+route();
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',loadWeldingTasks);
+else loadWeldingTasks();
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../config.js?v=137"></script>
+<script src="../ui-guards.js?v=1"></script>
+<script src="../quality.js?v=3"></script>
+<script src="../flow-credit.js?v=4"></script>
+<script src="sync.js?v=3"></script>
 </body>
 </html>

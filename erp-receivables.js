@@ -1,0 +1,590 @@
+/* Данко Системс — ЕРП „Вземания (за събиране)".
+   Пари, които клиентите ни дължат. Всяка издадена фактура (Фактуриране) отива
+   тук автоматично като вземане, с разсроченото плащане (падеж + срок). Може и
+   импорт от GenCloud (същите колони като справката „Вземания"). Изгледът е
+   групиран по клиент: болд ред със сбора на клиента, а отдолу фактурите, които
+   го съставят (както в жълтото в справката). Кристина маркира фактура като
+   платена → отива в архив (филтър „✓ Платени").
+   Пази се в app_config id="receivables": { list:[ {...} ] }.
+   Ползва ERP/erpView/erpDialog/escapeHtml, глобалния sb и XLSX (SheetJS). */
+
+const RECV_EUR_BGN = 1.95583;
+let RECEIVABLES = null;
+let recvFilter = "all";            // all | week | month | overdue | paid
+let recvQuery = "";                // 🔎 търсене (клиент / № фактура)
+let recvSelected = new Set();      // избрани id за отбелязване платени
+
+function recvNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; }
+function recvIso(d) { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
+function recvToday() { return recvIso(new Date()); }
+// „17-07-2026" или „2026-07-17" → ISO „2026-07-17"
+function recvParseDate(s) {
+  s = String(s || "").trim(); if (!s) return "";
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/); if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+  return "";
+}
+function recvFmt(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : (s || ""); }
+function recvMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function recvEndOfWeek() { const d = new Date(); const off = (7 - d.getDay()) % 7; d.setDate(d.getDate() + off); return recvIso(d); }
+function recvEndOfMonth() { const d = new Date(); return recvIso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+function recvDaysLeft(due) { if (!due) return null; const a = new Date(due + "T00:00:00"), b = new Date(recvToday() + "T00:00:00"); return Math.round((a - b) / 864e5); }
+// Частични плащания: p.payments = [{date, amount, note?}]. Остатък = сума − платеното.
+function recvPaidPart(p) { return (p.payments || []).reduce((s, x) => s + recvNum(x.amount), 0); }
+function recvOutstanding(p) { return recvNum(p.amount) - recvPaidPart(p); }
+
+async function erpRecvLoad() {
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "receivables").maybeSingle(); RECEIVABLES = (data && data.data && data.data.list) || []; }
+  catch (e) { RECEIVABLES = []; }
+}
+async function erpRecvSave() {
+  const { error } = await sb.from("app_config").upsert({ id: "receivables", data: { list: RECEIVABLES || [] }, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис: " + error.message + (/row-level security|violates/i.test(error.message || "") ? "\n\nПусни app-config-rls-fix.sql в Supabase." : "")); return false; }
+  return true;
+}
+function recvNextId() { let m = 0; (RECEIVABLES || []).forEach(p => { const n = Number(p.id) || 0; if (n > m) m = n; }); return m + 1; }
+
+/* ---------- Списък (групиран по клиент) ---------- */
+async function erpRenderReceivables() {
+  const v = erpView();
+  if (!RECEIVABLES) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpRecvLoad(); }
+  const eow = recvEndOfWeek(), eom = recvEndOfMonth();
+  const unpaid = (RECEIVABLES || []).filter(p => !p.paid);
+  // Сборовете за неплатените са ОСТАТЪЦИТЕ (частичните плащания са приспаднати).
+  const sum = arr => arr.reduce((s, p) => s + (p.paid ? recvNum(p.amount) : recvOutstanding(p)), 0);
+  const weekItems = unpaid.filter(p => p.dueDate && p.dueDate <= eow);
+  const monthItems = unpaid.filter(p => p.dueDate && p.dueDate <= eom);
+  const overdueItems = unpaid.filter(p => { const d = recvDaysLeft(p.dueDate); return d != null && d < 0; });
+
+  let rows;
+  if (recvFilter === "paid") rows = (RECEIVABLES || []).filter(p => p.paid);
+  else if (recvFilter === "week") rows = weekItems;
+  else if (recvFilter === "month") rows = monthItems;
+  else if (recvFilter === "overdue") rows = overdueItems;
+  else rows = unpaid;
+  // 🔎 Търсене (в паметта): клиент / № фактура. Картите горе остават общи.
+  const rq = (recvQuery || "").toLowerCase().trim();
+  if (rq) rows = rows.filter(p => `${p.client || ""} ${p.invoiceNo || ""}`.toLowerCase().includes(rq));
+
+  // Групиране по клиент (болд сбор + фактурите под него), подредени по азбучен
+  // ред на името. Реда от файла на импорта (ord) вече се ползва само ВЪТРЕ в
+  // групата и за подсказката за сливане на разписани имена.
+  // Ключът е НОРМАЛИЗИРАНОТО име (без разлики в главни/малки букви и интервали),
+  // за да не се цепи един клиент на две групи (напр. „KROHNE" и „Krohne ").
+  // Показва се името от импортирания запис (с ord), ако има такъв.
+  const normClient = s => String(s || "—").trim().replace(/\s+/g, " ").toLowerCase();
+  const groups = {}, gName = {};
+  rows.forEach(p => {
+    const k = normClient(p.client);
+    (groups[k] = groups[k] || []).push(p);
+    if (!gName[k] || ((p.ord != null && p.ord !== "") && !gName[k].fromImport)) gName[k] = { name: (p.client || "—").trim() || "—", fromImport: p.ord != null && p.ord !== "" };
+  });
+  const BIG = 1e12;
+  const gOrd = {};
+  Object.keys(groups).forEach(k => { gOrd[k] = Math.min(...groups[k].map(p => (p.ord != null && p.ord !== "") ? Number(p.ord) : BIG)); });
+  // Клиентите вървят ПО АЗБУЧЕН РЕД — независимо дали записът е дошъл от импорт
+  // (има ord) или е от фактура, издадена в Системата. Преди подредбата беше по
+  // реда във файла на GenCloud и нашите фактури увисваха най-отдолу.
+  const clientNames = Object.keys(groups).sort((a, b) =>
+    gName[a].name.localeCompare(gName[b].name, "bg", { numeric: true, sensitivity: "base" }));
+  clientNames.forEach(k => groups[k].sort((a, b) => {
+    const ao = (a.ord != null && a.ord !== "") ? Number(a.ord) : BIG;
+    const bo = (b.ord != null && b.ord !== "") ? Number(b.ord) : BIG;
+    return (ao - bo) || String(a.dueDate || "9999").localeCompare(b.dueDate || "9999");
+  }));
+
+  const card = (label, arr, hl) => `<div class="pay-card ${hl || ""}"><div class="pay-card-l">${label}</div><div class="pay-card-v">${recvMoney(sum(arr))} EUR</div><div class="pay-card-n">${arr.length} фактури</div></div>`;
+  const tab = (key, label) => `<button class="btn btn-small ${recvFilter === key ? "btn-primary" : ""}" data-rf="${key}">${label}</button>`;
+
+  // Група БЕЗ импортна позиция (виси най-отдолу): търсим импортирана група,
+  // с която явно е един и същ клиент (обща дума ≥ 5 букви, напр. „krohne") —
+  // и предлагаме обединяване с 1 клик (преименува записите към точното име).
+  const mergeHint = {};
+  {
+    const words = k => new Set(k.split(/[^a-zа-я0-9]+/).filter(w => w.length >= 5));
+    Object.keys(groups).forEach(k => {
+      if (gOrd[k] !== BIG) return;
+      const wk = words(k);
+      if (!wk.size) return;
+      const hit = Object.keys(groups).find(k2 => k2 !== k && gOrd[k2] < BIG && [...words(k2)].some(w => wk.has(w)));
+      if (hit) mergeHint[k] = hit;
+    });
+  }
+  const colspan = recvFilter === "paid" ? 8 : 9;
+  const body = clientNames.length ? clientNames.map(name => {
+    const items = groups[name];
+    const disp = (gName[name] && gName[name].name) || name;
+    const gtot = sum(items);
+    const mh = mergeHint[name];
+    const groupHead = `<tr class="recv-client-row">
+      ${recvFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="recv-sel-all" data-client="${escapeAttr(name)}" title="Избери всички на клиента" /></td>`}
+      <td colspan="5"><b>${escapeHtml(disp)}</b> <span class="erp-muted">· ${items.length} фактури</span>${mh ? ` <button class="btn btn-small" data-mergefrom="${escapeAttr(name)}" data-mergeto="${escapeAttr(mh)}" title="Изглежда същият клиент като „${escapeAttr(gName[mh].name)}" — преименува тези записи към точното име и групата отива при останалите му фактури">⇧ Обедини с „${escapeHtml(gName[mh].name)}"</button>` : ""}</td>
+      <td class="num"><b>${recvMoney(gtot)} EUR</b></td>
+      <td></td><td></td>
+    </tr>`;
+    const invRows = items.map(p => {
+      const dl = recvDaysLeft(p.dueDate);
+      const overdue = !p.paid && dl != null && dl < 0;
+      const soon = !p.paid && dl != null && dl >= 0 && dl <= 3;
+      const neg = recvNum(p.amount) < 0;
+      // „Стокова" със същата сума като по-късна ФАКТУРА на клиента = вероятен
+      // дублаж (фактурата е издадена отделно и не е заменила стоковото вземане).
+      const dupInv = (!p.paid && p.docType === "Стокова")
+        ? items.find(x => x !== p && (x.docType || "Фактура") === "Фактура" && Math.abs(recvNum(x.amount) - recvNum(p.amount)) <= 0.02 && String(x.docDate || "") >= String(p.docDate || ""))
+        : null;
+      return `<tr class="recv-inv-row ${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}" data-id="${p.id}">
+        ${recvFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="recv-sel" data-id="${p.id}" data-client="${escapeAttr(name)}" ${recvSelected.has(p.id) ? "checked" : ""} /></td>`}
+        <td><b>${recvFmt(p.dueDate)}</b></td>
+        <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
+        <td>${escapeHtml(p.invoiceNo || "")}</td>
+        <td>${recvFmt(p.docDate)}</td>
+        <td>${escapeHtml(p.docType || "Фактура")}${dupInv ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e" title="Същата сума като фактура №${escapeAttr(dupInv.invoiceNo || "")} — ако фактурата е за СЪЩАТА доставка, стоковият ред е дублаж и трябва да се махне">⚠ дублира ф-ра №${escapeHtml(dupInv.invoiceNo || "")}?</span> <button class="btn btn-small" data-dupdel="${p.id}" data-dupno="${escapeAttr(dupInv.invoiceNo || "")}" title="Премахва стоковия ред — дългът се следи по фактурата">✕ Махни дубъла</button>` : ""}</td>
+        <td class="num ${neg ? "pay-neg" : ""}"><b>${recvMoney(p.paid ? p.amount : recvOutstanding(p))}</b>${(!p.paid && recvPaidPart(p) > 0) ? `<br><small class="erp-muted" title="Частично платени">платени ${recvMoney(recvPaidPart(p))} от ${recvMoney(p.amount)}</small>` : ""}</td>
+        <td>${escapeHtml(p.payMethod || "Банка")}</td>
+        ${recvFilter === "paid"
+          ? `<td>${recvFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
+          : `<td class="erp-row-actions"><button class="btn btn-small" data-part="${p.id}" title="Впиши частично плащане от клиента">± Частично</button><button class="btn btn-small" data-fix="${p.id}" title="Корекция на сумата/падежа (при грешка от импорта)">✎ Корекция</button><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена изцяло">✓ Платена</button></td>`}
+      </tr>`;
+    }).join("");
+    return groupHead + invRows;
+  }).join("") : `<tr><td colspan="${colspan}" class="report-empty">${recvFilter === "paid" ? "Няма платени (архив)." : "Няма вземания. Издай фактура или импортирай от GenCloud."}</td></tr>`;
+
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      ${tab("all", "⏳ Всички за събиране")}
+      ${tab("week", "📅 Тази седмица")}
+      ${tab("month", "📅 До края на месеца")}
+      ${tab("overdue", `⚠ Просрочени (${overdueItems.length})`)}
+      ${tab("paid", "✓ Платени (архив)")}
+      <input type="search" id="recv-q" placeholder="🔎 клиент / № фактура…" value="${escapeAttr(recvQuery)}" style="min-width:180px" autocomplete="off" />
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="recv-audit" title="100% сверка: всяка издадена фактура има ли вземане с точната сума? Липсващите/различните се показват и могат да се оправят с 1 клик.">🔍 Сверка с фактурите</button>
+    </div>
+    <div class="pay-cards">
+      ${card("Σ Общо за събиране", unpaid, "pay-card-total")}
+    </div>
+    <div class="pay-scroll"><table class="report-table erp-table pay-table recv-table">
+      <thead><tr>
+        ${recvFilter === "paid" ? "" : '<th class="pay-chk"></th>'}
+        <th>Падеж</th><th class="num">Дни</th><th>№ Фактура</th><th>Дата док.</th><th>Тип</th>
+        <th class="num">Сума (EUR)</th><th>Плащане</th>${recvFilter === "paid" ? "<th>Платена на</th>" : "<th></th>"}
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>
+    ${recvFilter !== "paid" ? `<div class="pay-paybar" id="recv-paybar"></div>` : ""}`;
+
+  v.querySelectorAll("[data-rf]").forEach(b => b.addEventListener("click", () => { recvFilter = b.dataset.rf; recvSelected.clear(); erpRenderReceivables(); }));
+  const rqEl = document.getElementById("recv-q");
+  if (rqEl) rqEl.addEventListener("input", e => {
+    recvQuery = e.target.value;
+    erpRenderReceivables();
+    const el = document.getElementById("recv-q");
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
+  const fi = document.getElementById("recv-file"); if (fi) fi.addEventListener("change", e => erpRecvImport(e.target.files[0]));
+  const ci = document.getElementById("recv-clear-import"); if (ci) ci.addEventListener("click", erpRecvClearImport);
+  const ca = document.getElementById("recv-clear-all"); if (ca) ca.addEventListener("click", erpRecvClearAll);
+  v.querySelectorAll(".recv-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) recvSelected.add(id); else recvSelected.delete(id); erpRecvBar(); }));
+  v.querySelectorAll(".recv-sel-all").forEach(c => c.addEventListener("change", () => {
+    const name = c.dataset.client;
+    (groups[name] || []).forEach(p => { if (c.checked) recvSelected.add(p.id); else recvSelected.delete(p.id); });
+    erpRenderReceivables();
+  }));
+  v.querySelectorAll("[data-paid1]").forEach(b => b.addEventListener("click", () => erpRecvMarkPaid([Number(b.dataset.paid1)])));
+  v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpRecvPartialDialog(Number(b.dataset.part))));
+  v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
+  v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
+  const auditBtn = v.querySelector("#recv-audit");
+  if (auditBtn) auditBtn.addEventListener("click", () => erpRecvAudit(auditBtn));
+  v.querySelectorAll("[data-mergefrom]").forEach(b => b.addEventListener("click", async () => {
+    const from = b.dataset.mergefrom, to = b.dataset.mergeto;
+    const target = (gName[to] && gName[to].name) || to;
+    const list = groups[from] || [];
+    if (!confirm(`Да преименувам ли ${list.length} записа от „${(gName[from] && gName[from].name) || from}" на „${target}"?\nГрупата ще се обедини с останалите фактури на клиента.`)) return;
+    list.forEach(p => { p.client = target; });
+    await erpRecvSave();
+    erpRenderReceivables();
+  }));
+  v.querySelectorAll("[data-dupdel]").forEach(b => b.addEventListener("click", async () => {
+    const p = (RECEIVABLES || []).find(x => x.id === Number(b.dataset.dupdel));
+    if (!p) return;
+    if (!confirm(`Да премахна ли стоковото вземане ${p.invoiceNo || ""} (${recvMoney(p.amount)} EUR)?\nДългът ще се следи само по фактура №${b.dataset.dupno}.`)) return;
+    const i = RECEIVABLES.indexOf(p);
+    if (i >= 0) { RECEIVABLES.splice(i, 1); await erpRecvSave(); erpRenderReceivables(); }
+  }));
+  erpRecvBar();
+}
+
+// Лентата „Отбележи избраните" — сумата на избраните.
+function erpRecvBar() {
+  const bar = document.getElementById("recv-paybar"); if (!bar) return;
+  const sel = (RECEIVABLES || []).filter(p => recvSelected.has(p.id) && !p.paid);
+  const tot = sel.reduce((s, p) => s + recvOutstanding(p), 0);
+  if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Избери фактури с отметка, за да ги отбележиш като платени.</span>`; return; }
+  bar.innerHTML = `
+    <span class="pay-sel-info">Избрани: <b>${sel.length}</b> · сума: <b>${recvMoney(tot)} EUR</b></span>
+    <span class="spacer"></span>
+    <button class="btn btn-small" id="recv-print">🖨 Списък за събиране</button>
+    <button class="btn btn-small btn-primary" id="recv-paysel">✓ Отбележи избраните като платени</button>`;
+  document.getElementById("recv-paysel").addEventListener("click", () => erpRecvMarkPaid([...recvSelected]));
+  document.getElementById("recv-print").addEventListener("click", () => erpRecvPrint(sel));
+}
+
+/* ---------- Корекция (сума/падеж/№) — за грешки от импорта ---------- */
+async function erpRecvEdit(id) {
+  const p = (RECEIVABLES || []).find(x => x.id === id); if (!p) return;
+  const { wrap, close } = erpDialog(`
+    <h3>✎ Корекция на вземане</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(p.client || "")}</b> · фактура №${escapeHtml(p.invoiceNo || "—")}</p>
+    <div class="erp-co-grid">
+      <label>Сума (EUR) <input type="number" id="rce-amount" step="any" value="${escapeAttr(String(recvNum(p.amount)))}" /></label>
+      <label>Падеж <input type="date" id="rce-due" value="${escapeAttr(p.dueDate || "")}" /></label>
+      <label>№ Фактура <input type="text" id="rce-no" value="${escapeAttr(p.invoiceNo || "")}" /></label>
+      <label>Клиент <input type="text" id="rce-client" list="rce-clients" value="${escapeAttr(p.client || "")}" title="Избери ТОЧНОТО име от списъка — така фактурата отива в групата на клиента" /></label>
+      <datalist id="rce-clients">${[...new Set((RECEIVABLES || []).map(x => String(x.client || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg")).map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
+    </div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="rce-cancel">Отказ</button>
+      <button class="btn btn-primary" id="rce-save">Запази</button>
+    </div>
+    <p class="save-status" id="rce-status"></p>`);
+  wrap.querySelector("#rce-cancel").addEventListener("click", close);
+  wrap.querySelector("#rce-save").addEventListener("click", async () => {
+    p.amount = recvNum(wrap.querySelector("#rce-amount").value);
+    p.dueDate = wrap.querySelector("#rce-due").value || "";
+    p.invoiceNo = wrap.querySelector("#rce-no").value.trim();
+    p.client = wrap.querySelector("#rce-client").value.trim();
+    wrap.querySelector("#rce-status").textContent = "Записва…";
+    if (await erpRecvSave()) { close(); erpRenderReceivables(); }
+  });
+}
+
+/* ---------- ± Частично плащане ---------- */
+async function erpRecvPartialDialog(id) {
+  const p = (RECEIVABLES || []).find(x => x.id === id); if (!p) return;
+  p.payments = Array.isArray(p.payments) ? p.payments : [];
+  const listHtml = () => p.payments.length
+    ? `<table class="report-table"><thead><tr><th>Дата</th><th class="num">Сума (EUR)</th><th></th></tr></thead><tbody>
+        ${p.payments.map((x, i) => `<tr><td>${recvFmt(x.date)}</td><td class="num">${recvMoney(x.amount)}</td><td><button class="btn btn-small btn-danger" data-rmp="${i}" title="Изтрий това плащане">✕</button></td></tr>`).join("")}
+      </tbody></table>`
+    : `<p class="erp-muted">Още няма вписани плащания.</p>`;
+  const { wrap, close } = erpDialog(`
+    <h3>± Частично плащане</h3>
+    <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(p.client || "")}</b> · ${escapeHtml(p.docType || "Фактура")} №${escapeHtml(p.invoiceNo || "—")} · сума <b>${recvMoney(p.amount)} EUR</b></p>
+    <div id="rcp-list">${listHtml()}</div>
+    <p>Остатък за плащане: <b id="rcp-rest">${recvMoney(recvOutstanding(p))}</b> EUR</p>
+    <div class="erp-co-grid">
+      <label>Дата на плащането <input type="date" id="rcp-date" value="${escapeAttr(recvToday())}" /></label>
+      <label>Платена сума (EUR) <input type="number" id="rcp-amount" step="any" min="0" placeholder="напр. 500" /></label>
+    </div>
+    <p class="hint">Щом плащанията покрият цялата сума, фактурата се затваря сама (отива в „✓ Платени"). Остатъкът се вижда в списъка и влиза в сборовете и Пулса.</p>
+    <div class="erp-dialog-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="rcp-cancel">Затвори</button>
+      <button class="btn btn-primary" id="rcp-add">＋ Впиши плащането</button>
+    </div>
+    <p class="save-status" id="rcp-status"></p>`);
+  const refresh = () => {
+    wrap.querySelector("#rcp-list").innerHTML = listHtml();
+    wrap.querySelector("#rcp-rest").textContent = recvMoney(recvOutstanding(p));
+    wire();
+  };
+  const wire = () => {
+    wrap.querySelectorAll("[data-rmp]").forEach(b => b.addEventListener("click", async () => {
+      p.payments.splice(Number(b.dataset.rmp), 1);
+      if (p.paid && recvOutstanding(p) > 0.005) { p.paid = false; p.paidDate = ""; }
+      await erpRecvSave(); refresh(); erpRenderReceivables();
+    }));
+  };
+  wire();
+  wrap.querySelector("#rcp-cancel").addEventListener("click", () => { close(); erpRenderReceivables(); });
+  wrap.querySelector("#rcp-add").addEventListener("click", async () => {
+    const amt = recvNum(wrap.querySelector("#rcp-amount").value);
+    const date = wrap.querySelector("#rcp-date").value || recvToday();
+    if (!(amt > 0)) { alert("Въведи платената сума."); return; }
+    p.payments.push({ date, amount: amt });
+    // Пълно покритие → фактурата се затваря сама.
+    if (recvOutstanding(p) <= 0.005) { p.paid = true; p.paidDate = date; }
+    wrap.querySelector("#rcp-status").textContent = "Записва…";
+    const ok = await erpRecvSave();
+    wrap.querySelector("#rcp-status").textContent = ok ? "✓ Записано" : "⚠ грешка при запис";
+    wrap.querySelector("#rcp-amount").value = "";
+    if (p.paid) { close(); erpRenderReceivables(); return; }
+    refresh(); erpRenderReceivables();
+  });
+}
+
+/* ---------- Платено / върни ---------- */
+async function erpRecvMarkPaid(ids) {
+  ids = ids.filter(Boolean); if (!ids.length) return;
+  const today = recvToday();
+  const d = prompt(`Дата на плащане от клиента за ${ids.length} фактур${ids.length === 1 ? "а" : "и"} (ГГГГ-ММ-ДД):`, today);
+  if (d === null) return;
+  const date = (d || today).trim();
+  (RECEIVABLES || []).forEach(p => { if (ids.includes(p.id)) { p.paid = true; p.paidDate = date; } });
+  recvSelected.clear();
+  if (await erpRecvSave()) erpRenderReceivables();
+}
+async function erpRecvUnpay(id) {
+  const p = (RECEIVABLES || []).find(x => x.id === id); if (!p) return;
+  p.paid = false; p.paidDate = "";
+  if (await erpRecvSave()) erpRenderReceivables();
+}
+
+/* ---------- Импорт от GenCloud (xlsx) ----------
+   Клиентски ред (болд) = Партньор без Док.№ → пропуска се (той е сборът).
+   Ред с Док.№ = фактура/кредитно → вземане. Кредитните са отрицателни. */
+async function erpRecvImport(file) {
+  if (!file) return;
+  if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (!raw.length) { alert("Файлът е празен."); return; }
+    const pick = (row, ...names) => { for (const n of names) { for (const k of Object.keys(row)) { if (String(k).trim().toLowerCase() === n.toLowerCase()) return row[k]; } } return ""; };
+    await erpRecvLoad();
+    // „Само липсващите": разпознаваме по НОМЕРА на фактурата (нормализиран —
+    // без интервали и водещи нули), независимо как е изписан клиентът.
+    // Съществуващите НЕ се пипат (ръчните остават) — само получават реда от
+    // файла (ord), за да се показва списъкът в същата подредба.
+    const norm = s => String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase();
+    const byNo = new Map();
+    (RECEIVABLES || []).forEach(p => { const k = norm(p.invoiceNo); if (k && !byNo.has(k)) byNo.set(k, p); });
+    let added = 0, skipped = 0, headers = 0, seq = 0;
+    const review = [];
+    raw.forEach(r => {
+      const client = String(pick(r, "Партньор", "Клиент", "Контрагент") || "").trim();
+      const invoiceNo = String(pick(r, "Док.№", "Док.No", "№ Документ", "№:", "№") || "").trim();
+      const docType = String(pick(r, "Док.тип", "Тип документ", "Тип") || "").trim();
+      // Клиентски сборен ред (без документ) — пропускаме, той е сборът в жълто.
+      if (!invoiceNo || !client) { headers++; return; }
+      seq++;   // редът на ФАКТУРИТЕ във файла (за подредбата на екрана)
+      const amount = recvNum(pick(r, "ОБЩО (=EUR)", "ОБЩО", "EUR", "Сума"));
+      const k = norm(invoiceNo);
+      const ex = byNo.get(k);
+      if (ex) {
+        ex.ord = seq;   // само подредбата — данните на съществуващата не се пипат
+        skipped++;
+        if (!ex.paid && Math.abs(recvNum(ex.amount) - amount) > 0.005)
+          review.push(`№${invoiceNo} ${client}: в Системата ${recvMoney(ex.amount)}, във файла ${recvMoney(amount)} EUR`);
+        return;
+      }
+      RECEIVABLES.push({
+        id: recvNextId(), paid: false, paidDate: "", imported: true, ord: seq,
+        client, invoiceNo,
+        docType: /кредит/i.test(docType) ? "Кредитно" : /дебит/i.test(docType) ? "Дебитно" : "Фактура",
+        docDate: recvParseDate(pick(r, "Док.дата", "Дата на док.", "Дата")),
+        dueDate: recvParseDate(pick(r, "Падеж", "Дата на падеж")),
+        termDays: recvNum(pick(r, "Плащане до дни", "Срок")),
+        amount, currency: "EUR",
+        payMethod: String(pick(r, "Авоар", "Плащане", "Начин на плащане") || "Банка").trim() || "Банка",
+      });
+      byNo.set(k, RECEIVABLES[RECEIVABLES.length - 1]);
+      added++;
+    });
+    if (await erpRecvSave()) {
+      recvFilter = "all"; erpRenderReceivables();
+      let msg = `Импорт готов: ${added} добавени, ${skipped} прескочени (вече ги има — не са пипани)${headers ? `, ${headers} сборни реда` : ""}.`;
+      if (review.length) msg += `\n\n⚠ РАЗЛИКА В СУМАТА (провери ръчно):\n` + review.slice(0, 15).join("\n") + (review.length > 15 ? `\n… и още ${review.length - 15}` : "");
+      alert(msg);
+    }
+  } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}
+// Изтегля (изтрива) импортираните вземания; тези от издадена фактура остават.
+async function erpRecvClearImport() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
+  await erpRecvLoad();
+  const imported = (RECEIVABLES || []).filter(p => !p.srcInvoiceId);
+  if (!imported.length) { alert("Няма импортирани вземания за изтегляне."); return; }
+  if (!confirm(`Да изтегля (изтрия) ли ${imported.length} импортирани вземания?\nТези от издадена фактура остават.`)) return;
+  RECEIVABLES = (RECEIVABLES || []).filter(p => p.srcInvoiceId);
+  recvSelected.clear();
+  if (await erpRecvSave()) { recvFilter = "all"; erpRenderReceivables(); alert("Готово. Можеш да импортираш наново."); }
+}
+// Пълно изчистване — трие ВСИЧКИ вземания (вкл. архива с платените).
+async function erpRecvClearAll() {
+  if (!erpDangerPass()) return;   // парола срещу случайно изтриване
+  await erpRecvLoad();
+  const n = (RECEIVABLES || []).length;
+  if (!n) { alert("Вземанията вече са празни."); return; }
+  if (!confirm(`Да изтрия ли ВСИЧКИ ${n} вземания (вкл. архива с платените)?\nТова не може да се върне.`)) return;
+  RECEIVABLES = [];
+  recvSelected.clear();
+  if (await erpRecvSave()) { recvFilter = "all"; erpRenderReceivables(); alert("Готово. Вземанията са изчистени."); }
+}
+
+/* ---------- Връзка с Фактуриране: издадена фактура → вземане ----------
+   Извиква се при издаване на фактура. Проформа НЕ прави вземане. Кредитното е с
+   отрицателна сума (намалява дълга). Сумата се води в EUR (BGN се превръща). */
+async function erpRecvSyncFromInvoice(o) {
+  if (!o || !o.id || !o.posted) return;
+  if (o.kind === "proforma") return;              // проформата не е вземане
+  await erpRecvLoad();
+  const t = (typeof erpInvTotals === "function") ? erpInvTotals(o) : { total: 0 };
+  const rate = (o.currency === "BGN") ? RECV_EUR_BGN : 1;
+  const amountEur = Math.round((Number(t.total) / rate) * 100) / 100;
+  const dueDate = o.dueDate || (Number(o.termDays) > 0 ? recvAddDays(o.issueDate, o.termDays) : "");
+  const fields = {
+    client: (o.client && o.client.name) || "",
+    invoiceNo: o.docNo || "",
+    docType: o.kind === "credit" ? "Кредитно" : o.kind === "debit" ? "Дебитно" : "Фактура",
+    docDate: o.issueDate || "",
+    dueDate, termDays: Number(o.termDays) || 0,
+    amount: amountEur, currency: "EUR",
+    payMethod: /каса|брой|cash/i.test(o.paymentMethod || "") ? "Каса" : "Банка",
+    srcInvoiceId: o.id,
+  };
+  const idx = (RECEIVABLES || []).findIndex(p => p.srcInvoiceId === o.id);
+  if (idx >= 0) { if (RECEIVABLES[idx].paid) return; Object.assign(RECEIVABLES[idx], fields); }
+  else RECEIVABLES.push({ id: recvNextId(), paid: false, paidDate: "", ...fields });
+  // Фактура от продажби: стоковите им вземания се ЗАМЕНЯТ от фактурното.
+  if ((o.fromSaleIds || []).length) {
+    const set = new Set(o.fromSaleIds.map(String));
+    for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
+      const p = RECEIVABLES[i];
+      if (p.srcSaleId != null && set.has(String(p.srcSaleId)) && !p.paid) RECEIVABLES.splice(i, 1);
+    }
+  }
+  // Фактура, издадена ОТДЕЛНО от продажбата (ръчно/от заявка): ако клиентът има
+  // неплатено „Стокова" вземане със СЪЩАТА сума отпреди фактурата — питаме дали
+  // фактурата покрива същата доставка и махаме дубъла.
+  if (!(o.fromSaleIds || []).length && fields.docType === "Фактура" && amountEur > 0) {
+    const cn = String(fields.client || "").trim().toLowerCase();
+    for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
+      const p = RECEIVABLES[i];
+      if (p.paid || p.docType !== "Стокова") continue;
+      if (String(p.client || "").trim().toLowerCase() !== cn) continue;
+      if (Math.abs(recvNum(p.amount) - amountEur) > 0.02) continue;
+      if (String(p.docDate || "") > String(fields.docDate || "")) continue;
+      if (confirm(`Клиентът има СТОКОВО вземане ${p.invoiceNo || ""} (${recvMoney(p.amount)} EUR от ${recvFmt(p.docDate)}).\nТази фактура за СЪЩАТА доставка ли е?\n\nOK = стоковият ред се маха (дългът остава само по фактурата).`)) {
+        RECEIVABLES.splice(i, 1);
+      }
+      break;   // питаме само за първото съвпадение
+    }
+  }
+  await erpRecvSave();
+}
+
+/* Маха вземането по фактура — при АНУЛИРАНЕ на документа. Платените не се
+   пипат (парите са влезли — оправя се ръчно). */
+async function erpRecvRemoveForInvoice(invoiceId) {
+  if (!invoiceId) return;
+  await erpRecvLoad();
+  const before = (RECEIVABLES || []).length;
+  RECEIVABLES = (RECEIVABLES || []).filter(p => !(String(p.srcInvoiceId || "") === String(invoiceId) && !p.paid));
+  if (RECEIVABLES.length !== before) await erpRecvSave();
+}
+
+/* ---------- Вземане от ПРОДАЖБА БЕЗ ФАКТУРА (само стокова разписка) ----------
+   Клиентът дължи парите и без фактура — записът влиза във Вземания с тип
+   „Стокова", за да се следи (обща сума, просрочия, Пулс). При последващо
+   фактуриране на продажбата се заменя от фактурното вземане (виж по-горе). */
+async function erpRecvSyncFromSale(o) {
+  if (!o || !o.id || !o.posted || o.invoiceNo || o.imported) return;
+  await erpRecvLoad();
+  const t = (typeof erpSaleTotals === "function") ? erpSaleTotals(o) : { total: 0 };
+  const rate = (o.currency === "BGN") ? RECV_EUR_BGN : 1;
+  const amountEur = Math.round((Number(t.total) / rate) * 100) / 100;
+  if (!(amountEur > 0)) return;
+  const fields = {
+    client: o.clientName || "",
+    invoiceNo: "СР " + (o.saleNo || ""),   // стокова разписка по № на продажбата
+    docType: "Стокова",
+    docDate: o.date || "",
+    dueDate: "", termDays: 0,
+    amount: amountEur, currency: "EUR",
+    payMethod: "Банка",
+    srcSaleId: o.id,
+  };
+  const idx = (RECEIVABLES || []).findIndex(p => String(p.srcSaleId || "") === String(o.id));
+  if (idx >= 0) { if (RECEIVABLES[idx].paid) return; Object.assign(RECEIVABLES[idx], fields); }
+  else RECEIVABLES.push({ id: recvNextId(), paid: false, paidDate: "", ...fields });
+  await erpRecvSave();
+}
+// Маха стоковите вземания на дадени продажби (при отмяна на осчетоводяване).
+async function erpRecvRemoveForSales(saleIds) {
+  const set = new Set((saleIds || []).map(String));
+  if (!set.size) return;
+  await erpRecvLoad();
+  let changed = false;
+  for (let i = RECEIVABLES.length - 1; i >= 0; i--) {
+    const p = RECEIVABLES[i];
+    if (p.srcSaleId != null && set.has(String(p.srcSaleId)) && !p.paid) { RECEIVABLES.splice(i, 1); changed = true; }
+  }
+  if (changed) await erpRecvSave();
+}
+function recvAddDays(dateStr, days) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00"); if (isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + (Number(days) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/* ---------- Печат на списък за събиране ---------- */
+function erpRecvPrint(items) {
+  // Показват се ОСТАТЪЦИТЕ (частичните плащания са приспаднати).
+  const tot = items.reduce((s, p) => s + recvOutstanding(p), 0);
+  const rows = items.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.client || "")}</td><td>${escapeHtml(p.invoiceNo || "")}</td><td>${recvFmt(p.dueDate)}</td><td class="r">${recvMoney(recvOutstanding(p))}${recvPaidPart(p) > 0 ? ` <small>(от ${recvMoney(p.amount)})</small>` : ""}</td></tr>`).join("");
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>За събиране</title>
+    <style>body{font-family:Arial,"DejaVu Sans",sans-serif;margin:18px;color:#111}h1{font-size:18px;color:#0f766e}
+    table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;text-align:left}th{background:#ecfdf5}
+    td.r{text-align:right}tfoot td{font-weight:bold;border-top:2px solid #0f766e}
+    @media print{.noprint{display:none}}.noprint{margin:10px 0}.btnp{background:#0f766e;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer}</style></head><body>
+    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат</button></div>
+    <h1>Вземания за събиране — ${recvFmt(recvToday())}</h1>
+    <table><thead><tr><th>№</th><th>Клиент</th><th>Фактура</th><th>Падеж</th><th>Сума (EUR)</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="4" class="r">ОБЩО</td><td class="r">${recvMoney(tot)} EUR</td></tr></tfoot></table></body></html>`;
+  const w = window.open("", "_blank"); if (!w) { alert("Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
+/* ---------- 🔍 СВЕРКА: всички издадени фактури ↔ Вземания (100%) ----------
+   За всяка ИЗДАДЕНА фактура (без проформите): има ли вземане (по srcInvoiceId
+   или по № на фактурата) и съвпада ли сумата. Липсващите и различните се
+   показват и се оправят с 1 клик. Платените не се пипат — само се докладват. */
+async function erpRecvAudit(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Сверявам…"; }
+  try {
+    if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+    await erpRecvLoad();
+    const invs = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).filter(o => o.posted && o.kind !== "proforma");
+    if (!invs.length) { alert("Няма издадени фактури за сверка (или модулът Фактуриране не е зареден)."); return; }
+    const normNo = s => String(s || "").trim().replace(/^0+/, "");
+    const missing = [], diff = [], okPaid = [];
+    let okCnt = 0;
+    invs.forEach(o => {
+      const t = (typeof erpInvTotals === "function") ? erpInvTotals(o) : { total: 0 };
+      const rate = (o.currency === "BGN") ? RECV_EUR_BGN : 1;
+      const want = Math.round((Number(t.total) / rate) * 100) / 100;
+      const rec = (RECEIVABLES || []).find(p => p.srcInvoiceId === o.id)
+        || (RECEIVABLES || []).find(p => normNo(p.invoiceNo) === normNo(o.docNo) && normNo(o.docNo));
+      if (!rec) { missing.push({ o, want }); return; }
+      if (Math.abs(recvNum(rec.amount) - want) > 0.02) {
+        if (rec.paid) okPaid.push({ o, rec, want });
+        else diff.push({ o, rec, want });
+        return;
+      }
+      okCnt++;
+    });
+    const kindLbl = o => o.kind === "credit" ? "Кредитно" : o.kind === "debit" ? "Дебитно" : "Фактура";
+    if (!missing.length && !diff.length && !okPaid.length) {
+      alert(`✓ 100% СВЕРКА МИНА.\nВсички ${okCnt} издадени фактури са във Вземания с точните суми.`);
+      return;
+    }
+    const lines = [];
+    if (missing.length) lines.push(`ЛИПСВАТ във Вземания (${missing.length}):\n` + missing.map(x => `• №${x.o.docNo} ${((x.o.client || {}).name) || ""} — ${recvMoney(x.want)} EUR`).join("\n"));
+    if (diff.length) lines.push(`РАЗЛИЧНА СУМА (неплатени, ${diff.length}):\n` + diff.map(x => `• №${x.o.docNo}: във Вземания ${recvMoney(x.rec.amount)}, по фактурата ${recvMoney(x.want)} EUR`).join("\n"));
+    if (okPaid.length) lines.push(`ВНИМАНИЕ — платени с различна сума (не ги пипам, ${okPaid.length}):\n` + okPaid.map(x => `• №${x.o.docNo}: платено ${recvMoney(x.rec.amount)}, по фактурата ${recvMoney(x.want)} EUR`).join("\n"));
+    lines.push(`Наред: ${okCnt} фактури.`);
+    if (!confirm(`🔍 СВЕРКА — открити разлики:\n\n${lines.join("\n\n")}\n\nДа ОПРАВЯ ли автоматично? (добавям липсващите, поправям сумите на неплатените)`)) return;
+    for (const x of missing) { try { await erpRecvSyncFromInvoice(x.o); } catch (e) {} }
+    for (const x of diff) { x.rec.amount = x.want; x.rec.docType = kindLbl(x.o); }
+    await erpRecvSave();
+    alert(`✓ Готово: добавени ${missing.length}, поправени ${diff.length}.` + (okPaid.length ? `\n⚠ Провери ръчно платените с разлика (${okPaid.length}).` : ""));
+    erpRenderReceivables();
+  } catch (e) { alert("Грешка при сверката: " + (e.message || e)); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "🔍 Сверка с фактурите"; } }
+}

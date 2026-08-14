@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=146" />
+  <link rel="stylesheet" href="styles.css?v=325" />
+  <link rel="stylesheet" href="erp.css?v=302" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -28,16 +29,16 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 148</p>
+      <p class="login-version">версия 654</p>
     </form>
   </div>
 
   <header class="app-header app-chrome" hidden>
     <div class="header-zone header-left">
       <div class="hz-row">
-        <button id="btn-new" class="btn btn-primary">+ Нова мостра</button>
-        <button id="btn-new-order" class="btn btn-accent">+ Нестандартна поръчка</button>
-        <button id="btn-new-claim" class="btn btn-claim">+ Рекламация</button>
+        <button id="btn-new" class="btn btn-primary">🧪 Мостри</button>
+        <button id="btn-new-order" class="btn btn-accent">📦 Нестандартни поръчки</button>
+        <button id="btn-new-claim" class="btn btn-claim">⚠ Рекламации</button>
       </div>
       <div class="hz-row">
         <button id="btn-contacts" class="btn btn-contacts">📇 Контакти</button>
@@ -46,16 +47,27 @@
       </div>
       <div class="hz-row">
         <button id="btn-offer" class="btn btn-offer" onclick="window.open('https://dankogeorgiev.github.io/PriceOfferCalculations/','_blank')">💶 Офериране</button>
+        <button id="btn-erp" class="btn btn-erp">📦 Склад / ЕРП</button>
+        <button id="btn-leaves-main" class="btn btn-finance" style="display:none" title="Молби за отпуск, одобряване, календар и оставащи дни">🏖 Отпуски</button>
+        <button id="btn-finance" class="btn btn-finance" style="display:none">💰 Финанси</button>
+        <button id="btn-pulse" class="btn btn-finance" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
       </div>
     </div>
 
     <div class="header-zone header-center">
       <span class="user-box"><span id="user-email"></span>
         <button id="btn-logout" class="btn btn-small">Изход</button></span>
+      <div class="hz-plans">
+        <button id="btn-loading" class="btn btn-plan" style="display:none" title="Какво се стремим да произведем и експедираме тази седмица">🚚 План за седмицата</button>
+        <button id="btn-matreq" class="btn btn-plan" title="Регистърът на запитванията/заявките за материали към доставчици — същият като в Склад/ЕРП">📨 Заявки за материали</button>
+      </div>
     </div>
 
     <div class="header-zone header-right">
-      <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
+      <div class="hz-row">
+        <button id="btn-tasks" class="btn btn-tasks">🏭 Цехове</button>
+        <button id="btn-production" class="btn btn-tasks" title="Админски панел за планиране: цеховете като бутони, стегната таблица, раздаване на задачите по служители — същите действия и корекции като в Цехове">📊 Планиране на производство</button>
+      </div>
       <div class="hz-row">
         <button id="btn-welding-roboti" class="btn btn-paint" onclick="location.href='zavarka-roboti/'">🤖 Заваръчно (роботи)</button>
         <button id="btn-welding-rachno" class="btn btn-paint" onclick="location.href='zavarka-rachno/'">✋ Заваръчно (ръчно)</button>
@@ -63,6 +75,7 @@
       <div class="hz-row">
         <button id="btn-painting" class="btn btn-paint" onclick="location.href='boya/'">🎨 Боядисване (конвейр)</button>
         <button id="btn-painting-manual" class="btn btn-paint" onclick="location.href='boya-rachna/'">✋ Боядисване (ръчно)</button>
+        <button id="btn-packing-ws" class="btn btn-paint" title="Задачите на цех Опаковане/Експедиция">📦 Опаковане/Експедиция</button>
       </div>
     </div>
   </header>
@@ -81,8 +94,10 @@
           <option value="claim">Рекламации</option>
         </select>
       </div>
+      <div id="list-add" class="list-add"></div>
+      <div id="due-reminder" class="due-reminder" hidden></div>
       <ul id="sample-list" class="sample-list"></ul>
-      <p id="empty-list" class="empty-hint">Все още няма мостри.<br>Натисни „+ Нова мостра“.</p>
+      <p id="empty-list" class="empty-hint">Все още няма записи.<br>Натисни бутона за добавяне горе.</p>
     </aside>
 
     <!-- Детайли / форма -->
@@ -150,7 +165,7 @@
         <fieldset class="card">
           <legend><span class="num">3</span> <span id="section3-label">Информация за мострата</span></legend>
           <textarea id="sampleInfo" rows="4" placeholder="Наименование, количество, размери, описание..."></textarea>
-          <label>Краен срок на мострата
+          <label>Срок за изпълнение
             <input type="date" id="deadline" />
           </label>
         </fieldset>
@@ -163,6 +178,9 @@
           <p class="hint">Поддържат се всякакви файлове (снимки, PDF, Excel, CAD и др.). Пазят се в облака.</p>
           <ul id="drawings-list" class="files-list"></ul>
         </fieldset>
+
+        <!-- ЕРП: продукт, материали и производство (само за мостра/поръчка) -->
+        <div id="erp-order-panel" hidden></div>
 
         <!-- 5. Необходими материали -->
         <fieldset class="card">
@@ -370,6 +388,10 @@
           <button id="tasks-painting-manual" class="btn btn-paint" hidden onclick="location.href='boya-rachna/'">✋ Боядисване ръчно</button>
           <button id="tasks-welding-roboti" class="btn btn-paint" hidden onclick="location.href='zavarka-roboti/'">🤖 Заваръчно роботи</button>
           <button id="tasks-welding-rachno" class="btn btn-paint" hidden onclick="location.href='zavarka-rachno/'">✋ Заваръчно ръчно</button>
+          <button id="tasks-rogosh" class="btn btn-paint" hidden>🔧 ЦЕХ РОГОШ</button>
+          <button id="tasks-nit" class="btn btn-paint" hidden>🔩 ЗАНИТВАНЕ</button>
+          <button id="tasks-myplan" class="btn btn-plan" hidden title="Планът за смяната, зададен от офиса">📅 План за смяната</button>
+          <span id="tasks-leaveban" class="leave-ban"></span>
           <button id="tasks-logout" class="btn btn-danger" hidden>Изход</button>
           <button id="tasks-close" class="btn">Затвори</button>
         </div>
@@ -378,23 +400,34 @@
       <div class="tasks-controls">
         <select id="task-workshop" title="Цех"></select>
         <select id="task-worker-filter" title="Служител"><option value="">Всички служители</option></select>
+        <select id="task-client-filter" title="Клиент — покажи всичко пуснато за избран клиент"><option value="">Всички клиенти</option></select>
         <input type="search" id="task-search" placeholder="Търси клиент/продукт/код..." />
+        <label class="task-ready-lbl" title="Показвай само задачите, за които детайлите вече са пристигнали от предната операция (не се чакат други цехове)"><input type="checkbox" id="task-ready-filter" /> ⚡ Само готови за работа</label>
+        <button type="button" id="task-archive-btn" class="btn btn-small" title="Всички изпълнени задачи, по цехове — както активните, само че архив">🗄 Архив производство<span id="done-count"></span></button>
+        <button id="btn-orders-prod" class="btn btn-small" title="Покажи поръчките в производство и детайлите на пуснатите продукти">📋 Поръчки в производство</button>
+        <button id="btn-master" class="btn btn-small" title="Мастер отчитане — бързо докарване на операциите до етап (само за офиса)">⚡ Мастер отчитане</button>
+        <button id="tasks-fix-chains" class="btn btn-small" hidden title="Намира готови стъпки без пусната следваща операция и ги пуска (с авто-боята)" onclick="erpFixStuckChains()">🔧 Пусни заседнали вериги</button>
         <span class="spacer"></span>
         <button id="btn-add-task" class="btn btn-small btn-primary">+ Задача</button>
-        <button id="btn-times" class="btn btn-small">⏱ Времена</button>
-        <label class="btn btn-small" for="erp-file">⤓ Импорт ERP</label>
+        <button id="btn-planning" class="btn btn-small">📅 Планиране</button>
+        <button id="btn-times" class="btn btn-small">📋 Отчети</button>
         <input type="file" id="erp-file" accept=".xlsx,.xls" hidden />
+        <button id="btn-extra-activity" class="btn btn-small btn-primary">➕ Допълнителна дейност</button>
         <button id="btn-messages" class="btn btn-small">📨 Съобщения <span id="msg-badge" class="msg-badge" hidden>0</span></button>
         <button id="btn-supply" class="btn btn-small">📦 Снабдяване <span id="supply-badge" class="msg-badge" hidden>0</span></button>
         <button id="btn-ideas" class="btn btn-small">💡 Идеи и Препоръки <span id="ideas-badge" class="msg-badge" hidden>0</span></button>
-        <button id="btn-workers" class="btn btn-small">👤 Служители</button>
-        <button id="btn-clear-workshop" class="btn btn-small btn-danger">🗑 Изчисти цеха</button>
-        <button id="btn-task-report" class="btn btn-small">📊 Отчет</button>
+        <button id="btn-workers" class="btn btn-small" title="Служители по цехове — добавяне и премахване">👤 Служители<span id="workers-count"></span></button>
+        <button id="btn-task-report" class="btn btn-small">📊 Производствен отчет</button>
+        <button id="btn-laser-fill" class="btn btn-small btn-accent" hidden title="Единични бройки, с които се пълнят листовете (мостри / рязано за нас)">🔥 ПЪЛНЕЖ</button>
+        <button id="btn-export-tasks" class="btn btn-small" title="Свали показания списък като Excel за печат">⤓ Excel (за печат)</button>
       </div>
 
       <div id="worker-bar" class="worker-bar"></div>
 
       <div id="tasks-view">
+        <div id="lfill-alarm" class="urgent-alarm lfill-alarm" hidden></div>
+        <div id="urgent-alarm" class="urgent-alarm" hidden></div>
+        <div id="flow-arrivals" class="flow-arrivals" hidden></div>
         <div id="identity-picker" class="identity-picker" hidden></div>
         <div id="task-bulk" class="task-bulk" hidden></div>
         <div id="tasks-daily" class="tasks-daily" hidden></div>
@@ -404,7 +437,7 @@
             <col style="width:9%" />
             <col style="width:10%" />
             <col style="width:6%" />
-            <col style="width:6%" />
+            <col class="col-thickness" style="width:6%" />
             <col style="width:6%" />
             <col style="width:6%" />
             <col style="width:6%" />
@@ -418,7 +451,7 @@
             <tr>
               <th data-sort="priority" title="Приоритет">★</th><th data-sort="client">Клиент</th><th data-sort="product">Продукт</th><th data-sort="files">Чертеж</th><th data-sort="thickness">Дебелина</th><th data-sort="operation">Операция</th>
               <th class="num" data-sort="qty">Кол-во</th><th class="num" data-sort="produced">Произв.</th><th class="num" data-sort="remaining">Остатък</th>
-              <th data-sort="due">Срок</th><th data-sort="assignee">Отговорник</th><th>Въпрос</th><th></th>
+              <th data-sort="due">Срок</th><th data-sort="assignee">Отговорник</th><th id="th-question">Въпрос</th><th></th>
             </tr>
           </thead>
           <tbody id="tasks-body"></tbody>
@@ -431,6 +464,62 @@
       <div id="report-view" hidden></div>
       <div id="messages-view" hidden></div>
       <div id="times-view" hidden></div>
+      <div id="planning-view" hidden></div>
+      <div id="board-view" hidden></div>
+    </div>
+  </div>
+
+  <!-- Модал: ЦЕХ РОГОШ (сериен монтаж — дневен отчет) -->
+  <div id="rogosh-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>🔧 ЦЕХ РОГОШ — сериен монтаж (дневен отчет)</h3>
+        <span>
+          <span id="rogosh-leaveban" class="leave-ban"></span>
+          <button id="rogosh-logout" class="btn btn-small btn-danger" hidden>Изход</button>
+          <button id="rogosh-close" class="btn btn-small">Затвори</button>
+        </span>
+      </div>
+      <div id="rogosh-view"></div>
+    </div>
+  </div>
+
+  <!-- Модал: ЗАНИТВАНЕ (сглобяване — дневен отчет по механизми) -->
+  <div id="nit-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>🔩 ЗАНИТВАНЕ — сглобяване (дневен запис)</h3>
+        <span>
+          <button id="nit-alltasks" class="btn btn-small" title="Всички поточни задачи за цех Занитване от Цехове">📋 Всички задачи</button>
+          <button id="nit-weekplan" class="btn btn-small" title="Приоритетите за седмицата (слагат се от заявките)">🗓 План за седмицата</button>
+          <span id="nit-leaveban" class="leave-ban"></span>
+          <button id="nit-logout" class="btn btn-small btn-danger" hidden>Изход</button>
+          <button id="nit-close" class="btn btn-small">Затвори</button>
+        </span>
+      </div>
+      <div id="nit-view"></div>
+    </div>
+  </div>
+
+  <!-- Модал: План за товарене -->
+  <div id="loading-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>🚚 План за седмицата — какво излиза</h3>
+        <button id="loading-close" class="btn btn-small">Затвори</button>
+      </div>
+      <div id="loading-view"></div>
+    </div>
+  </div>
+
+  <!-- Модал: План материали (поръчани материали от доставчици) -->
+  <div id="materials-modal" class="overlay mini-overlay" hidden>
+    <div class="mini-box">
+      <div class="mini-head">
+        <h3>📦 План материали</h3>
+        <button id="materials-close" class="btn btn-small">Затвори</button>
+      </div>
+      <div id="materials-view"></div>
     </div>
   </div>
 
@@ -465,12 +554,128 @@
     </div>
   </div>
 
+  <!-- Модал: Склад · Рецепти · Себестойност (ЕРП) -->
+  <!-- Модал: Пулс (табло на собственика) -->
+  <div id="pulse-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>⚡ Пулс — какво става в момента</h2>
+        <div class="tasks-head-actions">
+          <button id="pulse-refresh" class="btn btn-small">↻ Опресни</button>
+          <button id="pulse-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div id="pulse-view"></div>
+    </div>
+  </div>
+
+  <div id="erp-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>📦 Склад · Рецепти · Себестойност</h2>
+        <div class="tasks-head-actions">
+          <button id="erp-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div class="erp-tabs-row">
+      <div class="tasks-controls erp-tabs">
+        <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
+        <button class="btn btn-small erp-tab" data-tab="rfq" title="Регистър на клиентските запитвания за оферта: №, клиент, дата, описание, мейл от клиента и папки с файлове">📄 Регистър RFQ</button>
+        <button class="btn btn-small erp-tab" data-tab="pricelists">💲 Ценови листи</button>
+        <button class="btn btn-small erp-tab" data-tab="plan" title="Очаквани заявки (по ритъма на клиентите) + натоварване на цеховете срещу реалния им капацитет">📅 План</button>
+        <button class="btn btn-small erp-tab" data-tab="materials">🧱 Материали (склад)</button>
+        <button class="btn btn-small erp-tab" data-tab="missmat" title="Проверка дали стигат материалите за заявките, пуснати в производство. Показва кои материали са отишли на минус (липсват) и кои заявки ги ползват — за да поръчаш навреме. Детайлите тръгват по цеховете дори при липса на материал (складът отива на минус).">⚠ Липсващи материали по заявки</button>
+        <button class="btn btn-small erp-tab" data-tab="matreq" title="Регистър на запитванията/заявките за материали към доставчици — кой какво е поискал и кога ще дойде">📨 Заявки за материали</button>
+        <button class="btn btn-small erp-tab" data-tab="packaging" title="Как се опакова всяко изделие за всеки клиент (кг/брой, кг/кашон, кашони/палет, аксесоари). Оттук се пълнят придружаващите документи.">🎁 Опаковки</button>
+        <button class="btn btn-small erp-tab" data-tab="detailstock">📦 Склад детайли</button>
+        <button class="btn btn-small erp-tab" data-tab="products">📦 Продукти</button>
+        <button class="btn btn-small erp-tab" data-tab="requirements">🧮 Разбивка на нуждите</button>
+        <button class="btn btn-small erp-tab" data-tab="operations">🏭 Операции → Цех</button>
+        <button class="btn btn-small erp-tab" data-tab="partners">👥 Клиенти/Доставчици</button>
+        <button class="btn btn-small erp-tab" data-tab="import">⤓ Импорт (xlsx)</button>
+      </div>
+      <div class="erp-fin-tabs" title="Финансови модули — плащания и документи">
+        <div class="erp-fin-row">
+          <button class="btn btn-small erp-tab" data-tab="invoices">📄 Фактуриране</button>
+          <button class="btn btn-small erp-tab" data-tab="sales">🧾 Продажби</button>
+          <button class="btn btn-small erp-tab" data-tab="payables">💳 Задължения</button>
+        </div>
+        <div class="erp-fin-row">
+          <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
+          <button class="btn btn-small erp-tab" data-tab="receivables">💵 Вземания</button>
+          <button class="btn btn-small erp-tab" data-tab="archive" title="Архив (изпълнени заявки)">📚 Архив</button>
+          <button class="btn btn-small" id="erp-pulse-btn" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
+        </div>
+      </div>
+      </div>
+      <div id="erp-open-tabs" class="erp-open-tabs" hidden></div>
+      <div id="erp-view"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="config.js?v=139"></script>
-  <script src="app.js?v=146"></script>
-  <script src="tasks.js?v=144"></script>
+  <script src="report-export.js?v=1"></script>
+  <script src="app.js?v=252"></script>
+  <script src="quality.js?v=3"></script>
+  <script src="tasks.js?v=313"></script>
+  <script src="laser-fill.js?v=5"></script>
+  <script src="master-report.js?v=4"></script>
+  <script src="prod-report.js?v=166"></script>
+  <script src="times-report.js?v=171"></script>
+  <script src="planning.js?v=165"></script>
+  <script src="board.js?v=243"></script>
+  <script src="loading-plan.js?v=17"></script>
+  <script src="rogosh.js?v=203"></script>
+  <script src="nit.js?v=57"></script>
   <script src="contacts-data.js?v=139"></script>
-  <script src="contacts.js?v=139"></script>
+  <script src="contacts.js?v=145"></script>
+  <script src="erp.js?v=277"></script>
+  <script src="erp-import.js?v=162"></script>
+  <script src="erp-backup.js?v=1"></script>
+  <script src="erp-materials.js?v=252"></script>
+  <script src="erp-products.js?v=246"></script>
+  <script src="erp-recipes.js?v=243"></script>
+  <script src="erp-recipe-test.js?v=3"></script>
+  <script src="erp-requirements.js?v=154"></script>
+  <script src="erp-missing-materials.js?v=7"></script>
+  <script src="erp-mat-requests.js?v=5"></script>
+  <script src="erp-rfq.js?v=3"></script>
+  <script src="erp-packaging.js?v=28"></script>
+  <script src="erp-operations.js?v=241"></script>
+  <script src="erp-orders.js?v=283"></script>
+  <script src="erp-sim.js?v=6"></script>
+  <script src="erp-status.js?v=2"></script>
+  <script src="erp-detail-stock.js?v=258"></script>
+  <script src="erp-workcard.js?v=162"></script>
+  <script src="erp-recipe-edit.js?v=234"></script>
+  <script src="erp-recipe-auto.js?v=9"></script>
+  <script src="erp-customer-orders.js?v=284"></script>
+  <script src="erp-ai-orders.js?v=5"></script>
+  <script src="erp-pricelists.js?v=228"></script>
+  <script src="erp-plan.js?v=2"></script>
+  <script src="erp-partners.js?v=163"></script>
+  <script src="erp-purchases.js?v=262"></script>
+  <script src="erp-ai-purchases.js?v=10"></script>
+  <script src="erp-payables.js?v=14"></script>
+  <script src="erp-receivables.js?v=15"></script>
+  <script src="erp-sales.js?v=256"></script>
+  <script src="erp-invoices.js?v=38"></script>
+  <script src="erp-invoice-docs.js?v=5"></script>
+  <script src="erp-email.js?v=233"></script>
+  <script src="erp-email-auto.js?v=7"></script>
+  <script src="cost-seed.js?v=167"></script>
+  <script src="dossier-seed.js?v=171"></script>
+  <script src="erp-costing.js?v=177"></script>
+  <script src="erp-payroll.js?v=220"></script>
+  <script src="erp-erptable.js?v=178"></script>
+  <script src="erp-finance.js?v=179"></script>
+  <script src="erp-leaves.js?v=9"></script>
+  <script src="nav-back.js?v=164"></script>
+  <script src="ui-guards.js?v=1"></script>
+  <script src="assistant.js?v=179"></script>
+  <script src="pulse.js?v=219"></script>
 </body>
 </html>
