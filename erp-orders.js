@@ -1385,6 +1385,59 @@ async function erpFlowMaterialConsume(t) {
   if (typeof tSaveTask === "function") await tSaveTask(t);
 }
 
+/* ---------- ОТКАТ при поправка на сгрешен отчет ----------
+   Когато отчетено количество се коригира НАДОЛУ (напр. 321 вместо 21), вече
+   направените движения трябва да се върнат: заприходеното в Склад детайли, а
+   при сглобяване/рязане — вложените части и материали. Броячите (stocked,
+   consumedUnits, matConsumed) се смъкват до новото произведено. */
+async function erpFlowRollback(t) {
+  const src = t && t.source;
+  if (!src || !src.flow) return { stock: 0, parts: 0, mats: 0 };
+  const produced = Math.max(0, Number(t.produced) || 0);
+  const out = { stock: 0, parts: 0, mats: 0 };
+  const nit = (typeof erpNitManagedCode === "function") && erpNitManagedCode(t.code);
+  // 1) Заприходено в Склад детайли (последна операция) — връщаме излишното.
+  if (src.last && src.pid && !nit) {
+    const back = (Number(src.stocked) || 0) - produced;
+    if (back > 0) {
+      try {
+        await sb.from("product_movements").insert({
+          product_id: Number(src.pid), kind: "изписване", quantity: -back,
+          ref: "prodfix:" + t.id, note: "Корекция на отчет · " + (t.code || t.product || ""),
+        });
+        src.stocked = produced; out.stock = back;
+      } catch (e) { console.error("rollback stock", e); }
+    }
+  }
+  // 2) Вложени части при сглобяване — връщаме ги в Склад детайли.
+  if (Array.isArray(src.consumes) && src.consumes.length && !nit) {
+    const back = (Number(src.consumedUnits) || 0) - produced;
+    if (back > 0) {
+      const rows = [];
+      src.consumes.forEach(c => {
+        const pid = Number(c && c.pid) || 0, use = (Number(c && c.per) || 0) * back;
+        if (pid && use > 0) rows.push({ product_id: pid, kind: "заприходяване", quantity: use, ref: "consumefix:" + t.id, note: "Корекция на отчет · върнат от " + (t.code || t.product || "") });
+      });
+      if (rows.length) { try { await sb.from("product_movements").insert(rows); out.parts = rows.length; } catch (e) { console.error("rollback consume", e); } }
+      src.consumedUnits = produced;
+    }
+  }
+  // 3) Вложен материал при рязане — връщаме го в Склад материали.
+  if (Array.isArray(src.materials) && src.materials.length && !nit) {
+    const back = (Number(src.matConsumed) || 0) - produced;
+    if (back > 0) {
+      const rows = [];
+      src.materials.forEach(m => {
+        const mid = Number(m && m.mid) || 0, use = (Number(m && m.per) || 0) * back;
+        if (mid && use > 0) rows.push({ material_id: mid, kind: "входящ", quantity: use, ref: "matfix:" + t.id, note: "Корекция на отчет · върнат от " + (t.code || t.product || "") });
+      });
+      if (rows.length) { try { await sb.from("stock_movements").insert(rows); out.mats = rows.length; } catch (e) { console.error("rollback mat", e); } }
+      src.matConsumed = produced;
+    }
+  }
+  return out;
+}
+
 // Жив списък „необходими материали" — сумира оставащата нужда за материал по
 // ВСИЧКИ активни поточни задачи (за 1-ва операция) и вади наличното. Показва
 // колко трябва да се купи. rows от erpFlowMatNeeded(TASKS).

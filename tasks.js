@@ -1759,7 +1759,8 @@ function renderTasks() {
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
         ${(t.source && t.source.flow) ? `<button type="button" class="btn btn-small t-scrap" title="Брак при настройка — връща спешно нарязване към първата операция">⚠ Брак</button>` : ""}
-        ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
+        ${amWorker() ? "" : `${(Number(t.produced) || 0) > 0 ? '<button type="button" class="btn btn-small t-fix" title="Поправка на сгрешено вписване (напр. 321 вместо 21) — връща и складовите движения">🩹</button>' : ""}
+        <button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="btn btn-small t-move" title="Прехвърли операцията в друг цех">🔀 Цех</button>
         ${isFlowTask(t)
           ? `<button type="button" class="btn btn-small t-del" title="Задачата е от заявка — не се трие. Тук се закрива (отива в архива), а веригата остава цяла.">🗄</button>`
@@ -1809,6 +1810,7 @@ function renderTasks() {
     tr.querySelector(".t-add").addEventListener("click", submit);
     if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
+    const fix = tr.querySelector(".t-fix"); if (fix) fix.addEventListener("click", () => fixLogDialog(t));
     const move = tr.querySelector(".t-move"); if (move) move.addEventListener("click", () => moveTaskWorkshop(t));
     const scrap = tr.querySelector(".t-scrap"); if (scrap) scrap.addEventListener("click", () => openScrapDialog(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
@@ -2959,6 +2961,106 @@ function taskCommentCell(t) {
   return `<button type="button" class="btn btn-small t-comment-edit" title="Коментар за служителя">✍ ${c ? "Промени" : "Коментар"}</button>`
     + (c ? `<div class="t-comment-txt">${escapeHtml(c)}</div>` : "");
 }
+/* ---------- 🩹 Поправка на сгрешен отчет ----------
+   Технически грешки при въвеждане (321 вместо 21) се случват. Тук вписването
+   се поправя или маха: произведеното се преизчислява, а вече направените
+   движения (склад детайли, вложени части, материал) се връщат назад. */
+function fixLogDialog(t) {
+  if (amWorker()) return;
+  const logs = (t.logs || []).map((l, i) => ({ l, i })).filter(x => Number(x.l.qty) > 0);
+  if (!logs.length) { alert("По тази задача няма записани бройки."); return; }
+  const rows = logs.slice().reverse().map(x => `
+    <div class="fixlog-row" data-i="${x.i}">
+      <span class="fixlog-d">${escapeHtml(typeof erpDMY === "function" ? (erpDMY(x.l.date) || x.l.date || "") : (x.l.date || ""))}</span>
+      <span class="fixlog-w">${escapeHtml(x.l.worker || "—")}</span>
+      <span class="fixlog-q"><b>${erpNumSafe(x.l.qty)}</b> бр.</span>
+      <input type="number" class="fixlog-new" min="0" step="any" value="${escapeAttr(String(Number(x.l.qty) || 0))}" />
+      <button type="button" class="btn btn-small btn-danger fixlog-del" title="Махни цялото вписване">×</button>
+    </div>`).join("");
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>🩹 Поправка на отчет</h3>
+      <p class="hint" style="margin:0 0 6px"><b>${escapeHtml(t.code || "")} ${escapeHtml(t.product || "")}</b> · ${escapeHtml(t.operation || "")}<br>
+        Записани общо <b>${erpNumSafe(t.produced)}</b> от ${erpNumSafe(t.qty)} бр. Поправи бройката на сгрешеното вписване или го махни с ×.</p>
+      <div class="fixlog-list">${rows}</div>
+      <p class="hint" style="margin:8px 0 0">Каквото е било заприходено или вложено в повече, се връща автоматично — склад детайли, вложени части и материал.</p>
+      <div class="ask-actions">
+        <button id="fixlog-save" class="btn btn-primary">Запази поправката</button>
+        <button id="fixlog-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#fixlog-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelectorAll(".fixlog-del").forEach(b => b.addEventListener("click", () => {
+    const inp = b.closest(".fixlog-row").querySelector(".fixlog-new");
+    inp.value = "0"; b.closest(".fixlog-row").classList.add("fixlog-rm");
+  }));
+  wrap.querySelector("#fixlog-save").addEventListener("click", async () => {
+    const changes = [];
+    wrap.querySelectorAll(".fixlog-row").forEach(r => {
+      const i = Number(r.dataset.i);
+      const old = Number((t.logs[i] || {}).qty) || 0;
+      const now = Math.max(0, Number(r.querySelector(".fixlog-new").value) || 0);
+      if (now !== old) changes.push({ i, old, now });
+    });
+    if (!changes.length) { alert("Няма промяна."); return; }
+    const diff = changes.reduce((s, c) => s + (c.now - c.old), 0);
+    const newProduced = Math.max(0, (Number(t.produced) || 0) + diff);
+    if (!confirm(`Да запиша ли поправката?\n\n`
+      + changes.map(c => `• ${erpNumSafe(c.old)} → ${erpNumSafe(c.now)} бр.`).join("\n")
+      + `\n\nПроизведено по задачата: ${erpNumSafe(t.produced)} → ${erpNumSafe(newProduced)} бр.\n`
+      + (diff < 0 ? `Излишно заприходеното/вложеното се връща назад.` : `Разликата се доотчита както при обикновено вписване.`))) return;
+    const btn = wrap.querySelector("#fixlog-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // 1) Самите вписвания: коригираме количеството (0 = махаме реда).
+    const fixedAt = new Date().toISOString();
+    changes.slice().sort((a, b) => b.i - a.i).forEach(c => {
+      const l = t.logs[c.i]; if (!l) return;
+      if (c.now === 0) t.logs.splice(c.i, 1);
+      else { l.qty = c.now; l.fixed = fixedAt; l.fixedFrom = c.old; }
+    });
+    t.produced = newProduced;
+    await tSaveTask(t);
+    // 2) Производственият дневник: вечен запис за корекцията (не трием история).
+    try {
+      await prodLogWrite(t, {
+        date: todayStr(), worker: (MY_ACCESS && MY_ACCESS.email) || "офис", qty: diff,
+        lid: prodLogId(), activity: "Корекция на сгрешен отчет",
+        notes: changes.map(c => `${erpNumSafe(c.old)}→${erpNumSafe(c.now)}`).join(", "),
+      });
+    } catch (e) {}
+    // 3) Складът: връщаме излишното (или доотчитаме, ако поправката е нагоре).
+    let back = null;
+    try {
+      if (typeof erpFlowRollback === "function") back = await erpFlowRollback(t);
+      if (diff > 0) {
+        if (typeof erpFlowStockIn === "function") await erpFlowStockIn(t);
+        if (typeof erpFlowConsume === "function") await erpFlowConsume(t);
+        if (typeof erpFlowMaterialConsume === "function") await erpFlowMaterialConsume(t);
+      } else { await tSaveTask(t); }
+    } catch (e) { console.error("fixlog stock", e); }
+    close();
+    renderTasks();
+    const nx = flowNextTaskOf(t);
+    alert(`✓ Поправено. Произведено: ${erpNumSafe(t.produced)} бр.`
+      + (back && (back.stock || back.parts || back.mats)
+        ? `\n\nВърнато назад:${back.stock ? `\n• ${erpNumSafe(back.stock)} бр. от Склад детайли` : ""}${back.parts ? `\n• вложени части (${back.parts} вида)` : ""}${back.mats ? `\n• материал (${back.mats} вида)` : ""}`
+        : "")
+      + (nx && (Number(nx.produced) || 0) > t.produced
+        ? `\n\n⚠ Следващата операция „${nx.operation || ""}" вече е отчела ${erpNumSafe(nx.produced)} бр. — повече от наличното сега. Провери и нея.`
+        : ""));
+  });
+}
+// Следващата операция във веригата (за предупреждение при корекция).
+function flowNextTaskOf(t) {
+  if (!t || !t.source || !t.source.seriesKey) return null;
+  return (TASKS || []).find(x => x.source && x.source.flow && x.source.prevKey === t.source.seriesKey) || null;
+}
+function erpNumSafe(n) { return (typeof erpNum === "function") ? erpNum(n) : String(Number(n) || 0); }
+
 async function editTaskComment(t) {
   if (amWorker()) return;
   const v = prompt("Коментар към задачата (служителят ще го вижда):", t.comment || "");

@@ -1449,6 +1449,16 @@ tr.times-click:hover td { background: #ecfdf5; }
 .leave-ban { display: inline-block; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;
   border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 800; white-space: nowrap; }
 .leave-ban:empty { display: none; }
+
+/* 🩹 Поправка на сгрешен отчет */
+.fixlog-list { max-height: 46vh; overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
+.fixlog-row { display: grid; grid-template-columns: 92px minmax(90px, 1fr) 84px 100px 34px; gap: 8px; align-items: center;
+  padding: 6px 10px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+.fixlog-row:last-child { border-bottom: none; }
+.fixlog-row.fixlog-rm { background: #fef2f2; text-decoration: line-through; }
+.fixlog-row .fixlog-q { text-align: right; }
+.ask-box .fixlog-row input[type="number"] { width: 100%; box-sizing: border-box; margin: 0; padding: 5px 8px; text-align: right; }
+.fixlog-d { color: #475569; }
 /* Тесни падащи менюта — да не заемат половината лента */
 .prod-mode .tasks-controls select { max-width: 165px; font-size: 12.5px; padding: 4px 6px; }
 .prod-mode .tasks-controls input[type="search"] { max-width: 190px; font-size: 12.5px; }
