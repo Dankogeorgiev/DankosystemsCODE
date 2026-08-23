@@ -27,6 +27,7 @@ function pybFmt(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/)
 function payMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function payEndOfWeek() { const d = new Date(); const off = (7 - d.getDay()) % 7; d.setDate(d.getDate() + off); return pybIso(d); }   // идваща неделя
 function payEndOfMonth() { const d = new Date(); return pybIso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+function payEndOfNextMonth() { const d = new Date(); return pybIso(new Date(d.getFullYear(), d.getMonth() + 2, 0)); }
 function payDaysLeft(due) { if (!due) return null; const a = new Date(due + "T00:00:00"), b = new Date(payToday() + "T00:00:00"); return Math.round((a - b) / 864e5); }
 function payNorm(s) { return String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase(); }
 
@@ -120,7 +121,7 @@ async function pybRemoveCovered() {
 async function erpRenderPayables() {
   const v = erpView();
   if (!PAYABLES) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpPayLoad(); }
-  const eow = payEndOfWeek(), eom = payEndOfMonth();
+  const eow = payEndOfWeek(), eom = payEndOfMonth(), eonm = payEndOfNextMonth();
   const unpaid = (PAYABLES || []).filter(p => !p.paid);
   const sum = arr => arr.reduce((s, p) => s + payLeft(p), 0);
   // Покупките трябват само за проверката „стокова, покрита от фактура" — теглят се
@@ -132,12 +133,15 @@ async function erpRenderPayables() {
   const coveredRows = pybCoveredGoods(unpaid);
   const weekItems = unpaid.filter(p => p.dueDate && p.dueDate <= eow);
   const monthItems = unpaid.filter(p => p.dueDate && p.dueDate <= eom);
+  // Следващ месец: падеж СЛЕД края на този и до края на следващия.
+  const nextItems = unpaid.filter(p => p.dueDate && p.dueDate > eom && p.dueDate <= eonm);
 
   let rows;
   if (pybFilter === "paid") rows = (PAYABLES || []).filter(p => p.paid);
   else if (pybFilter === "today") rows = unpaid.filter(p => p.forToday);
   else if (pybFilter === "week") rows = weekItems;
   else if (pybFilter === "month") rows = monthItems;
+  else if (pybFilter === "next") rows = nextItems;
   else rows = unpaid;
   // 🔎 Търсене (в паметта): доставчик / № фактура / артикул. Картите горе остават общи.
   const pq = (pybQuery || "").toLowerCase().trim();
@@ -157,6 +161,7 @@ async function erpRenderPayables() {
       ${tab("today", `☀ За днес (${unpaid.filter(p => p.forToday).length})`)}
       ${tab("week", "📅 Тази седмица")}
       ${tab("month", "📅 До края на месеца")}
+      ${tab("next", `📅 Следващ месец (${nextItems.length})`)}
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="pyb-q" placeholder="🔎 доставчик / № / артикул…" value="${escapeAttr(pybQuery)}" style="min-width:190px" autocomplete="off" />
       <label class="erp-inline">Доставчик
@@ -171,6 +176,7 @@ async function erpRenderPayables() {
     <div class="pay-cards">
       ${card("📅 Тази седмица", weekItems, "pay-card-week")}
       ${card("📅 До края на месеца", monthItems)}
+      ${card("📅 Следващ месец", nextItems)}
       ${card("Σ Общо за плащане", unpaid, "pay-card-total")}
     </div>
     ${coveredRows.length && pybFilter !== "paid" ? `<div class="pay-covered">
@@ -488,7 +494,7 @@ function erpPayExportXls(rows, whatOverride) {
   const tLeft = rows.reduce((s, p) => s + payLeft(p), 0);
   body.push(["", "", "", "", "ОБЩО (EUR)", `${rows.length} фактури`, "", payMoney(tVat), payMoney(tPaid), payMoney(tLeft), "", ""]);
   const what = whatOverride
-    || { all: "всички за плащане", today: "за днес", week: "тази седмица", month: "до края на месеца", paid: "платени (архив)" }[pybFilter]
+    || { all: "всички за плащане", today: "за днес", week: "тази седмица", month: "до края на месеца", next: "следващ месец", paid: "платени (архив)" }[pybFilter]
     || pybFilter;
   const sortLbl = (PYB_SORTS.find(x => x[0] === pybSort) || ["", ""])[1];
   const title = `Задължения — ${what} · ${pybFmt(payToday())}`
