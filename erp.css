@@ -467,6 +467,11 @@ img.ai-doc-content { max-width: none; }
 .pay-table tr.pay-today { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
 .pay-table tr.pay-today td { border-bottom-color: #c7d2fe; }
 .btn.pay-today-on { background: #6366f1; color: #fff; border-color: #6366f1; }
+/* Знак „за плащане" (вижда се при Кристина в таб „☀ За днес") */
+.pay-table th.pay-flag, .pay-table td.pay-flag { width: 34px; text-align: center; padding-left: 2px; padding-right: 2px; }
+.pay-flag-btn { border: none; background: none; cursor: pointer; font-size: 17px; line-height: 1; color: #cbd5e1; padding: 2px 4px; border-radius: 6px; }
+.pay-flag-btn:hover { background: #eef2ff; color: #6366f1; }
+.pay-flag-btn.on { color: inherit; background: #e0e7ff; }
 /* Частично плащане + предупреждение за покрити стокови разписки */
 .pay-part { font-size: 11px; color: #b45309; font-weight: 600; }
 .pay-covered { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 13px; }

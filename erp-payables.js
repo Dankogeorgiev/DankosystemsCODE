@@ -187,7 +187,7 @@ async function erpRenderPayables() {
     </div>` : ""}
     <div class="pay-scroll"><table class="report-table erp-table pay-table">
       <thead><tr>
-        ${pybFilter === "paid" ? "" : '<th class="pay-chk"></th>'}
+        ${pybFilter === "paid" ? "" : '<th class="pay-chk"></th><th class="pay-flag" title="Отбележи за плащане — Кристина ги вижда в „☀ За днес“">💰</th>'}
         <th>Падеж</th><th class="num">Дни</th><th>№ Фактура</th><th>Дата док.</th><th>Доставчик</th><th>Артикул</th>
         <th class="num">Сума</th><th class="num">С ДДС</th><th>Плащане</th>${pybFilter === "paid" ? "<th>Платена на</th>" : "<th></th>"}
       </tr></thead>
@@ -196,7 +196,8 @@ async function erpRenderPayables() {
         const overdue = !p.paid && dl != null && dl < 0;
         const soon = !p.paid && dl != null && dl >= 0 && dl <= 3;
         return `<tr class="${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}${p.forToday ? " pay-today" : ""}" data-id="${p.id}">
-          ${pybFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="pay-sel" data-id="${p.id}" ${paySelected.has(p.id) ? "checked" : ""} /></td>`}
+          ${pybFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="pay-sel" data-id="${p.id}" ${paySelected.has(p.id) ? "checked" : ""} /></td>
+          <td class="pay-flag"><button type="button" class="pay-flag-btn${p.forToday ? " on" : ""}" data-today="${p.id}" title="${p.forToday ? "Отбелязана за плащане — Кристина я вижда в „☀ За днес“. Клик = маха отметката." : "Отбележи за плащане — излиза при Кристина в „☀ За днес“"}">${p.forToday ? "💰" : "○"}</button></td>`}
           <td><b>${pybFmt(p.dueDate)}</b></td>
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
           <td>${escapeHtml(p.invoiceNo || "")}</td>
@@ -210,8 +211,7 @@ async function erpRenderPayables() {
           <td>${escapeHtml(p.payMethod || "Банка")}</td>
           ${pybFilter === "paid"
             ? `<td>${pybFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
-            : `<td class="erp-row-actions"><button class="btn btn-small ${p.forToday ? "pay-today-on" : ""}" data-today="${p.id}" title="Маркирай за плащане ДНЕС (за Крис)">☀ За днес${p.forToday ? " ✓" : ""}</button>
-                <button class="btn btn-small" data-part="${p.id}" title="Частично плащане — въвеждаш колко се плаща сега, остатъкът остава в списъка">€ Частично</button></td>`}
+            : `<td class="erp-row-actions"><button class="btn btn-small" data-part="${p.id}" title="Частично плащане — въвеждаш колко се плаща сега, остатъкът остава в списъка">€ Частично</button></td>`}
         </tr>`; }).join("") || `<tr><td colspan="12" class="report-empty">${pybFilter === "paid" ? "Няма платени фактури." : "Няма задължения. Импортирай от GenCloud."}</td></tr>`}
       </tbody>
     </table></div>
