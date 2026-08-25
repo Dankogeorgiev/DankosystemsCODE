@@ -489,6 +489,8 @@ img.ai-doc-content { max-width: none; }
 .supp-pct.no { background: #fee2e2; color: #b91c1c; }
 .supp-where { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; }
 .supp-where .supp-w { font-size: 13px; white-space: nowrap; }
+.supp-newbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #eff6ff; border: 1px solid #bfdbfe;
+  color: #1e40af; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 13px; }
 /* Частично плащане + предупреждение за покрити стокови разписки */
 .pay-part { font-size: 11px; color: #b45309; font-weight: 600; }
 .pay-covered { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 13px; }

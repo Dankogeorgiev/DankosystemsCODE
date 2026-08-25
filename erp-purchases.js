@@ -587,11 +587,18 @@ function erpPuAfterSave(o, posted) {
         ? `⏳ Документът е записан, но материалните му редове ОЩЕ НЕ са в склада. Натисни бутона „💾 Запази и заприходи“, когато си готов.`
         : "Документът е записан. Няма материални редове — складът не се пипа.")}</p>
     <p><b>${escapeHtml((o.docType === "goods" ? "Стокова № " : "Фактура № ") + (o.invoiceNo || "—"))}</b> · ${escapeHtml(o.supplierName || "")} · ${escapeHtml(erpDMY(o.date) || "")} · <b>${money}</b></p>
+    ${(typeof suppHasProfile === "function" && o.supplierName && !suppHasProfile(o.supplierName))
+      ? `<div class="supp-newbar" style="margin:8px 0 0">🆕 <b>${escapeHtml(o.supplierName)}</b> няма попълнен паспорт за счетоводството.
+           <span class="spacer" style="flex:1"></span>
+           <button class="btn btn-small btn-primary" id="pu-as-supp">🏷 Попълни го сега</button></div>`
+      : ""}
     <div class="erp-dialog-actions">
       <button class="btn" id="pu-as-stay">✎ Остани в тази</button>
       <button class="btn" id="pu-as-list">← Към списъка</button>
       <button class="btn btn-primary" id="pu-as-next">➕ Въведи следваща</button>
     </div>`);
+  const supBtn = wrap.querySelector("#pu-as-supp");
+  if (supBtn) supBtn.addEventListener("click", () => { close(); if (typeof suppForm === "function") suppForm(o.supplierName); });
   wrap.querySelector("#pu-as-stay").addEventListener("click", close);
   wrap.querySelector("#pu-as-list").addEventListener("click", () => { close(); erpRenderPurchases(); });
   wrap.querySelector("#pu-as-next").addEventListener("click", () => { close(); erpNewPurchase(o); });
@@ -605,6 +612,8 @@ async function erpPuSaveClick(o, opts) {
     if (dup && !confirm(`⚠ Фактура № ${o.invoiceNo} ВЕЧЕ е въведена: ${dup.supplierName || "?"} · ${erpDMY(dup.date) || "?"} · ${dup.posted ? "ЗАПРИХОДЕНА" : "чернова"}.\nАко това е СЪЩАТА фактура — спри и провери в списъка.\nДа запиша ли въпреки това ВТОРИ запис?`)) return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
+  // Паспортите на доставчиците — за подсещането „нов доставчик без картон".
+  try { if (typeof suppEnsureLoaded === "function") await suppEnsureLoaded(); } catch (e) {}
   erpPuApplyPay(o);   // синхронизира paid/срок/дата според избрания статус на плащане
   try {
     await erpSavePurchase(o); await erpLoadPurchases();

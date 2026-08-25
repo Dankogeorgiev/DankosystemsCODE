@@ -13,6 +13,7 @@ let SUPP_PROFILES = null;      // { byKey: {...} }
 let suppQuery = "";
 let suppOnlyEmpty = false;
 let suppSort = "turnover";     // turnover | name | filled
+let suppMonths = 6;            // период: показваме доставчици с покупки в последните N месеца (0 = всички)
 
 function suppKey(name) { return String(name || "").trim().replace(/\s+/g, " ").toLowerCase(); }
 function suppNum(v) { return (typeof erpToNum === "function") ? (erpToNum(v) || 0) : (Number(v) || 0); }
@@ -79,6 +80,25 @@ function suppFilled(p) {
   return Math.round(have / must.length * 100);
 }
 
+// Началото на периода („от коя дата смятаме доставчика за активен").
+function suppSinceStr() {
+  if (!suppMonths) return "";
+  const d = new Date(); d.setMonth(d.getMonth() - suppMonths);
+  return d.toISOString().slice(0, 10);
+}
+// Активни доставчици БЕЗ паспорт — те чакат Кристина.
+function suppMissing() {
+  const since = suppSinceStr();
+  return suppCollect()
+    .filter(r => r.docs > 0 && (!since || (r.last && r.last >= since)))
+    .filter(r => !suppProfile(r.name))
+    .sort((a, b) => b.turn12 - a.turn12 || a.name.localeCompare(b.name, "bg"));
+}
+/* Има ли паспорт този доставчик — ползва се и от Покупки (подсеща при нова
+   фактура от непознат доставчик). */
+async function suppEnsureLoaded() { await suppLoad(); }
+function suppHasProfile(name) { return !!suppProfile(name); }
+
 /* ---------- Кои са ни доставчиците (от покупките + директорията) ---------- */
 function suppCollect() {
   const map = new Map();
@@ -116,9 +136,13 @@ async function erpRenderSupplierProfiles() {
   try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
   try { if (typeof erpLoadPartners === "function" && (typeof erpPartners === "undefined" || !erpPartners)) await erpLoadPartners(); } catch (e) {}
 
-  let rows = suppCollect();
+  const everyone = suppCollect();
+  // Само АКТИВНИТЕ: тези с покупка в последните N месеца. Старите (от години
+  // назад) не се показват, за да не тежат — виждат се с „всички".
+  const since = suppSinceStr();
+  let rows = everyone.filter(r => !since || (r.last && r.last >= since));
   const q = suppQuery.trim().toLowerCase();
-  if (q) rows = rows.filter(r => r.name.toLowerCase().includes(q));
+  if (q) rows = (q ? everyone : rows).filter(r => r.name.toLowerCase().includes(q));   // търсенето рови във ВСИЧКИ
   if (suppOnlyEmpty) rows = rows.filter(r => suppFilled(suppProfile(r.name)) < 100);
   const cmp = {
     turnover: (a, b) => b.turn12 - a.turn12 || a.name.localeCompare(b.name, "bg"),
@@ -127,18 +151,25 @@ async function erpRenderSupplierProfiles() {
   }[suppSort] || (() => 0);
   rows.sort(cmp);
 
-  const all = suppCollect();
-  const done = all.filter(r => suppFilled(suppProfile(r.name)) === 100).length;
-  const totTurn = all.reduce((s, r) => s + r.turn12, 0);
+  // Статистиките са за АКТИВНИТЕ (в периода), не за целия архив.
+  const active = everyone.filter(r => !since || (r.last && r.last >= since));
+  const done = active.filter(r => suppFilled(suppProfile(r.name)) === 100).length;
+  const totTurn = active.reduce((s, r) => s + r.turn12, 0);
   // Колко доставчика правят 90% от оборота — те са приоритетът.
-  const sorted = all.slice().sort((a, b) => b.turn12 - a.turn12);
+  const sorted = active.slice().sort((a, b) => b.turn12 - a.turn12);
   let acc = 0, top90 = 0;
   for (const r of sorted) { acc += r.turn12; top90++; if (totTurn > 0 && acc >= totTurn * 0.9) break; }
+  const missing = suppMissing();
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">${rows.length} доставчика · попълнени <b>${done}</b> от ${all.length}</span>
-      <input type="search" id="supp-q" placeholder="🔎 доставчик…" value="${escapeAttr(suppQuery)}" style="min-width:190px" autocomplete="off" />
+      <span class="erp-count">${rows.length} доставчика · попълнени <b>${done}</b> от ${active.length}</span>
+      <input type="search" id="supp-q" placeholder="🔎 доставчик (търси във всички)…" value="${escapeAttr(suppQuery)}" style="min-width:190px" autocomplete="off" />
+      <label class="erp-inline" title="Показват се доставчиците с покупка в този период">Период
+        <select id="supp-months">
+          ${[[3, "последните 3 месеца"], [6, "последните 6 месеца"], [12, "последните 12 месеца"], [24, "последните 2 години"], [0, "всички (архив)"]]
+            .map(([m, l]) => `<option value="${m}" ${Number(suppMonths) === m ? "selected" : ""}>${l}</option>`).join("")}
+        </select></label>
       <label class="erp-inline">Подреди по
         <select id="supp-sort">
           <option value="turnover" ${suppSort === "turnover" ? "selected" : ""}>Оборот 12 м. (голям отгоре)</option>
@@ -149,6 +180,12 @@ async function erpRenderSupplierProfiles() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="supp-xls" title="Сваля паспортите за счетоводството">⬇ Excel</button>
     </div>
+    ${missing.length ? `<div class="supp-newbar">
+      <span>🆕 <b>${missing.length}</b> ${missing.length === 1 ? "доставчик чака" : "доставчика чакат"} паспорт (има покупки в периода, но няма попълнен картон):
+        ${missing.slice(0, 5).map(r => `<b>${escapeHtml(r.name)}</b>`).join(" · ")}${missing.length > 5 ? " …" : ""}</span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn btn-small btn-primary" id="supp-fill-next">✎ Попълни следващия</button>
+    </div>` : ""}
     <p class="hint">Картон на всеки доставчик за счетоводството: <b>какво купуваме, къде се ползва, данъчен режим, сметка, условия</b>. Оборотът е по въведените фактури за последните 12 месеца (без стоковите разписки — техните пари идват с покриващата фактура).
       ${totTurn > 0 ? `<br>💡 Първите <b>${top90}</b> доставчика правят 90% от оборота — започни от тях, останалите се попълват в движение.` : ""}</p>
     <table class="report-table erp-table">
@@ -181,6 +218,10 @@ async function erpRenderSupplierProfiles() {
     suppQuery = e.target.value; erpRenderSupplierProfiles();
     const el = document.getElementById("supp-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   });
+  const mEl = document.getElementById("supp-months");
+  if (mEl) mEl.addEventListener("change", e => { suppMonths = Number(e.target.value) || 0; erpRenderSupplierProfiles(); });
+  const nEl = document.getElementById("supp-fill-next");
+  if (nEl) nEl.addEventListener("click", () => { const m = suppMissing()[0]; if (m) suppForm(m.name); });
   const sEl = document.getElementById("supp-sort");
   if (sEl) sEl.addEventListener("change", e => { suppSort = e.target.value; erpRenderSupplierProfiles(); });
   const eEl = document.getElementById("supp-empty");
