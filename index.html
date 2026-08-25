@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=325" />
-  <link rel="stylesheet" href="erp.css?v=303" />
+  <link rel="stylesheet" href="erp.css?v=304" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 656</p>
+      <p class="login-version">версия 657</p>
     </form>
   </div>
 
@@ -602,6 +602,7 @@
         </div>
         <div class="erp-fin-row">
           <button class="btn btn-small erp-tab" data-tab="purchases">🛒 Покупки</button>
+          <button class="btn btn-small erp-tab" data-tab="supprofiles" title="Картон на всеки доставчик за счетоводството: какво купуваме, къде се ползва, данъчен режим, сметка, условия">🏷 Паспорти доставчици</button>
           <button class="btn btn-small erp-tab" data-tab="receivables">💵 Вземания</button>
           <button class="btn btn-small erp-tab" data-tab="archive" title="Архив (изпълнени заявки)">📚 Архив</button>
           <button class="btn btn-small" id="erp-pulse-btn" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
@@ -632,7 +633,7 @@
   <script src="nit.js?v=57"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=145"></script>
-  <script src="erp.js?v=277"></script>
+  <script src="erp.js?v=278"></script>
   <script src="erp-import.js?v=162"></script>
   <script src="erp-backup.js?v=1"></script>
   <script src="erp-materials.js?v=252"></script>
@@ -658,8 +659,9 @@
   <script src="erp-plan.js?v=2"></script>
   <script src="erp-partners.js?v=163"></script>
   <script src="erp-purchases.js?v=262"></script>
+  <script src="erp-supplier-profiles.js?v=1"></script>
   <script src="erp-ai-purchases.js?v=10"></script>
-  <script src="erp-payables.js?v=16"></script>
+  <script src="erp-payables.js?v=17"></script>
   <script src="erp-receivables.js?v=15"></script>
   <script src="erp-sales.js?v=256"></script>
   <script src="erp-invoices.js?v=38"></script>

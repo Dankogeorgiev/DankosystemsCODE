@@ -75,9 +75,7 @@ function pybSortRows(rows) {
   const cmp = {
     due: (a, b) => {
       if (pybFilter === "paid") return S(b.paidDate || "").localeCompare(S(a.paidDate || ""));
-      const af = a.forToday ? 0 : 1, bf = b.forToday ? 0 : 1;   // „за днес" отгоре
-      if (af !== bf) return af - bf;
-      return byDue(a, b);
+      return byDue(a, b);   // маркираното НЕ се вдига горе — редът си остава на място
     },
     dueDesc: (a, b) => S(b.dueDate || "").localeCompare(S(a.dueDate || "")),
     supplier: (a, b) => sec(a, b),
@@ -197,7 +195,7 @@ async function erpRenderPayables() {
         const soon = !p.paid && dl != null && dl >= 0 && dl <= 3;
         return `<tr class="${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}${p.forToday ? " pay-today" : ""}" data-id="${p.id}">
           ${pybFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="pay-sel" data-id="${p.id}" ${paySelected.has(p.id) ? "checked" : ""} /></td>
-          <td class="pay-flag"><button type="button" class="pay-flag-btn${p.forToday ? " on" : ""}" data-today="${p.id}" title="${p.forToday ? "Отбелязана за плащане — Кристина я вижда в „☀ За днес“. Клик = маха отметката." : "Отбележи за плащане — излиза при Кристина в „☀ За днес“"}">${p.forToday ? "💰" : "○"}</button></td>`}
+          <td class="pay-flag"><button type="button" class="pay-flag-btn${p.forToday ? " on" : ""}" data-today="${p.id}" title="${p.forToday ? "Отбелязана за плащане — Кристина я вижда в „☀ За днес“. Клик = маха отметката." : "Отбележи за плащане — излиза при Кристина в „☀ За днес“"}">${p.forToday ? "💰" : ""}</button></td>`}
           <td><b>${pybFmt(p.dueDate)}</b></td>
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
           <td>${escapeHtml(p.invoiceNo || "")}</td>
@@ -244,13 +242,23 @@ async function erpRenderPayables() {
   erpPayBar();
 }
 
-// Лентата „Плати избраните" — сумата с ДДС на избраните.
+// Лентата отдолу: сумата на маркираните с 💰 и сумата на избраните с отметка.
 function erpPayBar() {
   const bar = document.getElementById("pay-paybar"); if (!bar) return;
   const sel = (PAYABLES || []).filter(p => paySelected.has(p.id) && !p.paid);
   const tot = sel.reduce((s, p) => s + payLeft(p), 0);
-  if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Избери фактури с отметка, за да видиш сумата за плащане днес.</span>`; return; }
+  const flag = (PAYABLES || []).filter(p => p.forToday && !p.paid);
+  const flagTot = flag.reduce((s, p) => s + payLeft(p), 0);
+  const flagInfo = flag.length
+    ? `<span class="pay-flag-info" title="Всички отбелязани с 💰, независимо от филтъра">💰 За плащане: <b>${flag.length}</b> · <b>${payMoney(flagTot)} EUR</b> (с ДДС)</span>`
+    : "";
+  if (!sel.length) {
+    bar.innerHTML = flagInfo
+      + `<span class="spacer"></span><span class="erp-muted">Отметката вляво избира фактури за групово действие.</span>`;
+    return;
+  }
   bar.innerHTML = `
+    ${flagInfo}
     <span class="pay-sel-info">Избрани: <b>${sel.length}</b> · за плащане: <b>${payMoney(tot)} EUR</b> (с ДДС)</span>
     <span class="spacer"></span>
     <button class="btn btn-small" id="pay-print">🖨 Списък за Крис</button>
@@ -308,11 +316,32 @@ async function erpPayUnpay(id) {
   p.paidAmount = 0; p.payments = [];   // връща се цялата сума като дължима
   if (await erpPaySave()) erpRenderPayables();
 }
-// „За днес" — флаг за Крис (кои да плати днес). Не е плащане.
+/* 💰 „За плащане" — знакът, който Кристина вижда. Не е плащане.
+   Редът НЕ се пре-рисува целият (за да не подскача екранът) — сменя се само
+   знакът, а сумата отдолу се преизчислява. */
 async function erpPayToggleToday(id) {
   const p = (PAYABLES || []).find(x => x.id === id); if (!p) return;
   p.forToday = !p.forToday;
-  if (await erpPaySave()) erpRenderPayables();
+  const btn = document.querySelector(`.pay-flag-btn[data-today="${id}"]`);
+  if (btn) {
+    btn.classList.toggle("on", !!p.forToday);
+    btn.textContent = p.forToday ? "💰" : "";
+    btn.title = p.forToday
+      ? "Отбелязана за плащане — Кристина я вижда. Клик = маха отметката."
+      : "Отбележи за плащане — излиза при Кристина";
+    const tr = btn.closest("tr"); if (tr) tr.classList.toggle("pay-today", !!p.forToday);
+  }
+  erpPayBar();
+  const ok = await erpPaySave();
+  if (!ok) erpRenderPayables();
+  else {
+    // Ако сме в таб „☀ За днес", махнатият ред трябва да изчезне от списъка.
+    if (pybFilter === "today" && !p.forToday) erpRenderPayables();
+    else {
+      const t = document.querySelector('[data-pf="today"]');
+      if (t) t.textContent = `☀ За днес (${(PAYABLES || []).filter(x => x.forToday && !x.paid).length})`;
+    }
+  }
 }
 
 /* ---------- Импорт от GenCloud (xlsx) ---------- */

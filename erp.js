@@ -475,7 +475,7 @@ function erpSetTab(tab, force) {
   if (!tab) tab = "materials";
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
-      && ["sales", "pricelists", "purchases", "finance", "invoices", "payables", "receivables"].includes(tab)) tab = "customer";
+      && ["sales", "pricelists", "purchases", "supprofiles", "finance", "invoices", "payables", "receivables"].includes(tab)) tab = "customer";
   ERP.tab = tab;
   // „Отворени раздели" (като табове на документи) — добавяме отворения, ако още го няма.
   ERP.openTabs = ERP.openTabs || [];
@@ -514,6 +514,7 @@ function erpDispatchTab(tab) {
       } else erpRenderFinance();
       break;
     case "purchases":    erpRenderPurchases(); break;
+    case "supprofiles": erpRenderSupplierProfiles(); break;
     case "payables":     erpRenderPayables(); break;
     case "receivables":  erpRenderReceivables(); break;
     case "partners":     erpRenderPartners(); break;
