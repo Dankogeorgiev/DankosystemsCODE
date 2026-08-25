@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=325" />
-  <link rel="stylesheet" href="erp.css?v=307" />
+  <link rel="stylesheet" href="erp.css?v=308" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +29,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 661</p>
+      <p class="login-version">версия 662</p>
     </form>
   </div>
 
@@ -580,6 +580,7 @@
       <div class="erp-tabs-row">
       <div class="tasks-controls erp-tabs">
         <button class="btn btn-small erp-tab active" data-tab="customer">📋 Заявки от клиенти</button>
+        <button class="btn btn-small erp-tab" data-tab="cliprofiles" title="Паспорт на всеки клиент: специфики по качество и чести грешки, палети и опаковка, транспорт, рекламации, контакти и научени уроци">🧭 Паспорти клиенти</button>
         <button class="btn btn-small erp-tab" data-tab="rfq" title="Регистър на клиентските запитвания за оферта: №, клиент, дата, описание, мейл от клиента и папки с файлове">📄 Регистър RFQ</button>
         <button class="btn btn-small erp-tab" data-tab="pricelists">💲 Ценови листи</button>
         <button class="btn btn-small erp-tab" data-tab="plan" title="Очаквани заявки (по ритъма на клиентите) + натоварване на цеховете срещу реалния им капацитет">📅 План</button>
@@ -628,12 +629,12 @@
   <script src="times-report.js?v=171"></script>
   <script src="planning.js?v=165"></script>
   <script src="board.js?v=243"></script>
-  <script src="loading-plan.js?v=17"></script>
+  <script src="loading-plan.js?v=18"></script>
   <script src="rogosh.js?v=203"></script>
   <script src="nit.js?v=57"></script>
   <script src="contacts-data.js?v=139"></script>
   <script src="contacts.js?v=145"></script>
-  <script src="erp.js?v=279"></script>
+  <script src="erp.js?v=280"></script>
   <script src="erp-import.js?v=162"></script>
   <script src="erp-backup.js?v=1"></script>
   <script src="erp-materials.js?v=252"></script>
@@ -653,13 +654,14 @@
   <script src="erp-workcard.js?v=162"></script>
   <script src="erp-recipe-edit.js?v=234"></script>
   <script src="erp-recipe-auto.js?v=9"></script>
-  <script src="erp-customer-orders.js?v=284"></script>
+  <script src="erp-customer-orders.js?v=285"></script>
   <script src="erp-ai-orders.js?v=5"></script>
   <script src="erp-pricelists.js?v=228"></script>
   <script src="erp-plan.js?v=2"></script>
   <script src="erp-partners.js?v=163"></script>
   <script src="erp-purchases.js?v=264"></script>
   <script src="erp-supplier-profiles.js?v=3"></script>
+  <script src="erp-client-profiles.js?v=1"></script>
   <script src="erp-ai-purchases.js?v=10"></script>
   <script src="erp-payables.js?v=18"></script>
   <script src="erp-receivables.js?v=15"></script>

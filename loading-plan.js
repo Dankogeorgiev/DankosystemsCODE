@@ -444,6 +444,7 @@ function lpRender() {
         ${badge}
         <span class="spacer" style="flex:1"></span>
         <span class="lp-sum"><b>${lpFmtNum(pal)}</b> пал. · <b>${lpFmtNum(kg)}</b> кг</span>
+        <button class="btn btn-small lp-cli" data-client="${escapeAttr(x.client || "")}" title="Специфики на клиента: чести грешки, палети, етикети, транспорт">🧭</button>
         <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
         <button class="btn btn-small lp-del" data-id="${x.id}" title="Махни от плана">×</button>
       </div>
@@ -496,6 +497,7 @@ function lpRender() {
   v.querySelector("#lp-mech").addEventListener("click", lpMechDialog);
   const cb = v.querySelector("#lp-carry"); if (cb) cb.addEventListener("click", lpCarryOver);
   v.querySelectorAll(".lp-edit").forEach(b => b.addEventListener("click", () => lpOpenForm(b.dataset.id)));
+  v.querySelectorAll(".lp-cli").forEach(b => b.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(b.dataset.client); }));
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
 }
 

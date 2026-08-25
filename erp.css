@@ -491,6 +491,27 @@ img.ai-doc-content { max-width: none; }
 .supp-where .supp-w { font-size: 13px; white-space: nowrap; }
 .supp-newbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #eff6ff; border: 1px solid #bfdbfe;
   color: #1e40af; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 13px; }
+
+/* 🧭 Паспорти на клиенти */
+.cli-mist { color: #b45309; font-weight: 800; }
+.cli-auto { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 12.5px; }
+.cli-auto-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 18px; margin-top: 6px; line-height: 1.5; }
+.cli-contacts { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
+.cli-crow { display: grid; grid-template-columns: 150px 1fr 130px 1fr 1fr; gap: 6px; padding: 5px 8px; align-items: center; border-bottom: 1px solid #f1f5f9; }
+.cli-crow:last-child { border-bottom: none; }
+.cli-chead { background: #f1f5f9; font-weight: 700; font-size: 12px; color: #475569; }
+.cli-crow .cli-role { font-weight: 700; font-size: 12.5px; }
+.erp-dialog-box .cli-crow input { margin: 0; padding: 5px 7px; font-size: 13px; width: 100%; box-sizing: border-box; }
+.cli-lessons { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.cli-lrow { display: grid; grid-template-columns: 140px 1fr 1fr 1fr 34px; gap: 6px; align-items: center; }
+.erp-dialog-box .cli-lrow input { margin: 0; padding: 5px 7px; font-size: 13px; width: 100%; box-sizing: border-box; }
+.cli-warnbox { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; }
+.cli-warnbox ul { margin: 4px 0 0; padding-left: 20px; }
+.btn.co-cli-info { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; margin-top: 4px; }
+@media (max-width: 780px) {
+  .cli-crow, .cli-lrow { grid-template-columns: 1fr; }
+  .cli-chead { display: none; }
+}
 /* Частично плащане + предупреждение за покрити стокови разписки */
 .pay-part { font-size: 11px; color: #b45309; font-weight: 600; }
 .pay-covered { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 13px; }

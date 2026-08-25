@@ -697,6 +697,7 @@ async function erpRenderCOForm(o) {
             ${["нова", "в производство", "готова за продажба", "частично завършена", "завършена"].map(s => `<option ${s === (o.status || "нова") ? "selected" : ""}>${s}</option>`).join("")}
           </select>
           <span class="co-plan-line" id="co-plan-line">${o.id ? erpCOPlanLine(o) : ""}</span>
+          ${o.clientName ? `<button type="button" class="btn btn-small co-cli-info" id="co-cli-info" title="Специфики на клиента: чести грешки, палети, етикети, транспорт">🧭 Специфики на клиента</button>` : ""}
           <span class="co-docs-line" id="co-docs-line">${o.id ? erpCODocsLine(o) : ""}</span>
           ${(function () { const p = erpCOPct(o); return p.del > 0 ? `<span class="co-pct-info" title="по доставените бройки от редовете">✔ доставени ${erpNum(p.del)} от ${erpNum(p.tot)} бр. — <b>${p.pct}%</b></span><div class="co-progress"><div class="co-progress-fill" style="width:${p.pct}%"></div></div>` : ""; })()}</label>
       </div>
@@ -755,6 +756,8 @@ async function erpRenderCOForm(o) {
     if (m && erpCOFillPrices(o)) erpCORefreshLines(o);   // авто-цени за клиента
   });
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
+  const cliInfo = document.getElementById("co-cli-info");
+  if (cliInfo) cliInfo.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(o.clientName); });
   // Редът „в плана за седмицата" се допълва, щом планът дойде фоново.
   if (o.id && typeof lpEnsureItems === "function") {
     (async () => {

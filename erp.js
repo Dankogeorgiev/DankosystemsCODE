@@ -166,6 +166,7 @@ async function openErp() {
   erpSetTab(ERP.tab || "materials");
   if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяване на таба при липса
   if (typeof suppUpdateBadge === "function") suppUpdateBadge();               // доставчици, които чакат паспорт
+  if (typeof cliUpdateBadge === "function") cliUpdateBadge();                 // клиенти, които чакат паспорт
   if (typeof erpETAutoRow === "function") erpETAutoRow().catch(() => {});     // понеделнишкият ред на Таблица ЕРП
 }
 
@@ -516,6 +517,7 @@ function erpDispatchTab(tab) {
       break;
     case "purchases":    erpRenderPurchases(); break;
     case "supprofiles": erpRenderSupplierProfiles(); break;
+    case "cliprofiles": erpRenderClientProfiles(); break;
     case "payables":     erpRenderPayables(); break;
     case "receivables":  erpRenderReceivables(); break;
     case "partners":     erpRenderPartners(); break;
