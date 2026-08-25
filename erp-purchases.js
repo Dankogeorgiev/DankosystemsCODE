@@ -590,6 +590,7 @@ function erpPuAfterSave(o, posted) {
     ${(typeof suppHasProfile === "function" && o.supplierName && !suppHasProfile(o.supplierName))
       ? `<div class="supp-newbar" style="margin:8px 0 0">🆕 <b>${escapeHtml(o.supplierName)}</b> няма попълнен паспорт за счетоводството.
            <span class="spacer" style="flex:1"></span>
+           <button class="btn btn-small" id="pu-as-later" title="Оставя го като напомняне — стои като брояч на таб „🏷 Паспорти доставчици“, докато не се попълни">🔔 Напомни ми</button>
            <button class="btn btn-small btn-primary" id="pu-as-supp">🏷 Попълни го сега</button></div>`
       : ""}
     <div class="erp-dialog-actions">
@@ -599,6 +600,12 @@ function erpPuAfterSave(o, posted) {
     </div>`);
   const supBtn = wrap.querySelector("#pu-as-supp");
   if (supBtn) supBtn.addEventListener("click", () => { close(); if (typeof suppForm === "function") suppForm(o.supplierName); });
+  const laterBtn = wrap.querySelector("#pu-as-later");
+  if (laterBtn) laterBtn.addEventListener("click", () => {
+    close();
+    if (typeof suppUpdateBadge === "function") suppUpdateBadge();
+    alert(`🔔 Записано.\n\n„${o.supplierName}" стои като напомняне на таб „🏷 Паспорти доставчици" — броячът свети, докато паспортът не се попълни.`);
+  });
   wrap.querySelector("#pu-as-stay").addEventListener("click", close);
   wrap.querySelector("#pu-as-list").addEventListener("click", () => { close(); erpRenderPurchases(); });
   wrap.querySelector("#pu-as-next").addEventListener("click", () => { close(); erpNewPurchase(o); });
@@ -622,10 +629,12 @@ async function erpPuSaveClick(o, opts) {
       await erpPostPurchase(o, { silent: true });   // пита за потвърждение; при успех пре-рендира формата
       const b2 = document.getElementById("pu-save");
       if (b2) { b2.disabled = false; b2.textContent = erpPuSaveLabel(o); }
+      if (typeof suppUpdateBadge === "function") suppUpdateBadge();
       if (opts && opts.next) erpNewPurchase(o); else erpPuAfterSave(o, !!o.posted);
       return;
     }
     if (btn) { btn.textContent = "✓ Записано"; setTimeout(() => { if (btn) { btn.textContent = erpPuSaveLabel(o); btn.disabled = false; } }, 1400); }
+    if (typeof suppUpdateBadge === "function") suppUpdateBadge();
     if (opts && opts.next) erpNewPurchase(o); else erpPuAfterSave(o, false);
   }
   catch (e) { if (btn) { btn.disabled = false; btn.textContent = erpPuSaveLabel(o); } alert("Грешка при запис: " + (e.message || e)); }

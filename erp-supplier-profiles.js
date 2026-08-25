@@ -99,6 +99,27 @@ function suppMissing() {
 async function suppEnsureLoaded() { await suppLoad(); }
 function suppHasProfile(name) { return !!suppProfile(name); }
 
+/* ---------- Индикатор на таба (като непрочетено съобщение) ----------
+   Показва колко активни доставчика чакат паспорт. Свети, докато не се
+   попълнят — така напомнянето не се губи между другите задачи. */
+function suppSetBadge(n) {
+  const btn = document.querySelector('.erp-tab[data-tab="supprofiles"]');
+  if (!btn) return;
+  btn.classList.toggle("erp-tab-alert", n > 0);
+  let badge = btn.querySelector(".erp-tab-badge");
+  if (n > 0) {
+    if (!badge) { badge = document.createElement("span"); badge.className = "erp-tab-badge"; btn.appendChild(badge); }
+    badge.textContent = n;
+  } else if (badge) { badge.remove(); }
+}
+async function suppUpdateBadge() {
+  try {
+    await suppLoad();
+    if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases();
+    suppSetBadge(suppMissing().length);
+  } catch (e) { /* тихо — индикаторът не е критичен */ }
+}
+
 /* ---------- Кои са ни доставчиците (от покупките + директорията) ---------- */
 function suppCollect() {
   const map = new Map();
@@ -218,6 +239,7 @@ async function erpRenderSupplierProfiles() {
     suppQuery = e.target.value; erpRenderSupplierProfiles();
     const el = document.getElementById("supp-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   });
+  suppSetBadge(missing.length);
   const mEl = document.getElementById("supp-months");
   if (mEl) mEl.addEventListener("change", e => { suppMonths = Number(e.target.value) || 0; erpRenderSupplierProfiles(); });
   const nEl = document.getElementById("supp-fill-next");
@@ -311,7 +333,7 @@ function suppForm(name) {
   if (del) del.addEventListener("click", async () => {
     if (!confirm(`Да изтрия ли паспорта на „${name}"?`)) return;
     delete SUPP_PROFILES.byKey[key];
-    if (await suppSave()) { close(); erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); suppUpdateBadge(); erpRenderSupplierProfiles(); }
   });
   wrap.querySelector("#sp-save").addEventListener("click", async () => {
     const val = id => { const el = wrap.querySelector("#sp-" + id); return el ? el.value.trim() : ""; };
@@ -331,7 +353,7 @@ function suppForm(name) {
     };
     SUPP_PROFILES.byKey = SUPP_PROFILES.byKey || {};
     SUPP_PROFILES.byKey[key] = rec;
-    if (await suppSave()) { close(); erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); suppUpdateBadge(); erpRenderSupplierProfiles(); }
   });
 }
 

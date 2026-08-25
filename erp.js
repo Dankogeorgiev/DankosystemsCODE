@@ -165,6 +165,7 @@ async function openErp() {
   }
   erpSetTab(ERP.tab || "materials");
   if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяване на таба при липса
+  if (typeof suppUpdateBadge === "function") suppUpdateBadge();               // доставчици, които чакат паспорт
   if (typeof erpETAutoRow === "function") erpETAutoRow().catch(() => {});     // понеделнишкият ред на Таблица ЕРП
 }
 
