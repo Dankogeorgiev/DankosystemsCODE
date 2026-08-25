@@ -186,7 +186,7 @@ async function erpRenderPayables() {
     <div class="pay-scroll"><table class="report-table erp-table pay-table">
       <thead><tr>
         ${pybFilter === "paid" ? "" : '<th class="pay-chk"></th><th class="pay-flag" title="Отбележи за плащане — Кристина ги вижда в „☀ За днес“">💰</th>'}
-        <th>Падеж</th><th class="num">Дни</th><th>№ Фактура</th><th>Дата док.</th><th>Доставчик</th><th>Артикул</th>
+        <th>Падеж</th><th class="num">Дни</th><th>№ Фактура</th><th>Дата док.</th><th>Доставчик</th><th class="pay-art">Артикул</th>
         <th class="num">Сума</th><th class="num">С ДДС</th><th>Плащане</th>${pybFilter === "paid" ? "<th>Платена на</th>" : "<th></th>"}
       </tr></thead>
       <tbody>${rows.map(p => {
@@ -201,7 +201,7 @@ async function erpRenderPayables() {
           <td>${escapeHtml(p.invoiceNo || "")}</td>
           <td>${pybFmt(p.docDate)}</td>
           <td>${escapeHtml(p.supplier || "")}</td>
-          <td>${escapeHtml(p.article || "")}</td>
+          <td class="pay-art" title="${escapeAttr(p.article || "")}">${escapeHtml(p.article || "")}</td>
           <td class="num">${payMoney(p.amount)}</td>
           <td class="num" title="${escapeAttr(payPartialTitle(p))}"><b>${payMoney(p.paid ? p.amountVat : payLeft(p))}</b>${
             !p.paid && payPaidSoFar(p) > 0
