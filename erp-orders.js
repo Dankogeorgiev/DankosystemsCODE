@@ -1069,17 +1069,13 @@ async function erpFlowApply(meta, productLines) {
   // 5) Клиент/срок според броя поръчки; трием изпразнените серии. Записват се
   //    САМО пипнатите от тази поръчка серии (_new/_touched) — и то на партиди
   //    паралелно, не една по една.
-  const toInsert = [], toUpdate = [];
+  const toInsert = [], toUpdate = [], toDrop = [];
   for (const k of Object.keys(bySeries)) {
     const r = bySeries[k], src = r.data.source || {}, orders = src.orders || [];
     if (!orders.length) {
-      if (r.id) {
-        await sb.from("tasks").delete().eq("id", r.id);
-        // Чистим и породените движения — иначе остават „фантомни" готови детайли/
-        // материали и повторното пускане ги удвоява (както в erpFlowRemoveOrder).
-        try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
-        try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
-      }
+      // Изпразнена серия: готовото ѝ ОСТАВА в склада (нетването по-горе вече
+      // разчита на него!), недовършеното се анулира — виж erpFlowDropSeries.
+      if (r.id) toDrop.push({ id: r.id, data: r.data });
       continue;
     }
     if (!r._new && !r._touched) continue;   // чужда серия — не я пипаме
@@ -1089,6 +1085,7 @@ async function erpFlowApply(meta, productLines) {
     if (r._new) { toInsert.push(r.data); continue; }
     toUpdate.push(r);
   }
+  await erpFlowDropSeries(toDrop);
   const UP_CHUNK = 10;
   for (let i = 0; i < toUpdate.length; i += UP_CHUNK) {
     const part = toUpdate.slice(i, i + UP_CHUNK);
@@ -1151,8 +1148,80 @@ async function erpReleaseNetting(sampleId) {
   } catch (e) {}
 }
 
+// Готовите (заприходени) бройки на възела, разнесени по всяка задача от
+// веригата му: последната операция ги знае (source.stocked), останалите ги
+// научават назад по prevKey. Ползва се при триене на изпразнени серии, за да
+// се раздели ДОВЪРШЕНОТО (остава в склада) от недовършеното (анулира се).
+function erpFlowChainStocked(rows) {
+  const byKey = {}, out = {};
+  rows.forEach(r => { const src = ((r.data || {}).source) || {}; if (src.seriesKey) byKey[src.seriesKey] = r; });
+  rows.forEach(r => {
+    const src = ((r.data || {}).source) || {};
+    if (!src.last) return;
+    const st = Number(src.stocked) || 0;
+    let cur = r; const seen = new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      out[cur.id] = st;
+      const pk = (((cur.data || {}).source) || {}).prevKey;
+      cur = pk ? byKey[pk] : null;
+    }
+  });
+  return out;
+}
+
+// Трие изпразнени поточни серии, като ПАЗИ следите на реално произведеното:
+// заприходеното готово (prod:) остава в Склад детайли — бройките са произведени
+// и физически стоят на рафта, изтеглянето на заявката не ги връща в материал.
+// Изписаният материал (matprod:) и вложените части (consume:) остават изписани
+// за ДОВЪРШЕНИТЕ (заприходени) бройки; връща се само частта за недовършените —
+// тях повторно пускане ще ги пре-отчете и изпише наново (нетно веднъж).
+async function erpFlowDropSeries(rows) {
+  if (!rows || !rows.length) return;
+  const stockedBy = erpFlowChainStocked(rows);
+  for (const r of rows) {
+    const d = r.data || {}, src = d.source || {};
+    const st = Number(stockedBy[r.id]) || 0;
+    await sb.from("tasks").delete().eq("id", r.id);
+    // Вложени части при сглобяване: за недовършените бройки се връщат в Склад
+    // детайли (сглобеното им е анулирано), за довършените остават изписани.
+    if (Array.isArray(src.consumes) && src.consumes.length) {
+      const used = Number(src.consumedUnits) || 0;
+      const keep = Math.min(used, st);
+      if (used > keep) {
+        try {
+          await sb.from("product_movements").delete().eq("ref", "consume:" + r.id);
+          const back = [];
+          src.consumes.forEach(c => {
+            const pid = Number(c && c.pid) || 0, use = (Number(c && c.per) || 0) * keep;
+            if (pid && use > 0) back.push({ product_id: pid, kind: "изписване", quantity: -use, ref: "consume:" + r.id, note: "Вложен в " + (d.code || d.product || "") });
+          });
+          if (back.length) await sb.from("product_movements").insert(back);
+        } catch (e) { console.error("drop consume", e); }
+      }
+    }
+    // Материал при рязане: същото — остава изписан само за довършените бройки.
+    if (Array.isArray(src.materials) && src.materials.length) {
+      const used = Number(src.matConsumed) || 0;
+      const keep = Math.min(used, st);
+      if (used > keep) {
+        try {
+          await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id);
+          const back = [];
+          src.materials.forEach(m => {
+            const mid = Number(m && m.mid) || 0, use = (Number(m && m.per) || 0) * keep;
+            if (mid && use > 0) back.push({ material_id: mid, kind: "изписване", quantity: -use, ref: "matprod:" + r.id, note: "Вложен в " + (d.code || d.product || "") });
+          });
+          if (back.length) await sb.from("stock_movements").insert(back);
+        } catch (e) { console.error("drop matprod", e); }
+      }
+    }
+  }
+}
+
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии
-// се трият; частично споделените се обновяват (количество/клиент/срок).
+// се трият (готовото им ОСТАВА в склада — виж erpFlowDropSeries); частично
+// споделените се обновяват (количество/клиент/срок).
 async function erpFlowRemoveOrder(sampleId) {
   const sid = String(sampleId);
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid);   // стари непоточни
@@ -1161,6 +1230,7 @@ async function erpFlowRemoveOrder(sampleId) {
   await erpReleaseNetting(sid);
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
   const jobs = [];
+  const dropped = [];   // изпразнени серии — трият се накуп, за да се сметне готовото по веригите
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};
     if (src.kind !== "series") continue;
@@ -1169,16 +1239,7 @@ async function erpFlowRemoveOrder(sampleId) {
     if (idx < 0) continue;
     d.qty = Math.max(0, (Number(d.qty) || 0) - (Number(orders[idx].qty) || 0));
     orders.splice(idx, 1);
-    if (!orders.length) {
-      jobs.push(async () => {
-        await sb.from("tasks").delete().eq("id", r.id);
-        // Изтриваме и движенията, породени от тази задача — иначе остават „фантомни"
-        // готови детайли/материали и повторното пускане ги удвоява.
-        try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
-        try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
-      });
-      continue;
-    }
+    if (!orders.length) { dropped.push({ id: r.id, data: d }); continue; }
     src.orders = orders; src.orderIds = orders.map(o => String(o.id));
     d.client = orders.length >= 2 ? "" : (orders[0].client || "");
     d.due = orders.length >= 2 ? "" : (orders[0].due || "");
@@ -1194,6 +1255,7 @@ async function erpFlowRemoveOrder(sampleId) {
   }
   // Всяка серия е отделен ред — обработваме по 5 успоредно.
   for (let i = 0; i < jobs.length; i += 5) await Promise.all(jobs.slice(i, i + 5).map(f => f()));
+  await erpFlowDropSeries(dropped);
 }
 
 // Карта на произведеното по серии (ключ код+операция) от текущите задачи.
@@ -1659,6 +1721,30 @@ async function erpFlowTasksFor(sampleId) {
     return src && src.kind === "series" && (src.orderIds || []).map(String).includes(sid);
   });
   return { rows, error: null };
+}
+
+// Преглед ПРЕДИ изтегляне от производство: какво ОСТАВА в склада (готовото,
+// вече заприходено) и каква отчетена, но НЕдовършена работа ще се анулира.
+// shared = задачи в серии, споделени с други заявки — изработеното по тях
+// остава и се зачита на останалите заявки (виж erpFlowRemoveOrder).
+async function erpFlowWithdrawPreview(sampleId) {
+  const sid = String(sampleId);
+  const { rows, error } = await erpFlowTasksFor(sid);
+  if (error) return { keep: [], lose: [], shared: 0, error };
+  const sole = [], out = { keep: [], lose: [], shared: 0, error: null };
+  rows.forEach(r => {
+    const src = (r.data || {}).source || {};
+    if ((src.orders || []).length > 1) out.shared++; else sole.push(r);
+  });
+  const stockedBy = erpFlowChainStocked(sole);
+  sole.forEach(r => {
+    const d = r.data || {}, src = d.source || {};
+    const st = Number(stockedBy[r.id]) || 0;
+    if (src.last && st > 0) out.keep.push({ code: d.code || d.product || "", qty: st });
+    const lost = (Number(d.produced) || 0) - st;
+    if (lost > 0) out.lose.push({ code: d.code || d.product || "", operation: d.operation || "", qty: lost });
+  });
+  return out;
 }
 
 async function erpShowProduction(s) {
