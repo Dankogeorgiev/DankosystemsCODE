@@ -19,8 +19,10 @@ async function erpPackLoad() {
     PACK_LAYOUTS = (data && data.data && data.data.layouts) || {};
   }
   catch (e) { PACKAGING = []; PACK_LAYOUTS = PACK_LAYOUTS || {}; }
+  erpPackIdxBust();
 }
 async function erpPackSave() {
+  erpPackIdxBust();   // списъкът може да е променен на място — индексът да се престрои
   const { error } = await sb.from("app_config").upsert({ id: "packaging", data: { list: PACKAGING || [], layouts: PACK_LAYOUTS || {} }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис: " + error.message + (/row-level security|violates/i.test(error.message || "") ? "\n\nПусни app-config-rls-fix.sql в Supabase." : "")); return false; }
   return true;
@@ -50,15 +52,21 @@ function packBoxDatalistHtml() {
 /* ---------- Търсене на опаковка (ключ: наш код + клиент) ----------
    Първо точно (код + клиент); ако няма — общ запис за кода (без клиент);
    ако и той липсва — единствен запис за кода (ако е само един). Връща spec или null. */
+let PACK_IDX = null;   // индекс по код — чисти се при запис/зареждане (erpPackIdxBust)
+function erpPackIdxBust() { PACK_IDX = null; }
 function erpPackFind(code, clientName) {
   if (!PACKAGING || !code) return null;
+  if (!PACK_IDX) {
+    PACK_IDX = new Map();
+    PACKAGING.forEach(p => { const k = packNorm(p.code); if (!k) return; (PACK_IDX.get(k) || PACK_IDX.set(k, []).get(k)).push(p); });
+  }
   const c = packNorm(code), cl = packNorm(clientName);
-  let hit = PACKAGING.find(p => packNorm(p.code) === c && packNorm(p.clientName) === cl && cl);
+  const arr = PACK_IDX.get(c) || [];
+  let hit = cl ? arr.find(p => packNorm(p.clientName) === cl) : null;
   if (hit) return hit;
-  hit = PACKAGING.find(p => packNorm(p.code) === c && !packNorm(p.clientName));
+  hit = arr.find(p => !packNorm(p.clientName));
   if (hit) return hit;
-  const all = PACKAGING.filter(p => packNorm(p.code) === c);
-  return all.length === 1 ? all[0] : null;
+  return arr.length === 1 ? arr[0] : null;
 }
 
 /* ---------- Списък ---------- */
@@ -92,7 +100,7 @@ async function erpRenderPackaging() {
     <datalist id="pack-clients">${clientNames.map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
     ${packBoxDatalistHtml()}`;
   const qEl = document.getElementById("pack-q");
-  if (qEl) qEl.addEventListener("input", e => { packQuery = e.target.value; erpPackFillRows(); });
+  if (qEl) qEl.addEventListener("input", uiDebounce(e => { packQuery = e.target.value; erpPackFillRows(); }, 200));
   document.getElementById("pack-new").addEventListener("click", () => erpPackForm(null));
   // Опаковъчната верига: папки по клиент + отваряне в опаковъчния изглед.
   packOrdersWire();

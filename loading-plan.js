@@ -87,8 +87,10 @@ async function lpLoad() {
     const { data } = await sb.from("app_config").select("data").eq("id", "loading_plan").maybeSingle();
     LP_ITEMS = (data && data.data && Array.isArray(data.data.items)) ? data.data.items : [];
   } catch (e) { console.error("loading load", e); LP_ITEMS = []; }
+  lpPrBust();
 }
 async function lpSave() {
+  lpPrBust();   // записите може да са променени на място — кешът да не показва старо
   const { error } = await sb.from("app_config").upsert({ id: "loading_plan", data: { items: LP_ITEMS }, updated_at: new Date().toISOString() });
   if (error) alert("Грешка при запис на плана за товарене: " + error.message);
 }
@@ -146,10 +148,15 @@ function lpLineLeft(l) {
   return Math.max(0, q - d);
 }
 // Наличност на код в Склад детайли (за колоната „готово").
+let LP_PCODE_MAP = null, LP_PCODE_SRC = null;   // карта код→продукт (проди се сменят рядко)
 function lpStockOfCode(code) {
   if (typeof ERP === "undefined" || !ERP.products) return null;
   const c = String(code || "").trim(); if (!c) return null;
-  const p = (ERP.products || []).find(x => String(x.code || "").trim() === c);
+  if (!LP_PCODE_MAP || LP_PCODE_SRC !== ERP.products) {
+    LP_PCODE_MAP = new Map(); LP_PCODE_SRC = ERP.products;
+    ERP.products.forEach(x => { const k = String(x.code || "").trim(); if (k && !LP_PCODE_MAP.has(k)) LP_PCODE_MAP.set(k, x); });
+  }
+  const p = LP_PCODE_MAP.get(c);
   if (!p) return null;
   return Number((ERP.prodStock && ERP.prodStock[p.id]) != null ? ERP.prodStock[p.id] : p.stock) || 0;
 }
@@ -219,6 +226,7 @@ async function lpLoadSales() {
     if ((typeof erpSales === "undefined" || !erpSales) && typeof erpLoadSales === "function") await erpLoadSales();
     LP_SALES = ((typeof erpSales !== "undefined" && erpSales) || []).filter(s => s.posted);
   } catch (e) { LP_SALES = []; }
+  lpPrBust();
 }
 function lpWeekEnd(mondayStr) {
   const d = new Date(mondayStr + "T00:00:00Z");
@@ -242,8 +250,13 @@ function lpShippedMap(x) {
   });
   return out;
 }
-/* Обобщение на изпълнението: планирано/изпратено/остава (по бройки) + редове. */
+/* Обобщение на изпълнението: планирано/изпратено/остава (по бройки) + редове.
+   Кешира се по запис (lpPrBust() чисти кеша при зареждане/запис на данни) —
+   иначе всяко рисуване обхождаше всички продажби по няколко пъти на запис. */
+let LP_PR_CACHE = new WeakMap();
+function lpPrBust() { LP_PR_CACHE = new WeakMap(); }
 function lpProgress(x) {
+  const hit = LP_PR_CACHE.get(x); if (hit) return hit;
   const ship = lpShippedMap(x);
   const lines = lpItemLines(x).map(l => {
     const plan = lpToNum(l.qty);
@@ -253,7 +266,9 @@ function lpProgress(x) {
   const plan = lines.reduce((s, r) => s + r.plan, 0);
   const sent = lines.reduce((s, r) => s + r.sent, 0);
   const doneN = lines.filter(r => r.plan > 0 && r.left <= 0).length;
-  return { lines, plan, sent, left: Math.max(0, plan - sent), pct: plan > 0 ? Math.round(sent / plan * 100) : 0, doneN, n: lines.length };
+  const res = { lines, plan, sent, left: Math.max(0, plan - sent), pct: plan > 0 ? Math.round(sent / plan * 100) : 0, doneN, n: lines.length };
+  LP_PR_CACHE.set(x, res);
+  return res;
 }
 /* ---------- ИЗОСТАВАНЕ ----------
    Записът помни от коя седмица е тръгнал (carriedOrig) и колко пъти е местен
@@ -587,7 +602,7 @@ async function lpOrderPicker() {
   }));
   bind();
   const qi = wrap.querySelector("#lp-pq");
-  qi.addEventListener("input", () => { wrap.querySelector("#lp-plist").innerHTML = rowsHtml(qi.value.trim().toLowerCase()); bind(); });
+  qi.addEventListener("input", uiDebounce(() => { wrap.querySelector("#lp-plist").innerHTML = rowsHtml(qi.value.trim().toLowerCase()); bind(); }, 200));
   setTimeout(() => qi.focus(), 50);
 }
 
@@ -741,6 +756,18 @@ function lpMechPrint(rows, wk, sunday) {
 }
 
 /* ---------- Форма (ново/редакция) ---------- */
+/* Двата datalist-а за формата (до 8000 option-а) се строят ВЕДНЪЖ и се помнят,
+   докато списъкът със стоки не се презареди — строенето им при всяко отваряне
+   на формата (и при „+ ред") бавеше осезаемо. */
+let LP_DL_HTML = null, LP_DL_SRC = null;
+function lpGoodsDatalists() {
+  if (LP_DL_HTML && LP_DL_SRC === LP_GOODS) return LP_DL_HTML;
+  LP_DL_SRC = LP_GOODS;
+  LP_DL_HTML = `<datalist id="lp-goods-list">${LP_GOODS.slice(0, 4000).map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
+      <datalist id="lp-codes-list">${Object.keys(LP_GOODS_BY_CODE).sort().slice(0, 4000).map(c => `<option value="${escapeAttr(c)}">${escapeHtml(LP_GOODS_BY_CODE[c])}</option>`).join("")}</datalist>`;
+  return LP_DL_HTML;
+}
+
 function lpOpenForm(id, preset) {
   const editing = id ? LP_ITEMS.find(x => x.id === id) : null;
   const mondayStr = lpMondayStr(LP_MONDAY);
@@ -775,8 +802,7 @@ function lpOpenForm(id, preset) {
         <div class="lp-lgrid lp-lgrid-head"><span>Код</span><span>Изделие</span><span>Бройки</span><span>Палети</span><span>Кг</span><span></span></div>
         <div id="lp-lines">${initLines.map(lineRow).join("")}</div>
       </div>
-      <datalist id="lp-goods-list">${LP_GOODS.slice(0, 4000).map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
-      <datalist id="lp-codes-list">${Object.keys(LP_GOODS_BY_CODE).sort().slice(0, 4000).map(c => `<option value="${escapeAttr(c)}">${escapeHtml(LP_GOODS_BY_CODE[c])}</option>`).join("")}</datalist>
+      ${lpGoodsDatalists()}
       <button type="button" id="lp-addline" class="btn btn-small">+ ред</button>
       ${(src.orderId || (editing && editing.orderId)) ? '<button type="button" id="lp-addorder" class="btn btn-small btn-primary" title="Показва редовете от заявката, които още НЕ са планирани — избираш кои да добавиш">📋 Още редове от заявката</button>' : ""}
       <label>Забележка<textarea id="lp-note" rows="2" placeholder="напр. транспорт, час, специфики">${escapeHtml(src.note || "")}</textarea></label>

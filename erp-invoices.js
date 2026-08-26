@@ -300,7 +300,12 @@ async function erpRenderInvoices() {
     <p class="hint">Складът се движи от <b>Продажби</b> (не оттук). Фактурата е документът. Етап 2 ще свърже двете за тест.</p>`;
 
   const qEl = document.getElementById("inv-q");
-  if (qEl) qEl.addEventListener("input", e => { erpInvQuery = e.target.value; erpRenderInvoices(); });
+  if (qEl) qEl.addEventListener("input", uiDebounce(e => {
+    erpInvQuery = e.target.value;
+    erpRenderInvoices();
+    const el = document.getElementById("inv-q");   // пре-рисуването сменя елемента — връщаме курсора
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 220));
   const mEl = document.getElementById("inv-month");
   if (mEl) mEl.addEventListener("change", e => { erpInvMonth = e.target.value; erpInvMonthCards(); });
   erpInvMonthCards();

@@ -175,12 +175,12 @@ async function erpRenderReceivables() {
 
   v.querySelectorAll("[data-rf]").forEach(b => b.addEventListener("click", () => { recvFilter = b.dataset.rf; recvSelected.clear(); erpRenderReceivables(); }));
   const rqEl = document.getElementById("recv-q");
-  if (rqEl) rqEl.addEventListener("input", e => {
+  if (rqEl) rqEl.addEventListener("input", uiDebounce(e => {
     recvQuery = e.target.value;
     erpRenderReceivables();
     const el = document.getElementById("recv-q");
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  });
+  }, 220));
   const fi = document.getElementById("recv-file"); if (fi) fi.addEventListener("change", e => erpRecvImport(e.target.files[0]));
   const ci = document.getElementById("recv-clear-import"); if (ci) ci.addEventListener("click", erpRecvClearImport);
   const ca = document.getElementById("recv-clear-all"); if (ca) ca.addEventListener("click", erpRecvClearAll);

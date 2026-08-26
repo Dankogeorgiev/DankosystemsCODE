@@ -41,8 +41,9 @@ function ptMergeExtra(list) {
 /* Записва партньор БЕЗ да иска промени по базата: при липсваща колона пробва
    пак без нея и слага стойността в app_config. Връща { id, error }. */
 async function erpPartnerSaveSafe(existing, payload) {
-  // Нов/променен партньор → кешът на доставчиците в Покупки да се опресни веднага.
+  // Нов/променен партньор → кешовете на доставчици/клиенти да се опреснят веднага.
   if (typeof puSuppCache !== "undefined") { puSuppCache = null; puSuppCacheAt = 0; }
+  if (typeof saClientsCache !== "undefined") { saClientsCache = null; saClientsCacheAt = 0; }
   const doSave = async pl => existing
     ? (await sb.from("partners").update(pl).eq("id", existing.id).select("id").single())
     : (await sb.from("partners").insert(pl).select("id").single());

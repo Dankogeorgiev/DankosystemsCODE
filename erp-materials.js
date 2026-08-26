@@ -36,7 +36,11 @@ function erpRenderMaterials() {
     (m.name || "").toLowerCase().includes(q) ||
     (m.group_name || "").toLowerCase().includes(q));
   if (erpMatOnlyBelow) rows = rows.filter(m => m.below_min);
-  rows.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+  rows.sort((a, b) => bgCmp(a.name, b.name));
+  const totalRows = rows.length;
+  const MAT_CAP = 400;                       // повече редове бавят рисуването; търсенето стеснява
+  const capped = totalRows > MAT_CAP;
+  if (capped) rows = rows.slice(0, MAT_CAP);
 
   const belowCount = ERP.materials.filter(m => m.below_min).length;
   // Общо в килограми за показаните материали + колко нямат зададено тегло.
@@ -79,13 +83,14 @@ function erpRenderMaterials() {
             </td>
           </tr>`; }).join("") ||
           `<tr><td colspan="10" class="report-empty">Няма материали. Импортирай рецепти или добави ръчно.</td></tr>`}
+        ${capped ? `<tr><td colspan="10" class="report-empty">Показани са първите ${rows.length} от ${totalRows} — пиши в търсачката, за да стесниш.</td></tr>` : ""}
       </tbody>
     </table>`;
 
-  document.getElementById("erp-mat-search").addEventListener("input", e => {
+  document.getElementById("erp-mat-search").addEventListener("input", uiDebounce(e => {
     erpMatSearch = e.target.value; erpRenderMaterials();
     const el = document.getElementById("erp-mat-search"); el.focus(); el.setSelectionRange(el.value.length, el.value.length);
-  });
+  }, 200));
   document.getElementById("erp-mat-below").addEventListener("change", e => {
     erpMatOnlyBelow = e.target.checked; erpRenderMaterials();
   });

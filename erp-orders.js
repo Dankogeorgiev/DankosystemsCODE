@@ -989,6 +989,7 @@ async function erpFlowApply(meta, productLines) {
     });
     if (toArchive.size) {
       const tag = "¦арх:" + Date.now().toString(36);
+      const archUps = [];
       for (const k of toArchive) {
         const r0 = bySeries[k];
         const src = r0.data.source || {};
@@ -997,9 +998,11 @@ async function erpFlowApply(meta, productLines) {
         if (Array.isArray(src.gate)) src.gate = src.gate.map(g => (typeof g === "string")
           ? (toArchive.has(g) ? g + tag : g)
           : (g && g.key && toArchive.has(g.key) ? { ...g, key: g.key + tag } : g));
-        try { await sb.from("tasks").update({ data: r0.data, updated_at: new Date().toISOString() }).eq("id", r0.id); } catch (e) { /* при грешка старото сливане остава */ }
+        archUps.push(() => sb.from("tasks").update({ data: r0.data, updated_at: new Date().toISOString() }).eq("id", r0.id).then(r => r, e => e));
         delete bySeries[k];   // стъпка 4 ще създаде ЧИСТА нова серия на стандартния ключ
       }
+      // Редовете са независими — записваме по 10 успоредно (при грешка старото сливане остава).
+      for (let i = 0; i < archUps.length; i += 10) await Promise.all(archUps.slice(i, i + 10).map(f => f()));
     }
   }
 
@@ -1157,6 +1160,7 @@ async function erpFlowRemoveOrder(sampleId) {
   try { await sb.from("stock_movements").delete().eq("ref", "order:" + sid); } catch (e) {}    // връщаме вложените материали
   await erpReleaseNetting(sid);
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
+  const jobs = [];
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};
     if (src.kind !== "series") continue;
@@ -1166,11 +1170,13 @@ async function erpFlowRemoveOrder(sampleId) {
     d.qty = Math.max(0, (Number(d.qty) || 0) - (Number(orders[idx].qty) || 0));
     orders.splice(idx, 1);
     if (!orders.length) {
-      await sb.from("tasks").delete().eq("id", r.id);
-      // Изтриваме и движенията, породени от тази задача — иначе остават „фантомни"
-      // готови детайли/материали и повторното пускане ги удвоява.
-      try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
-      try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
+      jobs.push(async () => {
+        await sb.from("tasks").delete().eq("id", r.id);
+        // Изтриваме и движенията, породени от тази задача — иначе остават „фантомни"
+        // готови детайли/материали и повторното пускане ги удвоява.
+        try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
+        try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
+      });
       continue;
     }
     src.orders = orders; src.orderIds = orders.map(o => String(o.id));
@@ -1184,8 +1190,10 @@ async function erpFlowRemoveOrder(sampleId) {
       }));
     }
     const qty = Number(d.qty) || 0, prod = Number(d.produced) || 0;
-    await sb.from("tasks").update({ data: d, done: qty > 0 && prod >= qty, updated_at: new Date().toISOString() }).eq("id", r.id);
+    jobs.push(() => sb.from("tasks").update({ data: d, done: qty > 0 && prod >= qty, updated_at: new Date().toISOString() }).eq("id", r.id));
   }
+  // Всяка серия е отделен ред — обработваме по 5 успоредно.
+  for (let i = 0; i < jobs.length; i += 5) await Promise.all(jobs.slice(i, i + 5).map(f => f()));
 }
 
 // Карта на произведеното по серии (ключ код+операция) от текущите задачи.

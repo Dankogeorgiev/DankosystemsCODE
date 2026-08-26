@@ -577,7 +577,7 @@ async function erpStockTree(productId) {
     if (el) el.textContent = erpNum(Number(p.stock) || 0) + " бр.";
     render();
   }));
-  wrap.querySelector("#st-qty").addEventListener("input", e => { qty = Math.max(1, Math.floor(erpToNum(e.target.value) || 1)); render(); });
+  wrap.querySelector("#st-qty").addEventListener("input", uiDebounce(e => { qty = Math.max(1, Math.floor(erpToNum(e.target.value) || 1)); render(); }, 250));
   wrap.querySelector("#st-refresh").addEventListener("click", async () => {
     wrap.querySelector("#st-table").innerHTML = '<p class="erp-loading">Презареждам наличностите…</p>';
     try { await erpLoadAll(); } catch (e) {}

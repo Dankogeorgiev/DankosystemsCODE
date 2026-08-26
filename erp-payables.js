@@ -217,12 +217,12 @@ async function erpRenderPayables() {
 
   v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { pybFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
   const pqEl = document.getElementById("pyb-q");
-  if (pqEl) pqEl.addEventListener("input", e => {
+  if (pqEl) pqEl.addEventListener("input", uiDebounce(e => {
     pybQuery = e.target.value;
     erpRenderPayables();
     const el = document.getElementById("pyb-q");
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  });
+  }, 220));
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);
   const ca = document.getElementById("pay-clear-all"); if (ca) ca.addEventListener("click", erpPayClearAll);

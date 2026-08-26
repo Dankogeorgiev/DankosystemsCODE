@@ -18,6 +18,14 @@ const BUCKET = "drawings";
 const ORDER_MATERIAL_CATEGORIES = ["Профили", "Ламарини", "Крепежи", "Цвят по RAL", "Други покупни"];
 
 let sb = null;            // Supabase клиент
+
+/* Общи помощници за бързина (ползват се от всички модули):
+   uiDebounce — изчаква да спреш да пишеш, преди да пре-рисува тежка таблица;
+   BG_COLLATOR — един готов сравнител за българска азбука (localeCompare
+   създава нов при всяко повикване и бави сортирането на големи списъци). */
+function uiDebounce(fn, ms) { let t = null; return function (...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms || 200); }; }
+const BG_COLLATOR = (typeof Intl !== "undefined" && Intl.Collator) ? new Intl.Collator("bg") : null;
+function bgCmp(a, b) { return BG_COLLATOR ? BG_COLLATOR.compare(String(a || ""), String(b || "")) : String(a || "").localeCompare(String(b || ""), "bg"); }
 let session = null;
 let appStarted = false;
 
@@ -1114,7 +1122,7 @@ function wireHandlers() {
   document.getElementById("btn-report-print").addEventListener("click", () => window.print());
   document.getElementById("btn-notify-overdue").addEventListener("click", notifyOverdue);
   document.getElementById("btn-notify-emails").addEventListener("click", editNotifyEmails);
-  document.getElementById("search").addEventListener("input", renderList);
+  document.getElementById("search").addEventListener("input", uiDebounce(renderList, 200));
   document.getElementById("type-filter").addEventListener("change", renderList);
   document.getElementById("btn-print").addEventListener("click", () => window.print());
   document.getElementById("btn-delete").addEventListener("click", deleteSample);

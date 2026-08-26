@@ -354,40 +354,56 @@ async function nitLoadActiveCodes() {
   let okTasks = false, okOrders = false;
   // 1) Пуснати в производство (незавършени поточни задачи).
   try {
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await sb.from("tasks")
-        .select("code:data->>code,qty:data->>qty,produced:data->>produced")
-        .eq("data->source->>flow", "true").order("id", { ascending: true }).range(from, from + 999);
+    let rows = [];
+    if (typeof erpSelectAll === "function") {
+      const { data, error } = await erpSelectAll("tasks", "code:data->>code,qty:data->>qty,produced:data->>produced", "data->source->>flow", "true");
       if (error) throw error;
-      (data || []).forEach(r => {
-        const q = Number(r.qty) || 0, p = Number(r.produced) || 0;
-        if (r.code && !(q > 0 && p >= q)) out.add(String(r.code).trim());
-      });
-      if (!data || data.length < 1000) break;
+      rows = data || [];
+    } else {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("tasks")
+          .select("code:data->>code,qty:data->>qty,produced:data->>produced")
+          .eq("data->source->>flow", "true").order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
     }
+    rows.forEach(r => {
+      const q = Number(r.qty) || 0, p = Number(r.produced) || 0;
+      if (r.code && !(q > 0 && p >= q)) out.add(String(r.code).trim());
+    });
     okTasks = true;
   } catch (e) { /* продължаваме с поръчките */ }
   // 2) ПОРЪЧАНИ от клиенти (отворени заявки) — дори още да не са пуснати в цех.
   //    Изключваме завършените и готовите за продажба (по тях не се работи).
   try {
     const pids = [];
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await sb.from("customer_orders").select("id,data")
-        .order("id", { ascending: true }).range(from, from + 999);
+    let co = [];
+    if (typeof erpSelectAll === "function") {
+      const { data, error } = await erpSelectAll("customer_orders", "id,data");
       if (error) throw error;
-      (data || []).forEach(r => {
-        const d = (r && r.data) || {};
-        const st = d.status || "нова";
-        if (st === "завършена" || st === "готова за продажба") return;
-        (d.lines || []).forEach(l => { if (l.productId) pids.push(Number(l.productId)); });
-      });
-      if (!data || data.length < 1000) break;
+      co = data || [];
+    } else {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from("customer_orders").select("id,data")
+          .order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        co.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
     }
+    co.forEach(r => {
+      const d = (r && r.data) || {};
+      const st = d.status || "нова";
+      if (st === "завършена" || st === "готова за продажба") return;
+      (d.lines || []).forEach(l => { if (l.productId) pids.push(Number(l.productId)); });
+    });
     const ids = [...new Set(pids)];
-    for (let i = 0; i < ids.length; i += 200) {
-      const { data } = await sb.from("products").select("id,code").in("id", ids.slice(i, i + 200));
-      (data || []).forEach(p => { if (p.code) out.add(String(p.code).trim()); });
-    }
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200));
+    const res = await Promise.all(chunks.map(ch => sb.from("products").select("id,code").in("id", ch)));
+    res.forEach(({ data }) => (data || []).forEach(p => { if (p.code) out.add(String(p.code).trim()); }));
     okOrders = true;
   } catch (e) { /* при грешка — каквото е събрано */ }
   NIT_ACTIVE = (okTasks || okOrders) ? out : null;

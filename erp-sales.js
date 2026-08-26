@@ -44,7 +44,9 @@ async function erpSaveSale(o) {
     o.id = ins.id;
   }
 }
+let saClientsCache = null, saClientsCacheAt = 0;   // чисти се при запис на партньор
 async function erpLoadSaleClients() {
+  if (saClientsCache && Date.now() - saClientsCacheAt < 120000) return saClientsCache;
   try {
     // "*" — за да идват ВСИЧКИ данни на клиента (ЕИК, МОЛ, адрес…) във фактурата.
     const { data } = await erpSelectAll("partners", "*", "kind", "customer");
@@ -53,8 +55,9 @@ async function erpLoadSaleClients() {
     try {
       if (typeof ptExtraLoad === "function") { await ptExtraLoad(); ptMergeExtra(list); }
     } catch (e) {}
+    saClientsCache = list; saClientsCacheAt = Date.now();
     return list;
-  } catch { return []; }
+  } catch { return saClientsCache || []; }
 }
 
 /* ---------- Помощници за пари/суми ---------- */
@@ -146,7 +149,7 @@ async function erpRenderSales() {
     </table>`;
   document.getElementById("erp-sa-new").addEventListener("click", erpNewSale);
   const qEl = document.getElementById("sa-q");
-  if (qEl) qEl.addEventListener("input", e => { erpSaQuery = e.target.value; erpSaFillRows(); });
+  if (qEl) qEl.addEventListener("input", uiDebounce(e => { erpSaQuery = e.target.value; erpSaFillRows(); }, 200));
   const imEl = document.getElementById("sa-import");
   if (imEl) imEl.addEventListener("change", e => { erpSaImport(e.target.files[0]); e.target.value = ""; });
   const ciEl = document.getElementById("sa-clear-import");
@@ -506,15 +509,40 @@ function erpSaAddLine(o, kind) {
     <div id="sa-pp-list" class="erp-lp-list"></div>
     <div class="erp-dialog-actions"><button class="btn" id="sa-pp-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#sa-pp-list");
+  /* Картата „последна цена за клиента" се строи ВЕДНЪЖ при отваряне на
+     прозореца (един проход през историята) — преди erpLastPriceFor минаваше
+     през всички продажби за всеки от 80-те реда при всеки натиснат клавиш. */
+  const lastMap = (() => {
+    const byId = o && o.clientId;
+    const name = ((o && o.clientName) || "").trim().toLowerCase();
+    const best = new Map();
+    if (!byId && !name) return best;
+    const cur = (o && o.currency) || "EUR";
+    (erpSales || []).forEach(s => {
+      if (o && o.id && s.id === o.id) return;
+      const sameClient = byId ? (s.clientId === byId) : ((s.clientName || "").trim().toLowerCase() === name);
+      if (!sameClient) return;
+      (s.lines || []).forEach(l => {
+        const p = erpToNum(l.unitPrice); if (!(p > 0)) return;
+        const k = l.itemKind + "|" + String(l.refId);
+        const hit = { price: p, date: s.date || "", saleNo: s.saleNo || "", currency: s.currency || "EUR" };
+        const old = best.get(k);
+        if (!old) { best.set(k, hit); return; }
+        const ca = hit.currency === cur ? 1 : 0, cb = old.currency === cur ? 1 : 0;
+        if (ca > cb || (ca === cb && String(hit.date) > String(old.date))) best.set(k, hit);
+      });
+    });
+    return best;
+  })();
+  const lastFor = id => lastMap.get(kind + "|" + String(id)) || null;
   const render = q => {
-    q = (q || "").toLowerCase().trim();
-    let list = (isMat ? ERP.materials : ERP.products).slice();
-    if (q) list = list.filter(x => ((x.code || "") + " " + (x.name || "")).toLowerCase().includes(q));
-    list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    const list = (typeof puMatFilter === "function")
+      ? puMatFilter(isMat ? ERP.materials : ERP.products, q)   // търсене по думи, без словоред
+      : (isMat ? ERP.materials : ERP.products).slice();
     listEl.innerHTML = list.slice(0, 80).map(x => {
       const hint = isMat ? (x.unit || "") : (x.is_semifinished ? "полуфабрикат" : "артикул");
       const cost = isMat ? (Number(x.avg_cost) || 0) : (Number(ERP.costById[x.id]) || 0);
-      const last = erpLastPriceFor(o, kind, x.id);
+      const last = lastFor(x.id);
       const lastHint = last ? ` · <b>посл. за клиента: ${erpSaleMoney(last.price, erpSaleCur(o))}</b>` : "";
       return `<button type="button" class="erp-lp-item" data-id="${x.id}"><b>${escapeHtml(x.code || "")}</b> ${escapeHtml(x.name || "")} <span class="erp-muted">${escapeHtml(hint)}${cost ? " · себест. " + erpEur(cost) : ""}${lastHint}</span></button>`;
     }).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
@@ -522,7 +550,7 @@ function erpSaAddLine(o, kind) {
       const id = Number(b.dataset.id);
       const x = isMat ? ERP.matById[id] : ERP.prodById[id];
       o.lines = o.lines || [];
-      const last = erpLastPriceFor(o, kind, x.id);
+      const last = lastFor(x.id);
       const ple = (!isMat && typeof erpPriceListEntry === "function") ? erpPriceListEntry(o.clientId, o.clientName, x.id) : null;
       const dispName = (ple && ple.cname) ? ple.cname : (x.name || "");   // име при клиента за фактурата
       const plPrice = (ple && erpToNum(ple.price) > 0) ? erpToNum(ple.price) : null;
@@ -536,7 +564,7 @@ function erpSaAddLine(o, kind) {
     }));
   };
   render("");
-  wrap.querySelector("#sa-pp-q").addEventListener("input", e => render(e.target.value));
+  wrap.querySelector("#sa-pp-q").addEventListener("input", uiDebounce(e => render(e.target.value), 150));
   wrap.querySelector("#sa-pp-cancel").addEventListener("click", close);
 }
 

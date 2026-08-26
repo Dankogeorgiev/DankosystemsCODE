@@ -26,8 +26,8 @@ function timesTotalSec(r) {
   return null;
 }
 
-function timesRptRows() {
-  const all = (typeof collectTimeRows === "function") ? collectTimeRows() : [];
+function timesRptRows(allPre) {
+  const all = allPre || ((typeof collectTimeRows === "function") ? collectTimeRows() : []);
   const f = timesRpt;
   return all.filter(r => {
     if (f.workshop && r.workshop !== f.workshop) return false;
@@ -231,7 +231,7 @@ function renderTimesReport() {
   const f = timesRpt;
   const sel = (id, cur, list, label) => `<label>${label} <select id="${id}"><option value="">Всички</option>${list.map(x => `<option ${x === cur ? "selected" : ""}>${escapeHtml(x)}</option>`).join("")}</select></label>`;
 
-  const rows = timesRptRows();
+  const rows = timesRptRows(all);
   const analysis = timesAnalysisMode === "detail" ? timesByDetail(rows) : timesByOperation(rows);
   const byWorker = timesGroupBy(rows, "worker");
   const byShop = timesGroupBy(rows, "workshop");
@@ -385,12 +385,12 @@ function renderTimesReport() {
   bind("tr-ws", "workshop"); bind("tr-op", "operation"); bind("tr-m", "machine"); bind("tr-w", "worker"); bind("tr-cl", "client"); bind("tr-ord", "orderNo"); bind("tr-from", "from"); bind("tr-to", "to");
   // Търсене по код — на живо; след пре-рендера връщаме фокуса в полето.
   const codeEl = v.querySelector("#tr-code");
-  if (codeEl) codeEl.addEventListener("input", e => {
+  if (codeEl) codeEl.addEventListener("input", uiDebounce(e => {
     timesRpt.code = e.target.value;
     renderTimesReport();
     const el = document.getElementById("tr-code");
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  });
+  }, 220));
   v.querySelectorAll(".times-click").forEach(tr => tr.addEventListener("click", () => {
     if (tr.dataset.w != null) timesRpt.worker = tr.dataset.w;
     if (tr.dataset.shop != null) timesRpt.workshop = tr.dataset.shop;

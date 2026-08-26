@@ -649,10 +649,15 @@ function wsInScope(taskWs, sel) {
   return taskWs === sel;
 }
 // Служителите на избраното (цех, семейство или всички).
+let WS_WORKERS_MEMO = {};   // нулира се в renderTasks
 function wsWorkersOf(sel) {
-  if (!sel || sel === "__all") return [...new Set(Object.values(WORKERS).flat())];
-  if (sel === "__mine") return [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))];
-  return [...new Set(wsMembers(sel).flatMap(w => WORKERS[w] || []))];
+  const k = String(sel || "__all");
+  if (WS_WORKERS_MEMO[k]) return WS_WORKERS_MEMO[k];
+  let out;
+  if (!sel || sel === "__all") out = [...new Set(Object.values(WORKERS).flat())];
+  else if (sel === "__mine") out = [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))];
+  else out = [...new Set(wsMembers(sel).flatMap(w => WORKERS[w] || []))];
+  return (WS_WORKERS_MEMO[k] = out);
 }
 let WORKER_CAP = { def: 8, byWorker: {} };   // часове/ден за планиране
 
@@ -1465,20 +1470,28 @@ function renderWorkerBar() {
 // Прогрес на цялото изделие (детайл) по операциите му: всяка операция е отделна
 // поточна задача, затова ги събираме по код на детайла. Връща брой операции,
 // коя е текущата и % готово (по произведено спрямо количество на всички операции).
+/* Индексът се строи ВЕДНЪЖ на рисуване (нулира се в renderTasks) — иначе
+   всеки ред от таблицата обхождаше всички задачи и списъкът ставаше квадратен. */
+let FD_IDX = null;
+function flowDetailIndex() {
+  if (FD_IDX) return FD_IDX;
+  FD_IDX = {};
+  (TASKS || []).forEach(x => {
+    const s = x.source; if (!s || !s.flow || !s.code) return;
+    const k = s.code + "|" + (!!s.stock);
+    const g = FD_IDX[k] || (FD_IDX[k] = { total: 0, doneOps: 0, prodSum: 0, qtySum: 0 });
+    const q = Number(x.qty) || 0, p = Number(x.produced) || 0;
+    g.total++; if (q > 0 && p >= q) g.doneOps++;
+    g.prodSum += Math.min(p, q); g.qtySum += q;
+  });
+  return FD_IDX;
+}
 function flowDetailProgress(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.code) return null;
-  const stock = !!src.stock;
-  let total = 0, doneOps = 0, prodSum = 0, qtySum = 0;
-  (TASKS || []).forEach(x => {
-    const s = x.source;
-    if (!s || !s.flow || s.code !== src.code || !!s.stock !== stock) return;
-    const q = Number(x.qty) || 0, p = Number(x.produced) || 0;
-    total++; if (q > 0 && p >= q) doneOps++;
-    prodSum += Math.min(p, q); qtySum += q;
-  });
-  if (!total) return null;
-  return { total, doneOps, pct: qtySum > 0 ? Math.round(prodSum / qtySum * 100) : 0, step: (Number(src.step) || 0) + 1 };
+  const g = flowDetailIndex()[src.code + "|" + (!!src.stock)];
+  if (!g || !g.total) return null;
+  return { total: g.total, doneOps: g.doneOps, pct: g.qtySum > 0 ? Math.round(g.prodSum / g.qtySum * 100) : 0, step: (Number(src.step) || 0) + 1 };
 }
 
 // Видимо предупреждение, ако НЕ всички задачи са изтеглени (по-добре шумно,
@@ -1508,6 +1521,7 @@ function renderTasksIncompleteWarn() {
 let TASKS_ARCHIVE = false;   // 🗄 изглед „Архив производство" (само изпълнените)
 function renderTasks() {
   showSub("tasks");
+  FD_IDX = null; MSG_TASK_IDX = null; WS_WORKERS_MEMO = {};
   // Планирането: натовареността по служител се опреснява при всяко рисуване.
   if (PROD_MODE) setTimeout(renderProdLoadBar, 0);
   updateWorkersCount();
@@ -2059,13 +2073,15 @@ async function assignBulk(worker, addTo) {
   if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
   if (!worker) { alert("Избери служител от менюто „Възложи на“."); return; }
   const ids = [...selectedTasks];
+  const picked = [];
   for (const id of ids) {
     const t = TASKS.find(x => x.id === id);
     if (!t) continue;
     const cur = taskAssignees(t);
     taskSetAssignees(t, addTo ? [...new Set([...cur, worker])] : [worker]);
-    await tSaveTask(t);
+    picked.push(t);
   }
+  for (let i = 0; i < picked.length; i += 10) await Promise.all(picked.slice(i, i + 10).map(t => tSaveTask(t)));
   selectedTasks.clear();
   renderTasks();
   alert(`${addTo ? "Добавен" : "Възложени"} „${worker}“ ${addTo ? "към" : "на"} ${ids.length} задачи.`);
@@ -2076,10 +2092,12 @@ async function unassignBulk() {
   if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
   const ids = [...selectedTasks];
   if (!confirm(`Да махна ли отговорниците на ${ids.length} маркирани задачи?`)) return;
+  const picked = [];
   for (const id of ids) {
     const t = TASKS.find(x => x.id === id);
-    if (t) { taskSetAssignees(t, []); await tSaveTask(t); }
+    if (t) { taskSetAssignees(t, []); picked.push(t); }
   }
+  for (let i = 0; i < picked.length; i += 10) await Promise.all(picked.slice(i, i + 10).map(t => tSaveTask(t)));
   selectedTasks.clear();
   renderTasks();
   alert(`Освободени ${ids.length} задачи.`);
@@ -2090,10 +2108,12 @@ async function setDueBulk(due) {
   if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
   if (!due) { alert("Избери дата в полето „Срок“."); return; }
   const ids = [...selectedTasks];
+  const picked = [];
   for (const id of ids) {
     const t = TASKS.find(x => x.id === id);
-    if (t) { t.due = due; await tSaveTask(t); }
+    if (t) { t.due = due; picked.push(t); }
   }
+  for (let i = 0; i < picked.length; i += 10) await Promise.all(picked.slice(i, i + 10).map(t => tSaveTask(t)));
   selectedTasks.clear();
   renderTasks();
   alert(`Зададен срок ${typeof erpDMY === "function" ? erpDMY(due) : due} на ${ids.length} задачи.`);
@@ -2873,12 +2893,13 @@ function computeReport() {
 function subscribeTasks() {
   if (tasksSubscribed) return;
   tasksSubscribed = true;
+  const tasksRtRefresh = uiDebounce(async () => {
+    if (document.getElementById("tasks-modal").hidden) return;
+    await tLoadTasks();
+    if (!document.getElementById("tasks-view").hidden) renderTasks();
+  }, 600);
   sb.channel("tasks-changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, async () => {
-      if (document.getElementById("tasks-modal").hidden) return;
-      await tLoadTasks();
-      if (!document.getElementById("tasks-view").hidden) renderTasks();
-    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => tasksRtRefresh())
     .subscribe();
 }
 
@@ -3070,9 +3091,21 @@ async function editTaskComment(t) {
   renderTasks();
 }
 
+let MSG_TASK_IDX = null;   // нулира се в renderTasks — един проход вместо по един на ред
+function msgTaskIndex() {
+  if (MSG_TASK_IDX) return MSG_TASK_IDX;
+  MSG_TASK_IDX = {};
+  (MESSAGES || []).forEach(m => {
+    if (!msgVisibleToMe(m)) return;
+    const g = MSG_TASK_IDX[m.taskId] || (MSG_TASK_IDX[m.taskId] = { n: 0, open: 0 });
+    g.n++; if (m.status !== "closed") g.open++;
+  });
+  return MSG_TASK_IDX;
+}
 function taskQuestionCell(t) {
-  const mine = MESSAGES.filter(m => m.taskId === t.id && msgVisibleToMe(m));
-  const openCount = mine.filter(m => m.status !== "closed").length;
+  const g = msgTaskIndex()[t.id] || { n: 0, open: 0 };
+  const mine = { length: g.n };
+  const openCount = g.open;
   const askBtn = amWorker() ? `<button type="button" class="btn btn-small t-ask" title="Задай въпрос към технолог/организатор">❓ Питай</button>` : "";
   const viewBtn = mine.length
     ? `<button type="button" class="btn btn-small t-qview ${openCount ? "q-open" : ""}" title="Виж съобщенията">💬 ${mine.length}</button>`
@@ -3177,9 +3210,9 @@ async function markMessagesSeen() {
     }
     return m.seenByAdmin === false;
   });
-  for (const m of toMark) {
-    if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true;
-    await mUpdate(m);
+  toMark.forEach(m => { if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true; });
+  for (let i = 0; i < toMark.length; i += 10) {
+    await Promise.all(toMark.slice(i, i + 10).map(m => mUpdate(m)));
   }
   mUpdateBadge();
 }
@@ -3641,17 +3674,19 @@ function detectAndNotify(before) {
 function subscribeMessages() {
   if (messagesSubscribed) return;
   messagesSubscribed = true;
+  // Сливаме вълна от промени (напр. пакетното „видяно") в ЕДНО презареждане.
+  const msgsRtRefresh = uiDebounce(async () => {
+    const before = msgNotifyState;
+    await mLoad();
+    detectAndNotify(before);
+    msgNotifyState = snapshotNotify();
+    mUpdateBadge();
+    if (document.getElementById("tasks-modal").hidden) return;   // балончето/известията работят и без отворен модул
+    if (!document.getElementById("messages-view").hidden) renderMessages();
+    else if (!document.getElementById("tasks-view").hidden) renderTasks();
+  }, 600);
   sb.channel("messages-changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, async () => {
-      const before = msgNotifyState;
-      await mLoad();
-      detectAndNotify(before);
-      msgNotifyState = snapshotNotify();
-      mUpdateBadge();
-      if (document.getElementById("tasks-modal").hidden) return;   // балончето/известията работят и без отворен модул
-      if (!document.getElementById("messages-view").hidden) renderMessages();
-      else if (!document.getElementById("tasks-view").hidden) renderTasks();
-    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => msgsRtRefresh())
     .subscribe();
 }
 
@@ -3941,7 +3976,7 @@ function tInit() {
   if (ordersProdBtn) ordersProdBtn.addEventListener("click", openOrdersInProduction);
   const masterBtn = document.getElementById("btn-master");
   if (masterBtn) masterBtn.addEventListener("click", () => { if (typeof openMasterReport === "function") openMasterReport(); });
-  document.getElementById("task-search").addEventListener("input", renderTasks);
+  document.getElementById("task-search").addEventListener("input", uiDebounce(renderTasks, 200));
   const rf = document.getElementById("task-ready-filter");
   if (rf) rf.addEventListener("change", renderTasks);
   const ab = document.getElementById("task-archive-btn");

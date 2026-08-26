@@ -223,7 +223,7 @@ async function erpRenderDetailStockInner() {
 
   const q = document.getElementById("ds-q");
   // Търсене „на живо" без пре-рисуване на целия изглед (за да не губи фокус полето).
-  if (q) q.addEventListener("input", e => { DS_TERM = e.target.value; dsFillRows(); });
+  if (q) q.addEventListener("input", uiDebounce(e => { DS_TERM = e.target.value; dsFillRows(); }, 180));
   const only = document.getElementById("ds-only");
   if (only) only.addEventListener("change", e => { DS_ONLY_STOCK = e.target.checked; dsFillRows(); });
   const neg = document.getElementById("ds-neg");

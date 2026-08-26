@@ -226,7 +226,7 @@ async function erpRenderPurchases() {
       <tbody id="pu-tbody"></tbody>
     </table>`;
   const qEl = document.getElementById("pu-q");
-  if (qEl) qEl.addEventListener("input", e => { erpPuQuery = e.target.value; erpPuFillRows(); });
+  if (qEl) qEl.addEventListener("input", uiDebounce(e => { erpPuQuery = e.target.value; erpPuFillRows(); }, 200));
   const mEl = document.getElementById("pu-month");
   if (mEl) mEl.addEventListener("change", e => { erpPuMonth = e.target.value; erpPuMonthCards(); });
   erpPuMonthCards();
@@ -485,12 +485,15 @@ function erpPuTotalsBox(o) {
    как обичайно се плаща (отложено/в брой/карта, колко дни), валута, ДДС и
    кои артикули купуваме най-често от него (с последна цена). Няма отделна
    база — всяка нова фактура автоматично „дообучава", защото влиза в историята. */
+let puProfCache = new Map(), puProfSrc = null;   // проф. на доставчик — кеш до ново зареждане
 function erpPuSupplierProfile(name) {
   const nm = String(name || "").trim().toLowerCase();
   if (!nm) return null;
+  if (puProfSrc !== erpPurchases) { puProfCache = new Map(); puProfSrc = erpPurchases; }
+  if (puProfCache.has(nm)) return puProfCache.get(nm);
   const mine = (erpPurchases || []).filter(p => String(p.supplierName || "").trim().toLowerCase() === nm)
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-  if (!mine.length) return null;
+  if (!mine.length) { puProfCache.set(nm, null); return null; }
   const last = mine[0];
   // Най-чести артикули (с последната им цена и класификация).
   const arts = {};
@@ -501,13 +504,15 @@ function erpPuSupplierProfile(name) {
     if (String(p.date || "") >= a.lastDate) { a.lastDate = p.date || ""; if (erpToNum(l.unitPrice)) a.price = erpToNum(l.unitPrice); if (l.groupName) a.group = l.groupName; }
   }));
   const topArticles = Object.values(arts).sort((a, b) => b.n - a.n).slice(0, 8);
-  return {
+  const prof = {
     count: mine.length,
     payStatus: erpPuPayStatus(last), termDays: Number(last.termDays) || 0,
     currency: last.currency || "EUR", vatRate: last.vatRate != null ? last.vatRate : 20,
     expenseType: (mine.find(p => p.expenseType) || {}).expenseType || "",
     topArticles,
   };
+  puProfCache.set(nm, prof);
+  return prof;
 }
 // Прилага профила върху НОВА фактура (не пипа отворена стара) и казва какво е попълнил.
 function erpPuApplyProfile(o, prof) {
@@ -822,7 +827,7 @@ async function erpPuClearImport() {
 /* ---------- История на цените по код ---------- */
 function erpPuCodeHistory(preCode) {
   const rows = [];
-  (erpPurchases || []).forEach(o => (o.lines || []).forEach(l => { if (l.code) rows.push({ code: l.code, article: l.article || l.name || "", date: o.date || "", supplier: o.supplierName || "", qty: erpToNum(l.qty) || 0, price: erpToNum(l.unitPrice) || 0, cur: erpPuCur(o), inv: o.invoiceNo || "" }); }));
+  (erpPurchases || []).forEach(o => (o.lines || []).forEach(l => { if (l.code) { const article = l.article || l.name || ""; rows.push({ code: l.code, article, hay: puMatNorm(l.code + " " + article), date: o.date || "", supplier: o.supplierName || "", qty: erpToNum(l.qty) || 0, price: erpToNum(l.unitPrice) || 0, cur: erpPuCur(o), inv: o.invoiceNo || "" }); } }));
   const { wrap, close } = erpDialog(`
     <h3>💹 История на цените по артикул</h3>
     <input type="search" id="puh-q" value="${escapeAttr(preCode || "")}" placeholder="код или име на артикул…" />
@@ -831,13 +836,13 @@ function erpPuCodeHistory(preCode) {
   const listEl = wrap.querySelector("#puh-list");
   const render = q => {
     const toks = puMatNorm(q).split(" ").filter(Boolean);
-    let r = rows.filter(x => { const hay = puMatNorm(`${x.code} ${x.article}`); return toks.every(t => hay.includes(t)); });
+    let r = rows.filter(x => toks.every(t => x.hay.includes(t)));
     r.sort((a, b) => a.code.localeCompare(b.code) || String(b.date).localeCompare(String(a.date)));
     listEl.innerHTML = r.length ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Артикул</th><th>Дата</th><th>Доставчик</th><th class="num">Кол.</th><th class="num">Ед. цена</th><th>№</th></tr></thead>
       <tbody>${r.slice(0, 200).map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.article)}</td><td>${erpDMY(x.date)}</td><td>${escapeHtml(x.supplier)}</td><td class="num">${erpNum(x.qty)}</td><td class="num">${erpPuMoney(x.price, x.cur)}</td><td>${escapeHtml(x.inv)}</td></tr>`).join("")}</tbody></table>`
       : `<p class="report-empty">Няма съвпадения.</p>`;
   };
-  render(preCode || ""); wrap.querySelector("#puh-q").addEventListener("input", e => render(e.target.value));
+  render(preCode || ""); wrap.querySelector("#puh-q").addEventListener("input", uiDebounce(e => render(e.target.value), 200));
   wrap.querySelector("#puh-close").addEventListener("click", close);
 }
 

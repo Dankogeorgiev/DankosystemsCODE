@@ -264,7 +264,7 @@ function erpRecipeLineDialog(productId, mode, ref) {
       const order = cur.map(x => x.id);
       const at = idx < 0 ? order.length : (ref.where === "after" ? idx + 1 : idx);
       order.splice(at, 0, data.id);
-      for (let i = 0; i < order.length; i++) await sb.from("recipe_lines").update({ position: i }).eq("id", order[i]);
+      await Promise.all(order.map((oid, i) => sb.from("recipe_lines").update({ position: i }).eq("id", oid)));
       close(); await erpReloadRecipe(productId); return;
     }
 
@@ -290,9 +290,11 @@ async function erpReorderRecipeLines(productId) {
     const lines = data || [];
     const grp = l => l.operation_id ? 1 : 0;   // 0 = материал/възел (вход), 1 = операция
     lines.sort((a, b) => grp(a) - grp(b) || (Number(a.position) || 0) - (Number(b.position) || 0) || a.id - b.id);
+    const fixes = [];
     for (let i = 0; i < lines.length; i++) {
-      if ((Number(lines[i].position) || 0) !== i) await sb.from("recipe_lines").update({ position: i }).eq("id", lines[i].id);
+      if ((Number(lines[i].position) || 0) !== i) fixes.push(sb.from("recipe_lines").update({ position: i }).eq("id", lines[i].id));
     }
+    if (fixes.length) await Promise.all(fixes);
   } catch (e) { console.error("reorder recipe", e); }
 }
 
@@ -311,12 +313,13 @@ async function erpMoveRecipeLine(lineId, productId, dir) {
   if (j < 0 || j >= lines.length) return;
   const tmp = lines[i]; lines[i] = lines[j]; lines[j] = tmp;
   // Презаписваме позициите по новия ред (0..N).
+  const ups = [];
   for (let k = 0; k < lines.length; k++) {
-    if ((Number(lines[k].position) || 0) !== k) {
-      const { error } = await sb.from("recipe_lines").update({ position: k }).eq("id", lines[k].id);
-      if (error) { alert("Грешка при преместване: " + error.message); return; }
-    }
+    if ((Number(lines[k].position) || 0) !== k) ups.push(sb.from("recipe_lines").update({ position: k }).eq("id", lines[k].id));
   }
+  const resUp = await Promise.all(ups);
+  const bad = resUp.find(r => r && r.error);
+  if (bad) { alert("Грешка при преместване: " + bad.error.message); return; }
   await erpReloadRecipe(productId);
 }
 

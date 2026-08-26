@@ -253,7 +253,7 @@ async function erpLoadAll() {
   try {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
     // (recipe_lines има две връзки към products, така избягваме двусмислието).
-    const [matsRaw, stock, prods, ops, lines, routing, detailRoute, matKg] = await Promise.all([
+    const [matsRaw, stock, prods, ops, lines, routing, detailRoute, matKg, psRaw, mcRaw, lcRaw] = await Promise.all([
       erpSelectAll("materials", "id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
       erpSelectAll("v_material_stock", "id,stock,below_min"),
       erpSelectAll("v_product_cost", "id,code,name,is_semifinished,group_name,needs_recipe,cost_eur"),
@@ -262,6 +262,9 @@ async function erpLoadAll() {
       sb.from("app_config").select("data").eq("id", "erp_op_routing").maybeSingle(),
       sb.from("app_config").select("data").eq("id", "erp_detail_routing").maybeSingle(),
       sb.from("app_config").select("data").eq("id", "material_kg").maybeSingle(),
+      erpSelectAll("v_product_stock", "id,stock").catch(() => ({ error: true })),
+      sb.from("app_config").select("data").eq("id", "manual_costs").maybeSingle().then(r => r, () => ({})),
+      sb.from("app_config").select("data").eq("id", "line_costs").maybeSingle().then(r => r, () => ({})),
     ]);
 
     const firstErr = matsRaw.error || stock.error || prods.error || ops.error || lines.error;
@@ -288,10 +291,7 @@ async function erpLoadAll() {
 
     // Наличност на детайли/полуфабрикати (ако е пуснат erp-detail-stock.sql).
     ERP.prodStock = {};
-    try {
-      const ps = await erpSelectAll("v_product_stock", "id,stock");
-      if (!ps.error) { (ps.data || []).forEach(r => { ERP.prodStock[r.id] = Number(r.stock) || 0; }); ERP._stockAt = Date.now(); }
-    } catch (e) { /* складът за детайли още не е създаден — работим без нето */ }
+    if (psRaw && !psRaw.error) { (psRaw.data || []).forEach(r => { ERP.prodStock[r.id] = Number(r.stock) || 0; }); ERP._stockAt = Date.now(); }
     ERP.products.forEach(p => { p.stock = Number(ERP.prodStock[p.id]) || 0; });
 
     // Клиент-собственик: чете се ЛЕНИВО (само за таб Продукти) — това е втори
@@ -316,18 +316,10 @@ async function erpLoadAll() {
 
     // Ръчни себестойности (app_config "manual_costs") — където има зададена,
     // тя ЗАМЕСТВА изчислената от рецептата (вкл. когато възелът се влага нагоре).
-    ERP.manualCost = {};
-    try {
-      const mc = await sb.from("app_config").select("data").eq("id", "manual_costs").maybeSingle();
-      ERP.manualCost = (mc.data && mc.data.data) || {};
-    } catch (e) { /* още няма ръчни цени — работим с изчислените */ }
+    ERP.manualCost = (mcRaw && mcRaw.data && mcRaw.data.data) || {};
     // Ръчни цени ПО РЕД от рецептата (различна цена за една и съща операция
     // в различни рецепти) — app_config "line_costs": { recipe_line_id: EUR }.
-    ERP.lineCost = {};
-    try {
-      const lc = await sb.from("app_config").select("data").eq("id", "line_costs").maybeSingle();
-      ERP.lineCost = (lc.data && lc.data.data) || {};
-    } catch (e) { /* няма редови цени */ }
+    ERP.lineCost = (lcRaw && lcRaw.data && lcRaw.data.data) || {};
     erpRecalcCosts();
 
     // Опаковки — зареждат се тук, за да са налични за придружаващите документи

@@ -244,8 +244,9 @@ function erpCODocsWire(root, o) {
 }
 /* Допълва клетките, след като планът се зареди фоново. */
 function erpCOPlanFill() {
+  const byId = new Map((erpCOList || []).map(x => [String(x.id), x]));
   document.querySelectorAll("#co-orders-table td[data-plan-for]").forEach(td => {
-    const o = (erpCOList || []).find(x => String(x.id) === td.dataset.planFor);
+    const o = byId.get(td.dataset.planFor);
     if (o) td.innerHTML = erpCOPlanCell(o);
   });
 }
@@ -572,13 +573,13 @@ async function erpRenderCustomerOrders() {
   const hideDoneEl = document.getElementById("erp-co-hidedone");
   if (hideDoneEl) hideDoneEl.addEventListener("change", e => { erpCOHideDone = e.target.checked; erpCORefreshTable(); });
   const qEl = document.getElementById("erp-co-q");
-  if (qEl) qEl.addEventListener("input", e => {
+  if (qEl) qEl.addEventListener("input", uiDebounce(e => {
     erpCOQuery = e.target.value;
     // пре-рисуваме само таблицата със заявките, за да не губим фокуса на търсачката
     const tb = v.querySelector("#co-orders-table tbody");
     if (!tb) { erpRenderCustomerOrders(); return; }
     erpCORefreshTable();
-  });
+  }, 200));
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   v.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
