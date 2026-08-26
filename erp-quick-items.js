@@ -134,6 +134,56 @@ async function erpQuickDelete(pid) {
   } catch (e) { alert("Грешка: " + (e.message || e)); }
 }
 
+/* Мини-форма „нов материал" — за материал, който още го няма в склад Материали.
+   Създава го с наличност 0 (наличността идва после от покупна фактура) и го
+   подава готов на извикващия (влиза направо в мини-рецептата). */
+function erpQuickNewMaterial(preName, onDone) {
+  const groups = [...new Set((ERP.materials || []).map(m => m.group_name).filter(Boolean))].sort((a, b) => bgCmp(a, b));
+  const { wrap, close } = erpDialog(`
+    <h3>➕ Нов материал в склад Материали</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <label>Код (по желание) <input type="text" id="nm-code" placeholder="наш/каталожен номер" /></label>
+      <label>Мярка <input type="text" id="nm-unit" value="бр." list="nm-units" />
+        <datalist id="nm-units"><option value="бр."></option><option value="кг"></option><option value="м"></option><option value="л"></option></datalist></label>
+    </div>
+    <label>Име <input type="text" id="nm-name" value="${escapeAttr(preName || "")}" placeholder="напр. Шина алуминиева 40х5" style="width:100%" /></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <label>Група <input type="text" id="nm-group" list="nm-groups" placeholder="напр. Профили" />
+        <datalist id="nm-groups">${groups.map(g => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist></label>
+      <label>Вид <select id="nm-kind"><option value="p">Покупни/стока</option><option value="m">Метал</option></select></label>
+    </div>
+    <p class="hint" style="margin:6px 0 0">Създава се с наличност 0 — реалната наличност и цената влизат, когато Кристина заприходи покупната фактура за него. Влагането преди това ще извади склада на минус (Системата предупреждава).</p>
+    <p class="save-status" id="nm-status"></p>
+    <div class="erp-dialog-actions"><button class="btn" id="nm-cancel">Отказ</button><button class="btn btn-primary" id="nm-save">➕ Създай материала</button></div>`);
+  wrap.querySelector("#nm-cancel").addEventListener("click", close);
+  wrap.querySelector("#nm-save").addEventListener("click", async () => {
+    const status = wrap.querySelector("#nm-status");
+    const name = wrap.querySelector("#nm-name").value.trim();
+    if (!name) { status.textContent = "⚠ Въведи име."; return; }
+    const payload = {
+      code: wrap.querySelector("#nm-code").value.trim() || null,
+      name,
+      group_name: wrap.querySelector("#nm-group").value.trim() || null,
+      unit: wrap.querySelector("#nm-unit").value.trim() || "бр.",
+      min_stock: 0,
+      is_purchased: wrap.querySelector("#nm-kind").value === "p",
+    };
+    status.textContent = "Създава…";
+    const { data, error } = await sb.from("materials").insert(payload).select("id").single();
+    if (error) {
+      status.textContent = "⚠ " + (/duplicate|unique/i.test(error.message) ? "Вече има материал с този код." : error.message);
+      return;
+    }
+    // Влиза веднага в кешовете, за да се вижда в избора без пълно презареждане.
+    const m = { id: data.id, ...payload, stock: 0, below_min: false, avg_cost: 0 };
+    ERP.materials.push(m);
+    ERP.matById[m.id] = m;
+    close();
+    if (onDone) onDone(m);
+  });
+  setTimeout(() => wrap.querySelector(preName ? "#nm-code" : "#nm-name").focus(), 50);
+}
+
 /* ---------- Прозорецът „⚡ Ново бързо изделие" ----------
    opts: { pid?  — редакция на съществуващо;
            preset? { client, clientId, code, name, price } — предварително попълване;
@@ -274,11 +324,11 @@ async function erpQuickWizard(opts) {
       <h3>Материал от склада</h3>
       <input type="search" id="qwm-q" placeholder="търси код или име…" />
       <div id="qwm-list" class="erp-lp-list"></div>
-      <div class="erp-dialog-actions"><button class="btn" id="qwm-cancel">Затвори</button></div>`);
+      <div class="erp-dialog-actions"><button class="btn" id="qwm-new" title="Материалът го няма в базата — създава се тук и веднага влиза в мини-рецептата (и в склад Материали, с наличност 0)">➕ Нов материал (няма го в склада)</button><span class="spacer"></span><button class="btn" id="qwm-cancel">Затвори</button></div>`);
     const listEl = mw.querySelector("#qwm-list");
     const render = q => {
       const list = puMatFilter(ERP.materials, q);
-      listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">нал. ${erpNum(m.stock)} ${escapeHtml(m.unit || "")}${m.avg_cost ? " · " + erpEur(m.avg_cost) : ""}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
+      listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">нал. ${erpNum(m.stock)} ${escapeHtml(m.unit || "")}${m.avg_cost ? " · " + erpEur(m.avg_cost) : ""}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения. Ползвай „➕ Нов материал" долу, за да го създадеш.</p>`;
       listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
         st.mats.push({ materialId: Number(b.dataset.id), qty: 1 });
         mclose(); drawMats();
@@ -287,6 +337,12 @@ async function erpQuickWizard(opts) {
     render("");
     mw.querySelector("#qwm-q").addEventListener("input", uiDebounce(e => render(e.target.value), 150));
     mw.querySelector("#qwm-cancel").addEventListener("click", mclose);
+    // ➕ Нов материал: мини-форма на място (пренася търсеното като име).
+    mw.querySelector("#qwm-new").addEventListener("click", () => {
+      const preName = mw.querySelector("#qwm-q").value.trim();
+      mclose();
+      erpQuickNewMaterial(preName, m => { st.mats.push({ materialId: m.id, qty: 1 }); drawMats(); });
+    });
     setTimeout(() => mw.querySelector("#qwm-q").focus(), 50);
   });
 
