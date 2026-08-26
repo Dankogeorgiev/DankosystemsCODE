@@ -137,12 +137,23 @@ async function erpQuickDelete(pid) {
 /* Мини-форма „нов материал" — за материал, който още го няма в склад Материали.
    Създава го с наличност 0 (наличността идва после от покупна фактура) и го
    подава готов на извикващия (влиза направо в мини-рецептата). */
+/* Следващ свободен код за материал: най-големият числов код + 1.
+   Ако кодовете не са числа — М-1, М-2… по броя. Полето остава редактируемо. */
+function erpQuickNextMatCode() {
+  let mx = 0;
+  (ERP.materials || []).forEach(m => {
+    const c = String(m.code || "").trim();
+    if (/^\d+$/.test(c)) { const n = parseInt(c, 10); if (n > mx) mx = n; }
+  });
+  return mx ? String(mx + 1) : ("М-" + (((ERP.materials || []).length || 0) + 1));
+}
 function erpQuickNewMaterial(preName, onDone) {
   const groups = [...new Set((ERP.materials || []).map(m => m.group_name).filter(Boolean))].sort((a, b) => bgCmp(a, b));
+  const autoCode = erpQuickNextMatCode();
   const { wrap, close } = erpDialog(`
     <h3>➕ Нов материал в склад Материали</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <label>Код (по желание) <input type="text" id="nm-code" placeholder="наш/каталожен номер" /></label>
+      <label>Код (автоматичен, може да го смениш) <input type="text" id="nm-code" value="${escapeAttr(autoCode)}" /></label>
       <label>Мярка <input type="text" id="nm-unit" value="бр." list="nm-units" />
         <datalist id="nm-units"><option value="бр."></option><option value="кг"></option><option value="м"></option><option value="л"></option></datalist></label>
     </div>
@@ -181,7 +192,7 @@ function erpQuickNewMaterial(preName, onDone) {
     close();
     if (onDone) onDone(m);
   });
-  setTimeout(() => wrap.querySelector(preName ? "#nm-code" : "#nm-name").focus(), 50);
+  setTimeout(() => wrap.querySelector("#nm-name").focus(), 50);
 }
 
 /* ---------- Прозорецът „⚡ Ново бързо изделие" ----------
