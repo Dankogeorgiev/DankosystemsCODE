@@ -806,8 +806,7 @@ async function erpRenderCOForm(o) {
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
   const cai = document.getElementById("co-ai-read");
   if (cai) cai.addEventListener("click", () => {
-    if ((o.lines || []).length && !confirm("Разчитането създава ОТДЕЛНА нова заявка от файла на клиента.
-Въведените дотук редове в тази форма няма да се запазят. Продължавам ли?")) return;
+    if ((o.lines || []).length && !confirm("Разчитането създава ОТДЕЛНА нова заявка от файла на клиента.\nВъведените дотук редове в тази форма няма да се запазят. Продължавам ли?")) return;
     erpAIStart();
   });
   const caq = document.getElementById("co-add-quick");
