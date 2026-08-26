@@ -1331,10 +1331,43 @@ async function erpStockCredit(pid, qty, note, ref) {
   } catch (e) { console.error("stock credit", e); }
 }
 
+// Дялове на заявките от бройките [from, to) на споделена серия — по реда на
+// заявките в source.orders (кумулативно по количествата им). Бройки над общото
+// поръчано (свръхпроизводство) не се падат на никого — остават свободни.
+function erpFlowOrderShares(src, from, to) {
+  const out = [];
+  let off = 0;
+  ((src && src.orders) || []).forEach(o => {
+    const q = Number(o && o.qty) || 0;
+    if (!(q > 0)) return;
+    const a = Math.max(from, off), b = Math.min(to, off + q);
+    if (b > a) out.push({ sid: String(o.id), qty: b - a });
+    off += q;
+  });
+  return out;
+}
+
+// Добавя (sign +1) или маха (sign −1) резервирани бройки в кръстосаното нетване
+// (app_config → flow_netting). Чете СВЕЖО и пипа само подадените заявки — да не
+// затрие резервация, записана междувременно от пускане на друга заявка.
+async function erpNettingBump(shares, pid, sign) {
+  if (!shares || !shares.length || !pid) return;
+  const key = String(pid);
+  const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+  const byOrder = (data && data.data && data.data.byOrder) || {};
+  shares.forEach(s => {
+    const m = byOrder[s.sid] || (byOrder[s.sid] = {});
+    const v = (Number(m[key]) || 0) + sign * s.qty;
+    if (v > 0) m[key] = v; else delete m[key];
+    if (!Object.keys(m).length) delete byOrder[s.sid];
+  });
+  await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() });
+}
+
 // След отчитане на ПОСЛЕДНАТА операция на детайл/възел — вкарва ВСИЧКОТО
-// произведено в Склад детайли (не се заключва към заявка). Изписва се после при
-// сглобяване на родителя (erpFlowConsume) или при Продажба. Идемпотентно чрез
-// source.stocked (заприходяваме само новата разлика).
+// произведено в Склад детайли. Изписва се после при сглобяване на родителя
+// (erpFlowConsume) или при Продажба. Идемпотентно чрез source.stocked
+// (заприходяваме само новата разлика).
 async function erpFlowStockIn(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.last || !src.pid) return;
@@ -1344,6 +1377,15 @@ async function erpFlowStockIn(t) {
   const delta = produced - stocked;
   if (delta <= 0) return;
   await erpStockCredit(src.pid, delta, "Производство · " + (t.code || t.product || ""), "prod:" + t.id);
+  // Готовото изделие на ЗАЯВКА стои на рафта ПАЗЕНО за нея до продажбата —
+  // дозаключваме заприходеното към резервацията ѝ (кръстосано нетване). Иначе
+  // следваща заявка го вижда „свободно" в Склад детайли и го нетва повторно,
+  // а при продажбата на първата складът излиза на минус. „Производство за
+  // склад" (src.stock) нарочно трупа свободна наличност — него не го пазим.
+  if (src.toStock && !src.stock) {
+    try { await erpNettingBump(erpFlowOrderShares(src, stocked, produced), src.pid, +1); }
+    catch (e) { console.error("stock-in netting", e); }   // изравнява се при повторно пускане на заявката
+  }
   src.stocked = produced;
   if (typeof tSaveTask === "function") await tSaveTask(t);
 }
@@ -1413,6 +1455,11 @@ async function erpFlowRollback(t) {
           product_id: Number(src.pid), kind: "изписване", quantity: -back,
           ref: "prodfix:" + t.id, note: "Корекция на отчет · " + (t.code || t.product || ""),
         });
+        // Смъкваме и резервацията на заявките за върнатите бройки — симетрично
+        // на дозаключването при заприходяване (erpFlowStockIn).
+        if (src.toStock && !src.stock && typeof erpNettingBump === "function") {
+          try { await erpNettingBump(erpFlowOrderShares(src, produced, produced + back), src.pid, -1); } catch (e) {}
+        }
         src.stocked = produced; out.stock = back;
       } catch (e) { console.error("rollback stock", e); }
     }

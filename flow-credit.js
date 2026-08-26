@@ -200,6 +200,36 @@
       : `Поточно производство: детайлите за тази стъпка още не са готови в предната операция.${detail ? "\n\nЧака да се завършат:\n" + detail : ""}\n\nИзчакай съответния цех.` };
   }
 
+  // Дялове на заявките от бройките [from, to) на споделена серия — порт на
+  // erpFlowOrderShares от erp-orders.js (за дозаключването по-долу).
+  function orderShares(src, from, to) {
+    const out = [];
+    let off = 0;
+    ((src && src.orders) || []).forEach(o => {
+      const q = n(o && o.qty);
+      if (!(q > 0)) return;
+      const a = Math.max(from, off), b = Math.min(to, off + q);
+      if (b > a) out.push({ sid: String(o.id), qty: b - a });
+      off += q;
+    });
+    return out;
+  }
+  // Добавя резервирани бройки в кръстосаното нетване (app_config →
+  // flow_netting) — порт на erpNettingBump. Чете свежо и пипа само своите заявки.
+  async function nettingBump(c, shares, pid, sign) {
+    if (!shares || !shares.length || !pid) return;
+    const key = String(pid);
+    const { data } = await c.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+    const byOrder = (data && data.data && data.data.byOrder) || {};
+    shares.forEach(s => {
+      const m = byOrder[s.sid] || (byOrder[s.sid] = {});
+      const v = n(m[key]) + sign * s.qty;
+      if (v > 0) m[key] = v; else delete m[key];
+      if (!Object.keys(m).length) delete byOrder[s.sid];
+    });
+    await c.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() });
+  }
+
   // Складовите движения по една задача. t = данните СЛЕД вдигането на produced
   // (същият обект, който току-що е записан). Мутира t.source (stocked /
   // consumedUnits / matConsumed) и презаписва задачата само ако има промяна.
@@ -217,7 +247,16 @@
       const delta = produced - n(src.stocked);
       if (delta > 0) {
         const { error } = await c.from("product_movements").insert({ product_id: Number(src.pid), kind: "заприходяване", quantity: delta, ref: "prod:" + rowId, note: "Производство · " + name });
-        if (!error) { src.stocked = produced; changed = true; }
+        if (!error) {
+          // Готовото изделие на ЗАЯВКА се дозаключва към резервацията ѝ
+          // (кръстосано нетване) — както erpFlowStockIn в главното табло.
+          // „Производство за склад" (src.stock) не се пази — то е свободно.
+          if (src.toStock && !src.stock) {
+            try { await nettingBump(c, orderShares(src, n(src.stocked), produced), src.pid, +1); }
+            catch (e) { console.warn("stock-in netting", e); }   // изравнява се при повторно пускане
+          }
+          src.stocked = produced; changed = true;
+        }
       }
     }
     // 2) Сглобяваща операция → изписва вложените части от Склад детайли.
