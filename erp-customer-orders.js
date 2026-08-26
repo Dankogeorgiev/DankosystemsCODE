@@ -721,7 +721,7 @@ async function erpRenderCOForm(o) {
         <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num sell-cell">Прод. цена (€)</th><th class="num sell-cell">Сума</th><th></th></tr></thead>
         <tbody>${erpCOLinesHtml(o)}</tbody>
       </table>
-      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn btn-small btn-primary" id="co-add-quick" title="Нестандартно изделие по клиентски код — създава се с мини-рецепта и веднага влиза като ред в заявката">⚡ + Ново бързо изделие</button>' : ""}<span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
+      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn btn-small btn-primary" id="co-add-quick" title="Нестандартно изделие по клиентски код — създава се с мини-рецепта и веднага влиза като ред в заявката">⚡ + Ново бързо изделие</button>' : ""}${(!o.id && typeof erpAIStart === "function") ? '<button class="btn btn-small" id="co-ai-read" title="Качи файла на клиента (PDF/снимка/Excel) — Claude чете редовете, ти ги потвърждаваш и заявката се създава. Несъществуващите кодове се създават с „⚡ Ново".">🤖 Разчети заявка (AI)</button>' : ""}<span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
 
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
@@ -804,6 +804,12 @@ async function erpRenderCOForm(o) {
     if (rm) { e.preventDefault(); erpCORemoveFile(o, Number(rm.dataset.cofrm)); }
   });
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
+  const cai = document.getElementById("co-ai-read");
+  if (cai) cai.addEventListener("click", () => {
+    if ((o.lines || []).length && !confirm("Разчитането създава ОТДЕЛНА нова заявка от файла на клиента.
+Въведените дотук редове в тази форма няма да се запазят. Продължавам ли?")) return;
+    erpAIStart();
+  });
   const caq = document.getElementById("co-add-quick");
   if (caq) caq.addEventListener("click", () => erpQuickWizard({
     preset: { client: o.clientName || "", clientId: o.clientId || null },
