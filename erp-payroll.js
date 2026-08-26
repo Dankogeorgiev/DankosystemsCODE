@@ -204,6 +204,7 @@ async function erpPayFridaysView(v) {
       ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
+      <button class="btn btn-small" id="pf-xls" title="Сваля таблицата за месеца в Excel: ПО БАНКА, От банка и общо CODE 005 за всеки служител">⤓ Excel (месеца)</button>
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="pf-save-all">💾 ЗАПАЗИ</button>
       <span class="erp-muted" id="pf-save-status" style="margin-left:8px"></span>
@@ -236,7 +237,7 @@ async function erpPayFridaysView(v) {
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> е ориентир (чистата сума за месеца) — ако „От банка" я надвиши, се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> е ориентир (чистата сума за месеца) — ако „От банка" я надвиши, се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля два листа: по служител (ПО БАНКА, От банка, <b>общо CODE 005</b>, извънредни, различни, ОБЩО + сбор по цехове и за месеца) и разбивка по петъци (банка / 005). Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
 
   v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
   const pfFind = v.querySelector("#pay-find"); if (pfFind) pfFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
@@ -299,6 +300,72 @@ async function erpPayFridaysView(v) {
   }));
   recomputeFooter();
   payApplyFilter(v);
+
+  /* ⤓ Excel за месеца — чете живите стойности от таблицата (значи хваща и това,
+     което току-що е въведено, преди да е записано). Два листа-секции:
+     1) по служител — ПО БАНКА, От банка, общо CODE 005, извънредни, различни, ОБЩО
+     2) разбивка по петъци (банка / 005) за всеки служител. */
+  v.querySelector("#pf-xls").addEventListener("click", () => {
+    const n2 = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const txt = (cls, esc) => { const el = v.querySelector(`.${cls}[data-name="${esc}"]`); return el ? String(el.value || "").trim() : ""; };
+    const numOf = (cls, esc) => { const el = v.querySelector(`.${cls}[data-name="${esc}"]`); return el ? Number(el.value) || 0 : 0; };
+
+    // Събиране на данните по служител (в реда на таблицата: по цехове).
+    const list = [];
+    order.forEach(ws => byWs[ws].forEach(e => {
+      const esc = CSS.escape(e.name);
+      if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
+      let b = 0, c = 0, o = 0; const per = {};
+      fridays.forEach(f => {
+        const fb = friVal("pf-frib", esc, f.iso), fc = friVal("pf-fric", esc, f.iso), fo = friVal("pf-frio", esc, f.iso);
+        per[f.iso] = { b: fb, c: fc, o: fo }; b += fb; c += fc; o += fo;
+      });
+      const rz = numOf("pf-rzsum", esc);
+      list.push({
+        name: e.name, ws,
+        dnevno: numOf("pf-dnevno", esc), sedm: numOf("pf-sedm", esc),
+        net: numOf("pf-net", esc), bank: b, code: c, over: o,
+        rz, rzNote: txt("pf-rznote", esc), per,
+        total: b + c + o + rz
+      });
+    }));
+
+    const H1 = [{ label: "Цех" }, { label: "Служител" }, { label: "ДНЕВНО", num: true }, { label: "СЕДМИЧНО", num: true },
+      { label: "ПО БАНКА", num: true }, { label: "От банка", num: true }, { label: "CODE 005", num: true },
+      { label: "Извънредни", num: true }, { label: "РАЗЛИЧНИ", num: true }, { label: "Бележка" }, { label: "ОБЩО", num: true }];
+    const rows1 = []; const G = { net: 0, bank: 0, code: 0, over: 0, rz: 0, total: 0 };
+    order.forEach(ws => {
+      const grp = list.filter(r => r.ws === ws);
+      if (!grp.length) return;
+      const S = { net: 0, bank: 0, code: 0, over: 0, rz: 0, total: 0 };
+      grp.forEach(r => {
+        ["net", "bank", "code", "over", "rz", "total"].forEach(k => { S[k] += r[k]; G[k] += r[k]; });
+        rows1.push([r.ws, r.name, n2(r.dnevno), n2(r.sedm), n2(r.net), n2(r.bank), n2(r.code), n2(r.over), n2(r.rz), r.rzNote, n2(r.total)]);
+      });
+      rows1.push([ws, "ОБЩО за цеха", "", "", n2(S.net), n2(S.bank), n2(S.code), n2(S.over), n2(S.rz), "", n2(S.total)]);
+    });
+    if (rows1.length) rows1.push(["", "ОБЩО ЗА МЕСЕЦА", "", "", n2(G.net), n2(G.bank), n2(G.code), n2(G.over), n2(G.rz), "", n2(G.total)]);
+
+    const H2 = [{ label: "Цех" }, { label: "Служител" },
+      ...fridays.flatMap(f => [{ label: f.label + " банка", num: true }, { label: f.label + " 005", num: true }]),
+      { label: "Общо банка", num: true }, { label: "Общо CODE 005", num: true }];
+    const rows2 = list.map(r => [r.ws, r.name,
+      ...fridays.flatMap(f => [n2(r.per[f.iso].b), n2(r.per[f.iso].c)]),
+      n2(r.bank), n2(r.code)]);
+    if (rows2.length) {
+      const tf = fridays.flatMap(f => {
+        let b = 0, c = 0; list.forEach(r => { b += r.per[f.iso].b; c += r.per[f.iso].c; });
+        return [n2(b), n2(c)];
+      });
+      rows2.push(["", "ОБЩО ЗА МЕСЕЦА", ...tf, n2(G.bank), n2(G.code)]);
+    }
+
+    const per = `${PAY_MONTHS[M - 1]} ${Y}`;
+    reportExportXls(`zaplati-petuci-${erpPayMonth}`, `Заплати по петъци · ${per}`, [
+      { title: `По служител · ${per} (сумите са в евро)`, headers: H1, rows: rows1 },
+      { title: `Разбивка по петъци · ${per}`, headers: H2, rows: rows2 }
+    ]);
+  });
 
   const num = x => Number(String(x).replace(",", ".")) || 0;
   const flash = (btn, ok) => {
