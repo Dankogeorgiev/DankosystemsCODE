@@ -83,9 +83,10 @@ async function erpQuickHome() {
     </tr>`).join("");
 
   v.innerHTML = `
-    <div class="erp-toolbar">
+    <div style="background:#f59e0b;color:#1f2937;font-weight:700;padding:8px 14px;border-radius:8px;margin:0 0 8px">📦 НЕСТАНДАРТНИ ПОРЪЧКИ — каталог на бързите изделия <span style="font-weight:400;font-size:12px">по клиентски код · тук НЕ се пускат поръчки, само се преглеждат изделията</span></div>
+    <div class="erp-toolbar" style="border-left:4px solid #f59e0b;padding-left:8px">
       <button class="btn btn-small" id="q-back">← Назад към заявките</button>
-      <span class="erp-count">📦 Нестандартни поръчки · ${items.length} ${items.length === 1 ? "изделие" : "изделия"}</span>
+      <span class="erp-count">${items.length} ${items.length === 1 ? "изделие" : "изделия"}</span>
       <input type="search" id="q-find" placeholder="🔎 код / име / клиент…" value="${escapeAttr(quickHomeQ)}" style="min-width:200px" />
       <span class="spacer"></span>
       ${quickAllowed() ? `<button class="btn btn-small btn-primary" id="q-new">⚡ Ново бързо изделие</button>` : ""}
@@ -176,7 +177,8 @@ async function erpQuickWizard(opts) {
   const codeTrim = s => String(s || "").trim();
 
   const { wrap, close } = erpDialog(`
-    <h3>${editing ? "✎ Бързо изделие" : "⚡ Ново бързо изделие"}</h3>
+    <div style="background:#f59e0b;color:#1f2937;font-weight:700;padding:6px 12px;border-radius:8px;margin:0 0 8px;font-size:13px">📦 НЕСТАНДАРТНО ИЗДЕЛИЕ по клиентски код</div>
+    <h3 style="margin-top:0">${editing ? "✎ Бързо изделие" : "⚡ Ново бързо изделие"}</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <label>Клиент <input type="text" id="qw-client" list="qw-clients" value="${escapeAttr(st.client)}" placeholder="име на клиента" />
         <datalist id="qw-clients">${clients.map(c => `<option value="${escapeAttr(c.company)}"></option>`).join("")}</datalist></label>

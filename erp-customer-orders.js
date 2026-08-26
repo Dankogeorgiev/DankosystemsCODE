@@ -258,7 +258,7 @@ let erpCOOpenClients = new Set();
 function erpCORowHtml(o) {
   return `
           <tr class="erp-clickable" data-id="${o.id}">
-            <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
+            <td data-label="Наш №">${erpCOIsNonstd(o) ? '<span title="Нестандартна поръчка — изделия по клиентски код" style="color:#f59e0b">📦</span> ' : ""}<b>${escapeHtml(o.ourNo || "—")}</b></td>
             <td data-label="Клиентски №">${escapeHtml(o.clientNo || "—")}</td>
             <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
             <td data-label="Дата">${erpDMY(o.date)}</td>
@@ -415,6 +415,7 @@ async function erpCORemoveFile(o, i) {
 async function erpRenderCustomerOrders() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  try { if (typeof quickLoad === "function") await quickLoad(); } catch (e) {}   // за значките 📦
   try { await erpLoadCustomerOrders(); }
   catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя заявките</h3><p>${escapeHtml(e.message || String(e))}</p>` +
@@ -570,7 +571,7 @@ async function erpRenderCustomerOrders() {
   const fClient = document.getElementById("erp-co-fclient");
   if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpCORefreshTable(); });
   const quickBtn = document.getElementById("erp-co-quick");
-  if (quickBtn) quickBtn.addEventListener("click", erpNewCO);   // същата форма като „+ Нова заявка"
+  if (quickBtn) quickBtn.addEventListener("click", () => erpNewCO(true));   // същата форма, белязана като нестандартна
   const quickCatBtn = document.getElementById("erp-co-quick-cat");
   if (quickCatBtn) quickCatBtn.addEventListener("click", () => erpQuickHome());
   const clearF = document.getElementById("erp-co-clearf");
@@ -663,9 +664,18 @@ async function erpRenderArchive() {
   fill();
 }
 
-function erpNewCO() {
+function erpNewCO(nonstd) {
   const today = new Date().toISOString().slice(0, 10);
-  erpRenderCOForm({ ourNo: erpNextOrderNo(), clientNo: "", clientName: "", clientId: null, date: today, deadline: "", note: "", status: "нова", lines: [] });
+  erpRenderCOForm({ ourNo: erpNextOrderNo(), clientNo: "", clientName: "", clientId: null, date: today, deadline: "", note: "", status: "нова", lines: [], nonstd: nonstd === true });
+}
+// Нестандартна поръчка: белязана при създаването или с поне едно бързо изделие.
+function erpCOIsNonstd(o) {
+  if (o && o.nonstd) return true;
+  return !!(o && (o.lines || []).some(l => l.productId && typeof erpQuickIs === "function" && erpQuickIs(l.productId)));
+}
+// Оранжевата лента, която прави нестандартните безпогрешно различими.
+function erpCONonstdBanner(extra) {
+  return `<div style="background:#f59e0b;color:#1f2937;font-weight:700;padding:8px 14px;border-radius:8px;margin:0 0 8px;display:flex;align-items:center;gap:10px">📦 НЕСТАНДАРТНА ПОРЪЧКА <span style="font-weight:400;font-size:12px">изделия по клиентски код (бързи изделия)</span>${extra || ""}</div>`;
 }
 function erpOpenCO(id) {
   const o = (erpCOList || []).find(x => x.id === id);
@@ -678,8 +688,11 @@ async function erpRenderCOForm(o) {
   const clients = await erpLoadClients();
   if (!o.posted && (o.clientId || o.clientName)) erpCOFillPrices(o);   // авто-цени при отваряне
   const canDelete = (typeof isOwnerAdmin === "function") && isOwnerAdmin() && o.id;
+  try { if (typeof quickLoad === "function") await quickLoad(); } catch (e) {}   // за знака „нестандартна"
+  const nonstd = erpCOIsNonstd(o);
   v.innerHTML = `
-    <div class="erp-toolbar">
+    ${nonstd ? erpCONonstdBanner() : ""}
+    <div class="erp-toolbar"${nonstd ? ' style="border-left:4px solid #f59e0b;padding-left:8px"' : ""}>
       <button class="btn btn-small" id="co-back">← Назад към заявките</button>
       <span class="spacer"></span>
       <button class="btn btn-small" id="co-print">🖨 Печат</button>
