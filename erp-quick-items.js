@@ -70,7 +70,8 @@ async function erpQuickHome() {
     <tr data-qpid="${x.pid}" class="erp-clickable">
       <td data-label="Клиент">${escapeHtml(x.e.client || "")}</td>
       <td data-label="Код"><b>${escapeHtml(x.p.code || "")}</b></td>
-      <td data-label="Име">${escapeHtml(x.p.name || "")}${(x.e.files || []).length ? ` <a href="${escapeAttr(x.e.files[0].url)}" target="_blank" rel="noopener" title="Чертеж" onclick="event.stopPropagation()">📄</a>` : ""}</td>
+      <td data-label="Име">${escapeHtml(x.p.name || "")}</td>
+      <td data-label="Чертеж">${(x.e.files || []).map(f => `<a href="${escapeAttr(f.url)}" target="_blank" rel="noopener" title="${escapeAttr(f.name)}" onclick="event.stopPropagation()">📄</a>`).join(" ") || "—"}</td>
       <td data-label="Маршрут" class="erp-muted">${escapeHtml(routeOf(x.pid) || "—")}</td>
       <td data-label="Материал" class="erp-muted">${escapeHtml(matsOf(x.pid) || "—")}</td>
       <td class="num" data-label="Цена">${x.e.price ? erpEur(x.e.price) : "—"}</td>
@@ -93,8 +94,8 @@ async function erpQuickHome() {
     </div>
     <p class="hint" style="margin:4px 0 8px">Изделия по <b>клиентски код</b> с мини-рецепта (маршрут по цехове + материал от склада). Добавят се в заявка от прозореца на заявката („+ Продукт" → „⚡ Ново бързо изделие") или оттук се преглеждат. Скрити са от общия каталог Продукти (има превключвател там). Повтори ли клиентът номера — изделието е готово, пускането е две цъквания.</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Клиент</th><th>Код (клиентски)</th><th>Име</th><th>Маршрут</th><th>Материал/1 бр.</th><th class="num">Цена</th><th class="num">В склада</th><th></th></tr></thead>
-      <tbody id="q-tbody">${rowsHtml(items) || `<tr><td colspan="8" class="report-empty">Още няма бързи изделия. ${quickAllowed() ? "Създай първото с бутона горе." : ""}</td></tr>`}</tbody>
+      <thead><tr><th>Клиент</th><th>Код (клиентски)</th><th>Име</th><th>Чертеж</th><th>Маршрут</th><th>Материал/1 бр.</th><th class="num">Цена</th><th class="num">В склада</th><th></th></tr></thead>
+      <tbody id="q-tbody">${rowsHtml(items) || `<tr><td colspan="9" class="report-empty">Още няма бързи изделия. ${quickAllowed() ? "Създай първото с бутона горе." : ""}</td></tr>`}</tbody>
     </table>`;
 
   const wire = () => {
@@ -115,7 +116,7 @@ async function erpQuickHome() {
       return toks.every(t => hay.includes(t));
     });
     const tb = v.querySelector("#q-tbody");
-    tb.innerHTML = rowsHtml(list) || `<tr><td colspan="8" class="report-empty">Няма съвпадения.</td></tr>`;
+    tb.innerHTML = rowsHtml(list) || `<tr><td colspan="9" class="report-empty">Няма съвпадения.</td></tr>`;
     wire();
   }, 200));
 }
