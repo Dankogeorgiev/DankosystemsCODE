@@ -1532,10 +1532,6 @@ async function tLoadQuickDrawings() {
     });
   } catch (e) { QUICK_DRAW = {}; }
 }
-function taskDrawingLink(t) {
-  const u = QUICK_DRAW && QUICK_DRAW[String(t.code || "").trim()];
-  return u ? ` <a href="${escapeAttr(u)}" target="_blank" rel="noopener" title="Чертеж на изделието" onclick="event.stopPropagation()">📄</a>` : "";
-}
 
 let TASKS_ARCHIVE = false;   // 🗄 изглед „Архив производство" (само изпълнените)
 function renderTasks() {
@@ -1757,7 +1753,7 @@ function renderTasks() {
           : "";
         return `<div class="t-orderno" title="Номер на поръчката / пореден номер на операцията в потока">📋 № ${escapeHtml(label)}</div>${bd}`;
       })()}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}${taskDrawingLink(t)}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${stockedHtml}${matHtml}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${stockedHtml}${matHtml}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
@@ -2143,11 +2139,14 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 /* ---------- Чертежи към задача ---------- */
 function taskFilesCell(t) {
   const files = t.files || [];
-  const links = files.map((f, i) => {
+  let links = files.map((f, i) => {
     const x = amWorker() ? "" : `<button class="tf-x" data-i="${i}" title="Премахни">×</button>`;
     return `<span class="tf"><a href="${f.url}" target="_blank" title="${escapeAttr(f.name)}">📎</a>${x}</span>`;
   }).join("");
-  const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${files.length ? "+" : "Прикачи"}</button>`;
+  // Чертежът на бързото изделие (Нестандартни поръчки) — идва с изделието по код.
+  const qd = QUICK_DRAW && QUICK_DRAW[String(t.code || "").trim()];
+  if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" title="Чертеж на изделието (от Нестандартни поръчки)">📄</a></span>`;
+  const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${(files.length || qd) ? "+" : "Прикачи"}</button>`;
   return (links || (amWorker() ? "—" : "")) + add;
 }
 async function handleTaskFiles(t, files) {
