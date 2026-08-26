@@ -165,6 +165,10 @@ async function erpQuickWizard(opts) {
       if (l.operation_id) st.ops.push(l.operation_id);
       else if (l.material_id) st.mats.push({ materialId: l.material_id, qty: Number(l.quantity) || 1 });
     });
+  } else {
+    // Верижно създаване: следващото изделие тръгва с маршрута/материалите на предишното.
+    if (Array.isArray(preset.ops)) st.ops = preset.ops.filter(id => ERP.opById[id]);
+    if (Array.isArray(preset.mats)) st.mats = preset.mats.filter(r => ERP.matById[r.materialId]).map(r => ({ materialId: r.materialId, qty: r.qty }));
   }
 
   const opsSorted = ERP.operations.slice().sort((a, b) => bgCmp(a.name, b.name));
@@ -211,6 +215,7 @@ async function erpQuickWizard(opts) {
     <p class="save-status" id="qw-status"></p>
     <div class="erp-dialog-actions">
       <button class="btn" id="qw-cancel">Отказ</button>
+      ${!editing ? '<button class="btn" id="qw-save-next" title="Записва това изделие и веднага отваря прозореца за СЛЕДВАЩОТО — клиентът, маршрутът и материалите остават попълнени (за поредица подобни изделия)">⚡ Създай + следващо</button>' : ""}
       <button class="btn btn-primary" id="qw-save">${editing ? "💾 Запази промените" : "⚡ Създай изделието"}</button>
     </div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
@@ -313,7 +318,7 @@ async function erpQuickWizard(opts) {
   $("#qw-cancel").addEventListener("click", close);
 
   // --- запис ---
-  $("#qw-save").addEventListener("click", async () => {
+  const doSave = async goNext => {
     const status = $("#qw-status");
     st.client = $("#qw-client").value.trim();
     st.code = codeTrim($("#qw-code").value);
@@ -395,10 +400,20 @@ async function erpQuickWizard(opts) {
       const p = ERP.prodById[pid];
       close();
       if (opts.onDone) opts.onDone(p);
+      if (goNext) {
+        // Веднага следващото от поредицата — клиент, маршрут и материали остават.
+        erpQuickWizard({
+          onDone: opts.onDone,
+          preset: { client: st.client, clientId: st.clientId, ops: st.ops.slice(), mats: st.mats.map(r => ({ ...r })) },
+        });
+      }
     } catch (e) {
       btn.disabled = false;
       status.textContent = "⚠ " + (/duplicate|unique/i.test(e.message || "") ? "Вече има продукт с този код." : (e.message || e));
     }
-  });
+  };
+  $("#qw-save").addEventListener("click", () => doSave(false));
+  const snBtn = $("#qw-save-next");
+  if (snBtn) snBtn.addEventListener("click", () => doSave(true));
   setTimeout(() => $(st.client ? "#qw-code" : "#qw-client").focus(), 50);
 }

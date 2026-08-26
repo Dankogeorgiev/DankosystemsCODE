@@ -544,7 +544,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
-      ${typeof erpQuickHome === "function" ? '<button class="btn btn-small" id="erp-co-quick" title="Бързи изделия по клиентски код — мини-рецепта за 30 секунди, без обикаляне из Продукти/Рецепти">📦 Нестандартни поръчки</button>' : ""}
+      ${typeof erpQuickHome === "function" ? '<button class="btn btn-small" id="erp-co-quick-cat" title="Каталог на бързите изделия по клиентски код — преглед, редакция, чертежи, шаблони">📦</button><button class="btn btn-small" id="erp-co-quick" title="Нова заявка с нестандартни изделия по клиентски код — добавяш ги с „⚡ Ново бързо изделие" направо във формата">+ Нестандартни поръчки</button>' : ""}
       ${typeof erpAIStart === "function" ? '<button class="btn btn-small" id="erp-co-ai" title="Качи сканирана заявка (PDF/снимка) — Claude я разчита, ти потвърждаваш">🤖 Разчети заявка (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
@@ -570,7 +570,9 @@ async function erpRenderCustomerOrders() {
   const fClient = document.getElementById("erp-co-fclient");
   if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpCORefreshTable(); });
   const quickBtn = document.getElementById("erp-co-quick");
-  if (quickBtn) quickBtn.addEventListener("click", () => erpQuickHome());
+  if (quickBtn) quickBtn.addEventListener("click", erpNewCO);   // същата форма като „+ Нова заявка"
+  const quickCatBtn = document.getElementById("erp-co-quick-cat");
+  if (quickCatBtn) quickCatBtn.addEventListener("click", () => erpQuickHome());
   const clearF = document.getElementById("erp-co-clearf");
   if (clearF) clearF.addEventListener("click", () => { erpCOStatusFilter = ""; erpCOClientFilter = ""; erpCORefreshTable(); });
   const hideDoneEl = document.getElementById("erp-co-hidedone");
@@ -719,7 +721,7 @@ async function erpRenderCOForm(o) {
         <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num sell-cell">Прод. цена (€)</th><th class="num sell-cell">Сума</th><th></th></tr></thead>
         <tbody>${erpCOLinesHtml(o)}</tbody>
       </table>
-      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button><span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
+      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn btn-small btn-primary" id="co-add-quick" title="Нестандартно изделие по клиентски код — създава се с мини-рецепта и веднага влиза като ред в заявката">⚡ + Ново бързо изделие</button>' : ""}<span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
 
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
@@ -802,6 +804,16 @@ async function erpRenderCOForm(o) {
     if (rm) { e.preventDefault(); erpCORemoveFile(o, Number(rm.dataset.cofrm)); }
   });
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
+  const caq = document.getElementById("co-add-quick");
+  if (caq) caq.addEventListener("click", () => erpQuickWizard({
+    preset: { client: o.clientName || "", clientId: o.clientId || null },
+    onDone: p => {
+      const en = (typeof erpQuickEntry === "function" && erpQuickEntry(p.id)) || {};
+      o.lines = o.lines || [];
+      o.lines.push({ productId: p.id, code: p.code, name: p.name, ourName: p.name, qty: 1, unitPrice: en.price || "" });
+      erpCORefreshLines(o);
+    },
+  }));
   document.getElementById("co-materials").addEventListener("click", () => erpCOMaterials(o));
   const coTest = document.getElementById("co-test");
   if (coTest) coTest.addEventListener("click", () => {

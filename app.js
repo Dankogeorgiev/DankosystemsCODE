@@ -1115,7 +1115,10 @@ function wireHandlers() {
   document.getElementById("btn-logout").addEventListener("click", () => sb.auth.signOut());
 
   document.getElementById("btn-new").addEventListener("click", () => openTypeMenu("sample"));
-  document.getElementById("btn-new-order").addEventListener("click", () => openTypeMenu("order"));
+  // „Нестандартни поръчки" вече живеят в ЕРП → Заявки от клиенти (бързите изделия);
+  // старият бутон е махнат, старите записи се виждат при филтър „Всички".
+  const oldOrderBtn = document.getElementById("btn-new-order");
+  if (oldOrderBtn) oldOrderBtn.addEventListener("click", () => openTypeMenu("order"));
   document.getElementById("btn-report-close").addEventListener("click", () => {
     document.getElementById("report").hidden = true; renderForm();
   });
