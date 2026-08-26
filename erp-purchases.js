@@ -60,11 +60,37 @@ async function erpSavePurchase(o) {
     o.id = ins.id;
   }
 }
+/* Доставчиците се кешират за 2 минути: формата се пре-рисува при всяка смяна
+   на плащане/вид/валута и без кеш всяко цъкане чакаше заявка към базата. */
+let puSuppCache = null, puSuppCacheAt = 0;
 async function erpLoadSuppliers() {
+  if (puSuppCache && Date.now() - puSuppCacheAt < 120000) return puSuppCache;
   try {
     const { data } = await erpSelectAll("partners", "id,name", "kind", "supplier");
-    return (data || []).map(r => ({ id: r.id, name: r.name })).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
-  } catch { return []; }
+    puSuppCache = (data || []).map(r => ({ id: r.id, name: r.name })).sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    puSuppCacheAt = Date.now();
+    return puSuppCache;
+  } catch { return puSuppCache || []; }
+}
+
+/* Търсене на материал, което не иска точния словоред и изписване:
+   нормализира (кирилско „х" ⇄ латинско „x" в размерите), реже заявката на
+   думи и иска ВСЯКА дума да се среща някъде в „код + име". Ако нито един
+   материал не покрива всички думи, показва най-близките по брой уцелени
+   думи — за да не опира човек в „Няма съвпадения" заради една дума. */
+function puMatNorm(s) { return String(s || "").toLowerCase().replace(/х/g, "x").replace(/[^a-zа-я0-9.,]+/gi, " ").replace(/\s+/g, " ").trim(); }
+function puMatFilter(list, q) {
+  const toks = puMatNorm(q).split(" ").filter(Boolean);
+  const byName = (a, b) => (a.name || "").localeCompare(b.name || "", "bg");
+  if (!toks.length) return (list || []).slice().sort(byName);
+  const scored = (list || []).map(m => {
+    const hay = puMatNorm((m.code || "") + " " + (m.name || ""));
+    let hit = 0; toks.forEach(t => { if (hay.includes(t)) hit++; });
+    return { m, hit };
+  });
+  const full = scored.filter(x => x.hit === toks.length).map(x => x.m).sort(byName);
+  if (full.length) return full;
+  return scored.filter(x => x.hit > 0).sort((a, b) => b.hit - a.hit || byName(a.m, b.m)).map(x => x.m);
 }
 
 /* ---------- Плащане / статуси ---------- */
@@ -282,7 +308,17 @@ async function erpRenderPurchaseForm(o) {
   const v = erpView();
   const suppliers = await erpLoadSuppliers();
   const locked = !!o.posted;   // заключва само редовете за склад (заприходените)
-  const articles = [...new Set((erpPurchases || []).flatMap(p => (p.lines || []).map(l => l.article)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  // Подсказки за „Артикул": само последно ползваните (списъкът е сортиран по
+  // updated_at) и до 300 — иначе с годините datalist-ът набъбва и бави писането.
+  const articles = []; const artSeen = new Set();
+  outer: for (const p of erpPurchases || []) {
+    for (const l of p.lines || []) {
+      const a = l.article; if (!a || artSeen.has(a)) continue;
+      artSeen.add(a); articles.push(a);
+      if (articles.length >= 300) break outer;
+    }
+  }
+  articles.sort((a, b) => a.localeCompare(b, "bg"));
   const hasType = !!o.expenseType;                 // видът разход определя редовете
   const matType = erpPuTypeIsMat(o.expenseType);
   const due = erpPuDueDate(o);
@@ -508,10 +544,7 @@ function erpPuAddMaterial(o) {
     <div class="erp-dialog-actions"><button class="btn" id="pu-pp-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#pu-pp-list");
   const render = q => {
-    q = (q || "").toLowerCase().trim();
-    let list = ERP.materials.slice();
-    if (q) list = list.filter(m => ((m.code || "") + " " + (m.name || "")).toLowerCase().includes(q));
-    list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    const list = puMatFilter(ERP.materials, q);
     listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">${escapeHtml(m.unit || "")}${m.avg_cost ? " · " + erpEur(m.avg_cost) : ""}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
       const m = ERP.matById[Number(b.dataset.id)];
@@ -797,8 +830,8 @@ function erpPuCodeHistory(preCode) {
     <div class="erp-dialog-actions"><button class="btn" id="puh-close">Затвори</button></div>`);
   const listEl = wrap.querySelector("#puh-list");
   const render = q => {
-    q = (q || "").toLowerCase().trim();
-    let r = rows.filter(x => !q || (`${x.code} ${x.article}`.toLowerCase().includes(q)));
+    const toks = puMatNorm(q).split(" ").filter(Boolean);
+    let r = rows.filter(x => { const hay = puMatNorm(`${x.code} ${x.article}`); return toks.every(t => hay.includes(t)); });
     r.sort((a, b) => a.code.localeCompare(b.code) || String(b.date).localeCompare(String(a.date)));
     listEl.innerHTML = r.length ? `<table class="report-table erp-table"><thead><tr><th>Код</th><th>Артикул</th><th>Дата</th><th>Доставчик</th><th class="num">Кол.</th><th class="num">Ед. цена</th><th>№</th></tr></thead>
       <tbody>${r.slice(0, 200).map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.article)}</td><td>${erpDMY(x.date)}</td><td>${escapeHtml(x.supplier)}</td><td class="num">${erpNum(x.qty)}</td><td class="num">${erpPuMoney(x.price, x.cur)}</td><td>${escapeHtml(x.inv)}</td></tr>`).join("")}</tbody></table>`

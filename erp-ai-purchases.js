@@ -44,10 +44,12 @@ async function erpMatLearnAliases(supId, supName, pairs) {
 function erpPuAIMatch(desc, ctx) {
   const al = erpMatAliasFind(ctx.supId, ctx.supName, desc);
   if (al && (al.materialId ? ERP.matById[al.materialId] : al.code)) return { ...al, confidence: "high", suggestions: [] };
-  const nn = aiNormName(desc);
+  // puMatNorm (от Покупки) изравнява кирилско „х" и латинско „x" в размерите —
+  // иначе „60x20x2" от фактурата не уцелваше нашето „60х20х2".
+  const nn = puMatNorm(desc);
   const toks = nn.split(" ").filter(t => t.length >= 3);
   const scored = (ERP.materials || []).map(m => {
-    let s = 0; const mn = aiNormName(m.name), mc = aiNormName(m.code);
+    let s = 0; const mn = puMatNorm(m.name), mc = puMatNorm(m.code);
     if (nn && mn && (mn === nn)) s += 8; else if (nn && mn && (mn.includes(nn) || nn.includes(mn))) s += 4;
     if (mc && nn.includes(mc)) s += 5;
     toks.forEach(t => { if (mn.includes(t)) s += 1; });
@@ -350,10 +352,7 @@ function erpPuAIPick(r) {
     <div class="erp-dialog-actions"><button class="btn" id="paip-clear">Само разход (без материал)</button><button class="btn" id="paip-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#paip-list");
   const render = q => {
-    q = (q || "").toLowerCase().trim();
-    let list = (ERP.materials || []).slice();
-    if (q) list = list.filter(m => ((m.code || "") + " " + (m.name || "")).toLowerCase().includes(q));
-    list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "bg"));
+    const list = puMatFilter(ERP.materials || [], q);   // по думи, без изискване за словоред
     listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">${escapeHtml(m.unit || "")}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => { const m = ERP.matById[Number(b.dataset.id)]; r.materialId = m.id; r.code = m.code; r.article = m.name; r.groupName = m.group_name || r.groupName; r.unit = m.unit || r.unit; r.confidence = "high"; r.userPicked = true; close(); erpPuAIRedrawRow(r); }));
   };
