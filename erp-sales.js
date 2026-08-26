@@ -430,7 +430,7 @@ async function erpSaClearImport() {
 async function erpUnpostSale(o) {
   if (typeof postAllowed === "function" && !postAllowed()) { alert("🔒 Отмяната на осчетоводяване е разрешена само за Данко и Григор."); return; }
   if (!o.posted) { alert("Продажбата не е осчетоводена."); return; }
-  if (!confirm(`Да отменя ли осчетоводяването на продажба №${o.saleNo || ""}?\n\nВсички движения от тази продажба ще се върнат (изписаните материали/детайли се възстановяват в склада), за да можеш да я осчетоводиш пак — напр. с Вид = готов детайл.`)) return;
+  if (!confirm(`Да отменя ли осчетоводяването на продажба №${o.saleNo || ""}?\n\nВсички движения от тази продажба ще се върнат (изписаните материали/детайли се възстановяват в склада)${o.fromOrderId ? ", а доставените бройки в заявката на клиента ще се смъкнат обратно (редовете пак ще са за доставка)" : ""} — за да можеш да я коригираш и осчетоводиш пак.`)) return;
   const ref = `Продажба ${o.saleNo || "—"} · ${o.clientName || ""}`.trim();
   const e1 = await sb.from("stock_movements").delete().eq("ref", ref);
   if (e1.error) { alert("Грешка при връщане на материалите: " + e1.error.message); return; }
@@ -439,9 +439,13 @@ async function erpUnpostSale(o) {
   o.posted = false; o.postedAt = null;
   try { await erpSaveSale(o); } catch (e) { alert("⚠ Движенията са върнати, но статусът не се записа: " + (e.message || e)); }
   if (typeof erpRecvRemoveForSales === "function") { try { await erpRecvRemoveForSales([o.id]); } catch (e) {} }
+  // Връщаме и доставеното по заявката на клиента (обратното на erpMarkOrderDone):
+  // иначе редовете ѝ стоят „доставени", а повторното осчетоводяване ги задвоява.
+  let orderNote = "";
+  if (o.fromOrderId) { try { orderNote = await erpUnmarkOrderDone(o.fromOrderId, o.lines); } catch (e) {} }
   try { await erpLoadAll(); } catch {}
   try { await erpLoadSales(); } catch {}
-  alert("Осчетоводяването е отменено и складът е възстановен.\n\nСега смени Вид на реда на „готов детайл“ и натисни Осчетоводи пак.");
+  alert("Осчетоводяването е отменено и складът е възстановен." + orderNote + "\n\nСега коригирай продажбата и натисни Осчетоводи пак — доставеното по заявката ще се отбележи наново.");
   erpRenderSaleForm(o);
 }
 
@@ -726,6 +730,17 @@ async function erpPostSale(o) {
 // доставените бройки по продукт (line.delivered); приключва („завършена") само
 // при ПЪЛНА доставка, иначе остава „в производство" с остатъка. Мостра/поръчка:
 // засега пълно приключване. Обратимо (статусът се сменя ръчно).
+// Намира реда на заявката, отговарящ на ред от продажбата: материалните редове
+// (покупни за препродажба) се търсят по materialId, продуктовите — по productId.
+// Иначе материалните изобщо не се отбелязват като доставени, а съвпадащи числа
+// между двата вида ID могат да пипнат чужд ред.
+function erpCOLineForSale(lines, sl) {
+  const pid = sl && sl.refId;
+  if (!pid) return null;
+  if (sl.itemKind === "material") return (lines || []).find(l => String(l.materialId) === String(pid)) || null;
+  return (lines || []).find(l => String(l.productId) === String(pid)) || null;
+}
+
 async function erpMarkOrderDone(orderId, saleLines) {
   if (!orderId) return "";
   try {
@@ -733,11 +748,11 @@ async function erpMarkOrderDone(orderId, saleLines) {
     if (co && co.data) {
       const d = co.data.data || {};
       const lines = d.lines || [];
-      // Добавяме доставеното по продукт (по refId на продажбата = productId на реда).
+      // Добавяме доставеното по ред (refId на продажбата → productId/materialId на реда).
       (saleLines || []).forEach(sl => {
-        const pid = sl && sl.refId; const q = erpToNum(sl && sl.qty) || 0;
-        if (!pid || q <= 0) return;
-        const line = lines.find(l => String(l.productId) === String(pid));
+        const q = erpToNum(sl && sl.qty) || 0;
+        if (q <= 0) return;
+        const line = erpCOLineForSale(lines, sl);
         if (line) line.delivered = (Number(line.delivered) || 0) + q;
       });
       const allDone = lines.length > 0 && lines.every(l => (Number(l.delivered) || 0) >= (erpToNum(l.qty) || 0) - 1e-9);
@@ -764,6 +779,52 @@ async function erpMarkOrderDone(orderId, saleLines) {
       await sb.from("samples").update({ data: d, completed: true, updated_at: new Date().toISOString() }).eq("id", orderId);
       if (typeof erpReleaseNetting === "function") { try { await erpReleaseNetting(orderId); } catch (e) {} }
       return `\n\n✅ Поръчката е отбелязана като завършена.`;
+    }
+  } catch (e) {}
+  return "";
+}
+
+// ОБРАТНОТО на erpMarkOrderDone — вика се при „Отмени осчетоводяване".
+// Смъква доставените от тази продажба бройки по редовете на заявката и я отваря
+// пак („в производство", маха приключването), така че артикулите да се появят
+// отново като недоставени, а повторното осчетоводяване да не ги задвои.
+// Резервацията от кръстосаното нетване не се възстановява (свита е необратимо
+// при доставката) — това е само по-предпазливо, не пречи на изчисленията.
+async function erpUnmarkOrderDone(orderId, saleLines) {
+  if (!orderId) return "";
+  try {
+    const co = await sb.from("customer_orders").select("id,data").eq("id", orderId).maybeSingle();
+    if (co && co.data) {
+      const d = co.data.data || {};
+      const lines = d.lines || [];
+      let touched = 0;
+      (saleLines || []).forEach(sl => {
+        const q = erpToNum(sl && sl.qty) || 0;
+        if (q <= 0) return;
+        const line = erpCOLineForSale(lines, sl);
+        if (line && (Number(line.delivered) || 0) > 0) {
+          const left = Math.max(0, (Number(line.delivered) || 0) - q);
+          if (left > 0) line.delivered = left; else delete line.delivered;
+          touched++;
+        }
+      });
+      if (!touched) return "";
+      const allDone = lines.length > 0 && lines.every(l => (Number(l.delivered) || 0) >= (erpToNum(l.qty) || 0) - 1e-9);
+      if (!allDone) {
+        if (d.status === "завършена") d.status = "в производство";
+        delete d.closedAt;
+      }
+      await sb.from("customer_orders").update({ data: d, updated_at: new Date().toISOString() }).eq("id", orderId);
+      if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) { it.status = d.status; it.lines = lines; } }
+      return `\n\n↩ Заявка №${d.ourNo || ""}: доставените с тази продажба бройки са върнати по редовете и заявката е отново отворена.`;
+    }
+  } catch (e) {}
+  try {
+    const sm = await sb.from("samples").select("id,data").eq("id", orderId).maybeSingle();
+    if (sm && sm.data) {
+      const d = sm.data.data || {}; delete d.completed;
+      await sb.from("samples").update({ data: d, completed: false, updated_at: new Date().toISOString() }).eq("id", orderId);
+      return `\n\n↩ Поръчката вече НЕ е отбелязана като завършена.`;
     }
   } catch (e) {}
   return "";
