@@ -190,9 +190,12 @@ function erpProdTimeCell(p) {
   return `<span title="${escapeAttr(tip)}">⏱ ${erpTimeFmt(t.per)}/бр</span>`;
 }
 
+let erpProdShowQuick = false;   // ⚡ клиентските (бързи) изделия — скрити по подразбиране
 function erpProdRows() {
   const q = erpProdSearch.trim().toLowerCase();
   let rows = ERP.products.slice();
+  if (!erpProdShowQuick && typeof erpQuickIs === "function" && typeof QUICK !== "undefined" && QUICK)
+    rows = rows.filter(p => !erpQuickIs(p.id));
   if (erpProdFilter === "top") rows = rows.filter(erpIsTopProduct);
   if (erpProdFilter === "article") rows = rows.filter(p => !p.is_semifinished);
   if (erpProdFilter === "semi") rows = rows.filter(p => p.is_semifinished);
@@ -254,6 +257,7 @@ function erpRenderProducts() {
         <option value="__none" ${erpProdClient === "__none" ? "selected" : ""}>— без собственик —</option>
         ${erpProdOwners().map(c => `<option value="${escapeAttr(c)}" ${erpProdClient === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
       </select>
+      <label class="erp-inline" title="Бързите изделия по клиентски код (от Нестандартни поръчки) са скрити, за да не пълнят каталога"><input type="checkbox" id="erp-prod-showquick" ${erpProdShowQuick ? "checked" : ""} /> ⚡ клиентски</label>
       <button class="btn btn-small" id="erp-prod-fillclients" title="Задай клиент-собственик автоматично от историята на заявките/продажбите (само където е поръчван от точно един клиент)">👥 Попълни клиентите</button>
       <button class="btn btn-small" id="erp-prod-whereused" title="Обратна справка: избери възел/детайл и виж в кои продукти се влага (директно и до кои крайни стига)">🔎 Къде се влага?</button>
       <button class="btn btn-small" id="erp-prod-times" title="Преизчислява средното време за производство на бройка от РЕАЛНИТЕ отчети (вечния дневник) — по операции и общо за кода">⏱ Обнови времената</button>
@@ -270,6 +274,9 @@ function erpRenderProducts() {
       <tbody id="erp-prod-tbody"></tbody>
     </table>`;
 
+  if (typeof quickLoad === "function" && !QUICK) quickLoad().then(() => erpProdFillRows()).catch(() => {});
+  const sqEl = document.getElementById("erp-prod-showquick");
+  if (sqEl) sqEl.addEventListener("change", e => { erpProdShowQuick = e.target.checked; erpProdFillRows(); });
   document.getElementById("erp-prod-search").addEventListener("input", e => {
     erpProdSearch = e.target.value; erpProdFillRows();
   });

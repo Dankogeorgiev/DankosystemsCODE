@@ -544,6 +544,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
+      ${typeof erpQuickHome === "function" ? '<button class="btn btn-small" id="erp-co-quick" title="Бързи изделия по клиентски код — мини-рецепта за 30 секунди, без обикаляне из Продукти/Рецепти">📦 Нестандартни поръчки</button>' : ""}
       ${typeof erpAIStart === "function" ? '<button class="btn btn-small" id="erp-co-ai" title="Качи сканирана заявка (PDF/снимка) — Claude я разчита, ти потвърждаваш">🤖 Разчети заявка (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
     </div>
@@ -568,6 +569,8 @@ async function erpRenderCustomerOrders() {
   if (fStatus) fStatus.addEventListener("change", e => { erpCOStatusFilter = e.target.value; erpCORefreshTable(); });
   const fClient = document.getElementById("erp-co-fclient");
   if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpCORefreshTable(); });
+  const quickBtn = document.getElementById("erp-co-quick");
+  if (quickBtn) quickBtn.addEventListener("click", () => erpQuickHome());
   const clearF = document.getElementById("erp-co-clearf");
   if (clearF) clearF.addEventListener("click", () => { erpCOStatusFilter = ""; erpCOClientFilter = ""; erpCORefreshTable(); });
   const hideDoneEl = document.getElementById("erp-co-hidedone");
@@ -1037,7 +1040,7 @@ function erpCOAddProduct(o) {
     <input type="search" id="co-pp-q" placeholder="търси код или име…" />
     <div id="co-pp-list" class="erp-lp-list"></div>
     <p class="hint" style="margin:6px 0 0">🧱 = покупен материал (препродажба): не влиза в производство, изписва се от склад Материали при продажбата. Цената я пишеш ти (продажната).</p>
-    <div class="erp-dialog-actions"><button class="btn" id="co-pp-cancel">Затвори</button></div>`);
+    <div class="erp-dialog-actions">${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn" id="co-pp-quick" title="Изделие по клиентски код с мини-рецепта — създава се тук и веднага влиза като ред в заявката">⚡ Ново бързо изделие</button>' : ""}<span class="spacer"></span><button class="btn" id="co-pp-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#co-pp-list");
   const render = q => {
     q = (q || "").toLowerCase().trim();
@@ -1072,6 +1075,19 @@ function erpCOAddProduct(o) {
   render("");
   wrap.querySelector("#co-pp-q").addEventListener("input", e => render(e.target.value));
   wrap.querySelector("#co-pp-cancel").addEventListener("click", close);
+  const qkBtn = wrap.querySelector("#co-pp-quick");
+  if (qkBtn) qkBtn.addEventListener("click", () => {
+    close();
+    erpQuickWizard({
+      preset: { client: o.clientName || "", clientId: o.clientId || null },
+      onDone: p => {
+        const en = (typeof erpQuickEntry === "function" && erpQuickEntry(p.id)) || {};
+        o.lines = o.lines || [];
+        o.lines.push({ productId: p.id, code: p.code, name: p.name, ourName: p.name, qty: 1, unitPrice: en.price || "" });
+        erpCORefreshLines(o);
+      },
+    });
+  });
 }
 
 // Изтрива заявката + всичките ѝ задачи по цеховете (само за собственика).

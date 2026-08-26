@@ -308,6 +308,7 @@ function erpAIRowHtml(r) {
       <div class="ai-row-map">
         <div class="ai-prod" id="ai-prod-${r.i}">${erpAIProdLabel(r.productId)}</div>
         <button type="button" class="btn btn-small ai-pick" data-i="${r.i}">🔎 Продукт</button>
+        ${(!r.productId && typeof quickAllowed === "function" && quickAllowed()) ? `<button type="button" class="btn btn-small ai-quicknew" data-i="${r.i}" title="Няма го в каталога — създай бързо изделие с мини-рецепта (кодът и името идват от документа)">⚡ Ново</button>` : ""}
       </div>
       ${sugg}
       <div class="ai-row-fields">
@@ -336,6 +337,18 @@ function erpAIWireRows() {
     const i = Number(el.dataset.i);
     AI_STATE.rows = AI_STATE.rows.filter(r => r.i !== i);
     const node = box.querySelector(`.ai-row[data-i="${i}"]`); if (node) node.remove();
+  }));
+  // „⚡ Ново" — редът го няма в каталога: създава бързо изделие (мини-рецепта)
+  // с кода/името от документа и веднага го свързва с реда.
+  box.querySelectorAll(".ai-quicknew").forEach(el => el.addEventListener("click", () => {
+    const r = rowOf(el); if (!r || typeof erpQuickWizard !== "function") return;
+    erpQuickWizard({
+      preset: {
+        client: AI_STATE.clientName || "", clientId: AI_STATE.clientId || null,
+        code: r.client_code || "", name: r.client_name || "", price: r.unit_price || "",
+      },
+      onDone: p => { r.productId = p.id; r.confidence = "high"; r.userPicked = true; erpAIRedrawRow(r); },
+    });
   }));
 }
 function erpAIRedrawRow(r) {
