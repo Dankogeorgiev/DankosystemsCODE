@@ -90,6 +90,8 @@ async function erpQuickHome() {
       <span class="erp-count">${items.length} ${items.length === 1 ? "изделие" : "изделия"}</span>
       <input type="search" id="q-find" placeholder="🔎 код / име / клиент…" value="${escapeAttr(quickHomeQ)}" style="min-width:200px" />
       <span class="spacer"></span>
+      <button class="btn btn-small" id="q-tpl" title="Сваля празна таблица за попълване: ред за всяко изделие (клиент, код, име, бройка, цена, маршрут, материали). Вторият лист изброява ВАЛИДНИТЕ имена на операции.">⤓ Шаблон (Excel)</button>
+      ${quickAllowed() ? `<label class="btn btn-small" title="Качи ПОПЪЛНЕНИЯ шаблон — Системата чете редовете, показва преглед и създава изделията с мини-рецептите + заявка с бройките">⬆ Качи попълнен шаблон<input type="file" id="q-imp" accept=".xlsx,.xls" hidden /></label>` : ""}
       ${quickAllowed() ? `<button class="btn btn-small btn-primary" id="q-new">⚡ Ново бързо изделие</button>` : ""}
     </div>
     <p class="hint" style="margin:4px 0 8px">Изделия по <b>клиентски код</b> с мини-рецепта (маршрут по цехове + материал от склада). Добавят се в заявка от прозореца на заявката („+ Продукт" → „⚡ Ново бързо изделие") или оттук се преглеждат. Скрити са от общия каталог Продукти (има превключвател там). Повтори ли клиентът номера — изделието е готово, пускането е две цъквания.</p>
@@ -108,6 +110,9 @@ async function erpQuickHome() {
   v.querySelector("#q-back").addEventListener("click", () => erpRenderCustomerOrders());
   const nb = v.querySelector("#q-new");
   if (nb) nb.addEventListener("click", () => erpQuickWizard({ onDone: erpQuickHome }));
+  v.querySelector("#q-tpl").addEventListener("click", erpQuickTemplateXls);
+  const impEl = v.querySelector("#q-imp");
+  if (impEl) impEl.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) erpQuickImportXls(f); });
   v.querySelector("#q-find").addEventListener("input", uiDebounce(e => {
     quickHomeQ = e.target.value;
     const toks = puMatNorm(quickHomeQ).split(" ").filter(Boolean);
@@ -133,6 +138,171 @@ async function erpQuickDelete(pid) {
     await erpLoadAll();
     erpQuickHome();
   } catch (e) { alert("Грешка: " + (e.message || e)); }
+}
+
+/* ---------- ⤓ Шаблон за попълване + ⬆ импорт на попълнения ----------
+   Ред за всяко изделие; маршрутът е операции по ИМЕ (валидните са в лист 2),
+   разделени с „+". Материалите са по НАШ код от склад Материали (до 2 на ред).
+   Форматът е наш и се чете директно — без AI, без налучкване. */
+function erpQuickTemplateXls() {
+  if (typeof XLSX === "undefined") { alert("Библиотеката за Excel още се зарежда — изчакай секунда и опитай пак."); return; }
+  const wb = XLSX.utils.book_new();
+  const head = ["Клиент", "Код (клиентски)", "Име / описание", "Бройка", "Цена EUR", "Маршрут (операции с +)", "Материал код", "Кол-во за 1 бр.", "Материал код 2", "Кол-во за 1 бр. 2"];
+  const exOps = (ERP.operations || []).slice(0, 2).map(o => o.name).join(" + ") || "Рязане лазер + Огъване";
+  const exMat = ((ERP.materials || [])[0] || {}).code || "100016";
+  const ws1 = XLSX.utils.aoa_to_sheet([
+    head,
+    ["ПРИМЕР (този ред не се чете)", "ABC-123", "Капак 3мм L=500", 10, 25, exOps, exMat, 7.5, "", ""],
+  ]);
+  ws1["!cols"] = [{ wch: 24 }, { wch: 18 }, { wch: 34 }, { wch: 8 }, { wch: 10 }, { wch: 44 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws1, "Изделия");
+  const ws2 = XLSX.utils.aoa_to_sheet([["Валидни операции (копирай ИМЕТО точно)", "Цех"],
+    ...((ERP.operations || []).slice().sort((a, b) => bgCmp(a.name, b.name)).map(o => [o.name || "", o.workshop || ""]))]);
+  ws2["!cols"] = [{ wch: 40 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Операции");
+  const ws3 = XLSX.utils.aoa_to_sheet([
+    ["Как се попълва"],
+    ["• Всеки ред от лист „Изделия“ е едно ново бързо изделие."],
+    ["• Клиент — еднакъв за всички редове на една поръчка (пише се на всеки ред)."],
+    ["• Код — клиентският номер, точно както е на чертежа/баркода."],
+    ["• Бройка — колко влизат в заявката. Цена EUR — по желание."],
+    ["• Маршрут — имена на операции от лист „Операции“, разделени с + (по ред на изпълнение)."],
+    ["• Материал код — НАШИЯТ код от склад Материали; Кол-во — за 1 брой изделие. По желание."],
+    ["• Редът ПРИМЕР не се чете. Не разменяй колоните и не трий заглавния ред."],
+    ["• После: Заявки от клиенти → 📦 → „⬆ Качи попълнен шаблон“."],
+  ]);
+  ws3["!cols"] = [{ wch: 95 }];
+  XLSX.utils.book_append_sheet(wb, ws3, "Помощ");
+  XLSX.writeFile(wb, "nestandartna-porachka-shablon.xlsx");
+}
+
+async function erpQuickImportXls(file) {
+  if (!quickAllowed()) { alert("Нямаш права за бързи изделия."); return; }
+  if (typeof XLSX === "undefined") { alert("Библиотеката за Excel още се зарежда — изчакай секунда и опитай пак."); return; }
+  try { await erpEnsureLoaded(); await quickLoad(); } catch (e) {}
+  const clients = (typeof erpLoadClients === "function") ? await erpLoadClients() : [];
+  let raw;
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const ws = wb.Sheets["Изделия"] || wb.Sheets[wb.SheetNames[0]];
+    raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  } catch (e) { alert("Не мога да прочета файла: " + (e.message || e)); return; }
+
+  // Съпоставяне на операция по име (без словоред/регистър).
+  const opByNorm = new Map();
+  (ERP.operations || []).forEach(o => opByNorm.set(puMatNorm(o.name), o));
+  const findOp = name => {
+    const n = puMatNorm(name);
+    if (!n) return null;
+    if (opByNorm.has(n)) return opByNorm.get(n);
+    for (const [k, o] of opByNorm) { if (k.includes(n) || n.includes(k)) return o; }
+    return null;
+  };
+  const matByCode = new Map();
+  (ERP.materials || []).forEach(m => { const c = String(m.code || "").trim(); if (c) matByCode.set(c, m); });
+
+  const rows = [];
+  for (let i = 1; i < raw.length; i++) {   // ред 0 = заглавия
+    const r = raw[i] || [];
+    const client = String(r[0] || "").trim();
+    const code = String(r[1] || "").trim();
+    if (!code || /^ПРИМЕР/i.test(client)) continue;
+    const row = {
+      client, code,
+      name: String(r[2] || "").trim(),
+      qty: erpToNum(r[3]) || 1,
+      price: erpToNum(r[4]) || "",
+      ops: [], mats: [], errs: [], exists: null,
+    };
+    String(r[5] || "").split(/[+;,→›>]/).map(x => x.trim()).filter(Boolean).forEach(nm => {
+      const o = findOp(nm);
+      if (o) row.ops.push(o.id); else row.errs.push(`непозната операция „${nm}“`);
+    });
+    [[6, 7], [8, 9]].forEach(([ci, qi]) => {
+      const mc = String(r[ci] || "").trim(); if (!mc) return;
+      const m = matByCode.get(mc);
+      if (!m) { row.errs.push(`непознат материал код „${mc}“`); return; }
+      const q = erpToNum(r[qi]) || 0;
+      if (q > 0) row.mats.push({ materialId: m.id, qty: q }); else row.errs.push(`материал ${mc} без количество`);
+    });
+    if (!row.client) row.errs.push("липсва клиент");
+    if (!row.name) row.errs.push("липсва име");
+    const ex = (ERP.products || []).find(p => String(p.code || "").trim() === code);
+    if (ex) {
+      const en = erpQuickEntry(ex.id);
+      if (en && String(en.client || "").trim().toLowerCase() === client.toLowerCase()) row.exists = ex;   // ще ползва готовото
+      else row.errs.push("кодът е зает от друг клиент/каталога — смени го във файла");
+    }
+    if (!row.exists && !row.ops.length) row.errs.push("празен маршрут");
+    rows.push(row);
+  }
+  if (!rows.length) { alert("Файлът няма попълнени редове (виж лист „Помощ“ в шаблона)."); return; }
+
+  const ok = rows.filter(r => !r.errs.length), bad = rows.filter(r => r.errs.length);
+  const opName = id => (ERP.opById[id] || {}).name || "?";
+  const { wrap, close } = erpDialog(`
+    <div style="background:#f59e0b;color:#1f2937;font-weight:700;padding:6px 12px;border-radius:8px;margin:0 0 8px;font-size:13px">📦 Импорт на нестандартна поръчка от шаблона</div>
+    <h3 style="margin-top:0">Преглед: ${ok.length} готови${bad.length ? ` · <span style="color:#b91c1c">${bad.length} с грешки (ще се пропуснат)</span>` : ""}</h3>
+    <div style="max-height:46vh;overflow:auto">
+    <table class="report-table erp-table">
+      <thead><tr><th></th><th>Код</th><th>Име</th><th class="num">Бр.</th><th>Маршрут</th><th>Материал</th><th>Бележки</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${r.errs.length ? "⚠" : (r.exists ? "♻" : "🆕")}</td>
+        <td><b>${escapeHtml(r.code)}</b></td>
+        <td>${escapeHtml(r.name)}</td>
+        <td class="num">${erpNum(r.qty)}</td>
+        <td class="erp-muted">${r.exists ? "готово изделие" : escapeHtml(r.ops.map(opName).join(" → "))}</td>
+        <td class="erp-muted">${escapeHtml(r.mats.map(m => `${(ERP.matById[m.materialId] || {}).code} ×${erpNum(m.qty)}`).join(", "))}</td>
+        <td style="color:#b91c1c">${escapeHtml(r.errs.join("; "))}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>
+    <p class="hint" style="margin:6px 0 0">🆕 = създава се ново изделие с мини-рецепта · ♻ = кодът вече съществува за клиента, ползва се готовото. След създаването се отваря ЗАЯВКА с всички редове и бройки — преглеждаш и „Запази".</p>
+    <p class="save-status" id="qi-status"></p>
+    <div class="erp-dialog-actions"><button class="btn" id="qi-cancel">Отказ</button><button class="btn btn-primary" id="qi-go" ${ok.length ? "" : "disabled"}>📦 Създай ${ok.length} изделия + заявка</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
+  wrap.querySelector("#qi-cancel").addEventListener("click", close);
+  wrap.querySelector("#qi-go").addEventListener("click", async () => {
+    const btn = wrap.querySelector("#qi-go"); btn.disabled = true;
+    const status = wrap.querySelector("#qi-status");
+    const lines = [];
+    let made = 0;
+    try {
+      for (const r of ok) {
+        status.textContent = `Създава ${++made}/${ok.length}: ${r.code}…`;
+        let p = r.exists;
+        if (!p) {
+          const cm = clients.find(c => c.company === r.client);
+          const payload = { code: r.code, name: r.name, group_name: r.client, unit: "бр.", is_semifinished: false, needs_recipe: false };
+          if (typeof ERP !== "undefined" && ERP.hasOwnerClient !== false) payload.owner_client = r.client;
+          let ins = await sb.from("products").insert(payload).select("id").single();
+          if (ins.error && /owner_client/.test(ins.error.message || "")) { delete payload.owner_client; ins = await sb.from("products").insert(payload).select("id").single(); }
+          if (ins.error) throw new Error(r.code + ": " + ins.error.message);
+          const pid = ins.data.id;
+          const recRows = [];
+          let pos = 0;
+          r.mats.forEach(mr => { const m = ERP.matById[mr.materialId] || {}; recRows.push({ product_id: pid, material_id: mr.materialId, quantity: mr.qty, unit: m.unit || "бр.", position: pos++ }); });
+          r.ops.forEach(id => recRows.push({ product_id: pid, operation_id: id, quantity: 1, unit: "бр.", position: pos++ }));
+          if (recRows.length) { const { error } = await sb.from("recipe_lines").insert(recRows); if (error) throw new Error(r.code + ": " + error.message); }
+          QUICK.byId[String(pid)] = { code: r.code, client: r.client, clientId: cm ? cm.id : null, price: r.price || "", files: [], createdAt: new Date().toISOString(), by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "" };
+          p = { id: pid, code: r.code, name: r.name };
+        }
+        const en = erpQuickEntry(p.id) || {};
+        lines.push({ productId: p.id, code: p.code, name: p.name, ourName: p.name, qty: r.qty, unitPrice: r.price || en.price || "" });
+      }
+      await quickSave();
+      status.textContent = "Опреснява каталога…";
+      await erpLoadAll();
+      close();
+      // Заявката с всички редове — клиентът от първия ред, белязана като нестандартна.
+      const first = ok[0];
+      const cm = clients.find(c => c.company === first.client);
+      const today = new Date().toISOString().slice(0, 10);
+      erpRenderCOForm({ ourNo: erpNextOrderNo(), clientNo: "", clientName: first.client, clientId: cm ? cm.id : null, date: today, deadline: "", note: "Импорт от шаблона за нестандартни поръчки", status: "нова", lines, nonstd: true });
+    } catch (e) {
+      btn.disabled = false;
+      status.textContent = "⚠ " + (e.message || e);
+    }
+  });
 }
 
 /* Мини-форма „нов материал" — за материал, който още го няма в склад Материали.
