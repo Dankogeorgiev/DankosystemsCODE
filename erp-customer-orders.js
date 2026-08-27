@@ -734,7 +734,7 @@ async function erpRenderCOForm(o) {
         <thead><tr><th>Код</th><th>Продукт</th><th class="num">Бройка</th><th class="num sell-cell">Прод. цена (€)</th><th class="num sell-cell">Сума</th><th></th></tr></thead>
         <tbody>${erpCOLinesHtml(o)}</tbody>
       </table>
-      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn btn-small btn-primary" id="co-add-quick" title="Нестандартно изделие по клиентски код — създава се с мини-рецепта и веднага влиза като ред в заявката">⚡ + Ново бързо изделие</button>' : ""}${(!o.id && typeof erpAIStart === "function") ? '<button class="btn btn-small" id="co-ai-read" title="Качи файла на клиента (PDF/снимка/Excel) — Claude чете редовете, ти ги потвърждаваш и заявката се създава. Несъществуващите кодове се създават с „⚡ Ново".">🤖 Разчети заявка (AI)</button>' : ""}<span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
+      <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn btn-small btn-primary" id="co-add-quick" title="Нестандартно изделие по клиентски код — създава се с мини-рецепта и веднага влиза като ред в заявката">⚡ + Ново бързо изделие</button>' : ""}${((!o.id || nonstd) && typeof erpQuickTemplateXls === "function" && typeof quickAllowed === "function" && quickAllowed()) ? '<button type="button" class="btn btn-small" id="co-tpl-dl" title="Сваля Excel шаблон: ред за всяко нестандартно изделие (код, име, бройка, цена, маршрут, материали). Попълваш и го качваш с „⬆ Импорт шаблон".">⤓ Шаблон (Excel)</button><label class="btn btn-small" title="Качи ПОПЪЛНЕНИЯ шаблон — създава изделията с мини-рецептите и отваря заявка с всички редове">⬆ Импорт шаблон<input type="file" id="co-tpl-up" accept=".xlsx,.xls" hidden /></label>' : ""}${(!o.id && typeof erpAIStart === "function") ? '<button class="btn btn-small" id="co-ai-read" title="Качи файла на клиента (PDF/снимка/Excel) — Claude чете редовете, ти ги потвърждаваш и заявката се създава. Несъществуващите кодове се създават с „⚡ Ново".">🤖 Разчети заявка (AI)</button>' : ""}<span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
 
       <div class="erp-co-actions">
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
@@ -817,6 +817,15 @@ async function erpRenderCOForm(o) {
     if (rm) { e.preventDefault(); erpCORemoveFile(o, Number(rm.dataset.cofrm)); }
   });
   document.getElementById("co-add-prod").addEventListener("click", () => erpCOAddProduct(o));
+  const tplDl = document.getElementById("co-tpl-dl");
+  if (tplDl) tplDl.addEventListener("click", async () => { try { await erpEnsureLoaded(); } catch (e) {} erpQuickTemplateXls(); });
+  const tplUp = document.getElementById("co-tpl-up");
+  if (tplUp) tplUp.addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    if ((o.lines || []).length && !confirm("Импортът създава ОТДЕЛНА заявка с редовете от файла.\nВъведеното дотук в тази форма няма да се запази. Продължавам ли?")) return;
+    erpQuickImportXls(f);
+  });
   const cai = document.getElementById("co-ai-read");
   if (cai) cai.addEventListener("click", () => {
     if ((o.lines || []).length && !confirm("Разчитането създава ОТДЕЛНА нова заявка от файла на клиента.\nВъведените дотук редове в тази форма няма да се запазят. Продължавам ли?")) return;
