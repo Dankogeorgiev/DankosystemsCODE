@@ -147,10 +147,29 @@ async function masterAdvanceDetail(oid, ops, targetStep) {
   }
 }
 
+// Брутните нужди на ЕДИН артикул от заявката (код¦операция → бройки за cnt
+// изделия) по рецептното дърво — без нетване, с истинските множители. Ползва
+// се като капа на „▶▶ готов" по артикул: две изделия от СЪЩАТА заявка може да
+// делят едни детайли (Д6 отива и в Механизъм 1, и в Механизъм 3) — без тази
+// капа мастерът на единия артикул отчиташе дела на ЦЯЛАТА заявка.
+function masterArticleNeeds(pid, cnt) {
+  if (!pid || !(cnt > 0) || typeof erpFlowSteps !== "function") return null;
+  try {
+    const { steps } = erpFlowSteps({ erpProductId: Number(pid), erpQty: cnt }, {});
+    const map = {};
+    (steps || []).forEach(st => {
+      const k = String(st.code || "") + "¦" + String(st.operation || "");
+      map[k] = (map[k] || 0) + (Number(st.qty) || 0);
+    });
+    return map;
+  } catch (e) { return null; }
+}
+
 // Докарва набор детайли до готово (цикли, докато има напредък) — ползва се и за
 // цял артикул, и за цялата заявка. Общо отчетеното на задача от ТОВА действие
-// се ограничава до дела на заявката в серията ѝ.
-async function masterCompleteOrder(oid, details) {
+// се ограничава до дела на заявката в серията ѝ; capFn (ако е подадена) стяга
+// капата допълнително — напр. до нуждата на конкретния артикул/бройки.
+async function masterCompleteOrder(oid, details, capFn) {
   const reported = new Map();   // задача -> отчетено от това действие
   let progressed = true, guard = 0;
   while (progressed && guard++ < 60) {
@@ -159,7 +178,8 @@ async function masterCompleteOrder(oid, details) {
     for (const d of details) for (const t of d.ops) {
       const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-      const left = mOrderShare(t, oid) - (reported.get(t) || 0);
+      const cap = capFn ? capFn(t) : mOrderShare(t, oid);
+      const left = cap - (reported.get(t) || 0);
       const toReport = Math.min(rem, Math.max(0, avail), Math.max(0, left));
       if (toReport > 0) {
         await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
@@ -431,9 +451,29 @@ function masterRender() {
       ? { name: "Други детайли", qty: 0, details: misc }
       : arts.find(x => String(x.pid) === String(pid));
     if (!a) return;
-    if (!confirm(`Да отчета ли артикула „${a.code ? a.code + " " : ""}${a.name}"${a.qty ? ` × ${a.qty} бр.` : ""} до ГОТОВО?\n\nЩе се отчетат всичките му детайли и операции (${a.details.length} детайла). От споделените с други заявки серии се отчита САМО делът на тази заявка.`)) return;
+    // Колко ИЗДЕЛИЯ отчитаме? По подразбиране целия ред; може и част (напр.
+    // 100 от 140). Капата по всяка операция = нуждата на точно тези бройки по
+    // рецептата — детайли, споделени с ДРУГИ артикули на същата заявка или с
+    // други заявки, не се пипат отвъд този дял.
+    let capFn = null, cntTxt = "";
+    if (pid !== "misc" && a.pid && a.qty) {
+      const inp = prompt(`Колко броя „${a.code ? a.code + " " : ""}${a.name}" да отчета до готово?\n(редът в заявката е ${a.qty} бр.)`, String(a.qty));
+      if (inp === null) return;
+      const cnt = Math.min(a.qty, Math.max(0, Math.round(Number(String(inp).replace(",", ".")) || 0)));
+      if (!(cnt > 0)) return;
+      const needs = masterArticleNeeds(a.pid, cnt);
+      if (needs) {
+        capFn = t => {
+          const need = needs[String(t.code || "") + "¦" + String(t.operation || "")];
+          const share = mOrderShare(t, oid);
+          return (need != null) ? Math.min(share, Math.ceil(need)) : share;
+        };
+        cntTxt = ` за ${cnt} бр. изделия`;
+      }
+    }
+    if (!confirm(`Да отчета ли артикула „${a.code ? a.code + " " : ""}${a.name}"${cntTxt || (a.qty ? ` × ${a.qty} бр.` : "")} до ГОТОВО?\n\nЩе се отчетат детайлите и операциите му (${a.details.length} детайла)${cntTxt ? " до нуждата на тези бройки по рецептата" : ""}. Детайли, споделени с други артикули/заявки, не се пипат отвъд този дял.`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterCompleteOrder(oid, a.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try { await masterCompleteOrder(oid, a.details, capFn); } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
