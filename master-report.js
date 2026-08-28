@@ -142,7 +142,8 @@ async function masterAdvanceDetail(oid, ops, targetStep) {
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
     const toReport = Math.min(rem, Math.max(0, avail), mOrderShare(t, oid));
-    if (toReport > 0) await logProduction(t, toReport, { note: "мастер отчитане" }, { silent: true, worker: masterWorker() });
+    // mOrder: за коя заявка е натиснат мастерът — за точна отмяна по заявка.
+    if (toReport > 0) await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
   }
 }
 
@@ -161,7 +162,7 @@ async function masterCompleteOrder(oid, details) {
       const left = mOrderShare(t, oid) - (reported.get(t) || 0);
       const toReport = Math.min(rem, Math.max(0, avail), Math.max(0, left));
       if (toReport > 0) {
-        await logProduction(t, toReport, { note: "мастер отчитане" }, { silent: true, worker: masterWorker() });
+        await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
         reported.set(t, (reported.get(t) || 0) + toReport);
         progressed = true;
       }
@@ -171,68 +172,92 @@ async function masterCompleteOrder(oid, details) {
 
 /* ---------- ⏪ Отмяна на мастер отчитания ----------
    Всяко мастер вписване носи note: "мастер отчитане" и дата в дневника на
-   задачата, затова може да се намери и развърти точно. Отмяната за избран ден:
-   маха вписванията, смъква produced, връща складовите последствия
-   (erpFlowRollback: заприходено готово, вложени части, материал) и сваля
-   статуса „готова за продажба" на заявки, които вече не са готови. Авто-боята,
-   пусната от мастер отчета (worker „авто-боя", същия ден, по веригите на
-   засегнатите задачи), също се отменя. Вечният дневник (production_log) НЕ се
-   трие — добавя се коригиращ запис, както при „поправка на сгрешен отчет". */
+   задачата, затова може да се намери и развърти точно — за целия ден или само
+   за ЕДНА заявка. Новите вписвания носят и заявката (mOrder); старите (без
+   mOrder) се водят към заявките на серията си и при отмяна по заявка се махат
+   ИЗЦЯЛО — мастерът ги е писал с един клик и не могат да се разделят след
+   факта. Отмяната: маха вписванията, смъква produced, връща складовите
+   последствия (erpFlowRollback: заприходено готово, вложени части, материал)
+   и сваля статуса „готова за продажба" на заявки, които вече не са готови.
+   Авто-боята, пусната от мастер вълната (worker „авто-боя", същия ден, по
+   веригите на засегнатите задачи), също се отменя. Вечният дневник
+   (production_log) НЕ се трие — добавя се коригиращ запис, както при
+   „поправка на сгрешен отчет". */
+function mUndoAdd(map, t, l) {
+  const it = map.get(t) || { t, qty: 0, entries: [] };
+  it.qty += Number(l.qty) || 0; it.entries.push(l);
+  map.set(t, it);
+}
+// Авто-боя вписванията от същия ден по веригите (prevKey, в двете посоки)
+// на подадените задачи. Ако се върне повече, отколкото трябва, авто-боята се
+// само-пре-отчита при следващото отваряне — тя е самолекуваща се.
+function masterUndoPaint(items, date) {
+  const flow = (typeof TASKS !== "undefined" ? TASKS : []).filter(t => t.source && t.source.flow && t.source.kind === "series");
+  const keys = new Set();
+  items.forEach(it => { if (it.t.source.seriesKey) keys.add(it.t.source.seriesKey); });
+  let grew = true;
+  while (grew) {
+    grew = false;
+    flow.forEach(t => {
+      const sk = t.source.seriesKey, pk = t.source.prevKey;
+      if (!sk) return;
+      if (keys.has(sk)) { if (pk && !keys.has(pk)) { keys.add(pk); grew = true; } }
+      else if (pk && keys.has(pk)) { keys.add(sk); grew = true; }
+    });
+  }
+  const out = new Map();
+  flow.forEach(t => {
+    if (!keys.has(t.source.seriesKey)) return;
+    (t.logs || []).forEach(l => {
+      if (!l || l.note === "мастер отчитане" || l.worker !== "авто-боя" || l.date !== date) return;
+      mUndoAdd(out, t, l);
+    });
+  });
+  return [...out.values()];
+}
 function masterUndoScan() {
   const flow = (typeof TASKS !== "undefined" ? TASKS : []).filter(t => t.source && t.source.flow && t.source.kind === "series");
   const isM = l => l && l.note === "мастер отчитане";
   const dates = {};
   flow.forEach(t => (t.logs || []).forEach(l => {
     if (!isM(l)) return;
-    const d = dates[l.date] || (dates[l.date] = { date: l.date, items: new Map(), master: 0, paint: 0 });
-    const it = d.items.get(t) || { t, qty: 0, entries: [] };
-    it.qty += Number(l.qty) || 0; it.entries.push(l);
-    d.items.set(t, it);
+    const d = dates[l.date] || (dates[l.date] = { date: l.date, items: new Map(), orders: {}, master: 0 });
+    mUndoAdd(d.items, t, l);
     d.master += Number(l.qty) || 0;
-  }));
-  Object.values(dates).forEach(d => {
-    // Веригите (по prevKey, в двете посоки) на засегнатите задачи — за авто-боята.
-    const keys = new Set();
-    d.items.forEach(it => { if (it.t.source.seriesKey) keys.add(it.t.source.seriesKey); });
-    let grew = true;
-    while (grew) {
-      grew = false;
-      flow.forEach(t => {
-        const sk = t.source.seriesKey, pk = t.source.prevKey;
-        if (!sk) return;
-        if (keys.has(sk)) { if (pk && !keys.has(pk)) { keys.add(pk); grew = true; } }
-        else if (pk && keys.has(pk)) { keys.add(sk); grew = true; }
-      });
-    }
-    flow.forEach(t => {
-      if (!keys.has(t.source.seriesKey)) return;
-      (t.logs || []).forEach(l => {
-        if (!l || isM(l) || l.worker !== "авто-боя" || l.date !== d.date) return;
-        const it = d.items.get(t) || { t, qty: 0, entries: [] };
-        it.qty += Number(l.qty) || 0; it.entries.push(l);
-        d.items.set(t, it);
-        d.paint += Number(l.qty) || 0;
-      });
+    // Разбивка по заявки: mOrder (новите вписвания) или заявките на серията (старите).
+    const oids = l.mOrder ? [String(l.mOrder)] : ((t.source.orders || []).map(o => String(o.id)));
+    oids.forEach(oid => {
+      const meta = (t.source.orders || []).find(o => String(o.id) === oid) || {};
+      const g = d.orders[oid] || (d.orders[oid] = { oid, no: meta.no || "", client: meta.client || "", items: new Map(), qty: 0 });
+      if (!g.no && meta.no) g.no = meta.no;
+      if (!g.client && meta.client) g.client = meta.client;
+      mUndoAdd(g.items, t, l);
+      g.qty += Number(l.qty) || 0;
     });
-  });
-  return Object.values(dates).map(d => ({ date: d.date, items: [...d.items.values()], master: d.master, paint: d.paint }))
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }));
+  return Object.values(dates).map(d => ({
+    date: d.date, items: [...d.items.values()], master: d.master,
+    orders: Object.values(d.orders).map(g => ({ oid: g.oid, no: g.no, client: g.client, items: [...g.items.values()], qty: g.qty }))
+      .sort((a, b) => String(a.no).localeCompare(String(b.no), "bg", { numeric: true })),
+  })).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
-async function masterUndoApply(d) {
+async function masterUndoApply(items, date) {
+  const paintItems = masterUndoPaint(items, date);
+  const all = [...items, ...paintItems];   // авто-боя вписванията не носят мастер note — няма дублиране
   const affected = [];
-  for (const it of d.items) {
+  for (const it of all) {
     const t = it.t;
     t.logs = (t.logs || []).filter(l => !it.entries.includes(l));
     t.produced = Math.max(0, (Number(t.produced) || 0) - it.qty);
     await tSaveTask(t);   // първо броячът и дневникът на задачата
     try {
       await prodLogWrite(t, {
-        date: (typeof todayStr === "function") ? todayStr() : d.date,
+        date: (typeof todayStr === "function") ? todayStr() : date,
         worker: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.name || MY_ACCESS.email)) || "офис",
         qty: -it.qty,
         lid: (typeof prodLogId === "function") ? prodLogId() : (Date.now().toString(36) + "-u" + Math.random().toString(36).slice(2, 5)),
-        activity: "Отмяна на мастер отчитане", notes: "мастер от " + d.date,
+        activity: "Отмяна на мастер отчитане", notes: "мастер от " + date,
       });
     } catch (e) { /* дневникът може да липсва — отмяната продължава */ }
     // Складът: връща излишно заприходеното/вложеното до новото produced.
@@ -255,7 +280,7 @@ async function masterUndoApply(d) {
       if (!allDone) { dd.status = "в производство"; await sb.from("customer_orders").update({ data: dd, updated_at: new Date().toISOString() }).eq("id", oid); }
     } catch (e) { /* следващата заявка */ }
   }
-  return affected.length;
+  return { tasks: affected.length, paint: paintItems.reduce((s, it) => s + it.qty, 0) };
 }
 
 function masterUndoDialog() {
@@ -266,28 +291,39 @@ function masterUndoDialog() {
   // .overlay е z-index 100 и диалогът се отваряше невидим, ЗАД мастера.
   wrap.className = "overlay master-modal";
   wrap.style.zIndex = "400";
-  wrap.innerHTML = `<div class="master-box" style="max-width:520px">
+  wrap.innerHTML = `<div class="master-box" style="max-width:560px">
     <div class="master-head"><h3>⏪ Отмяна на мастер отчитания</h3><button type="button" class="btn btn-small" id="mu-close">Затвори</button></div>
-    <p class="hint">Избери ден — махат се мастер вписванията от него, бройките и складът се връщат назад (заприходено готово, вложени части, материал), а заявки „готова за продажба", които вече не са готови, стават пак „в производство".<br>⚠ Ако междувременно е <b>продавано или влагано</b> от отчетените бройки, складът може да отиде на минус — провери „Склад детайли" след отмяната.</p>
-    ${dates.map((d, i) => `<button type="button" class="btn mu-date" data-i="${i}" style="display:block;width:100%;margin:4px 0;text-align:left">📅 <b>${escapeHtml(d.date)}</b> — ${d.items.length} задачи, ${d.master} бр. мастер${d.paint ? ` + ${d.paint} бр. авто-боя` : ""}</button>`).join("")}
+    <p class="hint">Избери ден (целия) или само една заявка от него — махат се мастер вписванията, бройките и складът се връщат назад (заприходено готово, вложени части, материал), а заявки „готова за продажба", които вече не са готови, стават пак „в производство".<br>⚠ Вписвания по серии, <b>споделени между заявки</b>, се махат изцяло и при отмяна по една заявка — мастерът ги е писал с един клик и не се делят след факта.<br>⚠ Ако междувременно е <b>продавано или влагано</b> от отчетените бройки, складът може да отиде на минус — провери „Склад детайли" след отмяната.</p>
+    ${dates.map((d, i) => `
+      <button type="button" class="btn mu-day" data-i="${i}" style="display:block;width:100%;margin:8px 0 2px;text-align:left">📅 <b>${escapeHtml(d.date)}</b> — целият ден: ${d.items.length} задачи, ${d.master} бр.</button>
+      ${d.orders.map(g => `<button type="button" class="btn mu-ord" data-i="${i}" data-o="${escapeAttr(g.oid)}" style="display:block;width:calc(100% - 22px);margin:2px 0 2px 22px;text-align:left">↳ ${g.no ? "заявка №" + escapeHtml(g.no) : "серия"}${g.client ? " · " + escapeHtml(g.client) : ""} — ${g.items.length} задачи, ${g.qty} бр.</button>`).join("")}`).join("")}
   </div>`;
   document.body.appendChild(wrap);
   wrap.addEventListener("click", e => { if (e.target === wrap) wrap.remove(); });
   wrap.querySelector("#mu-close").addEventListener("click", () => wrap.remove());
-  wrap.querySelectorAll(".mu-date").forEach(b => b.addEventListener("click", async () => {
-    const d = dates[Number(b.dataset.i)]; if (!d) return;
-    const lines = d.items.slice(0, 15).map(it => `• ${it.t.code || it.t.product || ""} · ${it.t.operation || ""}: −${it.qty} бр.`).join("\n");
-    if (!confirm(`Да ОТМЕНЯ ли мастер отчитанията от ${d.date}?\n\n${lines}${d.items.length > 15 ? `\n… и още ${d.items.length - 15} задачи` : ""}\n\nОбщо: −${d.master + d.paint} бр. Складът се връща назад.`)) return;
+  const run = async (date, items, label) => {
+    const lines = items.slice(0, 15).map(it => `• ${it.t.code || it.t.product || ""} · ${it.t.operation || ""}: −${it.qty} бр.`).join("\n");
+    const total = items.reduce((s, it) => s + it.qty, 0);
+    if (!confirm(`Да ОТМЕНЯ ли мастер отчитанията — ${label}?\n\n${lines}${items.length > 15 ? `\n… и още ${items.length - 15} задачи` : ""}\n\nОбщо: −${total} бр. (+ свързаната авто-боя). Складът се връща назад.`)) return;
     wrap.querySelectorAll("button").forEach(x => x.disabled = true);
-    let n = 0;
-    try { n = await masterUndoApply(d); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    let r = { tasks: 0, paint: 0 };
+    try { r = await masterUndoApply(items, date); } catch (e) { alert("Грешка: " + (e.message || e)); }
     wrap.remove();
-    alert(`✓ Отменени са мастер отчитанията от ${d.date} по ${n} задачи.\n`
+    alert(`✓ Отменени са мастер отчитанията (${label}) по ${r.tasks} задачи${r.paint ? `, вкл. ${r.paint} бр. авто-боя` : ""}.\n`
       + `\n1) Провери „Склад детайли" и „Склад материали" за разминавания, ако междувременно е продавано/влагано.`
       + `\n2) ПРЕ-ПУСНИ активните заявки на засегнатите детайли (Заявки → „🏭 Пусни в производство" наново) — `
       + `преизчислява блокираните наличности точно; произведеното и отчетеното се запазват.`);
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
+  };
+  wrap.querySelectorAll(".mu-day").forEach(b => b.addEventListener("click", () => {
+    const d = dates[Number(b.dataset.i)]; if (!d) return;
+    run(d.date, d.items, `целият ден ${d.date}`);
+  }));
+  wrap.querySelectorAll(".mu-ord").forEach(b => b.addEventListener("click", () => {
+    const d = dates[Number(b.dataset.i)]; if (!d) return;
+    const g = d.orders.find(x => String(x.oid) === String(b.dataset.o)); if (!g) return;
+    run(d.date, g.items, `${g.no ? "заявка №" + g.no : "серия"}${g.client ? " · " + g.client : ""}, ${d.date}`);
   }));
 }
 
