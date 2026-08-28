@@ -120,22 +120,37 @@ function masterArticles(e) {
   return { arts, misc };
 }
 
-// Докарва един детайл до дадена стъпка (отчита всяка операция до пълно наличното).
-async function masterAdvanceDetail(ops, targetStep) {
+// Делът на ЗАЯВКАТА в серията на задачата. Мастерът отчита най-много толкова
+// на операция: споделена серия (100 за тази заявка + 1000 за други = 1100) НЕ
+// бива да се отчита цялата от бутона на едната заявка — иначе се заприходяват
+// готови и се изписват материали за бройки, които цехът не е произвеждал.
+// Серия без записани заявки (стар запис) няма дял — старото поведение (цялата).
+function mOrderShare(t, oid) {
+  const os = (t && t.source && t.source.orders) || [];
+  if (!os.length) return Infinity;
+  const o = os.find(x => String(x.id) === String(oid));
+  return o ? (Number(o.qty) || 0) : 0;
+}
+
+// Докарва един детайл до дадена стъпка (отчита всяка операция до наличното,
+// но най-много дела на заявката).
+async function masterAdvanceDetail(oid, ops, targetStep) {
   const sorted = ops.slice().sort((a, b) => mStep(a) - mStep(b));
   for (const t of sorted) {
     if (mStep(t) > targetStep) break;
     const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-    const toReport = Math.min(rem, Math.max(0, avail));
+    const toReport = Math.min(rem, Math.max(0, avail), mOrderShare(t, oid));
     if (toReport > 0) await logProduction(t, toReport, { note: "мастер отчитане" }, { silent: true, worker: masterWorker() });
   }
 }
 
 // Докарва набор детайли до готово (цикли, докато има напредък) — ползва се и за
-// цял артикул, и за цялата заявка.
-async function masterCompleteOrder(details) {
+// цял артикул, и за цялата заявка. Общо отчетеното на задача от ТОВА действие
+// се ограничава до дела на заявката в серията ѝ.
+async function masterCompleteOrder(oid, details) {
+  const reported = new Map();   // задача -> отчетено от това действие
   let progressed = true, guard = 0;
   while (progressed && guard++ < 60) {
     progressed = false;
@@ -143,8 +158,13 @@ async function masterCompleteOrder(details) {
     for (const d of details) for (const t of d.ops) {
       const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-      const toReport = Math.min(rem, Math.max(0, avail));
-      if (toReport > 0) { await logProduction(t, toReport, { note: "мастер отчитане" }, { silent: true, worker: masterWorker() }); progressed = true; }
+      const left = mOrderShare(t, oid) - (reported.get(t) || 0);
+      const toReport = Math.min(rem, Math.max(0, avail), Math.max(0, left));
+      if (toReport > 0) {
+        await logProduction(t, toReport, { note: "мастер отчитане" }, { silent: true, worker: masterWorker() });
+        reported.set(t, (reported.get(t) || 0) + toReport);
+        progressed = true;
+      }
     }
   }
 }
@@ -172,7 +192,10 @@ function masterRender() {
     const q = Number(t.qty) || 0, p = Number(t.produced) || 0;
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : (q - p);
     const cls = mDone(t) ? "m-done" : (avail > 0 ? (p > 0 ? "m-prog" : "m-ready") : "m-wait");
-    return `<button type="button" class="m-chip ${cls}" data-oid="${escapeAttr(oid)}" data-code="${escapeAttr(d.key)}" data-step="${mStep(t)}" title="Докарай детайла до „${escapeAttr(t.operation || "")}"">${escapeHtml(t.operation || "")}<span class="m-qn">${p}/${q}</span></button>`;
+    // Споделена серия: показваме и дела на ТАЗИ заявка — толкова най-много ще отчете кликът.
+    const share = mOrderShare(t, oid);
+    const shareTxt = (isFinite(share) && share < q) ? ` · дял ${share}` : "";
+    return `<button type="button" class="m-chip ${cls}" data-oid="${escapeAttr(oid)}" data-code="${escapeAttr(d.key)}" data-step="${mStep(t)}" title="Докарай детайла до „${escapeAttr(t.operation || "")}"${shareTxt ? ` — серията е споделена, отчита се най-много делът на тази заявка (${share} бр.)` : ""}">${escapeHtml(t.operation || "")}<span class="m-qn">${p}/${q}${shareTxt}</span></button>`;
   };
   const detailHtml = (oid, d) => `<div class="m-detail">
       <div class="m-detail-h">🔩 <b>${escapeHtml(d.code)}</b> ${escapeHtml(d.name)}</div>
@@ -219,7 +242,7 @@ function masterRender() {
       <h3>⚡ Мастер отчитане <span class="rt-muted">— по артикули от заявката</span></h3>
       <button type="button" class="btn btn-small" id="m-close">Затвори</button>
     </div>
-    <p class="hint">Всеки ред е <b>артикул от заявката на клиента</b>. „▶▶ готов" отчита всичките му детайли и операции докрай (когато цехът не е отчитал). Клик върху артикула го разгъва до отделните детайли. Легенда: <span class="m-chip m-ready" style="pointer-events:none">готова</span> <span class="m-chip m-prog" style="pointer-events:none">частично</span> <span class="m-chip m-wait" style="pointer-events:none">чака</span> <span class="m-chip m-done" style="pointer-events:none">готово</span></p>
+    <p class="hint">Всеки ред е <b>артикул от заявката на клиента</b>. „▶▶ готов" отчита всичките му детайли и операции докрай (когато цехът не е отчитал). От серии, споделени с други заявки, се отчита <b>само делът на тази заявка</b> (пише го на чипа: „дял N"). Клик върху артикула го разгъва до отделните детайли. Легенда: <span class="m-chip m-ready" style="pointer-events:none">готова</span> <span class="m-chip m-prog" style="pointer-events:none">частично</span> <span class="m-chip m-wait" style="pointer-events:none">чака</span> <span class="m-chip m-done" style="pointer-events:none">готово</span></p>
     <div class="master-tools"><input type="search" id="m-q" placeholder="🔎 търси заявка / клиент…" value="${escapeAttr(masterQuery)}" autocomplete="off" /><span class="rt-muted">${groups.length} заявки в производство</span></div>
     <div class="master-list">${groups.map(orderHtml).join("") || `<p class="report-empty">Няма заявки в производство.</p>`}</div>
   </div>`;
@@ -245,9 +268,9 @@ function masterRender() {
       ? { name: "Други детайли", qty: 0, details: misc }
       : arts.find(x => String(x.pid) === String(pid));
     if (!a) return;
-    if (!confirm(`Да отчета ли артикула „${a.code ? a.code + " " : ""}${a.name}"${a.qty ? ` × ${a.qty} бр.` : ""} до ГОТОВО?\n\nЩе се отчетат всичките му детайли и операции (${a.details.length} детайла).`)) return;
+    if (!confirm(`Да отчета ли артикула „${a.code ? a.code + " " : ""}${a.name}"${a.qty ? ` × ${a.qty} бр.` : ""} до ГОТОВО?\n\nЩе се отчетат всичките му детайли и операции (${a.details.length} детайла). От споделените с други заявки серии се отчита САМО делът на тази заявка.`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterCompleteOrder(a.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try { await masterCompleteOrder(oid, a.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
@@ -259,7 +282,7 @@ function masterRender() {
     const g = masterGroups().find(e => String(e.id) === String(oid)); if (!g) return;
     const d = g.details.find(x => x.key === code); if (!d) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterAdvanceDetail(d.ops, step); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try { await masterAdvanceDetail(oid, d.ops, step); } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
@@ -268,9 +291,9 @@ function masterRender() {
   wrap.querySelectorAll(".m-complete").forEach(b => b.addEventListener("click", async () => {
     const oid = b.dataset.oid;
     const g = masterGroups().find(e => String(e.id) === String(oid)); if (!g) return;
-    if (!confirm(`Да докарам ли цялата заявка ${g.no ? "№" + g.no : ""} до готово (всички операции)?`)) return;
+    if (!confirm(`Да докарам ли цялата заявка ${g.no ? "№" + g.no : ""} до готово (всички операции)?\n\nОт споделените с други заявки серии се отчита САМО делът на тази заявка.`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterCompleteOrder(g.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try { await masterCompleteOrder(oid, g.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
