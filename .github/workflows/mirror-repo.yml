@@ -1,0 +1,53 @@
+name: Огледало на кода (седмично)
+
+# Прави пълен архив на хранилището (целият код + цялата история) и го качва
+# като артефакт. Ако GitHub профилът някога стане недостъпен, от този .bundle
+# се възстановява ВСИЧКО:
+#   git clone dankosystems-2026-08-05.bundle DankosystemsCODE
+#
+# По избор (за истинско огледало в друга услуга): добави secret MIRROR_URL
+# с адрес на празно хранилище в GitLab/Bitbucket, напр.
+#   https://ПОТРЕБИТЕЛ:ТОКЕН@gitlab.com/danko/dankosystemscode.git
+# Тогава кодът се бута и там при всяко пускане.
+
+on:
+  schedule:
+    - cron: "30 1 * * 0"     # неделя, 01:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Изтегляне (с цялата история)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Архив на хранилището
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          echo "STAMP=$DATE" >> $GITHUB_ENV
+          git bundle create "dankosystems-$DATE.bundle" --all
+          ls -lh dankosystems-$DATE.bundle
+
+      - name: Качване
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-bundle-${{ env.STAMP }}
+          path: dankosystems-*.bundle
+          retention-days: 90
+
+      - name: Бутане към второ хранилище (ако е настроено)
+        env:
+          MIRROR_URL: ${{ secrets.MIRROR_URL }}
+        run: |
+          if [ -z "$MIRROR_URL" ]; then
+            echo "Няма secret MIRROR_URL — стъпката се пропуска (артефактът горе е достатъчен)."
+            exit 0
+          fi
+          git push --mirror "$MIRROR_URL"

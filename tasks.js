@@ -2,44 +2,17 @@
    Използва глобалния Supabase клиент (sb) и помощните функции от app.js.
    Данните се пазят в таблица `tasks`, служителите — в `app_config`. */
 
-const TASK_DEFAULT_WORKSHOPS = ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно"];
+const TASK_DEFAULT_WORKSHOPS = ["Лазери", "РАЗКРОЙ ТРЪБИ", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "ЦЕХ РОГОШ", "Сглобяване", "Опаковане/Експедиция"];
 
 // Дебелини (мм) за падащото меню в колона „Дебелина“ (десетите се пишат със запетая)
 const THICKNESS_OPTIONS = ["0,5", "0,7", "0,8", "1", "1,2", "1,5", "2", "2,5", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "15", "16", "18", "20", "22", "25"];
-
-// KROHNE LTD — детайлите минават през 4 операции; поръчката се приключва само когато всички са готови
-const KROHNE_OPS = [
-  { key: "op1", label: "Операция 1", short: "Оп1" },
-  { key: "op2", label: "Операция 2", short: "Оп2" },
-  { key: "op3", label: "Операция 3", short: "Оп3" },
-  { key: "dm", label: "Операция DATA Matrix", short: "DM" },
-];
-function isKrohne(t) { return ((t && t.client) || "").toUpperCase().includes("KROHNE"); }
-function krohnePct(t) {
-  const q = Number(t.qty) || 0; if (!q) return 0;
-  const ops = t.ops || {};
-  const sum = KROHNE_OPS.reduce((a, o) => a + Math.min(q, Number(ops[o.key]) || 0), 0);
-  return Math.round(sum / (q * KROHNE_OPS.length) * 100);
-}
-function krohneDone(t) {
-  const q = Number(t.qty) || 0; if (!q) return false;
-  const ops = t.ops || {};
-  return KROHNE_OPS.every(o => (Number(ops[o.key]) || 0) >= q);
-}
-function krohneProgressHtml(t) {
-  const q = Number(t.qty) || 0; const ops = t.ops || {}; const pct = krohnePct(t);
-  const chips = KROHNE_OPS.map(o => {
-    const v = Math.min(q || Infinity, Number(ops[o.key]) || 0);
-    const ok = q && v >= q;
-    return `<span class="kp-op ${ok ? "ok" : ""}">${o.short} ${v}${q ? "/" + q : ""}</span>`;
-  }).join(" ");
-  return `<div class="krohne-prog"><div class="kp-bar"><span style="width:${pct}%"></span></div><div class="kp-meta"><b>${pct}%</b> ${chips}</div></div>`;
-}
 
 // Машини по цехове (за задължителното записване на време при изработка)
 const MACHINES_BY_WORKSHOP = {
   "Лазери": ["DURMA 6kw", "DURMA 3kw", "Gweike 3kw", "Gweike combi", "Gweike Tube"],
   "CNC цех": ["Swiss Type 1", "Swiss Type 2", "VMC850", "VMC966", "Traub TNS60", "Лазерно Гравиране"],
+  "Преси": ["ЕП 80т", "ЕП 63т", "ЕП 40т", "ЕП 25т", "ЕП 10т", "Автоматична преса", "Хидравлична", "Бормашина"],
+  "Абкант": ["Абкант AD-ES 1240 Електр.", "Абкант AD-R 25100 Светльо", "Абкант AD-R 25100 Наско", "Абкант AD-R 3000", "Абкант HARIS", "Бормашина"],
 };
 // Преименуване на поле според избраната машина (напр. Gweike режат пръти, не листи)
 const MACHINE_TIME_LABELS = {
@@ -49,15 +22,31 @@ const MACHINE_TIME_LABELS = {
 // Полета за време по цех (key, етикет, мерна единица по подразбиране)
 const TIME_FIELDS_BY_WORKSHOP = {
   "Лазери": [
-    { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
-    { key: "tSheet", label: "Време за 1 лист", unit: "min" },
-    { key: "tOrder", label: "Време за цялата нарязана част", unit: "min" },
+    // Без „Време за 1 брой" — то се пресмята само от „Време за произведеното
+    // количество" ÷ брой. Допуска се да се въведат само две от трите стойности.
+    { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+    { key: "tSheet", label: "Време за един лист", unit: "min" },
   ],
   "CNC цех": [
     { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
     { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
   ],
+  "Преси": [
+    { key: "tSetup", label: "Време за настройка", unit: "min" },
+    { key: "tOrder", label: "Време за цялото количество", unit: "min" },
+  ],
+  "Абкант": [
+    { key: "tOrder", label: "Време за цялата поръчка", unit: "min" },
+    { key: "tSetup", label: "Време за настройка", unit: "min" },
+  ],
 };
+// Цехове, при които НЕ добавяме автоматичното поле „Специфична работа" (по желание
+// на цеха — да няма нищо излишно в прозореца).
+const NO_SPECIFIC_WORKSHOP = ["Преси", "Абкант"];
+// Цехове, в чийто списък със задачи НЕ показваме колоната „Дебелина".
+const HIDE_THICKNESS_WORKSHOPS = ["Заваръчно", "Преси"];
+// Цехове с колона „Взимам" — служителят сам взима задачата, за да се знае кой я произвежда.
+const CLAIM_WORKSHOPS = ["Лазери", "Абкант", "Преси", "РАЗКРОЙ ТРЪБИ"];
 // Допълнителни (текстови) полета по цех — напр. изразходени консумативи
 const EXTRA_FIELDS_BY_WORKSHOP = {
   "CNC цех": [
@@ -79,14 +68,8 @@ const WORKSHOPS_WITH_TIME = ["Лазери", "CNC цех"];
 const FIELDS_BY_WORKER = {
   "Иво Бончев": {
     byWorkshop: {
-      "Преси": {
-        machines: ["Автоматична Преса 1", "Автоматична Преса 2"],
-        timeFields: [
-          { key: "tPiece", label: "Време за 1 брой", unit: "sec" },
-          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
-          { key: "tSetup", label: "Време за настройка (спомагателно)", unit: "min" },
-        ],
-      },
+      // Преси — ползва стандартната настройка на цеха (машини + Време за
+      // настройка / Време за цялото количество), еднакво за всички пресари.
       "Сглобяване": {
         machines: false,        // няма машина
         timeFields: [],         // без времена — само бройка + кратко описание (в „Специфична работа“)
@@ -99,21 +82,24 @@ const FIELDS_BY_WORKER = {
       "Gweike 3kw 1": {
         qtyLabel: "Брой детайли",
         timeFields: [
-          { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
-          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+          { key: "tSheet", label: "Време за един лист", unit: "min" },
         ],
       },
       "Gweike 3kw 2": {
         qtyLabel: "Брой детайли",
         timeFields: [
-          { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
-          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+          { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
+          { key: "tSheet", label: "Време за един лист", unit: "min" },
         ],
       },
       "DURMA щанца": {
         qtyLabel: "Брой детайли",
         countFields: [{ key: "sheets", label: "Брой насечени листи" }],
-        timeFields: [{ key: "tSetup", label: "Време за пренастройка", unit: "min" }],
+        timeFields: [
+          { key: "tSheet", label: "Време за 1 лист", unit: "min" },
+          { key: "tSetup", label: "Време за пренастройка", unit: "min" },
+        ],
       },
     },
   },
@@ -218,6 +204,141 @@ let tasksLoaded = false;
 let tasksSubscribed = false;
 
 function amWorker() { return typeof MY_ACCESS !== "undefined" && MY_ACCESS && !MY_ACCESS.isAdmin; }
+// Цеховете на текущия служител (един или няколко).
+function myWorkshops() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && Array.isArray(MY_ACCESS.workshops) && MY_ACCESS.workshops.length) ? MY_ACCESS.workshops : (MY_ACCESS && MY_ACCESS.workshop ? [MY_ACCESS.workshop] : []); }
+function amMultiWorkshop() { return myWorkshops().length > 1; }
+// Ръчно въведена задача (не е пусната от системата по поток). Системните задачи
+// имат source.flow; ръчните (стар импорт / ръчно) нямат.
+function isManualTask(t) { return !(t && t.source && t.source.flow); }
+// Номер(а) на поръчката(ите), по които е този детайл (една серия може да е от няколко).
+/* Серия = няколко поръчки в една задача. За да не остава „СЕРИЯ" без
+   информация, показваме НАЙ-РАННИЯ срок и колко клиента са вътре, а цялата
+   разбивка (клиент · бройки · срок) е в подсказката. Важи и в Цехове, и в
+   Планиране — един и същ ред. */
+function taskSeriesOrders(t) {
+  const src = t && t.source;
+  return (src && Array.isArray(src.orders)) ? src.orders : [];
+}
+function taskSeriesBreakdown(t) {
+  return taskSeriesOrders(t).map(o =>
+    `${o.client || "—"}${o.no ? " (№" + o.no + ")" : ""}: ${matQtyFmt(Number(o.qty) || 0)} бр.${o.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(o.due) : o.due) : ""}`
+  ).join("\n");
+}
+function taskEarliestDue(t) {
+  const ds = taskSeriesOrders(t).map(o => o.due).filter(Boolean).sort();
+  return ds[0] || "";
+}
+
+function taskOrderNos(t) {
+  const src = t && t.source;
+  if (src && Array.isArray(src.orders) && src.orders.length) {
+    return [...new Set(src.orders.map(o => (o && o.no != null ? String(o.no).trim() : "")).filter(Boolean))];
+  }
+  return [];
+}
+
+// Всички клиенти, за които работи тази задача (серия може да е за няколко клиента).
+function taskClients(t) {
+  const set = new Set();
+  if (t && t.client) set.add(t.client);
+  const orders = t && t.source && t.source.orders;
+  if (Array.isArray(orders)) orders.forEach(o => { if (o && o.client) set.add(o.client); });
+  return [...set];
+}
+
+// Прозорец „Поръчки в производство" — за ВСИЧКИ (чете от задачите, без ЕРП).
+// Показва пуснатите поръчки (с незавършени задачи) и детайлите на всяка.
+function openOrdersInProduction() {
+  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
+  const orders = {};
+  TASKS.forEach(t => {
+    const src = t.source;
+    if (!src || !src.flow) return;
+    const os = (Array.isArray(src.orders) && src.orders.length) ? src.orders : [{ id: src.seriesKey, no: "", client: t.client || "" }];
+    os.forEach(o => {
+      const id = String(o.id);
+      const e = orders[id] || (orders[id] = { id, no: o.no || "", client: o.client || "", tasks: [] });
+      if (!e.no && o.no) e.no = o.no;
+      if (!e.client && o.client) e.client = o.client;
+      e.tasks.push(t);
+    });
+  });
+  const isDone = t => taskStatus(t) === "done";
+  let list = Object.values(orders).map(o => {
+    const total = o.tasks.length, done = o.tasks.filter(isDone).length;
+    return Object.assign(o, { total, done, active: done < total });
+  }).filter(o => o.active);   // в производство = има още незавършени операции
+  list.sort((a, b) => String(a.no || "").localeCompare(String(b.no || ""), "bg", { numeric: true }) || String(a.client || "").localeCompare(String(b.client || ""), "bg"));
+
+  const opState = t => {
+    const q = Number(t.qty) || 0, p = Number(t.produced) || 0;
+    if (q > 0 && p >= q) return { ic: "✅", cls: "ost-done" };
+    const av = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : (q - p);
+    if (av > 0) return p > 0 ? { ic: "🔵", cls: "ost-prog" } : { ic: "🟢", cls: "ost-ready" };
+    return { ic: "⏳", cls: "ost-prev" };
+  };
+  const detailsHtml = o => {
+    const byCode = {};
+    o.tasks.forEach(t => { const k = t.code || t.product || "?"; (byCode[k] = byCode[k] || { code: t.code || "", product: t.product || "", ops: [] }).ops.push(t); });
+    return Object.values(byCode).map(g => {
+      g.ops.sort((a, b) => ((a.source && a.source.step) || 0) - ((b.source && b.source.step) || 0));
+      const stocked = (function () { const lt = g.ops.find(t => t.source && t.source.last); return lt ? (Number(lt.source.stocked) || 0) : 0; })();
+      return `<div class="oip-detail"><div class="oip-detail-h">🔩 <b>${escapeHtml(g.code)}</b> ${escapeHtml(g.product)}${stocked > 0 ? ` <span class="ost-stocked">📥 в склада: ${stocked}</span>` : ""}</div>
+        <div class="oip-ops">${g.ops.map(t => { const s = opState(t); return `<span class="oip-op ${s.cls}">${s.ic} ${escapeHtml(t.operation || "")}${Number(t.opsPerUnit) > 1 ? " ×" + t.opsPerUnit + "/бр." : ""} ${Number(t.produced) || 0}/${Number(t.qty) || 0}${t.workshop ? " · " + escapeHtml(t.workshop) : ""}</span>`; }).join("")}</div></div>`;
+    }).join("");
+  };
+
+  const html = `<div class="sim-dialog oip-dialog">
+    <h3>📋 Поръчки в производство (${list.length})</h3>
+    <p class="hint">Пуснатите поръчки с още незавършени операции. Натисни поръчка, за да видиш детайлите ѝ и докъде са стигнали.</p>
+    <div class="oip-list">${list.map(o => `
+      <div class="oip-order">
+        <button type="button" class="oip-head" data-oid="${escapeAttr(o.id)}">
+          <span class="oip-toggle">▾</span> 📦 ${o.no ? "№" + escapeHtml(o.no) : "СЕРИЯ"} · <b>${escapeHtml(o.client || "—")}</b>
+          <span class="oip-prog">${o.done}/${o.total} операции</span>
+        </button>
+        <div class="oip-body" data-body="${escapeAttr(o.id)}" hidden>${detailsHtml(o)}</div>
+      </div>`).join("") || `<p class="report-empty">Няма поръчки в производство.</p>`}</div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="oip-close">Затвори</button></div>
+  </div>`;
+
+  let wrap, close;
+  if (typeof erpDialog === "function") { ({ wrap, close } = erpDialog(html)); const box = wrap.querySelector(".erp-dialog-box"); if (box) box.classList.add("sim-box"); }
+  else {
+    wrap = document.createElement("div"); wrap.className = "overlay erp-dialog"; wrap.innerHTML = `<div class="erp-dialog-box sim-box">${html}</div>`;
+    document.body.appendChild(wrap); close = () => wrap.remove(); wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  }
+  wrap.querySelector("#oip-close").addEventListener("click", close);
+  wrap.querySelectorAll(".oip-head").forEach(b => b.addEventListener("click", () => {
+    const body = wrap.querySelector(`.oip-body[data-body="${CSS.escape(b.dataset.oid)}"]`);
+    if (body) { body.hidden = !body.hidden; const tg = b.querySelector(".oip-toggle"); if (tg) tg.textContent = body.hidden ? "▾" : "▴"; }
+  }));
+}
+
+// Отговорници на задачата — вече може да са НЯКОЛКО (напр. двама на Абкант работят
+// едно и също). Пази съвместимост със стария единичен t.assignee.
+function taskAssignees(t) {
+  if (t && Array.isArray(t.assignees) && t.assignees.length) return t.assignees.filter(Boolean);
+  return (t && t.assignee) ? [t.assignee] : [];
+}
+function taskSetAssignees(t, arr) {
+  const a = [...new Set((arr || []).filter(Boolean))];
+  t.assignees = a;
+  t.assignee = a[0] || "";   // първият е „основен" (за подредба и стар код)
+}
+function taskHasWorker(t, w) { return !!w && taskAssignees(t).includes(w); }
+
+// „Готова за работа" в този цех: има остатък за правене И не чака детайли от друг
+// цех. Гейтваните поточни задачи са готови само ако предната операция вече е дала
+// детайли (erpFlowAvailable > 0). Първите операции и ръчните не чакат никого.
+function taskIsReady(t, flowMap) {
+  const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+  if (qty > 0 && prod >= qty) return false;   // вече е готова/завършена
+  const gated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
+  if (!gated) return true;                     // първа операция / ръчна — не чака друг цех
+  if (typeof erpFlowAvailable !== "function") return true;
+  return (erpFlowAvailable(t, flowMap || {}) || 0) > 0;
+}
 
 async function tLoadRoles() {
   const { data } = await sb.from("app_config").select("*").eq("id", "roles").maybeSingle();
@@ -276,6 +397,18 @@ async function tLoadWorkers() {
   }
   TASK_DEFAULT_WORKSHOPS.forEach(w => { if (!WORKERS[w]) WORKERS[w] = []; });
 
+  // Гарантирано добавяне на служители за нови цехове (извън seeded_v1 guard-а, за
+  // да важи и за вече инициализирани инсталации). Идемпотентно.
+  const ENSURE_WORKERS = {
+    "ЦЕХ РОГОШ": ["Илияна Колева", "Лилия Атанасова", "Румяна Сулакова"],
+  };
+  let ensured = false;
+  for (const [ws, names] of Object.entries(ENSURE_WORKERS)) {
+    WORKERS[ws] = WORKERS[ws] || [];
+    names.forEach(n => { if (!WORKERS[ws].includes(n)) { WORKERS[ws].push(n); ensured = true; } });
+  }
+  if (ensured) await tSaveWorkers();
+
   // Почистване на грешно добавени „служители“, които са само числа
   let cleaned = false;
   Object.keys(WORKERS).forEach(w => {
@@ -290,8 +423,23 @@ async function tSaveWorkers() {
     .upsert({ id: "workers", data: { workshops: WORKERS, seeded_v1: workersSeededV1 }, updated_at: new Date().toISOString() });
   if (error) alert("Грешка при запис на служителите: " + error.message);
 }
+let TASKS_INCOMPLETE = null;   // {expected, got} — ако базата има повече задачи, отколкото сме изтеглили
+
 async function tLoadTasks() {
-  const { data, error } = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
+  // Странициране (базата връща макс. 1000 наведнъж): без него задачите над
+  // 1000 просто липсваха. erpSelectAll тегли страниците паралелно И сверява
+  // броя с базата — при разминаване вдига белег, който излиза на екрана.
+  let data, error;
+  TASKS_INCOMPLETE = null;
+  if (typeof erpSelectAll === "function") {
+    const r = await erpSelectAll("tasks", "id,data,done,updated_at");
+    data = r.data; error = r.error;
+    if (r.truncated) TASKS_INCOMPLETE = { expected: r.expected, got: r.got };
+    if (!error) data = (data || []).slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  } else {
+    const r = await sb.from("tasks").select("*").order("updated_at", { ascending: false });
+    data = r.data; error = r.error;
+  }
   if (error) { alert("Грешка при зареждане на задачите: " + error.message); return; }
   TASKS = (data || []).map(r => {
     const t = { ...r.data, id: r.id };
@@ -304,7 +452,7 @@ async function tLoadTasks() {
 async function tSaveTask(t) {
   t.updatedAt = new Date().toISOString();
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
-  const done = qty > 0 && prod >= qty;
+  const done = !!t.closed || (qty > 0 && prod >= qty);
   const { error } = await sb.from("tasks").update({ data: t, done, updated_at: t.updatedAt }).eq("id", t.id);
   if (error) console.error("save task", error);
 }
@@ -313,24 +461,144 @@ function workshopList() {
   const extra = Object.keys(WORKERS).filter(w => !TASK_DEFAULT_WORKSHOPS.includes(w));
   return [...TASK_DEFAULT_WORKSHOPS, ...extra];
 }
+// Източниците, от които тази поточна стъпка чака детайли (предната операция и/или
+// вложените части) — с цех, операция и готовност. За информационния надпис „чака от".
+function flowWaitSources(t, seriesInfo, flowMap) {
+  const src = t && t.source;
+  if (!src || !src.flow) return [];
+  // Гейтът може да носи низове (стар формат) или { key, need } (нужното за ТОЗИ
+  // възел). Нормализираме до { key, need } и не дублираме ключове.
+  const items = [];
+  const seen = {};
+  const push = (key, need) => { if (!key || seen[key]) return; seen[key] = 1; items.push({ key, need }); };
+  if (src.prevKey) push(src.prevKey, null);
+  if (Array.isArray(src.gate)) src.gate.forEach(entry => {
+    if (typeof entry === "string") push(entry, null);
+    else if (entry && entry.key) push(entry.key, Number(entry.need) || 0);
+  });
+  return items.map(({ key, need }) => {
+    const info = (seriesInfo && seriesInfo[key]) || {};
+    const g = (flowMap && flowMap[key]) || {};
+    const parts = String(key).split("¦");
+    const target = (need != null && need > 0) ? Math.min(need, Number(g.qty) || 0) : (Number(g.qty) || 0);
+    return {
+      workshop: info.workshop || "", operation: info.operation || parts[1] || "",
+      code: info.code || parts[0] || "", product: info.product || "",
+      produced: Number(g.produced) || 0, qty: target,
+    };
+  });
+}
+// Форматира бройка/кг (материалите може да са дробни).
+function matQtyFmt(n) {
+  if (typeof erpNum === "function") return erpNum(n);
+  const x = Number(n) || 0;
+  return (Math.round(x * 1000) / 1000).toLocaleString("bg-BG");
+}
+// Липсва ли материал за ОСТАВАЩОТО количество на тази задача (за 1-ва операция).
+// Връща списък недостигащи материали или null. Ползва живите наличности от ERP.
+function taskMaterialShort(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return null;
+  if (typeof ERP === "undefined" || !ERP.matById) return null;
+  const remaining = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+  if (remaining <= 0) return null;
+  const short = [];
+  src.materials.forEach(m => {
+    const mat = ERP.matById[m.mid] || {};
+    const need = (Number(m.per) || 0) * remaining;
+    const have = Number(mat.stock) || 0;
+    if (need > 0 && have < need) short.push({ code: mat.code || "", name: mat.name || "", unit: mat.unit || "", need, have, short: need - have });
+  });
+  return short.length ? short : null;
+}
+/* Поточна ли е задачата — пусната от заявка по рецепта (има връзки нагоре и
+   надолу по веригата). Такава НЕ се трие поединично. */
+function isFlowTask(t) {
+  const s = t && t.source;
+  return !!(s && (s.flow || s.kind === "series" || s.seq));
+}
+
+/* Какво зависи от тази задача: следващата операция (prevKey) и сглобяванията,
+   които я чакат (gate). За обяснението защо не се трие. */
+function flowTaskDependents(t) {
+  const key = t && t.source && t.source.seriesKey;
+  if (!key) return { next: [], gates: [] };
+  const next = [], gates = [];
+  (TASKS || []).forEach(x => {
+    const s = x.source; if (!s || String(x.id) === String(t.id)) return;
+    if (s.prevKey === key) next.push(x);
+    if (Array.isArray(s.gate) && s.gate.some(g => (typeof g === "string" ? g : (g && g.key)) === key)) gates.push(x);
+  });
+  return { next, gates };
+}
+
+/* Прозорецът вместо триене: обяснява и предлага правилните два изхода. */
+function flowTaskCloseDialog(t) {
+  const d = flowTaskDependents(t);
+  const nos = (typeof taskOrderNos === "function") ? taskOrderNos(t) : [];
+  const line = x => `<div class="erp-lp-item" style="cursor:default"><b>${escapeHtml(x.workshop || "")}</b> · ${escapeHtml(x.operation || "")} — ${escapeHtml(x.code || "")} ${escapeHtml(x.product || "")}</div>`;
+  const { wrap, close } = erpDialog(`
+    <h3>⛔ Поточна задача не се трие</h3>
+    <p class="hint" style="margin:-4px 0 8px">
+      <b>${escapeHtml(t.code || "")} ${escapeHtml(t.product || "")}</b> · ${escapeHtml(t.operation || "")} · ${escapeHtml(t.workshop || "")}
+      ${nos.length ? `<br>Заявка № ${escapeHtml(nos.join(", "))}` : ""}</p>
+    <p class="hint">Тази задача е брънка от веригата на заявката. Изтриването ѝ:</p>
+    <ul class="hint" style="margin:0 0 8px 18px">
+      <li>оставя <b>следващата операция да чака вечно</b> (чете „произведени 0" от липсващата);</li>
+      <li>кара <b>сглобяването да спре да чака</b> тази част (мисли я за налична);</li>
+      <li>оставя движенията ѝ в склада — при повторно пускане бройките влизат <b>втори път</b>.</li>
+    </ul>
+    ${(d.next.length || d.gates.length) ? `<h4 class="erp-group-head">Зависят от нея (${d.next.length + d.gates.length})</h4>
+      <div class="erp-lp-list" style="max-height:24vh;overflow:auto">${d.next.map(line).join("")}${d.gates.map(line).join("")}</div>` : ""}
+    <h4 class="erp-group-head">Правилните два изхода</h4>
+    <p class="hint" style="margin:0 0 8px">
+      <b>1. Спиране на цялата заявка</b> — ЕРП → Заявки → „↩ Изтегли от производство". Маха всички задачи наведнъж, чисти движенията и връща резервираната наличност.<br>
+      <b>2. Само да се махне от екрана</b> — „🗄 Закрий" отдолу. Отива в 🗄 Архив производство, веригата остава цяла, връща се по всяко време.</p>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="ftc-x">Отказ</button>
+      <button class="btn btn-primary" id="ftc-close">🗄 Закрий задачата</button>
+    </div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector("#ftc-x").addEventListener("click", close);
+  wrap.querySelector("#ftc-close").addEventListener("click", async () => {
+    if (!confirm(`Да закрия ли задачата?\n\nОтива в 🗄 Архив производство. Нищо не се трие — отчетите, движенията и веригата остават. Може да я върнеш от „🧹 Стари задачи → Виж закритите".`)) return;
+    t.closed = true; t.closedAt = new Date().toISOString();
+    await tSaveTask(t);
+    close(); renderTasks();
+    if (PROD_MODE) renderProdWsBar();
+  });
+}
+
 function taskStatus(t) {
-  if (isKrohne(t)) {
-    if (krohneDone(t)) return "done";
-    const ops = t.ops || {};
-    return KROHNE_OPS.some(o => (Number(ops[o.key]) || 0) > 0) ? "progress" : "todo";
-  }
+  if (t && t.closed) return "done";   // ръчно закрита (🧹 Стари задачи) — отива в архива
   const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
   if (qty > 0 && prod >= qty) return "done";
   if (prod > 0) return "progress";
   return "todo";
 }
+/* ЖИВА ли е задачата (още се работи по нея).
+   ВАЖНО: колоната „done" от базата НЕ влиза в обекта на задачата (той се
+   гради от data), затова проверки от типа „!t.done" пропускаха ВСИЧКО —
+   включително отдавна произведените. Оттук нататък се пита само това. */
+function taskIsOpen(t) { return taskStatus(t) !== "done"; }
 
 /* ---------- Отваряне / изгледи ---------- */
 async function openTasks() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   document.getElementById("tasks-modal").hidden = false;
   showSub("tasks");
-  if (!tasksLoaded) { await tLoadWorkers(); await tLoadRoles(); await tLoadTasks(); await mLoad(); tasksLoaded = true; subscribeTasks(); subscribeMessages(); }
+  if (!tasksLoaded) {
+    // Четирите зареждания са независими → ПАРАЛЕЛНО (преди се чакаха едно
+    // друго и отварянето на Цехове се бавеше).
+    await Promise.all([tLoadWorkers(), tLoadRoles(), tLoadTasks(), mLoad()]);
+    tasksLoaded = true; subscribeTasks(); subscribeMessages();
+  }
+  // Чертежите на бързите изделия се опресняват при ВСЯКО отваряне (иначе
+  // изделие, създадено след първото отваряне, оставаше без 📄 до презареждане).
+  tLoadQuickDrawings().then(() => {
+    const tv = document.getElementById("tasks-view");
+    if (tv && !tv.hidden) renderTasks();
+  }).catch(() => {});
   msgNotifyState = snapshotNotify();
   requestNotifyPermission();
   applyTasksAccess();
@@ -338,6 +606,705 @@ async function openTasks() {
   renderWorkerFilter();
   mUpdateBadge();
   renderTasks();
+  // 🎨 Авто-боя: избутай натрупаното в Бояджийно (фонoво, после пре-рисува).
+  if (typeof erpAutoPaint === "function") {
+    erpAutoPaint().then(n => { if (n && !document.getElementById("tasks-modal").hidden) renderTasks(); }).catch(() => {});
+  }
+  // Зареждаме наличностите на материалите за индикатора „чака материал" (без да
+  // бавим таблицата) и пре-рисуваме, щом дойдат.
+  if (typeof erpEnsureLoaded === "function") {
+    erpEnsureLoaded().then(() => { if (typeof erpRefreshMatStock === "function") return erpRefreshMatStock(); })
+      .then(() => { if (!document.getElementById("tasks-modal").hidden) renderTasks(); })
+      .catch(() => {});
+  }
+}
+
+/* ---------- 🏭 ПРОИЗВОДСТВО (админски изглед) ----------
+   СЪЩИТЕ данни, същите бутони и същите действия като „Цехове" — само
+   подредени за офиса: цеховете са бутони, редовете са стегнати, всичко
+   се побира на екран. Затова всяка корекция минава през същата логика
+   (отчитане, брак, преместване, вериги, склад) — няма втора истина. */
+let PROD_MODE = false;
+let PROD_FREE_FIRST = true;       // неразпределените най-горе
+/* Филтър по ОПЕРАЦИЯ през всички цехове. Рецептите пращат една и съща
+   операция (напр. „набиване на гайка") в различни цехове; така се вижда
+   цялата ѝ картина наведнъж и се събира на едно място. */
+let PROD_OP = "";
+function opNorm(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+
+/* ---------- Семейства цехове (само в Планиране) ----------
+   Рецептите пращат заваряването в няколко цеха („Заваръчно", „Заваряване",
+   „Заваръчно роботи"…). В Планирането те са ЕДНО общо ЗАВАРЯВАНЕ — както
+   служителят го вижда в Цехове. Стойността на филтъра е „__fam:зав". */
+const WS_FAMILIES = [
+  { key: "__fam:зав", label: "ЗАВАРЯВАНЕ", re: /^зав/ },
+];
+function wsNorm(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+function wsFamilyOf(name) { const n = wsNorm(name); const f = WS_FAMILIES.find(x => x.re.test(n)); return f ? f.key : ""; }
+function wsFamilyLabel(key) { const f = WS_FAMILIES.find(x => x.key === key); return f ? f.label : key; }
+function wsIsFamily(sel) { return String(sel || "").startsWith("__fam:"); }
+// Реалните цехове зад избора (за списъците със служители).
+function wsMembers(sel) {
+  if (!wsIsFamily(sel)) return [sel];
+  return [...new Set([...workshopList(), ...(TASKS || []).map(t => t.workshop || "")])].filter(w => w && wsFamilyOf(w) === sel);
+}
+// Влиза ли задачата в избрания цех/семейство.
+function wsInScope(taskWs, sel) {
+  if (!sel || sel === "__all") return true;
+  if (wsIsFamily(sel)) return wsFamilyOf(taskWs) === sel;
+  return taskWs === sel;
+}
+// Служителите на избраното (цех, семейство или всички).
+let WS_WORKERS_MEMO = {};   // нулира се в renderTasks
+function wsWorkersOf(sel) {
+  const k = String(sel || "__all");
+  if (WS_WORKERS_MEMO[k]) return WS_WORKERS_MEMO[k];
+  let out;
+  if (!sel || sel === "__all") out = [...new Set(Object.values(WORKERS).flat())];
+  else if (sel === "__mine") out = [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))];
+  else out = [...new Set(wsMembers(sel).flatMap(w => WORKERS[w] || []))];
+  return (WS_WORKERS_MEMO[k] = out);
+}
+let WORKER_CAP = { def: 8, byWorker: {} };   // часове/ден за планиране
+
+async function openProduction() {
+  PROD_MODE = true;
+  await openTasks();
+  try { await loadWorkerCap(); } catch (e) {}
+  const box = document.querySelector("#tasks-modal .tasks-box");
+  if (box) box.classList.add("prod-mode");
+  const h = document.querySelector("#tasks-modal .tasks-head h2");
+  if (h) h.textContent = "📊 Планиране на производство — раздаване на задачите по служители";
+  renderProdWsBar();
+}
+// Изключва админския режим (при връщане към обикновените Цехове).
+function prodModeOff() {
+  PROD_MODE = false;
+  PROD_OP = "";
+  const asgTh = document.querySelector('.tasks-table thead th[data-sort="assignee"]');
+  if (asgTh) asgTh.textContent = "Отговорник";
+  const box = document.querySelector("#tasks-modal .tasks-box");
+  if (box) box.classList.remove("prod-mode");
+  const h = document.querySelector("#tasks-modal .tasks-head h2");
+  if (h) h.textContent = "🏭 Производство по цехове";
+  const bar = document.getElementById("prod-ws-bar"); if (bar) bar.remove();
+}
+
+// Брой служители в текущия цех — до бутона „👤 Служители".
+function updateWorkersCount() {
+  const el = document.getElementById("workers-count");
+  if (!el) return;
+  if (!PROD_MODE) { el.textContent = ""; return; }   // само в Планиране
+  const ws = currentWorkshop();
+  const n = wsWorkersOf(ws).length;
+  el.textContent = n ? ` (${n})` : "";
+}
+
+/* Опис на живите операции през ВСИЧКИ цехове: колко задачи има всяка и в
+   кои цехове е разпръсната. Имената се сравняват без разлика в главни букви
+   и интервали (същата операция често е изписана по няколко начина). */
+function prodOpIndex() {
+  const by = {};
+  (TASKS || []).forEach(t => {
+    if (!taskIsOpen(t)) return;
+    if (t.source && t.source.kind === "extra") return;
+    const key = opNorm(t.operation);
+    if (!key) return;
+    const e = by[key] || (by[key] = { key, label: String(t.operation || "").trim(), n: 0, ws: {} });
+    e.n++;
+    e.ws[t.workshop || ""] = (e.ws[t.workshop || ""] || 0) + 1;
+  });
+  return Object.values(by).map(e => {
+    e.shops = Object.keys(e.ws).map(w => ({ ws: w, n: e.ws[w] })).sort((a, b) => b.n - a.n);
+    return e;
+  }).sort((a, b) => (b.shops.length - a.shops.length) || a.label.localeCompare(b.label, "bg"));
+}
+
+// Лентата с цеховете като бутони + брой активни задачи във всеки.
+function renderProdWsBar() {
+  if (!PROD_MODE) return;
+  // В планирането колоната е за раздаване на задачите → „Възложи на".
+  const asgTh = document.querySelector('.tasks-table thead th[data-sort="assignee"]');
+  if (asgTh) asgTh.textContent = "Възложи на";
+  updateWorkersCount();
+  const host = document.querySelector("#tasks-modal .tasks-controls");
+  if (!host) return;
+  let bar = document.getElementById("prod-ws-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "prod-ws-bar";
+    bar.className = "prod-ws-bar";
+    host.parentNode.insertBefore(bar, host);
+  }
+  const sel = document.getElementById("task-workshop");
+  const cur = sel ? sel.value : "__all";
+  const cnt = {};
+  (TASKS || []).forEach(t => { if (taskIsOpen(t)) { const k = wsFamilyOf(t.workshop) || t.workshop; cnt[k] = (cnt[k] || 0) + 1; } });
+  const btn = (val, label, n) =>
+    `<button type="button" class="prod-ws${cur === val ? " active" : ""}" data-ws="${escapeAttr(val)}">${escapeHtml(label)}${n ? ` <span class="prod-ws-n">${n}</span>` : ""}</button>`;
+  // Заваряванията са ЕДИН чип (семейство) — както е в Цехове.
+  const chips = [];
+  const famDone = {};
+  workshopList().forEach(w => {
+    const f = wsFamilyOf(w);
+    if (f) { if (!famDone[f]) { famDone[f] = 1; chips.push({ val: f, label: wsFamilyLabel(f) }); } }
+    else chips.push({ val: w, label: w });
+  });
+  WS_FAMILIES.forEach(f => { if (!famDone[f.key] && cnt[f.key]) chips.push({ val: f.key, label: f.label }); });
+  // Операциите през ВСИЧКИ цехове (една и съща операция често е разпръсната).
+  const ops = prodOpIndex();
+  const opSel = `<label class="prod-op-lbl">⚙ Операция
+      <select id="prod-op" title="Показва тази операция във ВСИЧКИ цехове — така се вижда цялата ѝ картина наведнъж">
+        <option value="">— всички операции —</option>
+        ${ops.map(o => `<option value="${escapeAttr(o.key)}"${PROD_OP === o.key ? " selected" : ""}>${escapeHtml(o.label)} (${o.n})${o.shops.length > 1 ? ` · ${o.shops.length} цеха` : ""}</option>`).join("")}
+      </select></label>`;
+  const curOp = PROD_OP ? ops.find(o => o.key === PROD_OP) : null;
+  const opInfo = curOp ? `<div class="prod-op-info">
+      <b>${escapeHtml(curOp.label)}</b> — ${curOp.n} задачи в ${curOp.shops.length} ${curOp.shops.length === 1 ? "цех" : "цеха"}:
+      ${curOp.shops.map(s => `<button type="button" class="prod-op-ws${cur === s.ws ? " active" : ""}" data-ows="${escapeAttr(s.ws)}" title="Само този цех">${escapeHtml(s.ws || "— без цех —")} <b>${s.n}</b></button>`).join("")}
+      ${cur !== "__all" ? `<button type="button" class="prod-op-ws" data-ows="__all">↺ всички цехове</button>` : ""}
+      <span class="prod-op-tip">Маркирай редовете и ги събери с „🔀 Прехвърли в цех".</span>
+    </div>` : "";
+  bar.innerHTML = chips.map(c => btn(c.val, c.label, cnt[c.val] || 0)).join("") + opSel + opInfo;
+  renderProdLoadBar();
+  const opEl = bar.querySelector("#prod-op");
+  if (opEl) opEl.addEventListener("change", () => {
+    PROD_OP = opEl.value;
+    // Операцията се гледа през всички цехове — иначе филтърът се самоограничава.
+    if (PROD_OP) { const s = document.getElementById("task-workshop"); if (s) s.value = "__all"; }
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+    renderProdWsBar();
+  });
+  bar.querySelectorAll("[data-ows]").forEach(b => b.addEventListener("click", () => {
+    const s = document.getElementById("task-workshop");
+    if (s) s.value = b.dataset.ows;
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+    renderProdWsBar();
+  }));
+  bar.querySelectorAll(".prod-ws").forEach(b => b.addEventListener("click", () => {
+    const s = document.getElementById("task-workshop");
+    if (s) { s.value = b.dataset.ws; }
+    selectedTasks.clear();
+    renderWorkerFilter();
+    renderTasks();
+    renderProdWsBar();
+  }));
+}
+
+/* Дневен капацитет (часове/ден) по служител — за да се вижда „N дни работа".
+   Пази се в app_config → worker_capacity. По подразбиране 8 ч/ден. */
+async function loadWorkerCap() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "worker_capacity").maybeSingle();
+    const d = (data && data.data) || {};
+    WORKER_CAP = { def: Number(d.def) > 0 ? Number(d.def) : 8, byWorker: d.byWorker || {} };
+  } catch (e) {}
+}
+function capOf(worker) {
+  const v = Number((WORKER_CAP.byWorker || {})[worker]);
+  return v > 0 ? v : (Number(WORKER_CAP.def) > 0 ? Number(WORKER_CAP.def) : 8);
+}
+async function workerCapDialog() {
+  const ws = currentWorkshop();
+  const names = wsWorkersOf(ws);
+  const { wrap, close } = erpDialog(`
+    <h3>⚙ Дневен капацитет (часове/ден)</h3>
+    <p class="hint" style="margin:-4px 0 8px">Спрямо него се смята „~N дни работа" на всеки служител. Празно = по подразбиране.</p>
+    <label class="erp-inline">По подразбиране за всички <input type="number" id="wc-def" min="1" step="0.5" value="${WORKER_CAP.def}" style="width:80px" /> ч/ден</label>
+    <div class="erp-lp-list" style="max-height:46vh;overflow:auto;margin-top:8px">
+      ${names.map(n => `<label class="erp-inline" style="display:flex;justify-content:space-between;gap:8px;padding:3px 0">
+        <span>${escapeHtml(n)}</span>
+        <input type="number" class="wc-w" data-w="${escapeAttr(n)}" min="0" step="0.5" value="${escapeAttr(String((WORKER_CAP.byWorker || {})[n] || ""))}" placeholder="${WORKER_CAP.def}" style="width:80px" /></label>`).join("") || '<p class="erp-muted">Няма служители в този цех.</p>'}
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="wc-cancel">Отказ</button><button class="btn btn-primary" id="wc-save">Запази</button></div>`);
+  wrap.querySelector("#wc-cancel").addEventListener("click", close);
+  wrap.querySelector("#wc-save").addEventListener("click", async () => {
+    const def = Number(wrap.querySelector("#wc-def").value) || 8;
+    const by = { ...(WORKER_CAP.byWorker || {}) };
+    wrap.querySelectorAll(".wc-w").forEach(i => {
+      const v = Number(i.value);
+      if (v > 0) by[i.dataset.w] = v; else delete by[i.dataset.w];
+    });
+    WORKER_CAP = { def, byWorker: by };
+    try { await sb.from("app_config").upsert({ id: "worker_capacity", data: WORKER_CAP, updated_at: new Date().toISOString() }); } catch (e) {}
+    close(); renderProdLoadBar();
+  });
+}
+
+/* ⚙ Сливане: в кои цехове поръчките да НЕ се сливат в обща серия.
+   Сливането пести настройки и материал, но крие сроковете на отделните
+   поръчки. Тук се изключва там, където пречи. Важи при следващото пускане
+   на заявка — вече създадените задачи не се разделят със задна дата. */
+async function seriesMergeDialog() {
+  let off = [];
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "series_off").maybeSingle();
+    off = (data && data.data && data.data.workshops) || [];
+  } catch (e) {}
+  const list = workshopList();
+  const { wrap, close } = erpDialog(`
+    <h3>⚙ Сливане на поръчките в серии</h3>
+    <p class="hint" style="margin:-4px 0 8px">Сливането прави ЕДНА задача от няколко поръчки за същия код и операция — една настройка, по-малко отпадък. Отметни цеховете, в които НЕ искаш сливане (всяка поръчка = отделна задача).</p>
+    <div class="erp-lp-list" style="max-height:46vh;overflow:auto">
+      ${list.map(w => `<label class="erp-inline" style="display:block;padding:3px 0"><input type="checkbox" class="sm-w" value="${escapeAttr(w)}" ${off.includes(w) ? "checked" : ""}> ${escapeHtml(w)}</label>`).join("")}
+    </div>
+    <p class="hint" style="margin:8px 0 0">⚠ Важи за задачите, които ще се пуснат ОТСЕГА нататък. Вече пуснатите остават както са.</p>
+    <div class="erp-dialog-actions"><button class="btn" id="sm-cancel">Отказ</button><button class="btn btn-primary" id="sm-save">Запази</button></div>`);
+  wrap.querySelector("#sm-cancel").addEventListener("click", close);
+  wrap.querySelector("#sm-save").addEventListener("click", async () => {
+    const ws = [...wrap.querySelectorAll(".sm-w")].filter(i => i.checked).map(i => i.value);
+    try { await sb.from("app_config").upsert({ id: "series_off", data: { workshops: ws }, updated_at: new Date().toISOString() }); } catch (e) {}
+    close();
+    alert(ws.length ? `Без сливане в: ${ws.join(", ")}.\nВажи за новите пускания.` : "Сливането е включено за всички цехове.");
+  });
+}
+
+/* Планът за смяната за САМИЯ служител — БЕЗ да сменяме изгледа му:
+   само бутон в лентата горе, който отваря списъка. Редът е същият,
+   зададен от офиса в „Планиране на производство". */
+/* За кой ден има ЗАПИСАН план от офиса: днес, иначе утре, иначе няма. */
+function myPlanDay() {
+  const me = MY_WORKER || "";
+  if (!me) return "";
+  const has = d => (TASKS || []).some(t => taskIsOpen(t) && t.plan && t.plan.worker === me && t.plan.day === d);
+  const today = todayStr();
+  if (has(today)) return today;
+  const tom = shiftDayISO(1);
+  if (has(tom)) return tom;
+  return "";
+}
+/* Задачите за прозореца. С ден → планираните за него, в реда на офиса.
+   БЕЗ ден (офисът още не е записал план) → всичките му възложени задачи по
+   срок, за да не остава служителят без списък. */
+function myShiftPlanTasks(day) {
+  const me = MY_WORKER || "";
+  if (!me) return [];
+  if (day) {
+    return (TASKS || []).filter(t => taskIsOpen(t) && t.plan && t.plan.worker === me && t.plan.day === day)
+      .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
+  }
+  return (TASKS || []).filter(t => taskIsOpen(t) && taskAssignees(t).includes(me))
+    .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
+}
+function renderMyShiftPlan() {
+  const btn = document.getElementById("tasks-myplan");
+  if (!btn) return;
+  const me = MY_WORKER || "";
+  const day = myPlanDay();
+  const list = me ? myShiftPlanTasks(day) : [];
+  btn.hidden = !me || !list.length;
+  if (btn.hidden) return;
+  const dTxt = d => (typeof erpDMY === "function" ? erpDMY(d) : d);
+  btn.textContent = day
+    ? (day === todayStr() ? `📅 План за смяната (${list.length})` : `📅 План за ${dTxt(day)} (${list.length})`)
+    : `📅 Моите задачи (${list.length})`;
+  btn.title = day
+    ? "Планът за смяната, зададен от офиса"
+    : "Офисът още не е записал ред за днес — това са всичките ти задачи, подредени по срок";
+}
+function myShiftPlanDialog() {
+  const day = myPlanDay();
+  const list = myShiftPlanTasks(day);
+  const today = day || todayStr();
+  if (!list.length) { alert("Нямаш възложени задачи в момента."); return; }
+  const rows = list.map((t, i) => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    const nos = taskOrderNos(t);
+    const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ");
+    return `<div class="msp-row"><span class="msp-n">${i + 1}</span>
+      <span class="msp-b"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
+      <small>${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}${escapeHtml(t.operation || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}</small></span></div>`;
+  }).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>${day ? "📅 План за смяната" : "📅 Моите задачи"} — ${escapeHtml(MY_WORKER || "")} · ${typeof erpDMY === "function" ? erpDMY(today) : today}</h3>
+    <p class="hint" style="margin:-4px 0 8px">${day
+      ? "Работи по този ред. Отчитането е както обикновено — от таблицата със задачите."
+      : "Офисът още не е записал ред за деня — това са всичките ти задачи, подредени по срок. Отчитането е както обикновено, от таблицата."}</p>
+    <div class="erp-lp-list" style="max-height:60vh;overflow:auto">${rows}</div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="msp-close">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector("#msp-close").addEventListener("click", close);
+}
+
+/* 📅 ПЛАН ЗА СМЯНАТА — подреждане на задачите на един служител за днес/утре.
+   Редът се пази В ЗАДАЧАТА (t.plan = {worker, day, seq}), затова се вижда и
+   в Цехове, и в разпечатката за бригадира. Тук само подреждаме — отчита цехът. */
+function shiftDayISO(offset) {
+  const d = new Date(); d.setDate(d.getDate() + (offset || 0));
+  return d.toISOString().slice(0, 10);
+}
+function shiftPlanDialog(preWorker) {
+  const ws = currentWorkshop();
+  const names = wsWorkersOf(ws);
+  if (!names.length) { alert("В този цех още няма служители — добави ги от бутона Служители."); return; }
+  let worker = preWorker || names[0];
+  let day = shiftDayISO(0);
+  const { wrap, close } = erpDialog(`
+    <h3>📅 План за смяната</h3>
+    <div class="erp-toolbar" style="margin-bottom:6px">
+      <label class="erp-inline">Служител <select id="sp-worker">${names.map(n => `<option${n === worker ? " selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select></label>
+      <label class="erp-inline">Ден <select id="sp-day">
+        <option value="${shiftDayISO(0)}">Днес · ${typeof erpDMY === "function" ? erpDMY(shiftDayISO(0)) : shiftDayISO(0)}</option>
+        <option value="${shiftDayISO(1)}">Утре · ${typeof erpDMY === "function" ? erpDMY(shiftDayISO(1)) : shiftDayISO(1)}</option>
+        <option value="${shiftDayISO(2)}">Вдругиден · ${typeof erpDMY === "function" ? erpDMY(shiftDayISO(2)) : shiftDayISO(2)}</option>
+      </select></label>
+      <span class="spacer" style="flex:1"></span>
+      <span class="erp-muted" id="sp-sum"></span>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Подреди с ВЛАЧЕНЕ (или с ▲▼) реда, в който да се работи. „➖" маха задачата от плана за деня (остава възложена). Записаният ред се вижда и в Цехове, и в разпечатката за бригадира.</p>
+    <div id="sp-list" class="erp-lp-list" style="max-height:64vh;overflow:auto"></div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="sp-close">Затвори</button>
+      <button class="btn" id="sp-print">🖨 Разпечатай за бригадира</button>
+      <button class="btn btn-primary" id="sp-save">💾 Запази реда</button>
+    </div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
+  let order = [];      // id-та в избрания ред
+  const capH = () => capOf(worker);
+  const secOfTask = t => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    const times = (typeof ERP !== "undefined" && ERP.prodTimes && ERP.prodTimes.byCode) || null;
+    if (!rem || !times) return 0;
+    const c = times[String(t.code || "").trim()];
+    const op = c && c.ops && c.ops[String(t.operation || "—")];
+    return (op && op.per > 0) ? rem * op.per : 0;
+  };
+  const build = () => {
+    const mine = (TASKS || []).filter(t => taskIsOpen(t) && wsInScope(t.workshop, ws) && taskAssignees(t).includes(worker));
+    // Първо вече планираните за деня (по seq), после останалите (по срок).
+    const planned = mine.filter(t => t.plan && t.plan.day === day && t.plan.worker === worker)
+      .sort((a, b) => (Number(a.plan.seq) || 0) - (Number(b.plan.seq) || 0));
+    const rest = mine.filter(t => !(t.plan && t.plan.day === day && t.plan.worker === worker))
+      .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
+    order = [...planned.map(t => t.id), ...rest.map(t => t.id)];
+    draw();
+  };
+  const draw = () => {
+    const list = wrap.querySelector("#sp-list");
+    let acc = 0;
+    const rows = order.map((id, i) => {
+      const t = (TASKS || []).find(x => String(x.id) === String(id)); if (!t) return "";
+      const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+      const sec = secOfTask(t); acc += sec;
+      const over = acc / 3600 > capH();
+      const inPlan = t.plan && t.plan.day === day && t.plan.worker === worker;
+      return `<div class="sp-row${over ? " sp-over" : ""}${inPlan ? " sp-in" : ""}" data-id="${id}" draggable="true" title="Влачи, за да преместиш">
+        <span class="sp-grip" title="Влачи">⠿</span>
+        <span class="sp-n">${i + 1}</span>
+        <span class="sp-main"><b>${escapeHtml(t.code || "")}</b> ${escapeHtml(t.product || "")}
+          <small>${(function () {
+            const nos = taskOrderNos(t);
+            const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ");
+            return `${cl ? "👤 " + escapeHtml(cl) + " · " : ""}${nos.length ? "📋 № " + escapeHtml(nos.join(", ")) + " · " : ""}`;
+          })()}${escapeHtml(t.operation || t.workshop || "")} · остават <b>${matQtyFmt(rem)}</b> бр.${t.due ? " · срок " + (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : ""}${sec ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : ""}</small></span>
+        <span class="sp-acts">
+          <button class="btn btn-small" draggable="false" data-up="${id}" title="Нагоре">▲</button>
+          <button class="btn btn-small" draggable="false" data-down="${id}" title="Надолу">▼</button>
+          <button class="btn btn-small" draggable="false" data-drop="${id}" title="Махни от плана за деня">➖</button>
+        </span></div>`;
+    }).join("") || `<p class="erp-muted">Този служител няма възложени задачи в цеха. Възложи му от таблицата („Възложи на") и се върни тук.</p>`;
+    list.innerHTML = rows;
+    const sum = wrap.querySelector("#sp-sum");
+    if (sum) sum.textContent = `общо ~${Math.round(acc / 360) / 10} ч · капацитет ${capH()} ч/ден`;
+    // ВАЖНО: id-тата на задачите са UUID (текст) — сравняваме като низове.
+    // (С Number(...) ставаха NaN и нито стрелките, нито влаченето работеха.)
+    const idx = id => order.findIndex(x => String(x) === String(id));
+    list.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      const i = idx(b.dataset.up); if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw(); }
+    }));
+    list.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      const i = idx(b.dataset.down); if (i >= 0 && i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; draw(); }
+    }));
+    list.querySelectorAll("[data-drop]").forEach(b => b.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      order = order.filter(x => String(x) !== String(b.dataset.drop)); draw();
+    }));
+    // Влачене на реда: пуснатият застава ПРЕД реда, върху който го пускаш.
+    let dragId = null;
+    list.querySelectorAll(".sp-row").forEach(row => {
+      row.addEventListener("dragstart", e => {
+        // Клик върху бутон (▲▼ / ➖) НЕ започва влачене.
+        if (e.target.closest("button")) { e.preventDefault(); return; }
+        dragId = String(row.dataset.id); e.dataTransfer.effectAllowed = "move";
+        try { e.dataTransfer.setData("text/plain", dragId); } catch (err) {}
+        row.classList.add("sp-dragging");
+      });
+      row.addEventListener("dragend", () => { row.classList.remove("sp-dragging"); list.querySelectorAll(".sp-row").forEach(r => r.classList.remove("sp-drop")); });
+      row.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; row.classList.add("sp-drop"); });
+      row.addEventListener("dragleave", () => row.classList.remove("sp-drop"));
+      row.addEventListener("drop", e => {
+        e.preventDefault();
+        const target = String(row.dataset.id);
+        const moved = dragId || (() => { try { return e.dataTransfer.getData("text/plain"); } catch (err) { return ""; } })();
+        if (!moved || moved === target) return;
+        order = order.filter(x => String(x) !== moved);
+        const at = order.findIndex(x => String(x) === target);
+        order.splice(at < 0 ? order.length : at, 0, moved);
+        dragId = null; draw();
+      });
+    });
+  };
+  wrap.querySelector("#sp-worker").addEventListener("change", e => { worker = e.target.value; build(); });
+  wrap.querySelector("#sp-day").addEventListener("change", e => { day = e.target.value; build(); });
+  wrap.querySelector("#sp-close").addEventListener("click", close);
+  wrap.querySelector("#sp-print").addEventListener("click", () => {
+    // Печат само за ТОЗИ служител и ТОЗИ ден — по реда от списъка отляво,
+    // включително още незаписаните размествания.
+    printDayPlan(day, worker, order.slice());
+  });
+  wrap.querySelector("#sp-save").addEventListener("click", async () => {
+    const btn = wrap.querySelector("#sp-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // Първо чистим стария план за този служител/ден, после пишем новия ред.
+    for (const t of (TASKS || [])) {
+      const had = t.plan && t.plan.day === day && t.plan.worker === worker;
+      const idx = order.findIndex(x => String(x) === String(t.id));
+      if (idx >= 0) { t.plan = { worker, day, seq: idx + 1 }; await tSaveTask(t); }
+      else if (had) { delete t.plan; await tSaveTask(t); }
+    }
+    btn.disabled = false; btn.textContent = "💾 Запази реда";
+    renderTasks();
+    alert(`✓ Планът за ${worker} (${typeof erpDMY === "function" ? erpDMY(day) : day}) е записан — ${order.length} задачи.`);
+  });
+  build();
+}
+
+/* Дневен план за печат — лист за таблото в цеха: кой какво има за днес. */
+function printDayPlan(dayISO, onlyWorker, seqIds) {
+  if (typeof dayISO !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) dayISO = "";   // пази от подаден event
+  const ws = currentWorkshop();
+  const all = (TASKS || []).filter(t => taskIsOpen(t) && wsInScope(t.workshop, ws));
+  let rows = all, note = "";
+  // Печат за ЕДИН служител (от прозореца „План за смяната"): само неговите
+  // задачи, в реда от списъка — дори още незаписан.
+  if (onlyWorker) {
+    const ids = (seqIds || []).map(String);
+    rows = all.filter(t => taskAssignees(t).includes(onlyWorker) && (!ids.length || ids.includes(String(t.id))));
+    if (ids.length) rows.sort((a, b) => ids.indexOf(String(a.id)) - ids.indexOf(String(b.id)));
+  } else if (dayISO) {
+    // Ако има планиран ден — печатаме САМО планираното за него (по реда на плана).
+    const planned = all.filter(t => t.plan && t.plan.day === dayISO);
+    if (planned.length) rows = planned;
+    else { rows = all; note = " (няма записан план за деня — показани са всички възложени задачи)"; }
+  }
+  const by = {};
+  if (onlyWorker) by[onlyWorker] = rows.slice();
+  else rows.forEach(t => {
+    const asg = taskAssignees(t);
+    (asg.length ? asg : ["— неразпределени —"]).forEach(w => (by[w] = by[w] || []).push(t));
+  });
+  const names = Object.keys(by).sort((a, b) => a.localeCompare(b, "bg"));
+  const d = typeof erpDMY === "function" ? erpDMY(dayISO || todayStr()) : (dayISO || todayStr());
+  const body = names.map(w => {
+    // При печат за един служител редът вече е зададен (от списъка).
+    const ids0 = (seqIds || []).map(String);
+    const seqOf = t => (t.plan && t.plan.worker === w && (!dayISO || t.plan.day === dayISO)) ? (Number(t.plan.seq) || 0) : 9999;
+    const list = (onlyWorker && ids0.length)
+      ? by[w].slice()
+      : by[w].slice().sort((x, y) => (seqOf(x) - seqOf(y)) || String(x.due || "9999").localeCompare(String(y.due || "9999")));
+    const rowsH = list.map((t, i) => {
+      const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+      const cl2 = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
+      const nos2 = taskOrderNos(t);
+      return `<tr><td>${i + 1}</td><td>${escapeHtml(cl2)}${nos2.length ? `<br><small>№ ${escapeHtml(nos2.join(", "))}</small>` : ""}</td><td>${escapeHtml(t.code || "")}</td>
+        <td>${escapeHtml(t.product || "")}</td><td>${escapeHtml(t.operation || t.workshop || "")}</td>
+        <td class="r">${rem}</td><td>${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : "—"}</td><td style="width:90px"></td></tr>`;
+    }).join("");
+    return `<h3>${escapeHtml(w)} <span style="font-weight:400;font-size:13px;color:#555">— ${list.length} задачи</span></h3>
+      <table><thead><tr><th>№</th><th>Клиент</th><th>Код</th><th>Продукт</th><th>Операция</th><th>Остават</th><th>Срок</th><th>Готово ✓</th></tr></thead><tbody>${rowsH}</tbody></table>`;
+  }).join("") || "<p>Няма задачи за този цех.</p>";
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Дневен план ${d}</title>
+    <style>body{font-family:Arial,sans-serif;margin:16px 22px;color:#111}
+    h1{font-size:19px;margin:0 0 2px}h3{font-size:15px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left}
+    th{background:#f1f5f9}td.r{text-align:right}
+    @page{size:A4 portrait;margin:10mm}@media print{.noprint{display:none}}</style></head><body>
+    <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
+    <h1>${onlyWorker ? "План за смяната — " + escapeHtml(onlyWorker) : "Дневен план"} · ${escapeHtml(ws === "__all" ? "всички цехове" : (wsIsFamily(ws) ? wsFamilyLabel(ws) : ws))} · ${d}</h1>${note ? `<p style="color:#92400e;font-size:12px;margin:0 0 8px">${escapeHtml(note.trim())}</p>` : ""}${body}</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
+/* 🧹 СТАРИ ЗАДАЧИ — тези, които стоят в цеховете, без да могат да свършат.
+   Задача изчезва от активния списък САМО когато количеството е > 0 и
+   произведеното е ≥ него. Затова тук излизат двата случая, в които това
+   никога не се случва:
+     • Количество 0 — няма какво да се произведе, но редът стои вечно.
+     • Заявката им е ЗАВЪРШЕНА (доставена) — приключването на заявка сменя
+       само статуса ѝ; задачите по цеховете НЕ се пипат (махат се само с
+       „Изтегли от производство" или при триене на заявката).
+   Закриването е ОБРАТИМО: задачата отива в 🗄 Архив производство. Нищо не се
+   трие — отчетите, движенията и вечният дневник остават непокътнати. */
+async function staleTasksDialog() {
+  const { wrap, close } = erpDialog(`<h3>🧹 Стари задачи</h3><div id="st-body"><p class="erp-muted">Проверявам заявките…</p></div>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="st-closed">🗄 Виж закритите</button>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn" id="st-x">Затвори</button>
+      <button class="btn btn-primary" id="st-do">🗄 Закрий избраните</button>
+    </div>`);
+  const box = wrap.querySelector(".erp-dialog-box"); if (box) box.classList.add("erp-dialog-xwide");
+  wrap.querySelector("#st-x").addEventListener("click", close);
+
+  // Статусите на клиентските заявки (за да знаем кои са приключени).
+  const ordMap = {};
+  try {
+    const { data } = await erpSelectAll("customer_orders", "id,data");
+    (data || []).forEach(r => { ordMap[String(r.id)] = r.data || {}; });
+  } catch (e) {}
+  const ordDone = d => {
+    if (!d) return false;
+    if (String(d.status || "") === "завършена") return true;
+    const lines = d.lines || [];
+    const num = v => (typeof erpToNum === "function" ? erpToNum(v) : Number(v)) || 0;
+    return lines.length > 0 && lines.every(l => (Number(l.delivered) || 0) >= num(l.qty) - 1e-9);
+  };
+  const reasonOf = t => {
+    if ((Number(t.qty) || 0) <= 0) return "нулево количество";
+    const ids = taskSeriesOrders(t).map(o => String(o.id));
+    const known = ids.filter(id => ordMap[id]);
+    if (ids.length && known.length === ids.length && known.every(id => ordDone(ordMap[id]))) return "заявката е приключена (доставена)";
+    return "";
+  };
+
+  let showClosed = false;
+  const render = () => {
+    const body = wrap.querySelector("#st-body");
+    const list = showClosed
+      ? (TASKS || []).filter(t => t.closed)
+      : (TASKS || []).filter(t => taskIsOpen(t) && !(t.source && t.source.kind === "extra")).map(t => Object.assign({ _r: reasonOf(t) }, t)).filter(t => t._r);
+    wrap.querySelector("#st-do").textContent = showClosed ? "↩ Върни избраните в цеха" : "🗄 Закрий избраните";
+    wrap.querySelector("#st-closed").textContent = showClosed ? "← Назад към старите" : "🗄 Виж закритите";
+    if (!list.length) {
+      body.innerHTML = showClosed
+        ? `<p class="erp-muted">Няма закрити задачи.</p>`
+        : `<p class="erp-muted">✅ Няма стари задачи — всичко в цеховете е живо.</p>`;
+      return;
+    }
+    const rows = list.map(t => {
+      const t0 = (TASKS || []).find(x => String(x.id) === String(t.id)) || t;
+      const qty = Number(t0.qty) || 0, prod = Number(t0.produced) || 0;
+      const cl = t0.client || [...new Set(taskSeriesOrders(t0).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
+      const nos = taskOrderNos(t0);
+      return `<tr>
+        <td><input type="checkbox" class="st-c" data-id="${escapeAttr(String(t0.id))}" checked /></td>
+        <td>${escapeHtml(t0.workshop || "")}</td>
+        <td>${escapeHtml(cl)}${nos.length ? `<div class="erp-muted">№ ${escapeHtml(nos.join(", "))}</div>` : ""}</td>
+        <td><b>${escapeHtml(t0.code || "")}</b> ${escapeHtml(t0.product || "")}</td>
+        <td>${escapeHtml(t0.operation || "")}</td>
+        <td class="num">${matQtyFmt(qty)}</td>
+        <td class="num">${matQtyFmt(prod)}</td>
+        <td class="num">${matQtyFmt(Math.max(0, qty - prod))}</td>
+        <td>${escapeHtml(showClosed ? "закрита ръчно" : t._r)}</td></tr>`;
+    }).join("");
+    body.innerHTML = `<p class="hint" style="margin:-2px 0 8px">${showClosed
+      ? `Закритите задачи стоят в 🗄 Архив производство. Върнатите пак излизат в цеха.`
+      : `Задача слиза от списъка само когато <b>произведено ≥ количество</b>. Тези не могат да го стигнат. Закриването ги маха от цеховете и от планирането — <b>без да трие нищо</b> (отчети, движения и дневник остават).`}</p>
+      <div style="max-height:56vh;overflow:auto"><table class="erp-table">
+        <thead><tr><th><input type="checkbox" id="st-all" checked /></th><th>Цех</th><th>Клиент</th><th>Код / продукт</th><th>Операция</th><th class="num">Кол.</th><th class="num">Произв.</th><th class="num">Остатък</th><th>Причина</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <p class="erp-muted" style="margin:6px 0 0">Общо: <b>${list.length}</b></p>`;
+    const all = body.querySelector("#st-all");
+    if (all) all.addEventListener("change", () => body.querySelectorAll(".st-c").forEach(c => { c.checked = all.checked; }));
+  };
+  render();
+  wrap.querySelector("#st-closed").addEventListener("click", () => { showClosed = !showClosed; render(); });
+  wrap.querySelector("#st-do").addEventListener("click", async () => {
+    const ids = [...wrap.querySelectorAll(".st-c")].filter(c => c.checked).map(c => c.dataset.id);
+    if (!ids.length) { alert("Не си избрал нито една задача."); return; }
+    const back = showClosed;
+    if (!confirm(back
+      ? `Да върна ли ${ids.length} задачи обратно в цеховете?`
+      : `Да закрия ли ${ids.length} задачи?\n\nОтиват в 🗄 Архив производство и изчезват от цеховете и от планирането.\nНищо не се трие — отчетите и движенията остават. Може да ги върнеш по всяко време.`)) return;
+    const btn = wrap.querySelector("#st-do"); btn.disabled = true; btn.textContent = "Записвам…";
+    for (const id of ids) {
+      const t = (TASKS || []).find(x => String(x.id) === String(id));
+      if (!t) continue;
+      if (back) { delete t.closed; delete t.closedAt; }
+      else { t.closed = true; t.closedAt = new Date().toISOString(); }
+      await tSaveTask(t);
+    }
+    btn.disabled = false;
+    render();
+    renderTasks();
+    if (PROD_MODE) renderProdWsBar();
+    alert(back ? `Върнати ${ids.length} задачи.` : `Закрити ${ids.length} задачи.`);
+  });
+}
+
+/* Натовареност по служител в текущия цех: колко задачи, колко бройки
+   остават и колко ЧАСА е това по измерените времена (Продукти → ⏱).
+   Това е същината на планирането — кой е претоварен и кой е свободен. */
+function renderProdLoadBar() {
+  if (!PROD_MODE) return;
+  const host = document.getElementById("prod-ws-bar");
+  if (!host) return;
+  let bar = document.getElementById("prod-load-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "prod-load-bar";
+    bar.className = "prod-load-bar";
+    host.insertAdjacentElement("afterend", bar);
+  }
+  const ws = currentWorkshop();
+  const rows = (TASKS || []).filter(t => taskIsOpen(t) && wsInScope(t.workshop, ws));
+  const times = (typeof ERP !== "undefined" && ERP.prodTimes && ERP.prodTimes.byCode) || null;
+  const secOf = t => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    if (!rem || !times) return 0;
+    const c = times[String(t.code || "").trim()];
+    const op = c && c.ops && c.ops[String(t.operation || "—")];
+    return (op && op.per > 0) ? rem * op.per : 0;
+  };
+  const per = {};
+  let freeN = 0, freeQty = 0, freeSec = 0;
+  rows.forEach(t => {
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    const sec = secOf(t);
+    const asg = taskAssignees(t);
+    if (!asg.length) { freeN++; freeQty += rem; freeSec += sec; return; }
+    asg.forEach(w => {
+      const p = per[w] || (per[w] = { n: 0, qty: 0, sec: 0 });
+      p.n++; p.qty += rem / asg.length; p.sec += sec / asg.length;
+    });
+  });
+  const h = sec => sec > 0 ? " · ~" + (Math.round(sec / 360) / 10) + " ч" : "";
+  const names = Object.keys(per).sort((a, b) => per[b].sec - per[a].sec || per[b].qty - per[a].qty);
+  const chip = (label, p, cls, worker) => {
+    const days = (worker && p.sec > 0) ? p.sec / 3600 / capOf(worker) : 0;
+    const load = days > 3 ? " is-over" : (days > 1 ? " is-busy" : "");
+    const dTxt = days > 0 ? ` · <b>~${Math.round(days * 10) / 10} дни</b>` : "";
+    return `<button type="button" class="prod-load${cls || ""}${load}" data-lw="${escapeAttr(label === "— свободни —" ? "" : label)}" title="Клик: показва само задачите на ${escapeHtml(label)}${worker ? ` (капацитет ${capOf(worker)} ч/ден)` : ""}">${escapeHtml(label)} <b>${p.n}</b> зад. · ${matQtyFmt(Math.round(p.qty))} бр.${h(p.sec)}${dTxt}</button>`;
+  };
+  const selW = (document.getElementById("task-worker-filter") || {}).value || "";
+  bar.innerHTML = `<span class="prod-load-lbl">👥 Натовареност:</span>`
+    + (selW ? `<button type="button" class="btn btn-small btn-primary" id="prod-shift-sel">📅 Дневен план на ${escapeHtml(selW)}</button>` : "")
+    + (freeN ? chip("— свободни —", { n: freeN, qty: freeQty, sec: freeSec }, " is-free") : "")
+    + names.map(n => chip(n, per[n], "", n)).join("")
+    + `<span class="spacer" style="flex:1"></span>`
+    + `<button type="button" class="btn btn-small btn-primary" id="prod-shift" title="Подреди задачите на служител за днес/утре и разпечатай за бригадира">📅 План за смяната</button>`
+    + `<button type="button" class="btn btn-small" id="prod-merge" title="В кои цехове поръчките да НЕ се сливат в обща серия">⚙ Сливане</button>`
+    + `<button type="button" class="btn btn-small" id="prod-cap">⚙ Капацитет</button>`
+    + `<button type="button" class="btn btn-small" id="prod-stale" title="Задачи, които не могат да свършат: с нулево количество или от вече приключени (доставени) заявки">🧹 Стари задачи</button>`
+    + `<button type="button" class="btn btn-small" id="prod-print">🖨 Дневен план</button>`
+    + (times ? "" : `<span class="erp-muted" style="font-size:11.5px">(часовете идват от Продукти → „⏱ Обнови времената")</span>`);
+  const sb2 = bar.querySelector("#prod-shift"); if (sb2) sb2.addEventListener("click", () => shiftPlanDialog());
+  const sb3 = bar.querySelector("#prod-shift-sel"); if (sb3) sb3.addEventListener("click", () => shiftPlanDialog(selW));
+  const mb = bar.querySelector("#prod-merge"); if (mb) mb.addEventListener("click", seriesMergeDialog);
+  const cb = bar.querySelector("#prod-cap"); if (cb) cb.addEventListener("click", workerCapDialog);
+  const stb = bar.querySelector("#prod-stale"); if (stb) stb.addEventListener("click", staleTasksDialog);
+  const pb2 = bar.querySelector("#prod-print"); if (pb2) pb2.addEventListener("click", () => printDayPlan());
+  bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("dblclick", () => { if (b.dataset.lw) shiftPlanDialog(b.dataset.lw); }));
+  bar.querySelectorAll(".prod-load").forEach(b => b.addEventListener("click", () => {
+    const f = document.getElementById("task-worker-filter");
+    if (f) { f.value = (f.value === b.dataset.lw) ? "" : b.dataset.lw; renderTasks(); }
+  }));
 }
 
 // Отваря директно даден цех (за линк ?cex=Лазери на телефон/таблет)
@@ -354,27 +1321,54 @@ async function openWorkshopDirect(ws) {
 }
 function applyTasksAccess() {
   const w = amWorker();
-  ["btn-add-task", "btn-times", "btn-workers", "btn-task-report", "btn-clear-workshop", "tasks-close"].forEach(id => {
+  ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = w ? "none" : "";
   });
+  // „Мастер отчитане" — за офиса/админ + изрично за grigor.baykov (дори с цехов достъп).
+  const meEmail = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const masterOk = !w || meEmail === "grigor.baykov@dankosystems.com";
+  const mBtn = document.getElementById("btn-master"); if (mBtn) mBtn.style.display = masterOk ? "" : "none";
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
   // „Отчет боядисване“ — за админи и за служители от Цех Боя (Бояджийно)
   const pb = document.getElementById("tasks-painting");
   if (pb) pb.hidden = !(!w || MY_ACCESS.workshop === "Бояджийно");
   const pbm = document.getElementById("tasks-painting-manual");
   if (pbm) pbm.hidden = !(!w || MY_ACCESS.workshop === "Бояджийно");
+  // „🔧 Пусни заседнали вериги" — само за админи (ремонтен инструмент).
+  const fxc = document.getElementById("tasks-fix-chains");
+  if (fxc) fxc.hidden = w;
   // „Заваръчно роботи“ — за админи и за служители от цех Заваръчно
   const wr = document.getElementById("tasks-welding-roboti");
   if (wr) wr.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
   const wm = document.getElementById("tasks-welding-rachno");
   if (wm) wm.hidden = !(!w || MY_ACCESS.workshop === "Заваръчно");
+  // „ЦЕХ РОГОШ" (сериен монтаж — отчет) — за админи (служителите му влизат директно).
+  const rg = document.getElementById("tasks-rogosh");
+  if (rg) rg.hidden = !!w;
+  // „ЗАНИТВАНЕ" (сглобяване — отчет) — за админи (служителите му влизат директно).
+  const nt = document.getElementById("tasks-nit");
+  if (nt) nt.hidden = !!w;
+  // „Excel (за печат)“ — скрит за заваръчния служител, за Лазерите и за Пресите
+  // (Лазери/Преси вместо него имат бутон „ПЪЛНЕЖ").
+  const ex = document.getElementById("btn-export-tasks");
+  const em = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const isFillWorker = w && (
+    em === "laseri@danko.local" || MY_ACCESS.workshop === "Лазери" || (MY_ACCESS.workshops || []).includes("Лазери") ||
+    em === "presi@danko.local" || MY_ACCESS.workshop === "Преси" || (MY_ACCESS.workshops || []).includes("Преси"));
+  if (ex) ex.style.display = (w && (em === "zavarka@danko.local" || MY_ACCESS.workshop === "Заваръчно" || isFillWorker)) ? "none" : "";
+  // „ПЪЛНЕЖ" — за Лазери/Преси (на мястото на Excel) и за админите (слагат кода и заприходяват).
+  const lfb = document.getElementById("btn-laser-fill");
+  if (lfb) lfb.hidden = !(isFillWorker || !w);
+  // 🚨 Аларма за натрупан ПЪЛНЕЖ (повече от 4 чакащи реда).
+  if (typeof lfillAlarmRefresh === "function" && lfb && !lfb.hidden) lfillAlarmRefresh().catch(() => {});
+  else { const la = document.getElementById("lfill-alarm"); if (la) { la.hidden = true; la.innerHTML = ""; } }
   const erp = document.querySelector('label[for="erp-file"]'); if (erp) erp.style.display = w ? "none" : "";
   // при цехов достъп крием филтъра/лентата със служители (заместени от „кой си ти“)
   document.getElementById("task-worker-filter").style.display = w ? "none" : "";
   document.getElementById("task-search").style.display = "";   // търсачката е достъпна за всички
   document.getElementById("worker-bar").style.display = w ? "none" : "";
   document.querySelector(".tasks-head h2").textContent = w
-    ? "🏭 " + (MY_ACCESS.workshop || "Цех") : "🏭 Производство по цехове";
+    ? "🏭 " + (amMultiWorkshop() ? "Моите цехове" : (MY_ACCESS.workshop || "Цех")) : "🏭 Производство по цехове";
 }
 
 function renderIdentityPicker() {
@@ -383,7 +1377,7 @@ function renderIdentityPicker() {
   document.getElementById("tasks-empty").hidden = true;
   const box = document.getElementById("identity-picker");
   box.hidden = false;
-  const names = WORKERS[MY_ACCESS.workshop] || [];
+  const names = amMultiWorkshop() ? [...new Set(myWorkshops().flatMap(w => WORKERS[w] || []))] : (WORKERS[MY_ACCESS.workshop] || []);
   box.innerHTML = `<h3>Кой си ти?</h3>
     <div class="identity-list">${names.map(n =>
       `<button class="identity-btn" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml((n.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(n)}</button>`
@@ -403,6 +1397,8 @@ function showSub(which) {
   document.getElementById("report-view").hidden = which !== "report";
   const mv = document.getElementById("messages-view"); if (mv) mv.hidden = which !== "messages";
   const tv = document.getElementById("times-view"); if (tv) tv.hidden = which !== "times";
+  const pv = document.getElementById("planning-view"); if (pv) pv.hidden = which !== "planning";
+  const bv = document.getElementById("board-view"); if (bv) bv.hidden = which !== "board";
 }
 
 /* ---------- Падащи менюта ---------- */
@@ -413,6 +1409,14 @@ function currentWorkshop() {
 function renderWorkshopSelect() {
   const sel = document.getElementById("task-workshop");
   if (amWorker()) {
+    const mine = myWorkshops();
+    if (mine.length > 1) {
+      const cur = sel.value;
+      sel.innerHTML = `<option value="__mine">Моите цехове</option>` + mine.map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
+      sel.value = (cur && [...sel.options].some(o => o.value === cur)) ? cur : "__mine";
+      sel.disabled = false;
+      return;
+    }
     sel.innerHTML = `<option>${escapeHtml(MY_ACCESS.workshop)}</option>`;
     sel.value = MY_ACCESS.workshop;
     sel.disabled = true;
@@ -421,46 +1425,133 @@ function renderWorkshopSelect() {
   sel.disabled = false;
   const cur = sel.value;
   sel.innerHTML = `<option value="__all">Всички цехове</option>` +
-    workshopList().map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
+    workshopList().map(w => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("")
+    // В Планиране заваряванията са едно общо (стойността се пази тук).
+    + (PROD_MODE ? WS_FAMILIES.map(f => `<option value="${escapeAttr(f.key)}">${escapeHtml(f.label)} (всички заваръчни)</option>`).join("") : "");
   sel.value = cur || workshopList()[0] || "__all";
 }
 function renderWorkerFilter() {
   const sel = document.getElementById("task-worker-filter");
   const cur = sel.value;
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const names = wsWorkersOf(ws);
   sel.innerHTML = `<option value="">Всички служители</option>` +
     names.map(n => `<option>${escapeHtml(n)}</option>`).join("");
   sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
 }
 
 /* ---------- Лента с служители (икони) ---------- */
+let workerBarOpen = false;   // за админите лентата е СГЪНАТА по подразбиране (заема много място)
 function renderWorkerBar() {
   const bar = document.getElementById("worker-bar");
   if (!bar) return;
   const ws = currentWorkshop();
-  const names = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const names = wsWorkersOf(ws);
   const active = document.getElementById("task-worker-filter").value;
   if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>`; return; }
-  bar.innerHTML = `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
+  if (!workerBarOpen) {
+    // Сгънат изглед: само бутон (+ активният филтър, ако има).
+    bar.innerHTML = `<button class="btn btn-small" id="wbar-toggle" title="Показва служителите за филтриране на задачите">👥 Служители (${names.length}) ▾</button>`
+      + (active ? ` <button class="wchip active" id="wbar-clear" title="Махни филтъра по служител"><span class="wav">${escapeHtml((active.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(active)} ✕</button>` : "");
+    const t = bar.querySelector("#wbar-toggle"); if (t) t.addEventListener("click", () => { workerBarOpen = true; renderWorkerBar(); });
+    const c = bar.querySelector("#wbar-clear"); if (c) c.addEventListener("click", () => { document.getElementById("task-worker-filter").value = ""; renderTasks(); });
+    return;
+  }
+  bar.innerHTML = `<button class="btn btn-small" id="wbar-hide" title="Скрий списъка със служители">▴ Скрий</button>`
+    + `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
     names.map(n => {
       const init = (n.trim()[0] || "?").toUpperCase();
       return `<button class="wchip ${n === active ? "active" : ""}" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml(init)}</span>${escapeHtml(n)}</button>`;
     }).join("");
+  const h = bar.querySelector("#wbar-hide"); if (h) h.addEventListener("click", () => { workerBarOpen = false; renderWorkerBar(); });
   bar.querySelectorAll(".wchip").forEach(b => b.addEventListener("click", () => {
     const filter = document.getElementById("task-worker-filter");
     filter.value = (filter.value === b.dataset.name) ? "" : b.dataset.name;
+    workerBarOpen = false;   // избра ли — лентата се сгъва, филтърът остава видим като чип
     renderTasks();
   }));
 }
 
 /* ---------- Списък със задачи ---------- */
+// Прогрес на цялото изделие (детайл) по операциите му: всяка операция е отделна
+// поточна задача, затова ги събираме по код на детайла. Връща брой операции,
+// коя е текущата и % готово (по произведено спрямо количество на всички операции).
+/* Индексът се строи ВЕДНЪЖ на рисуване (нулира се в renderTasks) — иначе
+   всеки ред от таблицата обхождаше всички задачи и списъкът ставаше квадратен. */
+let FD_IDX = null;
+function flowDetailIndex() {
+  if (FD_IDX) return FD_IDX;
+  FD_IDX = {};
+  (TASKS || []).forEach(x => {
+    const s = x.source; if (!s || !s.flow || !s.code) return;
+    const k = s.code + "|" + (!!s.stock);
+    const g = FD_IDX[k] || (FD_IDX[k] = { total: 0, doneOps: 0, prodSum: 0, qtySum: 0 });
+    const q = Number(x.qty) || 0, p = Number(x.produced) || 0;
+    g.total++; if (q > 0 && p >= q) g.doneOps++;
+    g.prodSum += Math.min(p, q); g.qtySum += q;
+  });
+  return FD_IDX;
+}
+function flowDetailProgress(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !src.code) return null;
+  const g = flowDetailIndex()[src.code + "|" + (!!src.stock)];
+  if (!g || !g.total) return null;
+  return { total: g.total, doneOps: g.doneOps, pct: g.qtySum > 0 ? Math.round(g.prodSum / g.qtySum * 100) : 0, step: (Number(src.step) || 0) + 1 };
+}
+
+// Видимо предупреждение, ако НЕ всички задачи са изтеглени (по-добре шумно,
+// отколкото цехът да работи по непълен списък).
+function renderTasksIncompleteWarn() {
+  const host = document.getElementById("tasks-view");
+  if (!host) return;
+  let box = document.getElementById("tasks-incomplete");
+  if (!TASKS_INCOMPLETE) { if (box) box.remove(); return; }
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "tasks-incomplete";
+    box.className = "tasks-incomplete";
+    host.insertBefore(box, host.firstChild);
+  }
+  box.innerHTML = `⚠ <b>ВНИМАНИЕ: списъкът може да е непълен</b> — заредени ${TASKS_INCOMPLETE.got} от ${TASKS_INCOMPLETE.expected} задачи в базата.
+    Не работи по този списък, докато не се зареди докрай.
+    <button class="btn btn-small" id="tasks-reload-now">↻ Зареди наново</button>`;
+  const b = document.getElementById("tasks-reload-now");
+  if (b) b.addEventListener("click", async () => {
+    b.disabled = true; b.textContent = "Зарежда…";
+    await tLoadTasks();
+    renderTasks();
+  });
+}
+
+/* Чертежи на „бързите изделия" (Нестандартни поръчки) по код на детайла —
+   работникът ги отваря направо от реда на задачата (📄). Зарежда се веднъж. */
+let QUICK_DRAW = null;
+async function tLoadQuickDrawings() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "quick_items").maybeSingle();
+    const by = (data && data.data && data.data.byId) || {};
+    QUICK_DRAW = {};
+    Object.values(by).forEach(e => {
+      const c = String(e.code || "").trim();
+      if (c && e.files && e.files[0] && e.files[0].url) QUICK_DRAW[c] = e.files[0].url;
+    });
+  } catch (e) { QUICK_DRAW = {}; }
+}
+
+let TASKS_ARCHIVE = false;   // 🗄 изглед „Архив производство" (само изпълнените)
 function renderTasks() {
   showSub("tasks");
+  FD_IDX = null; MSG_TASK_IDX = null; WS_WORKERS_MEMO = {};
+  // Планирането: натовареността по служител се опреснява при всяко рисуване.
+  if (PROD_MODE) setTimeout(renderProdLoadBar, 0);
+  updateWorkersCount();
+  setTimeout(renderMyShiftPlan, 0);
 
   // Цехов достъп: първо избор „кой си ти“
   if (amWorker() && !MY_WORKER) { renderIdentityPicker(); return; }
   document.getElementById("identity-picker").hidden = true;
+  renderTasksIncompleteWarn();
 
   renderWorkerBar();
   const tbody = document.getElementById("tasks-body");
@@ -468,25 +1559,71 @@ function renderTasks() {
   const isW = amWorker();
   const worker = isW ? MY_WORKER : document.getElementById("task-worker-filter").value;
   const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
+  const readyOnly = !!(document.getElementById("task-ready-filter") || {}).checked;
+  // Филтър по клиент — падащо меню с клиентите на всички пуснати заявки (с №).
+  const clientSel = document.getElementById("task-client-filter");
+  let clientFilter = "";
+  if (clientSel) {
+    const cur = clientSel.value;
+    const clientOrders = {};
+    TASKS.forEach(t => {
+      const nos = taskOrderNos(t);
+      taskClients(t).forEach(c => { if (!c) return; const set = clientOrders[c] || (clientOrders[c] = new Set()); nos.forEach(n => set.add(n)); });
+    });
+    const clients = Object.keys(clientOrders).sort((a, b) => a.localeCompare(b, "bg"));
+    clientSel.innerHTML = `<option value="">Всички клиенти</option>` + clients.map(c => {
+      const nos = [...clientOrders[c]].filter(Boolean);
+      const label = c + (nos.length ? ` (№${nos.join(", №")})` : "");
+      return `<option value="${escapeAttr(c)}" ${c === cur ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+    clientFilter = clientSel.value;
+  }
   tbody.innerHTML = "";
 
-  const rows = TASKS.filter(t => {
-    if (ws !== "__all" && t.workshop !== ws) return false;
+  const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
+  // Карта seriesKey → цех/операция (за да покажем „чака от кой цех").
+  const seriesInfo = {};
+  TASKS.forEach(tk => { const s = tk.source; if (s && s.flow && s.seriesKey && !seriesInfo[s.seriesKey]) seriesInfo[s.seriesKey] = { workshop: tk.workshop || "", operation: tk.operation || "", product: tk.product || "", code: tk.code || "" }; });
+  let rows = TASKS.filter(t => {
+    if (t.source && t.source.kind === "extra") return false;   // скрити записи „Допълнителна дейност"
+    if (ws === "__mine") { if (!myWorkshops().includes(t.workshop)) return false; }
+    else if (!wsInScope(t.workshop, ws)) return false;
     if (isW) {
-      // моите + незаетите задачи; чуждите се скриват
-      if (t.assignee && t.assignee !== MY_WORKER) return false;
-    } else if (worker && t.assignee !== worker) {
+      // Цеховият изглед показва ВСИЧКИ задачи на цеха — същото, което вижда
+      // офисът (преди чуждите се криеха и списъците се разминаваха).
+      // Чуждите само се избледняват (клас task-foreign в рендера).
+    } else if (worker && !taskHasWorker(t, worker)) {
       return false;
     }
+    if (PROD_MODE && PROD_OP && opNorm(t.operation) !== PROD_OP) return false;   // ⚙ операция през всички цехове
     if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    if (clientFilter && !taskClients(t).includes(clientFilter)) return false;   // всичко пуснато за избрания клиент
+    if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
     return true;
   });
+
+  // 🗄 Архив производство: изпълнените задачи НЕ стоят в активния списък —
+  // живеят в архива (same изглед, по цехове), превключван с бутона.
+  const doneHidden = rows.filter(t => taskStatus(t) === "done").length;
+  rows = TASKS_ARCHIVE ? rows.filter(t => taskStatus(t) === "done") : rows.filter(t => taskStatus(t) !== "done");
+  const dc = document.getElementById("done-count");
+  if (dc) dc.textContent = doneHidden ? ` (${doneHidden})` : "";
+  const ab = document.getElementById("task-archive-btn");
+  if (ab) { ab.classList.toggle("btn-primary", TASKS_ARCHIVE); ab.firstChild.textContent = TASKS_ARCHIVE ? "🗄 Архив — назад към активните" : "🗄 Архив производство"; }
 
   // Приоритетните задачи винаги изплуват най-горе; в рамките на еднакъв приоритет —
   // по избраната колона (по подразбиране по срок).
   const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
   const f = SORT_KEYS[selKey];
   rows.sort((a, b) => {
+    // Изпълнените (когато се показват) винаги най-долу.
+    const da = taskStatus(a) === "done" ? 1 : 0, db = taskStatus(b) === "done" ? 1 : 0;
+    if (da !== db) return da - db;
+    // ПЛАНИРАНЕ: неразпределените изплуват най-горе — те чакат решение.
+    if (PROD_MODE && PROD_FREE_FIRST && !sortState.key) {
+      const fa = taskAssignees(a).length ? 1 : 0, fb = taskAssignees(b).length ? 1 : 0;
+      if (fa !== fb) return fa - fb;
+    }
     if (selKey !== "priority") {
       const pa = priLevel(a), pb = priLevel(b);
       if (pa !== pb) return pb - pa;
@@ -498,7 +1635,44 @@ function renderTasks() {
   });
   updateSortIndicators();
 
+  // Цехове без колона „Дебелина" (не им трябва дебелина на материала).
+  const isZavView = ws === "Заваръчно";
+  const tbl = document.querySelector(".tasks-table");
+  if (tbl) tbl.classList.toggle("hide-thickness", HIDE_THICKNESS_WORKSHOPS.includes(ws));
+  // Колона „Взимам" — само за Лазери/Абкант/Преси. Заглавието се добавя/маха динамично.
+  const showClaim = CLAIM_WORKSHOPS.includes(ws);
+  if (tbl) tbl.classList.toggle("has-claim", showClaim);
+  const headRow = document.querySelector(".tasks-table thead tr");
+  let thClaim = document.getElementById("th-claim");
+  if (showClaim && !thClaim && headRow) {
+    thClaim = document.createElement("th"); thClaim.id = "th-claim"; thClaim.textContent = "Взимам";
+    const asgTh = headRow.querySelector('th[data-sort="assignee"]');
+    if (asgTh) asgTh.insertAdjacentElement("afterend", thClaim); else headRow.appendChild(thClaim);
+  } else if (!showClaim && thClaim) { thClaim.remove(); }
+  // ВАЖНО: при table-layout:fixed всяка колона трябва да има <col>. Без него
+  // добавената колона „Взимам" изместваше последната (Действия/ЗАПИШИ) в слот без
+  // ширина и бутонът изчезваше. Затова добавяме/махаме и <col> за колоната.
+  const colgroup = document.querySelector(".tasks-table colgroup");
+  let colClaim = colgroup ? colgroup.querySelector("col.col-claim") : null;
+  if (showClaim && !colClaim && colgroup) {
+    colClaim = document.createElement("col"); colClaim.className = "col-claim"; colClaim.style.width = "8%";
+    const cols = colgroup.querySelectorAll("col");
+    if (cols[10]) cols[10].insertAdjacentElement("afterend", colClaim); else colgroup.appendChild(colClaim);
+  } else if (!showClaim && colClaim) { colClaim.remove(); }
+  // Цех Заваряване: „Коментар" вместо „Въпрос".
+  const thQ = document.getElementById("th-question");
+  if (thQ) thQ.textContent = isZavView ? "Коментар" : "Въпрос";
+
   document.getElementById("tasks-empty").hidden = rows.length > 0;
+  if (typeof renderFlowArrivals === "function") renderFlowArrivals(ws);   // известие за пристигнали детайли
+  // Аларма за спешни задачи (напр. брак за нарязване) — мигаща лента над списъка.
+  const ua = document.getElementById("urgent-alarm");
+  if (ua) {
+    const html = (typeof urgentAlarmHtml === "function") ? urgentAlarmHtml(ws, false) : "";
+    ua.innerHTML = html; ua.hidden = !html;
+    if (typeof wireAlarmAck === "function") wireAlarmAck(ua, ws);
+    if (typeof updateAlarmSound === "function") updateAlarmSound(ws);
+  }
 
   // Дневно обобщение, когато е избран конкретен служител
   const daily = document.getElementById("tasks-daily");
@@ -524,46 +1698,108 @@ function renderTasks() {
   rows.forEach(t => {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
+    // „налично" показваме само за операции, които ЧАКАТ предната (поточно) — за
+    // първата операция то е равно на цялото количество и само дублира остатъка.
+    const flowGated = t.source && t.source.flow && (t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length));
+    const flowAvail = (flowGated && typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, flowMap) : null;
+    // „Чака от кой цех" — източниците на предната операция / вложените части.
+    const waitSrc = flowGated ? flowWaitSources(t, seriesInfo, flowMap) : [];
+    const waitShops = [...new Set(waitSrc.map(s => s.workshop).filter(Boolean))];
+    const waitTitle = waitSrc.map(s => `${s.code || ""}${s.product ? " " + s.product : ""} · ${s.operation || "?"}: готови ${s.produced}/${s.qty}${s.workshop ? " (цех " + s.workshop + ")" : ""}`).join("\n");
+    const waitHtml = waitShops.length ? `<div class="t-flow-from" title="${escapeAttr(waitTitle)}">⏳ чака от: ${waitShops.map(escapeHtml).join(", ")}</div>` : "";
+    // „Чака материал" — за първата операция (рязане), ако материалът не стига.
+    const matShort = (typeof taskMaterialShort === "function") ? taskMaterialShort(t) : null;
+    const matTitle = matShort ? matShort.map(m => `${m.code ? m.code + " " : ""}${m.name}: налично ${matQtyFmt(m.have)}, липсват ${matQtyFmt(m.short)} ${m.unit || ""}`).join("\n") : "";
+    const matHtml = matShort ? `<div class="t-mat-wait" title="${escapeAttr(matTitle)}">⏳ чака материал: ${matShort.map(m => escapeHtml((m.code ? m.code + " " : "") + m.name) + " (липсват " + matQtyFmt(m.short) + " " + escapeHtml(m.unit || "") + ")").join(", ")}</div>` : "";
+    // „в склада: N" — колко вече са заприходени в Склад детайли от последната операция.
+    const stockedN = (t.source && t.source.flow && t.source.last) ? (Number(t.source.stocked) || 0) : 0;
+    const stockedHtml = stockedN > 0 ? `<div class="t-stocked" title="Толкова бройки от този детайл вече са заприходени в Склад детайли (при последната операция)">📥 в склада: ${matQtyFmt(stockedN)}</div>` : "";
     const st = taskStatus(t);
     const today = todayStr();
     const todayQty = (t.logs || []).filter(l => l.date === today).reduce((a, l) => a + (Number(l.qty) || 0), 0);
-    const wsWorkers = WORKERS[t.workshop] || [];
-    const opts = [`<option value="">— отговорник —</option>`]
-      .concat(wsWorkers.map(n => `<option ${n === t.assignee ? "selected" : ""}>${escapeHtml(n)}</option>`));
-    if (t.assignee && !wsWorkers.includes(t.assignee)) opts.push(`<option selected>${escapeHtml(t.assignee)}</option>`);
+    // При обединено ЗАВАРЯВАНЕ служителите идват от всички заваръчни цехове,
+    // за да може задачата да се възложи и когато цехът ѝ е записан с друго име.
+    const fam = wsFamilyOf(t.workshop);
+    const wsWorkers = fam ? wsWorkersOf(fam) : (WORKERS[t.workshop] || []);
+    const assignees = taskAssignees(t);
+    const addOpts = [`<option value="">+ служител…</option>`]
+      .concat(wsWorkers.filter(n => !assignees.includes(n)).map(n => `<option>${escapeHtml(n)}</option>`));
 
     const pi = priInfo(t);
     // Цеховете/служителите с Отчетен прозорец нямат нужда от инлайн поле „днес“ (бройката се въвежда в прозореца)
     const rowWho = MY_WORKER || t.assignee || "";
-    const usesDialog = WORKSHOPS_WITH_TIME.includes(t.workshop) || (FIELDS_BY_WORKER && FIELDS_BY_WORKER[rowWho]) || isKrohne(t);
+    // Всички цехове отчитат през Отчетния прозорец (машина/време) — за да
+    // събираме времена за всяка операция (нужно за ценообразуването).
+    const usesDialog = true;
     const prioCell = amWorker()
       ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
       : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
 
     const tr = document.createElement("tr");
     tr.className = "task-" + st + (pi.cls ? " " + pi.cls : "");
+    // Чужда задача (възложена на друг) в цеховия изглед — вижда се, но бледа.
+    if (isW) { const asg = taskAssignees(t); if (asg.length && !asg.includes(MY_WORKER)) tr.classList.add("task-foreign"); }
     tr.innerHTML = `
       ${prioCell}
-      <td data-label="Клиент">${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : `<span class="serie">СЕРИЯ</span>`}</td>
-      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${isKrohne(t) ? krohneProgressHtml(t) : ""}</td>
+      <td data-label="Клиент">${(t.plan && t.plan.seq) ? `<span class="t-planseq" title="Пореден номер в плана за смяната на ${escapeAttr(t.plan.worker || "")} за ${escapeAttr(typeof erpDMY === "function" ? erpDMY(t.plan.day) : t.plan.day)}">${t.plan.seq}</span> ` : ""}${amWorker() ? "" : `<input type="checkbox" class="t-sel" ${selectedTasks.has(t.id) ? "checked" : ""} /> `}${t.client ? escapeHtml(t.client) : (function () {
+        const os = taskSeriesOrders(t);
+        const cls = [...new Set(os.map(o => (o.client || "").trim()).filter(Boolean))];
+        if (!cls.length) return `<span class="serie">СЕРИЯ</span>`;
+        const lbl = cls.length === 1 ? cls[0] : (cls.length + " клиента");
+        return `<span class="t-serie-cl" title="${escapeAttr(taskSeriesBreakdown(t))}">${escapeHtml(lbl)}</span>`;
+      })()}${(function () {
+        const n = taskOrderNos(t);
+        if (!n.length) return "";
+        // Поредността на операцията в потока на детайла (source.step, 0-базиран) →
+        // след номера на поръчката: напр. 81/1 = рязане, 81/2 = следваща операция…
+        const seq = (t.source && t.source.flow && t.source.step != null) ? (Number(t.source.step) + 1) : null;
+        const label = (seq != null) ? n.map(x => x + "/" + seq).join(", ") : n.join(", ");
+        const bd = (PROD_MODE && taskSeriesOrders(t).length > 1)
+          ? `<div class="t-serie-bd" title="Разбивка на серията по поръчки">${taskSeriesOrders(t).map(o => `${escapeHtml(o.client || "—")} ${matQtyFmt(Number(o.qty) || 0)}бр${o.due ? " до " + (typeof erpDMY === "function" ? erpDMY(o.due) : o.due) : ""}`).join(" | ")}</div>`
+          : "";
+        return `<div class="t-orderno" title="Номер на поръчката / пореден номер на операцията в потока">📋 № ${escapeHtml(label)}</div>${bd}`;
+      })()}</td>
+      <td data-label="Продукт">${escapeHtml(t.product) || "—"}<div class="t-code">${escapeHtml(t.code || "")}</div>${!amWorker() && isManualTask(t) ? `<div class="t-manual" title="Ръчно въведена — не е пусната в производство от системата. При отчитане НЕ влиза в Склад детайли.">✋ ръчна</div>` : ""}${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="t-detail-pct" title="Готовност на цялото изделие по операциите му">✔ готово ${pr.pct}% · ${pr.total} оп.</div>` : ""; })()}${(Number(t.brakNeed) || 0) > 0 ? `<div class="t-brak-need" title="Спешно допълнително нарязване заради брак при настройка на следваща операция">🔴 брак: спешно +${Number(t.brakNeed)} нарязване</div>` : ""}${(Number(t.brak) || 0) > 0 ? `<div class="t-brak" title="Брак при настройка на тази операция — толкова допълнителни детайла се набавят от първата операция">♻ брак настройка: ${Number(t.brak)} бр.</div>` : ""}${stockedHtml}${matHtml}</td>
       <td class="t-files" data-label="Чертеж">${taskFilesCell(t)}</td>
       <td data-label="Дебелина">${(amWorker() && t.workshop !== "Лазери")
         ? (escapeHtml(t.thickness) || "—")
         : `<select class="t-thick"><option value="">—</option>${THICKNESS_OPTIONS.map(v => `<option ${t.thickness === v ? "selected" : ""}>${v}</option>`).join("")}</select>`}</td>
-      <td data-label="Операция">${escapeHtml(t.operation) || (ws === "__all" ? escapeHtml(t.workshop) : "—")}</td>
+      <td data-label="Операция" title="${escapeAttr(t.operation || t.workshop || "")}">${escapeHtml(t.operation) || (ws === "__all" || wsIsFamily(ws) ? escapeHtml(t.workshop) : "—")}${Number(t.opsPerUnit) > 1 ? ` <span class="t-opsper" title="Операцията се прави ${t.opsPerUnit} пъти на всеки брой (напр. ${t.opsPerUnit} огъвки)">×${t.opsPerUnit}/бр.</span>` : ""}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
       <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
-      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}</td>
-      <td data-label="Срок">${t.due ? escapeHtml(t.due) : `<span class="serie">СЕРИЯ</span>`}</td>
+      <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>
+      <td data-label="Срок">${t.due
+        ? (typeof erpDMY === "function" ? erpDMY(t.due) : escapeHtml(t.due))
+        : (function () {
+            const d = taskEarliestDue(t);
+            if (!d) return `<span class="serie">СЕРИЯ</span>`;
+            const late = d < todayStr();
+            return `<span class="t-serie-due${late ? " is-late" : ""}" title="Най-ранен срок в серията:\n${escapeAttr(taskSeriesBreakdown(t))}">${typeof erpDMY === "function" ? erpDMY(d) : escapeHtml(d)} <small>(серия)</small></span>`;
+          })()}</td>
       ${amWorker()
-        ? `<td class="t-assignee-ro" data-label="Отговорник">${escapeHtml(t.assignee) || "—"}</td>`
-        : `<td data-label="Отговорник"><select class="t-assignee">${opts.join("")}</select></td>`}
-      <td class="t-q" data-label="Въпрос">${taskQuestionCell(t)}</td>
+        ? `<td class="t-assignee-ro" data-label="Отговорник">${assignees.length ? assignees.map(escapeHtml).join(", ") : "—"}</td>`
+        : `<td data-label="Отговорник" class="t-asg-cell">
+            <span class="t-asg-list">${assignees.map(w => `<span class="t-asg-chip">${escapeHtml(w)}<button type="button" class="t-asg-rm" data-w="${escapeAttr(w)}" title="Махни">×</button></span>`).join("") || `<span class="t-asg-none">— никой —</span>`}</span>
+            <select class="t-asg-add" title="Добави отговорник (може двама на една задача)">${addOpts.join("")}</select>
+          </td>`}
+      ${showClaim ? (function () {
+        const me = isW ? MY_WORKER : (worker || "");
+        const mine = me && assignees.includes(me);
+        // Показва всички, които са я взели (видимо за всички), без да я заключва.
+        const tags = assignees.map(w => `<span class="t-claimed${w === me ? " is-me" : ""}" title="Взе задачата">✓ ${escapeHtml(w)}</span>`).join(" ");
+        return `<td class="t-claim-cell" data-label="Взимам">${tags}${mine ? "" : `${tags ? " " : ""}<button type="button" class="btn btn-small t-claim">✋ Взимам</button>`}</td>`;
+      })() : ""}
+      <td class="t-q" data-label="${t.workshop === "Заваръчно" ? "Коментар" : "Въпрос"}">${t.workshop === "Заваръчно" ? taskCommentCell(t) : taskQuestionCell(t)}</td>
       <td class="t-actions" data-label="">
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
-        ${amWorker() ? "" : `<button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
-        <button type="button" class="remove-row t-del" title="Изтрий">×</button>`}
+        ${(t.source && t.source.flow) ? `<button type="button" class="btn btn-small t-scrap" title="Брак при настройка — връща спешно нарязване към първата операция">⚠ Брак</button>` : ""}
+        ${amWorker() ? "" : `${(Number(t.produced) || 0) > 0 ? '<button type="button" class="btn btn-small t-fix" title="Поправка на сгрешено вписване (напр. 321 вместо 21) — връща и складовите движения">🩹</button>' : ""}
+        <button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
+        <button type="button" class="btn btn-small t-move" title="Прехвърли операцията в друг цех">🔀 Цех</button>
+        ${isFlowTask(t)
+          ? `<button type="button" class="btn btn-small t-del" title="Задачата е от заявка — не се трие. Тук се закрива (отива в архива), а веригата остава цяла.">🗄</button>`
+          : `<button type="button" class="remove-row t-del" title="Изтрий ръчната задача">×</button>`}`}
       </td>`;
     const filesCell = tr.querySelector(".t-files");
     const addBtn = filesCell.querySelector(".tf-add");
@@ -573,8 +1809,23 @@ function renderTasks() {
     });
     filesCell.querySelectorAll(".tf-x").forEach(b =>
       b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
-    const asg = tr.querySelector("select.t-assignee");
-    if (asg) asg.addEventListener("change", () => { if (amWorker()) return; t.assignee = asg.value; tSaveTask(t); });
+    const asgAdd = tr.querySelector("select.t-asg-add");
+    if (asgAdd) asgAdd.addEventListener("change", () => {
+      if (amWorker()) return;
+      const w = asgAdd.value; if (!w) return;
+      taskSetAssignees(t, [...taskAssignees(t), w]); tSaveTask(t); renderTasks();
+    });
+    tr.querySelectorAll(".t-asg-rm").forEach(b => b.addEventListener("click", () => {
+      if (amWorker()) return;
+      taskSetAssignees(t, taskAssignees(t).filter(x => x !== b.dataset.w)); tSaveTask(t); renderTasks();
+    }));
+    const claimBtn = tr.querySelector(".t-claim");
+    if (claimBtn) claimBtn.addEventListener("click", () => {
+      const me = isW ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+      if (!me) { alert("Първо избери служител горе, за да се знае кой взима задачата."); return; }
+      if (!taskAssignees(t).includes(me)) { taskSetAssignees(t, [...taskAssignees(t), me]); tSaveTask(t); }
+      renderTasks();
+    });
     const thk = tr.querySelector("select.t-thick");
     if (thk) thk.addEventListener("change", () => { t.thickness = thk.value; tSaveTask(t); });
     const sel = tr.querySelector(".t-sel");
@@ -584,15 +1835,23 @@ function renderTasks() {
     });
     const input = tr.querySelector(".t-today");
     const submit = () => {
-      if (usesDialog) openProductionDialog(t, input ? input.value : "");
-      else logProduction(t, input ? input.value : "");
+      // 🔍 КОНТРОЛ НА КАЧЕСТВОТО — преди всяко отчитане (всяко 3-то с 60 сек.).
+      const go = () => {
+        if (usesDialog) openProductionDialog(t, input ? input.value : "");
+        else logProduction(t, input ? input.value : "");
+      };
+      if (typeof qcGate === "function") qcGate(go); else go();
     };
     tr.querySelector(".t-add").addEventListener("click", submit);
     if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
+    const fix = tr.querySelector(".t-fix"); if (fix) fix.addEventListener("click", () => fixLogDialog(t));
+    const move = tr.querySelector(".t-move"); if (move) move.addEventListener("click", () => moveTaskWorkshop(t));
+    const scrap = tr.querySelector(".t-scrap"); if (scrap) scrap.addEventListener("click", () => openScrapDialog(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
     const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
+    const ce = tr.querySelector(".t-comment-edit"); if (ce) ce.addEventListener("click", () => editTaskComment(t));
     const prio = tr.querySelector(".t-prio"); if (prio) prio.addEventListener("click", () => cyclePriority(t));
     tbody.appendChild(tr);
   });
@@ -600,33 +1859,285 @@ function renderTasks() {
   renderBulkBar(rows, ws);
 }
 
+// Сваля показания списък със задачи като Excel (за печат). Спазва текущия
+// филтър: избран цех, служител, търсене — и същата подредба като на екрана.
+function exportWorkshopTasksExcel() {
+  if (typeof XLSX === "undefined") { alert("Excel библиотеката не е заредена. Опитай пак след презареждане."); return; }
+  const ws = currentWorkshop();
+  const isW = amWorker();
+  const worker = isW ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+  const term = (document.getElementById("task-search").value || "").trim().toLowerCase();
+  let rows = TASKS.filter(t => {
+    if (t.source && t.source.kind === "extra") return false;
+    if (ws === "__mine") { if (!myWorkshops().includes(t.workshop)) return false; }
+    else if (ws !== "__all" && t.workshop !== ws) return false;
+    if (isW) { const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false; }
+    else if (worker && !taskHasWorker(t, worker)) return false;
+    if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    return true;
+  });
+  const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
+  const f = SORT_KEYS[selKey];
+  rows.sort((a, b) => {
+    if (selKey !== "priority") { const pa = priLevel(a), pb = priLevel(b); if (pa !== pb) return pb - pa; }
+    const va = f(a), vb = f(b);
+    if (va < vb) return -1 * sortState.dir;
+    if (va > vb) return 1 * sortState.dir;
+    return 0;
+  });
+  if (!rows.length) { alert("Няма задачи за експорт по текущия филтър."); return; }
+
+  const showWs = ws === "__all" || wsIsFamily(ws);
+  const head = ["Поръчка №", "Клиент", "Продукт", "Код", "Операция", "Кол-во", "Произв.", "Остатък", "Срок", "Отговорник"];
+  if (showWs) head.unshift("Цех");
+  const title = "Задачи — " + (ws === "__all" ? "Всички цехове" : (wsIsFamily(ws) ? wsFamilyLabel(ws) : ws)) + (worker ? " · " + worker : "") + " · " + todayStr();
+  const aoa = [[title], [], head];
+  rows.forEach(t => {
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    const r = [
+      taskOrderNos(t).join(", "), t.client || "СЕРИЯ", t.product || "", t.code || "", t.operation || "",
+      qty || "", prod, Math.max(qty - prod, 0), t.due || "", taskAssignees(t).join(", "),
+    ];
+    if (showWs) r.unshift(t.workshop || "");
+    aoa.push(r);
+  });
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  sheet["!cols"] = (showWs ? [{ wch: 12 }] : []).concat([{ wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 18 }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, "Задачи");
+  const wsName = (showWs ? "всички" : ws).replace(/[\\\/\?\*\[\]:]/g, "-");
+  XLSX.writeFile(wb, `Задачи-${wsName}-${todayStr()}.xlsx`);
+}
+
 function renderBulkBar(rows, ws) {
   const bulk = document.getElementById("task-bulk");
   if (amWorker()) { bulk.hidden = true; return; }
   bulk.hidden = false;
-  const wsNames = ws === "__all" ? [...new Set(Object.values(WORKERS).flat())] : (WORKERS[ws] || []);
+  const wsNames = wsWorkersOf(ws);
+  const manualRows = rows.filter(isManualTask);
   bulk.innerHTML = `Маркирани: <strong id="bulk-count">${selectedTasks.size}</strong> ·
     Възложи на: <select id="bulk-worker"><option value="">— избери —</option>${wsNames.map(n => `<option>${escapeHtml(n)}</option>`).join("")}</select>
-    <button id="bulk-assign" class="btn btn-small btn-primary">Възложи избраните</button>
+    <button id="bulk-assign" class="btn btn-small btn-primary" title="ЗАМЕНЯ отговорниците на маркираните с избрания">Възложи избраните</button>
+    <button id="bulk-assign-add" class="btn btn-small" title="ДОБАВЯ избрания към сегашните отговорници (двама на една задача)">➕ Добави към тях</button>
+    <button id="bulk-unassign" class="btn btn-small" title="Маха всички отговорници на маркираните — задачата се връща като свободна">🧹 Освободи</button>
+    <label style="font-size:12.5px">Срок: <input type="date" id="bulk-due" style="padding:4px 6px" /></label>
+    <button id="bulk-setdue" class="btn btn-small" title="Задава този срок на всички маркирани">📅 Задай срок</button>
     <button id="bulk-selvis" class="btn btn-small">Маркирай показаните (${rows.length})</button>
-    <button id="bulk-clear" class="btn btn-small">Изчисти</button>`;
+    <button id="bulk-sel-manual" class="btn btn-small" title="Маркира показаните ръчно въведени задачи (не пуснати от системата)">✋ Маркирай ръчните (${manualRows.length})</button>
+    <button id="bulk-clear" class="btn btn-small">Изчисти</button>
+    ${PROD_MODE ? `<button id="bulk-print" class="btn btn-small btn-primary" title="Разпечатва маркираните задачи като работен лист за цеха">🖨 Разпечатай маркираните</button>` : ""}
+    ${PROD_MODE ? `<button id="bulk-move" class="btn btn-small" title="Мести маркираните задачи в един цех — с възможност правилото да остане завинаги за детайл+операция">🔀 Прехвърли в цех</button>` : ""}
+    <button id="bulk-del" class="btn btn-small btn-danger">🗑 Изтрий избраните</button>`;
   bulk.querySelector("#bulk-selvis").addEventListener("click", () => { rows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
+  bulk.querySelector("#bulk-sel-manual").addEventListener("click", () => { manualRows.forEach(t => selectedTasks.add(t.id)); renderTasks(); });
   bulk.querySelector("#bulk-clear").addEventListener("click", () => { selectedTasks.clear(); renderTasks(); });
   bulk.querySelector("#bulk-assign").addEventListener("click", () => assignBulk(bulk.querySelector("#bulk-worker").value));
+  bulk.querySelector("#bulk-assign-add").addEventListener("click", () => assignBulk(bulk.querySelector("#bulk-worker").value, true));
+  bulk.querySelector("#bulk-unassign").addEventListener("click", unassignBulk);
+  bulk.querySelector("#bulk-setdue").addEventListener("click", () => setDueBulk(bulk.querySelector("#bulk-due").value));
+  bulk.querySelector("#bulk-del").addEventListener("click", deleteBulk);
+  const mv = bulk.querySelector("#bulk-move"); if (mv) mv.addEventListener("click", moveBulkDialog);
+  const pr = bulk.querySelector("#bulk-print"); if (pr) pr.addEventListener("click", () => printSelectedTasks(rows));
 }
 
-async function assignBulk(worker) {
+/* 🖨 Работен лист от МАРКИРАНИТЕ задачи — за раздаване в цеха.
+   Редът е този от екрана (със сегашната подредба). При няколко цеха се
+   разделя на цехове, за да отиде всеки лист където трябва. */
+function printSelectedTasks(visibleRows) {
+  if (!selectedTasks.size) { alert("Първо маркирай задачи — с тикчетата отляво или с бутона за маркиране на показаните."); return; }
+  const ids = new Set([...selectedTasks].map(String));
+  let list = (visibleRows || []).filter(t => ids.has(String(t.id)));
+  if (list.length < ids.size) {
+    // Маркирани редове, които в момента не се виждат (сменен филтър) — добавяме ги накрая.
+    const have = new Set(list.map(t => String(t.id)));
+    (TASKS || []).forEach(t => { if (ids.has(String(t.id)) && !have.has(String(t.id))) list.push(t); });
+  }
+  if (!list.length) { alert("Маркираните задачи вече не съществуват."); return; }
+
+  const opsAll = [...new Set(list.map(t => String(t.operation || "").trim()).filter(Boolean))];
+  const wsAll = [...new Set(list.map(t => t.workshop || ""))];
+  const title = opsAll.length === 1 ? opsAll[0] : "Задачи за производство";
+  const sub = `${wsAll.length === 1 ? "Цех " + (wsAll[0] || "—") : wsAll.length + " цеха"} · ${list.length} задачи · ${typeof erpDMY === "function" ? erpDMY(todayStr()) : todayStr()}`;
+  const showWs = wsAll.length > 1;
+
+  const rowH = (t, i) => {
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    const rem = Math.max(0, qty - prod);
+    const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
+    const nos = taskOrderNos(t);
+    const asg = taskAssignees(t);
+    return `<tr><td>${i + 1}</td>
+      <td>${escapeHtml(cl)}${nos.length ? `<br><small>№ ${escapeHtml(nos.join(", "))}</small>` : ""}</td>
+      <td><b>${escapeHtml(t.code || "")}</b><br><small>${escapeHtml(t.product || "")}</small></td>
+      <td>${escapeHtml(t.operation || "")}${showWs ? `<br><small>${escapeHtml(t.workshop || "")}</small>` : ""}</td>
+      <td class="r">${matQtyFmt(qty)}</td><td class="r">${matQtyFmt(prod)}</td><td class="r"><b>${matQtyFmt(rem)}</b></td>
+      <td>${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : "—"}</td>
+      <td>${escapeHtml(asg.join(", "))}</td>
+      <td style="width:64px"></td><td style="width:74px"></td></tr>`;
+  };
+  const head = `<thead><tr><th>№</th><th>Клиент / заявка</th><th>Код / продукт</th><th>Операция${showWs ? " · цех" : ""}</th>
+    <th class="r">Кол.</th><th class="r">Готови</th><th class="r">Остават</th><th>Срок</th><th>Възложено на</th><th>Изработени</th><th>Подпис</th></tr></thead>`;
+
+  let body = "";
+  if (showWs) {
+    const by = {};
+    list.forEach(t => (by[t.workshop || "— без цех —"] = by[t.workshop || "— без цех —"] || []).push(t));
+    body = Object.keys(by).sort((a, b) => a.localeCompare(b, "bg")).map(w =>
+      `<h3>${escapeHtml(w)} <span style="font-weight:400;font-size:13px;color:#555">— ${by[w].length} задачи</span></h3>
+       <table>${head}<tbody>${by[w].map(rowH).join("")}</tbody></table>`).join("");
+  } else {
+    body = `<table>${head}<tbody>${list.map(rowH).join("")}</tbody></table>`;
+  }
+
+  const html = `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>${escapeHtml(title)} — задачи</title>
+    <style>body{font-family:Arial,sans-serif;margin:14px 18px;color:#111}
+    h1{font-size:20px;margin:0 0 2px}h2{font-size:13px;font-weight:400;color:#555;margin:0 0 10px}
+    h3{font-size:15px;margin:14px 0 4px;background:#eef2ff;padding:5px 8px;border-radius:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px}
+    th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left;vertical-align:top}
+    th{background:#f1f5f9}td.r,th.r{text-align:right}small{color:#555}
+    .sign{margin-top:14px;font-size:12px;display:flex;gap:40px}
+    @page{size:A4 landscape;margin:8mm}@media print{.noprint{display:none}}</style></head><body>
+    <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
+    <h1>${escapeHtml(title)}</h1><h2>${escapeHtml(sub)}</h2>${body}
+    <div class="sign"><span>Дал: ................................</span><span>Приел: ................................</span></div>
+    </body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
+/* 🔀 Групово прехвърляне в цех — за събиране на разпръсната операция.
+   „Постоянно" запомня правилото детайл+операция → цех (същото, което пази и
+   единичното прехвърляне), затова и следващите заявки тръгват натам. */
+async function moveBulkDialog() {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачите — с тикчетата отляво или с бутона за маркиране на показаните."); return; }
+  const ids = [...selectedTasks];
+  const list = ids.map(id => (TASKS || []).find(t => String(t.id) === String(id))).filter(Boolean);
+  if (!list.length) return;
+  const froms = {};
+  list.forEach(t => { froms[t.workshop || "— без цех —"] = (froms[t.workshop || "— без цех —"] || 0) + 1; });
+  const opsN = [...new Set(list.map(t => opNorm(t.operation)))].length;
+  const { wrap, close } = erpDialog(`
+    <h3>🔀 Прехвърли ${list.length} задачи в цех</h3>
+    <p class="hint" style="margin:-4px 0 8px">Сега са в: ${Object.keys(froms).map(w => `<b>${escapeHtml(w)}</b> (${froms[w]})`).join(" · ")}${opsN > 1 ? ` · <span class="pay-neg">внимание: ${opsN} различни операции</span>` : ""}</p>
+    <label class="erp-inline">Нов цех <select id="mb-ws">${workshopList().map(w => `<option>${escapeHtml(w)}</option>`).join("")}</select></label>
+    <div style="margin:10px 0 2px">
+      <label style="display:block;padding:3px 0"><input type="radio" name="mb-mode" value="perm" checked /> <b>Постоянно</b> — тази операция на тези детайли ще отива там и при следващите заявки</label>
+      <label style="display:block;padding:3px 0"><input type="radio" name="mb-mode" value="once" /> Само тези задачи (еднократно)</label>
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="mb-x">Отказ</button><button class="btn btn-primary" id="mb-go">Прехвърли</button></div>`);
+  wrap.querySelector("#mb-x").addEventListener("click", close);
+  wrap.querySelector("#mb-go").addEventListener("click", async () => {
+    const target = wrap.querySelector("#mb-ws").value;
+    const perm = (wrap.querySelector('input[name="mb-mode"]:checked') || {}).value !== "once";
+    if (!target) return;
+    const btn = wrap.querySelector("#mb-go"); btn.disabled = true; btn.textContent = "Прехвърля…";
+    for (const t of list) { t.workshop = target; await tSaveTask(t); }
+    // Постоянните правила се пишат НАВЕДНЪЖ (иначе по едно четене+запис на задача).
+    if (perm) {
+      try {
+        const { data } = await sb.from("app_config").select("data").eq("id", "erp_detail_routing").maybeSingle();
+        const byKey = (data && data.data && data.data.byKey) || {};
+        list.forEach(t => {
+          const key = (typeof erpDetailRouteKey === "function")
+            ? erpDetailRouteKey(t.code, t.product, t.operation)
+            : ((t.code || t.product || "") + "¦" + (t.operation || ""));
+          byKey[key] = target;
+        });
+        const { error } = await sb.from("app_config").upsert({ id: "erp_detail_routing", data: { byKey }, updated_at: new Date().toISOString() });
+        if (error) alert("Задачите са преместени, но постоянното правило не се записа: " + (error.message || error));
+        else if (typeof ERP !== "undefined") ERP.detailRouting = byKey;
+      } catch (e) {}
+    }
+    close();
+    selectedTasks.clear();
+    renderTasks();
+    if (PROD_MODE) renderProdWsBar();
+    alert(`✓ ${list.length} задачи са в цех ${target}.` + (perm ? "\nПравилото е запомнено за следващите заявки." : ""));
+  });
+}
+
+async function deleteBulk() {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи — с тикчетата отляво или бутона „✋ Маркирай ръчните\"."); return; }
+  const marked = [...selectedTasks].map(id => (TASKS || []).find(x => String(x.id) === String(id))).filter(Boolean);
+  const flowOnes = marked.filter(isFlowTask);
+  const ids = marked.filter(t => !isFlowTask(t)).map(t => t.id);
+  if (!ids.length) {
+    alert(`Маркираните ${flowOnes.length} задачи са ПОТОЧНИ (пуснати от заявка) и не се трият оттук.\n\n`
+      + `Триенето им къса веригата: следващата операция увисва, а сглобяването спира да чака частта.\n\n`
+      + `Вместо това:\n`
+      + `• спиране на цялата заявка → ЕРП → Заявки → „↩ Изтегли от производство"\n`
+      + `• махане на един ред от екрана → „🗄 Закрий" (обратимо, веригата остава цяла)`);
+    return;
+  }
+  if (!confirm(`Да изтрия ли ${ids.length} ръчни задачи?`
+    + (flowOnes.length ? `\n\n⛔ ${flowOnes.length} поточни (от заявка) се ПРОПУСКАТ — те се спират от заявката.` : "")
+    + `\n\nТова е необратимо. Ръчните не са в Склад детайли, така че складът не се променя.`)) return;
+  let done = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { error } = await sb.from("tasks").delete().in("id", chunk);
+    if (error) { alert("Грешка при изтриване: " + error.message); break; }
+    TASKS = TASKS.filter(t => !chunk.includes(t.id));
+    done += chunk.length;
+  }
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Изтрити ${done} задачи.`);
+}
+
+async function assignBulk(worker, addTo) {
   if (amWorker()) return;
   if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
   if (!worker) { alert("Избери служител от менюто „Възложи на“."); return; }
   const ids = [...selectedTasks];
+  const picked = [];
   for (const id of ids) {
     const t = TASKS.find(x => x.id === id);
-    if (t) { t.assignee = worker; await tSaveTask(t); }
+    if (!t) continue;
+    const cur = taskAssignees(t);
+    taskSetAssignees(t, addTo ? [...new Set([...cur, worker])] : [worker]);
+    picked.push(t);
   }
+  for (let i = 0; i < picked.length; i += 10) await Promise.all(picked.slice(i, i + 10).map(t => tSaveTask(t)));
   selectedTasks.clear();
   renderTasks();
-  alert(`Възложени ${ids.length} задачи на „${worker}“.`);
+  alert(`${addTo ? "Добавен" : "Възложени"} „${worker}“ ${addTo ? "към" : "на"} ${ids.length} задачи.`);
+}
+// Маха отговорниците на маркираните (задачата се връща като свободна).
+async function unassignBulk() {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
+  const ids = [...selectedTasks];
+  if (!confirm(`Да махна ли отговорниците на ${ids.length} маркирани задачи?`)) return;
+  const picked = [];
+  for (const id of ids) {
+    const t = TASKS.find(x => x.id === id);
+    if (t) { taskSetAssignees(t, []); picked.push(t); }
+  }
+  for (let i = 0; i < picked.length; i += 10) await Promise.all(picked.slice(i, i + 10).map(t => tSaveTask(t)));
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Освободени ${ids.length} задачи.`);
+}
+// Общ срок на маркираните — за планиране по дни.
+async function setDueBulk(due) {
+  if (amWorker()) return;
+  if (!selectedTasks.size) { alert("Първо маркирай задачи с тикчетата отляво."); return; }
+  if (!due) { alert("Избери дата в полето „Срок“."); return; }
+  const ids = [...selectedTasks];
+  const picked = [];
+  for (const id of ids) {
+    const t = TASKS.find(x => x.id === id);
+    if (t) { t.due = due; picked.push(t); }
+  }
+  for (let i = 0; i < picked.length; i += 10) await Promise.all(picked.slice(i, i + 10).map(t => tSaveTask(t)));
+  selectedTasks.clear();
+  renderTasks();
+  alert(`Зададен срок ${typeof erpDMY === "function" ? erpDMY(due) : due} на ${ids.length} задачи.`);
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
@@ -634,11 +2145,14 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 /* ---------- Чертежи към задача ---------- */
 function taskFilesCell(t) {
   const files = t.files || [];
-  const links = files.map((f, i) => {
+  let links = files.map((f, i) => {
     const x = amWorker() ? "" : `<button class="tf-x" data-i="${i}" title="Премахни">×</button>`;
     return `<span class="tf"><a href="${f.url}" target="_blank" title="${escapeAttr(f.name)}">📎</a>${x}</span>`;
   }).join("");
-  const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${files.length ? "+" : "Прикачи"}</button>`;
+  // Чертежът на бързото изделие (Нестандартни поръчки) — идва с изделието по код.
+  const qd = QUICK_DRAW && QUICK_DRAW[String(t.code || "").trim()];
+  if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" title="Чертеж на изделието (от Нестандартни поръчки)">📄</a></span>`;
+  const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${(files.length || qd) ? "+" : "Прикачи"}</button>`;
   return (links || (amWorker() ? "—" : "")) + add;
 }
 async function handleTaskFiles(t, files) {
@@ -652,124 +2166,334 @@ async function handleTaskFiles(t, files) {
     t.files.push({ name: file.name, type: file.type, path, url: data.publicUrl });
   }
   await tSaveTask(t);
+  await propagateDetailFiles(t);   // чертежите пътуват с детайла по операциите
   renderTasks();
+}
+
+// Другите операции на СЪЩИЯ детайл (по код) в потока — за да пътуват чертежите
+// (напр. закачен на Лазерно рязане да отиде и към Абкант и т.н.).
+function detailFileSiblings(t) {
+  const src = t && t.source;
+  if (!src || !src.flow || !src.code) return [];
+  return TASKS.filter(x => x.id !== t.id && x.source && x.source.flow && x.source.code === src.code && !!x.source.stock === !!src.stock);
+}
+// Придвижва чертежите на задачата към всички операции на същия детайл.
+async function propagateDetailFiles(t) {
+  for (const x of detailFileSiblings(t)) {
+    x.files = x.files || [];
+    let changed = false;
+    (t.files || []).forEach(f => {
+      if (f && f.path && !x.files.some(g => g.path === f.path)) { x.files.push({ ...f }); changed = true; }
+    });
+    if (changed) await tSaveTask(x);
+  }
 }
 async function removeTaskFile(t, i) {
   if (amWorker()) return;
   const f = (t.files || [])[i];
-  if (f && f.path) await sb.storage.from(BUCKET).remove([f.path]);
+  if (!f) return;
+  const path = f.path;
+  if (path) await sb.storage.from(BUCKET).remove([path]);
   t.files.splice(i, 1);
   await tSaveTask(t);
+  // Махаме чертежа и от другите операции на детайла (пътува навсякъде).
+  if (path) {
+    for (const x of detailFileSiblings(t)) {
+      const before = (x.files || []).length;
+      x.files = (x.files || []).filter(g => g.path !== path);
+      if (x.files.length !== before) await tSaveTask(x);
+    }
+  }
   renderTasks();
 }
 
-async function logProduction(t, qtyVal, extra) {
+async function logProduction(t, qtyVal, extra, opts) {
+  const silent = !!(opts && opts.silent);   // мастер режим: без диалози/подсказки
   const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
-  if (!add || add <= 0) { alert("Въведи брой в полето „днес“."); return; }
+  if (!add || add <= 0) { if (!silent) alert("Въведи брой в полето „днес“."); return; }
+  // Поточно производство: операция, която ЧАКА предната, не може да отчете
+  // повече от произведеното преди нея. Първата операция (разкрой) може да
+  // произведе и повече от нужното за поръчката — излишъкът влиза в Склад детайли.
+  if (t.source && t.source.flow && typeof erpFlowAvailable === "function") {
+    const gated = t.source.prevKey || (Array.isArray(t.source.gate) && t.source.gate.length);
+    if (gated) {
+      const map = typeof erpSeriesProduced === "function" ? erpSeriesProduced(TASKS) : {};
+      const avail = erpFlowAvailable(t, map);
+      if (add > avail) {
+        if (!silent) {
+          if (avail > 0) {
+            alert(`Поточно производство: сега можеш да запишеш най-много ${avail} бр. (толкова са произведени в предната операция).`);
+          } else {
+            const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
+            const detail = pend.length ? "\n\nЧака да се завършат:\n" + pend.map(p => `• ${p.code}${p.operation ? " · " + p.operation : ""}: готови ${p.produced}/${p.qty}`).join("\n") : "";
+            alert(`Поточно производство: детайлите за тази стъпка още не са готови в предната операция.${detail}\n\nИзчакай съответния цех.`);
+          }
+        }
+        return;
+      }
+    } else if (!t.source.toStock) {
+      const q = Number(t.qty) || 0, pr = Number(t.produced) || 0;
+      if (q > 0 && pr + add > q) {
+        const over = (pr + add) - q;
+        if (!silent && !confirm(`Записваш ${over} бр. повече от нужното за поръчката (${q}).\nИзлишъкът ще влезе в Склад детайли, след като детайлът мине последната операция.\n\nДа продължа ли?`)) return;
+      }
+    }
+  }
+  // Материал за рязането: ако не стига за това, което записваш — предупреждаваме
+  // (складът ще отиде на минус), но позволяваме (ти преценяваш).
+  if (!silent && typeof taskMaterialShort === "function") {
+    const ms = taskMaterialShort(t);
+    if (ms) {
+      const txt = ms.map(m => `• ${m.code ? m.code + " " : ""}${m.name}: налично ${matQtyFmt(m.have)}, липсват ${matQtyFmt(m.short)} ${m.unit || ""}`).join("\n");
+      if (!confirm(`⚠ Няма достатъчно материал за оставащото на този детайл:\n${txt}\n\nСкладът за материали ще отиде на минус. Да продължа ли с ${add} бр.?`)) return;
+    }
+  }
   let worker;
-  if (amWorker()) {
+  if (silent) {
+    worker = (opts && opts.worker) || t.assignee || "Мастер";
+  } else if (amWorker()) {
     worker = MY_WORKER;
-    if (!t.assignee) t.assignee = MY_WORKER;   // поемаме незаета задача
+    if (!taskHasWorker(t, MY_WORKER)) taskSetAssignees(t, [...taskAssignees(t), MY_WORKER]);   // поемаме незаета задача
   } else {
     worker = t.assignee || document.getElementById("task-worker-filter").value;
     if (!worker) worker = prompt("Кой служител?", "") || "";
   }
   t.produced = (Number(t.produced) || 0) + add;
   t.logs = t.logs || [];
-  const entry = { date: todayStr(), worker, qty: add };
+  const entry = { date: todayStr(), worker, qty: add, lid: prodLogId() };
   if (extra) Object.assign(entry, extra);   // machine, tPiece, tSheet, tOrder, consumables...
   t.logs.push(entry);
   await tSaveTask(t);
-  renderTasks();
+  // Производствен дневник — ВЕЧЕН запис (оцелява триене/изтегляне на задачата).
+  await prodLogWrite(t, entry);
+  // Последователно производство: ако задачата стана готова — пусни следващата операция.
+  if (typeof erpAdvanceSeq === "function") { try { await erpAdvanceSeq(t); } catch (e) { console.error("seq", e); } }
+  // Заприходяване в Склад детайли (последна операция: всичкото произведено).
+  if (typeof erpFlowStockIn === "function") { try { await erpFlowStockIn(t); } catch (e) { console.error("stock-in", e); } }
+  // Изписване на вложените части при сглобяване (толкова, колкото сглобени).
+  if (typeof erpFlowConsume === "function") { try { await erpFlowConsume(t); } catch (e) { console.error("consume", e); } }
+  // Изписване на материала при рязане (толкова, колкото нарязано).
+  if (typeof erpFlowMaterialConsume === "function") { try { await erpFlowMaterialConsume(t); } catch (e) { console.error("mat-consume", e); } }
+  // 🎨 Авто-боя: ако този отчет отключи детайли за Бояджийно — отчети ги веднага.
+  if (typeof erpAutoPaint === "function") { try { await erpAutoPaint(); } catch (e) {} }
+  if (!silent) renderTasks();   // в мастер режим гридът се пре-рисува сам
 }
 
-// KROHNE LTD — записване по операция; „произведено“ = напълно готови детайли (мин. по операции)
-async function logProductionKrohne(t, opKey, qtyVal, extra) {
-  const add = Number(String(qtyVal == null ? "" : qtyVal).replace(",", "."));
-  if (!add || add <= 0) { alert("Въведи брой детайли."); return; }
-  let worker;
-  if (amWorker()) {
-    worker = MY_WORKER;
-    if (!t.assignee) t.assignee = MY_WORKER;
-  } else {
-    worker = t.assignee || document.getElementById("task-worker-filter").value;
-    if (!worker) worker = prompt("Кой служител?", "") || "";
+/* ---------- Брак при настройка (връща спешно нарязване към първата операция) ----------
+   При настройка на машина (напр. Абкант) първите детайли често излизат брак,
+   докато се хване правилното огъване. Операторът сигнализира брака ОЩЕ В НАЧАЛОТО
+   (преди да запише годната изработка), за да се нарежат наново липсващите бройки,
+   докато серията още върви — не накрая. Механиката:
+   1) първата операция на детайла (обикновено Лазери) получава +N бр. и става СПЕШНА;
+   2) на текущата операция се записва брак N (изважда се от входа ѝ в потока), така
+      че когато допълнителните N дойдат от лазера, тя ги обработва за годни. */
+
+// Първата операция (корен) на веригата на този детайл — следва prevKey нагоре.
+function flowChainRoot(t) {
+  let cur = t;
+  const seen = new Set();
+  while (cur && cur.source && cur.source.prevKey && !seen.has(cur.source.seriesKey)) {
+    seen.add(cur.source.seriesKey);
+    const prev = (TASKS || []).find(x => x.source && x.source.flow && x.source.seriesKey === cur.source.prevKey);
+    if (!prev) break;
+    cur = prev;
   }
-  const q = Number(t.qty) || 0;
-  t.ops = t.ops || {};
-  const cur = Number(t.ops[opKey]) || 0;
-  t.ops[opKey] = q ? Math.min(q, cur + add) : cur + add;
-  // напълно готови детайли = минимумът по всички операции
-  let done = Infinity;
-  KROHNE_OPS.forEach(o => { done = Math.min(done, Number(t.ops[o.key]) || 0); });
-  t.produced = isFinite(done) ? done : 0;
-  t.logs = t.logs || [];
-  const entry = { date: todayStr(), worker, qty: add, op: opKey };
-  if (extra) Object.assign(entry, extra);
-  t.logs.push(entry);
-  await tSaveTask(t);
-  renderTasks();
+  return cur;
 }
 
-// Специален отчетен прозорец за детайли на KROHNE LTD (4 операции)
-function openKrohneDialog(t, qtyPrefill) {
-  const machines = MACHINES_BY_WORKSHOP[t.workshop] || MACHINES_BY_WORKSHOP["CNC цех"] || [];
-  const q = Number(t.qty) || 0; const ops = t.ops || {};
-  const timeFields = [
-    { key: "tPiece", label: "Време за 1 детайл", unit: "sec" },
-    { key: "tOrder", label: "Време за произведеното количество", unit: "min" },
-  ];
-  const opsStatus = KROHNE_OPS.map(o => {
-    const v = Number(ops[o.key]) || 0; const ok = q && v >= q;
-    return `<div class="kd-op ${ok ? "ok" : ""}">${escapeHtml(o.label)}: <b>${v}${q ? "/" + q : ""}</b>${ok ? " ✓" : ""}</div>`;
-  }).join("");
-  const timeRow = (f) => `<label>${escapeHtml(f.label)}<span class="pd-time"><input id="pd-${f.key}-v" type="number" min="0" step="any" inputmode="decimal" placeholder="0" /><select id="pd-${f.key}-u"><option value="sec" ${f.unit === "sec" ? "selected" : ""}>сек</option><option value="min" ${f.unit === "min" ? "selected" : ""}>мин</option><option value="hour" ${f.unit === "hour" ? "selected" : ""}>час</option></select></span></label>`;
-  const wrap = document.createElement("div"); wrap.className = "overlay ask-overlay";
-  wrap.innerHTML = `<div class="overlay-box ask-box pd-box">
-    <h3>⏱ KROHNE LTD — записване</h3>
-    <div class="pd-task"><div><b>Клиент:</b> ${escapeHtml(t.client || "")}</div><div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div></div>
-    <div class="kd-status"><div class="kd-status-title">Готовност: ${krohnePct(t)}%</div>${opsStatus}</div>
-    <label>Машина *<select id="pd-machine"><option value="">— избери машина —</option>${machines.map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select></label>
-    <label>Коя операция извърши? *<select id="pd-op"><option value="">— избери операция —</option>${KROHNE_OPS.map(o => `<option value="${o.key}">${escapeHtml(o.label)}</option>`).join("")}</select></label>
-    <label>Брой детайли (за тази операция) *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyPrefill || ""))}" /></label>
-    <p class="pd-hint">⏱ Попълни поне едно от времената:</p>
-    ${timeFields.map(timeRow).join("")}
-    <label>Изразходени консумативи<textarea id="pd-x-consumables" rows="2" placeholder="по желание"></textarea></label>
-    <label>Специфична работа<textarea id="pd-x-specific" rows="2" placeholder="по желание"></textarea></label>
-    <div class="ask-actions"><button id="pd-save" class="btn btn-primary">Запиши изработката</button><button id="pd-cancel" class="btn">Отказ</button></div>
-  </div>`;
+function openScrapDialog(t) {
+  if (!t.source || !t.source.flow) { alert("Бракът при настройка се отчита само за детайли, пуснати през производството (поток)."); return; }
+  const root = flowChainRoot(t);
+  const isRoot = root && root.id === t.id;
+  const targetTxt = isRoot
+    ? `Тази операция е първата — допълнителните бройки ще се добавят към нея (${escapeHtml(t.operation || "")}).`
+    : `Ще пусне спешно нарязване към <b>${escapeHtml(root ? (root.operation || "първата операция") : "първата операция")}</b>${root && root.workshop ? ` (цех ${escapeHtml(root.workshop)})` : ""}.`;
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>⚠ Брак при настройка</h3>
+      <div class="pd-task">
+        <div><b>Детайл:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
+        <div><b>Операция:</b> ${escapeHtml(t.operation || "—")}</div>
+        ${(Number(t.brak) || 0) > 0 ? `<div class="muted">Досега брак при настройка тук: <b>${Number(t.brak)}</b> бр.</div>` : ""}
+      </div>
+      <label>Колко детайла са брак при настройка? *<input id="sc-qty" type="number" min="1" step="1" inputmode="numeric" placeholder="напр. 10" /></label>
+      <label>Причина / бележка<textarea id="sc-note" rows="2" placeholder="по желание — напр. „настройка на огъването“"></textarea></label>
+      <p class="pd-hint">${targetTxt}<br>Бройките ще се нарежат наново, докато серията върви — не се чака края.</p>
+      <div class="ask-actions">
+        <button id="sc-save" class="btn btn-primary btn-scrap">⚠ Пусни спешно нарязване</button>
+        <button id="sc-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
   document.body.appendChild(wrap);
   const close = () => wrap.remove();
-  wrap.querySelector("#pd-cancel").addEventListener("click", close);
+  wrap.querySelector("#sc-cancel").addEventListener("click", close);
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
-  wrap.querySelector("#pd-save").addEventListener("click", async () => {
-    const machine = (wrap.querySelector("#pd-machine").value || "").trim();
-    const op = wrap.querySelector("#pd-op").value;
-    const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
-    if (!machine) { alert("Избери машина."); return; }
-    if (!op) { alert("Избери коя операция извърши."); return; }
-    if (!qty || qty <= 0) { alert("Въведи брой детайли."); return; }
-    const extra = { machine };
-    let timeCount = 0;
-    for (const f of timeFields) {
-      const v = Number(String(wrap.querySelector("#pd-" + f.key + "-v").value).replace(",", "."));
-      const unit = wrap.querySelector("#pd-" + f.key + "-u").value;
-      const mult = unit === "hour" ? 3600 : (unit === "min" ? 60 : 1);
-      const sec = v > 0 ? Math.round(v * mult) : 0;
-      if (sec) { extra[f.key] = { v, unit, sec }; timeCount++; }
-    }
-    if (timeCount === 0) { alert("Попълни поне едно от полетата за време."); return; }
-    const cons = (wrap.querySelector("#pd-x-consumables").value || "").trim(); if (cons) extra.consumables = cons;
-    const spec = (wrap.querySelector("#pd-x-specific").value || "").trim(); if (spec) extra.specific = spec;
+  wrap.querySelector("#sc-save").addEventListener("click", async () => {
+    const n = Math.floor(Number(String(wrap.querySelector("#sc-qty").value).replace(",", ".")) || 0);
+    if (!n || n <= 0) { alert("Въведи брой брак (по-голям от 0)."); return; }
+    const note = (wrap.querySelector("#sc-note").value || "").trim();
     close();
-    await logProductionKrohne(t, op, qty, extra);
+    await reportSetupScrap(t, n, note);
   });
-  setTimeout(() => { const m = wrap.querySelector("#pd-machine"); if (m) m.focus(); }, 50);
+  setTimeout(() => { const q = wrap.querySelector("#sc-qty"); if (q) q.focus(); }, 50);
+}
+
+async function reportSetupScrap(t, n, note) {
+  n = Math.abs(Math.floor(Number(n) || 0));
+  if (!n) return;
+  const by = MY_WORKER || t.assignee || "";
+  const root = flowChainRoot(t);
+  const isRoot = root && root.id === t.id;
+
+  // 1) Записваме брака на текущата операция (за проследяване + за потока).
+  t.brakLog = t.brakLog || [];
+  t.brakLog.push({ date: todayStr(), by, qty: n, note: note || "", toOp: root ? (root.operation || "") : "" });
+  if (!isRoot) t.brak = (Number(t.brak) || 0) + n;   // коренът вместо brak си вдига qty
+
+  // 2) Първата операция реже допълнителните бройки — спешно.
+  if (root) {
+    root.qty = (Number(root.qty) || 0) + n;
+    root.priority = 2;                                // СПЕШНО
+    root.brakNeed = (Number(root.brakNeed) || 0) + n; // за индикатор в списъка
+    root.urgentAck = false;                           // нов брак → алармата пищи наново
+    root.brakReqs = root.brakReqs || [];
+    root.brakReqs.push({ date: todayStr(), from: t.operation || "", code: t.code || "", qty: n, by, note: note || "" });
+    root.comment = `⚠ БРАК при настройка на „${t.operation || ""}“ — спешно допълнително нарязване: общо +${root.brakNeed} бр.`;
+    if (!isRoot) await tSaveTask(root);
+  }
+  await tSaveTask(t);   // ако root === t, това записва и двете промени
+  renderTasks();
+  alert(`Отбелязах ${n} бр. брак при настройка.\n`
+    + (root && !isRoot
+      ? `Пуснах спешно нарязване на още ${n} бр. към „${root.operation || "първата операция"}“${root.workshop ? " (цех " + root.workshop + ")" : ""}. Ще дойдат, докато серията върви.`
+      : `Добавих още ${n} бр. към тази операция (спешно).`));
+}
+
+/* ---------- Допълнителна дейност (извън стандартната работа) ----------
+   Служителят ЗАПИСВА извънредна дейност (описание + време). Записът се пази
+   като лог в скрита задача „Допълнителна дейност" за цеха и се показва във
+   „Времена" (collectTimeRows го включва по полето activity/tOrder). */
+// Прехвърля операция от цех в цех (само админ). Еднократно (само тази задача)
+// или постоянно (тази операция на този детайл винаги отива в избрания цех).
+function moveTaskWorkshop(t) {
+  if (amWorker()) return;
+  const detail = (t.code ? t.code + " " : "") + (t.product || "");
+  const op = t.operation || "(операция)";
+  const cur = t.workshop || "";
+  const wss = (typeof TASK_DEFAULT_WORKSHOPS !== "undefined" && TASK_DEFAULT_WORKSHOPS.length)
+    ? TASK_DEFAULT_WORKSHOPS
+    : ["Лазери", "CNC цех", "Преси", "Абкант", "Заваръчно", "Занитване", "Бояджийно", "Заготовки", "Сглобяване", "Опаковане/Експедиция"];
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>🔀 Прехвърли в цех</h3>
+      <p class="pd-hint">Детайл: <b>${escapeHtml(detail)}</b><br>Операция: <b>${escapeHtml(op)}</b><br>Сега в цех: <b>${escapeHtml(cur)}</b></p>
+      <label>Нов цех
+        <select id="mv-ws">${wss.map(w => `<option ${w === cur ? "selected" : ""}>${escapeHtml(w)}</option>`).join("")}</select>
+      </label>
+      <div class="mv-mode">
+        <label class="mv-radio"><input type="radio" name="mv-mode" value="perm" checked /> <span><b>Постоянно</b> — тази операция на този детайл винаги ще отива в избрания цех (и при следващи заявки)</span></label>
+        <label class="mv-radio"><input type="radio" name="mv-mode" value="once" /> <span>Само тази задача (еднократно)</span></label>
+      </div>
+      <div class="ask-actions">
+        <button id="mv-save" class="btn btn-primary">Прехвърли</button>
+        <button id="mv-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#mv-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelector("#mv-save").addEventListener("click", async () => {
+    const target = wrap.querySelector("#mv-ws").value;
+    const mode = (wrap.querySelector('input[name="mv-mode"]:checked') || {}).value || "perm";
+    if (!target) { alert("Избери цех."); return; }
+    if (target === cur && mode === "once") { close(); return; }
+    const btn = wrap.querySelector("#mv-save"); btn.disabled = true; btn.textContent = "Прехвърля…";
+    // 1) Местим текущата задача в избрания цех.
+    t.workshop = target;
+    await tSaveTask(t);
+    // 2) Постоянно: запомняме правилото за детайл+операция.
+    if (mode === "perm" && typeof erpSaveDetailRoute === "function") {
+      const key = (typeof erpDetailRouteKey === "function")
+        ? erpDetailRouteKey(t.code, t.product, t.operation)
+        : ((t.code || t.product || "") + "¦" + (t.operation || ""));
+      const err = await erpSaveDetailRoute(key, target);
+      if (err) alert("Задачата е преместена, но постоянното правило не се записа: " + (err.message || err));
+    }
+    close();
+    renderTasks();
+  });
+}
+
+function openExtraActivityDialog() {
+  const worker = amWorker() ? MY_WORKER : (document.getElementById("task-worker-filter").value || "");
+  if (amWorker() && !worker) { alert("Първо избери кой си (горе)."); return; }
+  const ws = currentWorkshop();
+  const wsName = (ws === "__all" || wsIsFamily(ws)) ? ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.workshop) || "") : ws;
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>➕ Допълнителна дейност</h3>
+      <p class="pd-hint">Запиши дейност, различна от стандартната ти работа.${wsName ? ` Цех: <b>${escapeHtml(wsName)}</b>.` : ""}</p>
+      <label>Описание на дейността *<textarea id="ea-desc" rows="3" placeholder="Какво направи?"></textarea></label>
+      <label>Време *
+        <span class="pd-time">
+          <input id="ea-time" type="number" min="0" step="any" inputmode="decimal" placeholder="0" />
+          <select id="ea-unit"><option value="min" selected>мин</option><option value="hour">час</option><option value="sec">сек</option></select>
+        </span>
+      </label>
+      ${!amWorker() ? `<label>Служител<input id="ea-worker" type="text" value="${escapeAttr(worker)}" placeholder="Име" /></label>` : ""}
+      <div class="ask-actions">
+        <button id="ea-save" class="btn btn-primary">Запиши</button>
+        <button id="ea-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#ea-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  setTimeout(() => { const d = wrap.querySelector("#ea-desc"); if (d) d.focus(); }, 50);
+  wrap.querySelector("#ea-save").addEventListener("click", async () => {
+    const desc = (wrap.querySelector("#ea-desc").value || "").trim();
+    const v = Number(String(wrap.querySelector("#ea-time").value || "").replace(",", "."));
+    const unit = wrap.querySelector("#ea-unit").value;
+    const w = amWorker() ? worker : ((wrap.querySelector("#ea-worker") && wrap.querySelector("#ea-worker").value.trim()) || worker);
+    if (!desc) { alert("Опиши дейността."); return; }
+    if (!(v > 0)) { alert("Въведи време."); return; }
+    if (!w) { alert("Кой служител?"); return; }
+    const sec = Math.round(v * (unit === "hour" ? 3600 : unit === "min" ? 60 : 1));
+    const btn = wrap.querySelector("#ea-save"); btn.disabled = true; btn.textContent = "Записва…";
+    await saveExtraActivity(desc, sec, w, wsName);
+    close();
+  });
+}
+async function saveExtraActivity(desc, sec, worker, wsName) {
+  const log = { date: todayStr(), worker, qty: 0, tOrder: { sec }, activity: desc };
+  let t = TASKS.find(x => x.source && x.source.kind === "extra" && (x.workshop || "") === (wsName || ""));
+  if (t) {
+    t.logs = t.logs || []; t.logs.push(log);
+    await tSaveTask(t);
+  } else {
+    const data = {
+      workshop: wsName || "", client: "", product: "", code: "", operation: "Допълнителна дейност",
+      qty: 0, produced: 0, due: "", assignee: "", logs: [log], files: [], createdAt: new Date().toISOString(),
+      source: { kind: "extra" },
+    };
+    const { data: ins, error } = await sb.from("tasks").insert({ data }).select().single();
+    if (error) { alert("Грешка при запис: " + error.message); return; }
+    TASKS.unshift({ ...ins.data, id: ins.id });
+  }
+  alert("Записано ✓ Благодаря!");
+  renderTasks();
 }
 
 // Задължителен прозорец за машина + времена (полетата може да зависят от машината)
 function openProductionDialog(t, qtyPrefill) {
-  if (isKrohne(t)) return openKrohneDialog(t, qtyPrefill);
   // Персонален Отчетен прозорец (по служител) има предимство пред настройката на цеха.
   const wname = MY_WORKER || t.assignee || "";
   let wcfg = (FIELDS_BY_WORKER && FIELDS_BY_WORKER[wname]) || {};
@@ -798,7 +2522,7 @@ function openProductionDialog(t, qtyPrefill) {
     const qtyLabel = c.qtyLabel || "Брой произведени сега";
     const countFields = c.countFields || [];
     const extraFields = (c.extraFields || EXTRA_FIELDS_BY_WORKSHOP[t.workshop] || []).slice();
-    if (!extraFields.some(f => f.key === "specific")) {
+    if (!extraFields.some(f => f.key === "specific") && NO_SPECIFIC_WORKSHOP.indexOf(t.workshop) === -1) {
       extraFields.push({ key: "specific", label: "Специфична работа (накратко — ако е различна от обичайното)", required: false });
     }
     return { timeFields, qtyLabel, countFields, extraFields };
@@ -824,7 +2548,7 @@ function openProductionDialog(t, qtyPrefill) {
     const qLbl = (cfgFor(machine).qtyLabel);
     const qtyInput = `<label>${escapeHtml(qLbl)} *<input id="pd-qty" type="number" min="0" step="any" inputmode="decimal" value="${escapeAttr(String(qtyValue || ""))}" /></label>`;
     if (byMachine && !machine) {
-      return qtyInput + `<p class="pd-hint">Избери машина, за да се покажат полетата за отчитане.</p>`;
+      return qtyInput + `<p class="pd-hint">Избери машина, за да се покажат полетата за записване.</p>`;
     }
     const c = cfgFor(machine);
     const mLabels = MACHINE_TIME_LABELS[machine] || {};
@@ -844,6 +2568,8 @@ function openProductionDialog(t, qtyPrefill) {
         <div><b>Клиент:</b> ${escapeHtml(t.client || "СЕРИЯ")}</div>
         <div><b>Продукт:</b> ${escapeHtml(t.product || "—")}${t.code ? ` <span class="muted">(${escapeHtml(t.code)})</span>` : ""}</div>
         ${t.operation ? `<div><b>Операция:</b> ${escapeHtml(t.operation)}</div>` : ""}
+        ${(function () { const pr = flowDetailProgress(t); return pr ? `<div class="pd-ops">🔢 Брой операции по изделието: <b>${pr.total}</b> · сега операция <b>${pr.step}</b> · готово <b>${pr.pct}%</b></div>` : ""; })()}
+        ${(t.comment || "").trim() ? `<div class="pd-comment">💬 Коментар: ${escapeHtml(t.comment)}</div>` : ""}
       </div>
       ${machineField ? `<label>Машина *${machineField}</label>` : ""}
       <div id="pd-fields">${fieldsHtml("", qtyPrefill)}</div>
@@ -867,8 +2593,11 @@ function openProductionDialog(t, qtyPrefill) {
   if (machineSel) machineSel.addEventListener("change", rebuild);
 
   wrap.querySelector("#pd-save").addEventListener("click", async () => {
+    // Машината е задължителна само когато има списък (падащо меню); при
+    // цехове без машини полето е свободен текст и е по желание.
+    const machineRequired = machineSel && machineSel.tagName === "SELECT";
     const machine = (machineSel && machineSel.value || "").trim();
-    if (machineSel && !machine) { alert("Избери машина."); return; }
+    if (machineRequired && !machine) { alert("Избери машина."); return; }
     const c = cfgFor(machine);
     const qty = Number(String(wrap.querySelector("#pd-qty").value).replace(",", "."));
     if (!qty || qty <= 0) { alert("Въведи " + c.qtyLabel.toLowerCase() + "."); return; }
@@ -908,12 +2637,29 @@ async function editTask(t) {
   const q = prompt("Количество:", t.qty || "");
   if (q !== null) t.qty = q;
   t.due = prompt("Срок (текст):", t.due || "") ?? t.due;
+  // Смяна на цех (за да се пренасочи сгрешена при миграцията задача към правилния цех).
+  const wsIn = prompt("Цех (напиши точно):\n" + workshopList().join(", "), t.workshop || "");
+  if (wsIn !== null) {
+    const w = wsIn.trim();
+    if (w && w !== t.workshop) {
+      if (workshopList().indexOf(w) === -1 && !confirm(`„${w}" не е в списъка с цехове. Да го запиша ли все пак?`)) {
+        // остава старият цех
+      } else {
+        t.workshop = w;
+        taskSetAssignees(t, []);   // нулираме отговорниците — старите са от друг цех
+      }
+    }
+  }
   await tSaveTask(t);
   renderTasks();
 }
 
 async function deleteTask(t) {
   if (amWorker()) return;
+  // ⛔ Поточна задача НЕ се трие: тя е брънка от веригата на заявката.
+  // Триенето къса връзките (следващата операция увисва на 0, а сглобяването
+  // спира да чака липсващата част) и оставя движенията ѝ в склада.
+  if (isFlowTask(t)) { flowTaskCloseDialog(t); return; }
   if (!confirm("Изтриване на задачата?")) return;
   const { error } = await sb.from("tasks").delete().eq("id", t.id);
   if (error) { alert("Грешка: " + error.message); return; }
@@ -923,7 +2669,10 @@ async function deleteTask(t) {
 
 async function deleteWorkshop(ws) {
   if (amWorker()) return;
-  const ids = TASKS.filter(t => t.workshop === ws).map(t => t.id);
+  const inWs = TASKS.filter(t => t.workshop === ws);
+  const flowN = inWs.filter(isFlowTask).length;
+  if (flowN) { alert(`Цех „${ws}" има ${flowN} ПОТОЧНИ задачи (от заявки) — не може да се изтрие.\n\nПърво спри или довърши заявките (ЕРП → Заявки → „↩ Изтегли от производство").`); return; }
+  const ids = inWs.map(t => t.id);
   if (!confirm(`Да изтрия цех „${ws}“ и неговите ${ids.length} задачи?`)) return;
   for (let i = 0; i < ids.length; i += 100) {
     const { error } = await sb.from("tasks").delete().in("id", ids.slice(i, i + 100));
@@ -945,9 +2694,14 @@ async function clearWorkshopTasks() {
   if (amWorker()) return;
   const ws = currentWorkshop();
   if (ws === "__all") { alert("Първо избери конкретен цех от менюто горе."); return; }
-  const list = TASKS.filter(t => t.workshop === ws);
-  if (!list.length) { alert("Няма задачи за цех „" + ws + "“."); return; }
-  if (!confirm(`Да изтрия ВСИЧКИ ${list.length} задачи за цех „${ws}“?\n(Вписаното производство за тях също се изтрива.)`)) return;
+  const allWs = TASKS.filter(t => t.workshop === ws);
+  const list = allWs.filter(t => !isFlowTask(t));
+  const flowN = allWs.length - list.length;
+  if (!allWs.length) { alert("Няма задачи за цех „" + ws + "“."); return; }
+  if (!list.length) { alert(`Всички ${flowN} задачи на „${ws}" са ПОТОЧНИ (от заявки) и не се трият оттук — спират се от заявката („↩ Изтегли от производство").`); return; }
+  if (!confirm(`Да изтрия ли ${list.length} РЪЧНИ задачи за цех „${ws}“?`
+    + (flowN ? `\n\n⛔ ${flowN} поточни се пропускат — те се спират от заявката.` : "")
+    + `\n\n(Вписаното производство за ръчните също се изтрива.)`)) return;
   const ids = list.map(t => t.id);
   const paths = list.flatMap(t => (t.files || []).map(f => f.path)).filter(Boolean);
   if (paths.length) await sb.storage.from(BUCKET).remove(paths);
@@ -1111,7 +2865,7 @@ function renderWorkers() {
 function toggleReport() {
   const v = document.getElementById("report-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  renderReportUI();
+  if (typeof renderProdReport === "function") renderProdReport(); else renderReportUI();
 }
 function renderReportUI() {
   showSub("report");
@@ -1140,6 +2894,7 @@ function computeReport() {
     (t.logs || []).forEach(l => {
       if (from && l.date < from) return;
       if (to && l.date > to) return;
+      if (typeof reportWorkerOk === "function" && !reportWorkerOk(l.worker)) return;
       const w = l.worker || "(без име)";
       byWorker[w] = byWorker[w] || { qty: 0, shop: t.workshop };
       byWorker[w].qty += Number(l.qty) || 0;
@@ -1162,12 +2917,13 @@ function computeReport() {
 function subscribeTasks() {
   if (tasksSubscribed) return;
   tasksSubscribed = true;
+  const tasksRtRefresh = uiDebounce(async () => {
+    if (document.getElementById("tasks-modal").hidden) return;
+    await tLoadTasks();
+    if (!document.getElementById("tasks-view").hidden) renderTasks();
+  }, 600);
   sb.channel("tasks-changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, async () => {
-      if (document.getElementById("tasks-modal").hidden) return;
-      await tLoadTasks();
-      if (!document.getElementById("tasks-view").hidden) renderTasks();
-    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => tasksRtRefresh())
     .subscribe();
 }
 
@@ -1178,15 +2934,31 @@ function msgMyName() {
   return (MY_ACCESS && MY_ACCESS.email) || "Администратор";
 }
 function msgMyEmail() { return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || ""; }
+// Кой може да трие заявки (собственик + упълномощени).
+const ORDER_ADMIN_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "danko.orders@gmail.com"];
 function isOwnerAdmin() {
-  return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) === "dankog@gmail.com";
+  const e = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.email || "").toLowerCase()) || "";
+  return ORDER_ADMIN_EMAILS.includes(e);
 }
 // Всички админи виждат всички съобщения (пълна прозрачност); служителят — само своите.
 // При въпрос „→ Име“ се вижда за кого е основно, но всеки админ може да го отвори/отговори.
 function msgVisibleToMe(m) {
-  if (amWorker()) return m.fromName === MY_WORKER;
+  if (amWorker()) {
+    if ((m.type || "") === "admin") {                     // съобщение от офиса до служители
+      if (m.toWorker) return m.toWorker === MY_WORKER;
+      if (m.toWorkshop) return m.toWorkshop === (MY_ACCESS && MY_ACCESS.workshop);
+      return true;                                        // до всички
+    }
+    return m.fromName === MY_WORKER;
+  }
   if ((m.type || "") === "idea") return isOwnerAdmin();   // Идеи и Препоръки — само за Данко
   return true;
+}
+// Име на админа за подпис на съобщенията (от директорията, иначе „Офис").
+function adminDisplayName() {
+  const e = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  const d = (typeof adminDirectory === "function" ? adminDirectory() : []).find(a => (a.email || "").toLowerCase() === e);
+  return (d && d.name) || "Офис";
 }
 function msgFmtTime(iso) {
   if (!iso) return "";
@@ -1199,7 +2971,8 @@ function taskRefText(t) {
 }
 
 async function mLoad() {
-  const { data, error } = await sb.from("messages").select("*").order("created_at", { ascending: false });
+  const { data, error } = await erpSelectAll("messages", "*");
+  if (!error) (data || []).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   if (error) { console.error("messages load", error.message); MESSAGES = []; return; }
   MESSAGES = (data || []).map(r => ({ ...r.data, id: r.id }));
 }
@@ -1224,9 +2997,139 @@ async function mDelete() {
   alert("Съобщенията не могат да се изтриват — те се пазят като архив на комуникацията.");
 }
 
+// Клетка „Коментар" за цех Заваряване: админът пише коментар, служителят го вижда.
+function taskCommentCell(t) {
+  const c = (t.comment || "").trim();
+  if (amWorker()) {
+    return c ? `<span class="t-comment-txt" title="Коментар от офиса">💬 ${escapeHtml(c)}</span>` : "—";
+  }
+  return `<button type="button" class="btn btn-small t-comment-edit" title="Коментар за служителя">✍ ${c ? "Промени" : "Коментар"}</button>`
+    + (c ? `<div class="t-comment-txt">${escapeHtml(c)}</div>` : "");
+}
+/* ---------- 🩹 Поправка на сгрешен отчет ----------
+   Технически грешки при въвеждане (321 вместо 21) се случват. Тук вписването
+   се поправя или маха: произведеното се преизчислява, а вече направените
+   движения (склад детайли, вложени части, материал) се връщат назад. */
+function fixLogDialog(t) {
+  if (amWorker()) return;
+  const logs = (t.logs || []).map((l, i) => ({ l, i })).filter(x => Number(x.l.qty) > 0);
+  if (!logs.length) { alert("По тази задача няма записани бройки."); return; }
+  const rows = logs.slice().reverse().map(x => `
+    <div class="fixlog-row" data-i="${x.i}">
+      <span class="fixlog-d">${escapeHtml(typeof erpDMY === "function" ? (erpDMY(x.l.date) || x.l.date || "") : (x.l.date || ""))}</span>
+      <span class="fixlog-w">${escapeHtml(x.l.worker || "—")}</span>
+      <span class="fixlog-q"><b>${erpNumSafe(x.l.qty)}</b> бр.</span>
+      <input type="number" class="fixlog-new" min="0" step="any" value="${escapeAttr(String(Number(x.l.qty) || 0))}" />
+      <button type="button" class="btn btn-small btn-danger fixlog-del" title="Махни цялото вписване">×</button>
+    </div>`).join("");
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box">
+      <h3>🩹 Поправка на отчет</h3>
+      <p class="hint" style="margin:0 0 6px"><b>${escapeHtml(t.code || "")} ${escapeHtml(t.product || "")}</b> · ${escapeHtml(t.operation || "")}<br>
+        Записани общо <b>${erpNumSafe(t.produced)}</b> от ${erpNumSafe(t.qty)} бр. Поправи бройката на сгрешеното вписване или го махни с ×.</p>
+      <div class="fixlog-list">${rows}</div>
+      <p class="hint" style="margin:8px 0 0">Каквото е било заприходено или вложено в повече, се връща автоматично — склад детайли, вложени части и материал.</p>
+      <div class="ask-actions">
+        <button id="fixlog-save" class="btn btn-primary">Запази поправката</button>
+        <button id="fixlog-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#fixlog-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  wrap.querySelectorAll(".fixlog-del").forEach(b => b.addEventListener("click", () => {
+    const inp = b.closest(".fixlog-row").querySelector(".fixlog-new");
+    inp.value = "0"; b.closest(".fixlog-row").classList.add("fixlog-rm");
+  }));
+  wrap.querySelector("#fixlog-save").addEventListener("click", async () => {
+    const changes = [];
+    wrap.querySelectorAll(".fixlog-row").forEach(r => {
+      const i = Number(r.dataset.i);
+      const old = Number((t.logs[i] || {}).qty) || 0;
+      const now = Math.max(0, Number(r.querySelector(".fixlog-new").value) || 0);
+      if (now !== old) changes.push({ i, old, now });
+    });
+    if (!changes.length) { alert("Няма промяна."); return; }
+    const diff = changes.reduce((s, c) => s + (c.now - c.old), 0);
+    const newProduced = Math.max(0, (Number(t.produced) || 0) + diff);
+    if (!confirm(`Да запиша ли поправката?\n\n`
+      + changes.map(c => `• ${erpNumSafe(c.old)} → ${erpNumSafe(c.now)} бр.`).join("\n")
+      + `\n\nПроизведено по задачата: ${erpNumSafe(t.produced)} → ${erpNumSafe(newProduced)} бр.\n`
+      + (diff < 0 ? `Излишно заприходеното/вложеното се връща назад.` : `Разликата се доотчита както при обикновено вписване.`))) return;
+    const btn = wrap.querySelector("#fixlog-save"); btn.disabled = true; btn.textContent = "Записва…";
+    // 1) Самите вписвания: коригираме количеството (0 = махаме реда).
+    const fixedAt = new Date().toISOString();
+    changes.slice().sort((a, b) => b.i - a.i).forEach(c => {
+      const l = t.logs[c.i]; if (!l) return;
+      if (c.now === 0) t.logs.splice(c.i, 1);
+      else { l.qty = c.now; l.fixed = fixedAt; l.fixedFrom = c.old; }
+    });
+    t.produced = newProduced;
+    await tSaveTask(t);
+    // 2) Производственият дневник: вечен запис за корекцията (не трием история).
+    try {
+      await prodLogWrite(t, {
+        date: todayStr(), worker: (MY_ACCESS && MY_ACCESS.email) || "офис", qty: diff,
+        lid: prodLogId(), activity: "Корекция на сгрешен отчет",
+        notes: changes.map(c => `${erpNumSafe(c.old)}→${erpNumSafe(c.now)}`).join(", "),
+      });
+    } catch (e) {}
+    // 3) Складът: връщаме излишното (или доотчитаме, ако поправката е нагоре).
+    let back = null;
+    try {
+      if (typeof erpFlowRollback === "function") back = await erpFlowRollback(t);
+      if (diff > 0) {
+        if (typeof erpFlowStockIn === "function") await erpFlowStockIn(t);
+        if (typeof erpFlowConsume === "function") await erpFlowConsume(t);
+        if (typeof erpFlowMaterialConsume === "function") await erpFlowMaterialConsume(t);
+      } else { await tSaveTask(t); }
+    } catch (e) { console.error("fixlog stock", e); }
+    close();
+    renderTasks();
+    const nx = flowNextTaskOf(t);
+    alert(`✓ Поправено. Произведено: ${erpNumSafe(t.produced)} бр.`
+      + (back && (back.stock || back.parts || back.mats)
+        ? `\n\nВърнато назад:${back.stock ? `\n• ${erpNumSafe(back.stock)} бр. от Склад детайли` : ""}${back.parts ? `\n• вложени части (${back.parts} вида)` : ""}${back.mats ? `\n• материал (${back.mats} вида)` : ""}`
+        : "")
+      + (nx && (Number(nx.produced) || 0) > t.produced
+        ? `\n\n⚠ Следващата операция „${nx.operation || ""}" вече е отчела ${erpNumSafe(nx.produced)} бр. — повече от наличното сега. Провери и нея.`
+        : ""));
+  });
+}
+// Следващата операция във веригата (за предупреждение при корекция).
+function flowNextTaskOf(t) {
+  if (!t || !t.source || !t.source.seriesKey) return null;
+  return (TASKS || []).find(x => x.source && x.source.flow && x.source.prevKey === t.source.seriesKey) || null;
+}
+function erpNumSafe(n) { return (typeof erpNum === "function") ? erpNum(n) : String(Number(n) || 0); }
+
+async function editTaskComment(t) {
+  if (amWorker()) return;
+  const v = prompt("Коментар към задачата (служителят ще го вижда):", t.comment || "");
+  if (v === null) return;
+  t.comment = v.trim();
+  await tSaveTask(t);
+  renderTasks();
+}
+
+let MSG_TASK_IDX = null;   // нулира се в renderTasks — един проход вместо по един на ред
+function msgTaskIndex() {
+  if (MSG_TASK_IDX) return MSG_TASK_IDX;
+  MSG_TASK_IDX = {};
+  (MESSAGES || []).forEach(m => {
+    if (!msgVisibleToMe(m)) return;
+    const g = MSG_TASK_IDX[m.taskId] || (MSG_TASK_IDX[m.taskId] = { n: 0, open: 0 });
+    g.n++; if (m.status !== "closed") g.open++;
+  });
+  return MSG_TASK_IDX;
+}
 function taskQuestionCell(t) {
-  const mine = MESSAGES.filter(m => m.taskId === t.id && msgVisibleToMe(m));
-  const openCount = mine.filter(m => m.status !== "closed").length;
+  const g = msgTaskIndex()[t.id] || { n: 0, open: 0 };
+  const mine = { length: g.n };
+  const openCount = g.open;
   const askBtn = amWorker() ? `<button type="button" class="btn btn-small t-ask" title="Задай въпрос към технолог/организатор">❓ Питай</button>` : "";
   const viewBtn = mine.length
     ? `<button type="button" class="btn btn-small t-qview ${openCount ? "q-open" : ""}" title="Виж съобщенията">💬 ${mine.length}</button>`
@@ -1243,7 +3146,8 @@ function msgCounts() {
     if (!msgVisibleToMe(m)) return;
     const k = m.type || "question";
     if (isW) {
-      if (m.fromName !== MY_WORKER) return;
+      const isAdminMsg = k === "admin";
+      if (!isAdminMsg && m.fromName !== MY_WORKER) return;   // чужди въпроси не броим
       if (m.seenByWorker === false) { if (k === "supply") s++; else if (k === "idea") i++; else q++; }
     } else if (k === "supply") {
       if (m.status !== "closed" && !m.acceptedBy) s++;   // поръчки, които чакат приемане
@@ -1324,12 +3228,15 @@ async function markMessagesSeen() {
   const toMark = MESSAGES.filter(m => {
     if (!msgVisibleToMe(m)) return false;
     if ((m.type || "question") !== msgType) return false;   // само текущия раздел
-    if (amWorker()) return m.fromName === MY_WORKER && m.seenByWorker === false;
+    if (amWorker()) {
+      if ((m.type || "") === "admin") return m.seenByWorker === false;   // от офиса → маркирай видяно
+      return m.fromName === MY_WORKER && m.seenByWorker === false;
+    }
     return m.seenByAdmin === false;
   });
-  for (const m of toMark) {
-    if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true;
-    await mUpdate(m);
+  toMark.forEach(m => { if (amWorker()) m.seenByWorker = true; else m.seenByAdmin = true; });
+  for (let i = 0; i < toMark.length; i += 10) {
+    await Promise.all(toMark.slice(i, i + 10).map(m => mUpdate(m)));
   }
   mUpdateBadge();
 }
@@ -1352,6 +3259,49 @@ function askTaskQuestion(t) {
 }
 function askGeneralQuestion() {
   openAskDialog({ taskId: null, taskRef: "", workshop: (MY_ACCESS && MY_ACCESS.workshop) || "" });
+}
+
+// Админ пише съобщение до служител(и): избран служител, цял цех или всички.
+function composeAdminMessage() {
+  if (amWorker()) return;
+  const wsList = Object.keys(WORKERS).filter(w => (WORKERS[w] || []).length).sort((a, b) => a.localeCompare(b, "bg"));
+  const workers = [...new Set(Object.values(WORKERS).flat())].filter(Boolean).sort((a, b) => a.localeCompare(b, "bg"));
+  const opts = `<option value="all">📢 Всички служители</option>`
+    + wsList.map(w => `<option value="ws:${escapeAttr(w)}">🏭 Цех ${escapeHtml(w)} — всички</option>`).join("")
+    + (workers.length ? `<optgroup label="Отделен служител">${workers.map(n => `<option value="w:${escapeAttr(n)}">👤 ${escapeHtml(n)}</option>`).join("")}</optgroup>` : "");
+  const wrap = document.createElement("div");
+  wrap.className = "overlay ask-overlay";
+  wrap.innerHTML = `
+    <div class="overlay-box ask-box pd-box">
+      <h3>✍ Съобщение до служител</h3>
+      <label>До кого<select id="am-to">${opts}</select></label>
+      <label>Съобщение *<textarea id="am-text" rows="4" placeholder="Какво искаш да им кажеш?"></textarea></label>
+      <div class="ask-actions">
+        <button id="am-send" class="btn btn-primary">Изпрати</button>
+        <button id="am-cancel" class="btn">Отказ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector("#am-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  setTimeout(() => { const t = wrap.querySelector("#am-text"); if (t) t.focus(); }, 50);
+  wrap.querySelector("#am-send").addEventListener("click", async () => {
+    const text = (wrap.querySelector("#am-text").value || "").trim();
+    const to = wrap.querySelector("#am-to").value;
+    if (!text) { alert("Напиши съобщение."); return; }
+    let toWorker = null, toWorkshop = null, toName = "Всички служители";
+    if (to.startsWith("ws:")) { toWorkshop = to.slice(3); toName = "Цех " + toWorkshop + " (всички)"; }
+    else if (to.startsWith("w:")) { toWorker = to.slice(2); toName = toWorker; }
+    const btn = wrap.querySelector("#am-send"); btn.disabled = true; btn.textContent = "Изпраща…";
+    const rec = await mInsert({
+      type: "admin", fromName: adminDisplayName(), toName, toWorker, toWorkshop,
+      text, taskId: null, taskRef: "", workshop: "", status: "open", replies: [],
+      seenByWorker: false, seenByAdmin: true, createdAt: new Date().toISOString(),
+    });
+    close();
+    if (rec) { msgType = "admin"; msgView = "active"; renderMessages(); }
+  });
 }
 function openAskDialog(ctx) {
   const admins = adminDirectory();
@@ -1602,6 +3552,7 @@ function renderMessages() {
   const cntQ = visible.filter(m => kindOf(m) === "question" && m.status !== "closed").length;
   const cntS = visible.filter(m => kindOf(m) === "supply" && m.status !== "closed").length;
   const cntI = visible.filter(m => kindOf(m) === "idea" && m.status !== "closed").length;
+  const cntA = visible.filter(m => kindOf(m) === "admin" && m.status !== "closed").length;
 
   let base = visible.filter(m => kindOf(m) === msgType);
   if (msgType === "question" && msgFilterTask) base = base.filter(m => m.taskId === msgFilterTask);
@@ -1614,18 +3565,23 @@ function renderMessages() {
 
   const tab = (key, label, n) => `<button class="msg-tab ${msgView === key ? "active" : ""}" data-view="${key}">${label} (${n})</button>`;
   const ttab = (ty, label, n) => `<button class="msg-ttab ${msgType === ty ? "active" : ""}" data-type="${ty}">${label}${n ? ` <span class="ttab-n">${n}</span>` : ""}</button>`;
-  const titles = { question: "📨 Регистър на съобщенията", supply: "📦 Поръчки за снабдяване", idea: "💡 Идеи и Препоръки" };
+  const titles = { question: "📨 Регистър на съобщенията", admin: (isW ? "📣 Съобщения от офиса" : "📣 Съобщения до служителите"), supply: "📦 Поръчки за снабдяване", idea: "💡 Идеи и Препоръки" };
+  const adminMode = msgType === "admin";
   const emptyText = ideaMode
     ? (msgView === "done" ? "Няма приключени идеи." : "Няма идеи и препоръки.")
     : supplyMode
       ? (msgView === "done" ? "Няма изпълнени поръчки." : "Няма поръчки за снабдяване.")
-      : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
+      : adminMode
+        ? (isW ? "Няма съобщения от офиса." : "Няма изпратени съобщения. Натисни бутона горе, за да напишеш на служител.")
+        : (msgView === "done" ? "Все още няма приключени съобщения." : "Няма съобщения.");
   const newBtn = ideaMode
     ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова идея</button>'
     : supplyMode
       ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нова поръчка</button>'
-      : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
-  const newHandler = ideaMode ? openIdeaForm : (supplyMode ? openSupplyForm : askGeneralQuestion);
+      : adminMode
+        ? (isW ? "" : '<button id="msg-new" class="btn btn-small btn-primary">✍ Ново съобщение до служител</button>')
+        : (isW ? '<button id="msg-new" class="btn btn-small btn-primary">+ Нов въпрос</button>' : "");
+  const newHandler = ideaMode ? openIdeaForm : (supplyMode ? openSupplyForm : (adminMode ? composeAdminMessage : askGeneralQuestion));
 
   v.innerHTML = `
     <div class="workers-head">
@@ -1636,6 +3592,7 @@ function renderMessages() {
     </div>
     <div class="msg-typetabs">
       ${ttab("question", "❓ Въпроси", cntQ)}
+      ${ttab("admin", isW ? "📣 От офиса" : "📣 До служители", cntA)}
       ${ttab("supply", "📦 Поръчки за снабдяване", cntS)}
       ${showIdeaTab ? ttab("idea", "💡 Идеи и Препоръки", cntI) : ""}
     </div>
@@ -1741,17 +3698,19 @@ function detectAndNotify(before) {
 function subscribeMessages() {
   if (messagesSubscribed) return;
   messagesSubscribed = true;
+  // Сливаме вълна от промени (напр. пакетното „видяно") в ЕДНО презареждане.
+  const msgsRtRefresh = uiDebounce(async () => {
+    const before = msgNotifyState;
+    await mLoad();
+    detectAndNotify(before);
+    msgNotifyState = snapshotNotify();
+    mUpdateBadge();
+    if (document.getElementById("tasks-modal").hidden) return;   // балончето/известията работят и без отворен модул
+    if (!document.getElementById("messages-view").hidden) renderMessages();
+    else if (!document.getElementById("tasks-view").hidden) renderTasks();
+  }, 600);
   sb.channel("messages-changes")
-    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, async () => {
-      const before = msgNotifyState;
-      await mLoad();
-      detectAndNotify(before);
-      msgNotifyState = snapshotNotify();
-      mUpdateBadge();
-      if (document.getElementById("tasks-modal").hidden) return;   // балончето/известията работят и без отворен модул
-      if (!document.getElementById("messages-view").hidden) renderMessages();
-      else if (!document.getElementById("tasks-view").hidden) renderTasks();
-    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => msgsRtRefresh())
     .subscribe();
 }
 
@@ -1770,21 +3729,75 @@ function fmtLogDate(d) {
 }
 function logNotes(l) {
   const parts = [];
-  if (l.op) { const o = KROHNE_OPS.find(x => x.key === l.op); parts.push("Операция: " + (o ? o.label : l.op)); }
+  if (l.op) parts.push("Операция: " + l.op);   // стари записи по операция (KROHNE)
   if (l.sheets) parts.push("Насечени листи: " + l.sheets);
   if (l.consumables) parts.push("Консумативи: " + l.consumables);
   if (l.assemblyNote) parts.push("Сглобено: " + l.assemblyNote);
   if (l.specific) parts.push("Специфично: " + l.specific);
+  if (l.activity) parts.push("Дейност: " + l.activity);
   return parts.join(" · ");
 }
+/* ---------- Производствен дневник (вечна история — не зависи от задачите) ---------- */
+let PROD_LOG = [];            // заредени вписвания от таблица production_log
+let prodLogSeq = 0;
+function prodLogId() { return Date.now().toString(36) + "-" + (prodLogSeq++).toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
+
+// Зарежда вечния дневник (ако таблицата е създадена — production-log.sql).
+async function loadProdLog() {
+  try {
+    const { data, error } = await erpSelectAll("production_log", "lid,data,created_at");
+    if (!error) (data || []).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    if (error) { PROD_LOG = []; return; }
+    PROD_LOG = (data || []).map(r => Object.assign({ lid: r.lid }, r.data || {}));
+  } catch (e) { PROD_LOG = []; }
+}
+
+// Записва едно отчитане в дневника (снимка с целия контекст на задачата).
+async function prodLogWrite(t, entry) {
+  try {
+    const snap = Object.assign({}, entry, {
+      workshop: t.workshop || "", operation: t.operation || "", product: t.product || "", code: t.code || "",
+      client: t.client || "", orderNo: (typeof taskOrderNos === "function" ? taskOrderNos(t).join(", ") : ""),
+      notes: (typeof logNotes === "function" ? logNotes(entry) : (entry.notes || "")),
+    });
+    await sb.from("production_log").insert({ lid: entry.lid || null, task_id: (typeof t.id === "number" ? t.id : null), data: snap });
+    PROD_LOG.push(snap);   // добавяме и в кеша, за да се вижда веднага в ОТЧЕТИ
+  } catch (e) { /* таблицата може още да не е създадена — тихо, логът остава на задачата */ }
+}
+
+// Условие „смислено" вписване (направено през Отчетния прозорец).
+function timeRowMeaningful(l) {
+  return !!(l.machine || l.tPiece || l.tSheet || l.tOrder || l.tSetup || l.sheets || l.consumables || l.specific || l.assemblyNote || l.activity);
+}
+
+// Хора, които НЕ влизат в отчетите (работим по Системата — записите ни са тестови).
+const REPORT_EXCLUDE_WORKERS = new Set(["Григор Байков", "Тестов", "тестов", "Тест"]);
+function reportWorkerOk(w) { return !REPORT_EXCLUDE_WORKERS.has(String(w || "").trim()); }
 function collectTimeRows() {
   const rows = [];
+  const seen = new Set();
+  // 1) Вечен дневник — оцелява триене на задачите.
+  (PROD_LOG || []).forEach(l => {
+    if (l.lid) seen.add(l.lid);
+    if (!timeRowMeaningful(l)) return;
+    if (!reportWorkerOk(l.worker)) return;
+    rows.push({
+      date: l.date || "", workshop: l.workshop || "", machine: l.machine || "",
+      client: l.client || "", orderNo: l.orderNo || "", product: l.product || "", code: l.code || "", operation: l.operation || "",
+      worker: l.worker || "", qty: Number(l.qty) || 0,
+      tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder, tSetup: l.tSetup,
+      notes: l.notes || "",
+    });
+  });
+  // 2) Логове по ЖИВИ задачи, които още не са в дневника (стари/неуспял запис) — без дублиране по lid.
   TASKS.forEach(t => (t.logs || []).forEach(l => {
     // включваме всяко вписване, направено през Отчетния прозорец (с машина, време или бележка)
-    if (!l.machine && !l.tPiece && !l.tSheet && !l.tOrder && !l.tSetup && !l.sheets && !l.consumables && !l.specific && !l.assemblyNote) return;
+    if (!timeRowMeaningful(l)) return;
+    if (!reportWorkerOk(l.worker)) return;
+    if (l.lid && seen.has(l.lid)) return;   // вече е в дневника
     rows.push({
       date: l.date || "", workshop: t.workshop || "", machine: l.machine || "",
-      client: t.client || "", product: t.product || "", code: t.code || "", operation: t.operation || "",
+      client: t.client || "", orderNo: taskOrderNos(t).join(", "), product: t.product || "", code: t.code || "", operation: t.operation || "",
       worker: l.worker || "", qty: Number(l.qty) || 0,
       tPiece: l.tPiece, tSheet: l.tSheet, tOrder: l.tOrder, tSetup: l.tSetup,
       notes: logNotes(l),
@@ -1792,10 +3805,12 @@ function collectTimeRows() {
   }));
   return rows;
 }
-function toggleTimes() {
+async function toggleTimes() {
   const v = document.getElementById("times-view");
   if (!v.hidden) { showSub("tasks"); renderTasks(); return; }
-  renderTimes();
+  await loadProdLog();   // вечният дневник (за да излизат и отчетите на вече изтеглени поръчки)
+  if (typeof loadAsmLog === "function") { try { await loadAsmLog(); } catch (e) {} }   // сглобени комплекти/опаковки
+  if (typeof renderTimesReport === "function") renderTimesReport(); else renderTimes();
 }
 function renderTimes() {
   showSub("times");
@@ -1962,17 +3977,34 @@ function exportTimesCsv(rows) {
 function tInit() {
   const btn = document.getElementById("btn-tasks");
   if (!btn) return;
-  btn.addEventListener("click", openTasks);
+  btn.addEventListener("click", () => { prodModeOff(); openTasks(); });
+  const pBtn = document.getElementById("btn-production");
+  if (pBtn) pBtn.addEventListener("click", openProduction);
+  const myPlanBtn = document.getElementById("tasks-myplan");
+  if (myPlanBtn) myPlanBtn.addEventListener("click", myShiftPlanDialog);
+  const packBtn = document.getElementById("btn-packing-ws");
+  if (packBtn) packBtn.addEventListener("click", () => openWorkshopDirect("Опаковане/Експедиция"));
   document.getElementById("tasks-close").addEventListener("click", () => {
     document.getElementById("tasks-modal").hidden = true;
+    prodModeOff();
   });
   document.getElementById("tasks-logout").addEventListener("click", () => {
     MY_WORKER = null;
     if (typeof sb !== "undefined" && sb) sb.auth.signOut();
   });
-  document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); });
-  document.getElementById("task-worker-filter").addEventListener("change", renderTasks);
-  document.getElementById("task-search").addEventListener("input", renderTasks);
+  document.getElementById("task-workshop").addEventListener("change", () => { selectedTasks.clear(); renderWorkerFilter(); renderTasks(); renderProdWsBar(); });
+  document.getElementById("task-worker-filter").addEventListener("change", () => { renderTasks(); renderProdLoadBar(); });
+  const clientFilterEl = document.getElementById("task-client-filter");
+  if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);
+  const ordersProdBtn = document.getElementById("btn-orders-prod");
+  if (ordersProdBtn) ordersProdBtn.addEventListener("click", openOrdersInProduction);
+  const masterBtn = document.getElementById("btn-master");
+  if (masterBtn) masterBtn.addEventListener("click", () => { if (typeof openMasterReport === "function") openMasterReport(); });
+  document.getElementById("task-search").addEventListener("input", uiDebounce(renderTasks, 200));
+  const rf = document.getElementById("task-ready-filter");
+  if (rf) rf.addEventListener("change", renderTasks);
+  const ab = document.getElementById("task-archive-btn");
+  if (ab) ab.addEventListener("click", () => { TASKS_ARCHIVE = !TASKS_ARCHIVE; renderTasks(); });
   const thead = document.querySelector(".tasks-table thead");
   if (thead) thead.addEventListener("click", e => {
     const th = e.target.closest("th[data-sort]"); if (!th) return;
@@ -1990,9 +4022,12 @@ function tInit() {
     e.target.value = ""; taskFileTarget = null;
   });
   document.getElementById("btn-workers").addEventListener("click", toggleWorkers);
-  document.getElementById("btn-clear-workshop").addEventListener("click", clearWorkshopTasks);
   document.getElementById("btn-task-report").addEventListener("click", toggleReport);
+  const bx = document.getElementById("btn-export-tasks"); if (bx) bx.addEventListener("click", exportWorkshopTasksExcel);
   const bt = document.getElementById("btn-times"); if (bt) bt.addEventListener("click", toggleTimes);
+  const bp = document.getElementById("btn-planning"); if (bp && typeof togglePlanning === "function") bp.addEventListener("click", togglePlanning);
+  const bb = document.getElementById("btn-board"); if (bb && typeof toggleBoard === "function") bb.addEventListener("click", toggleBoard);
+  const bea = document.getElementById("btn-extra-activity"); if (bea) bea.addEventListener("click", openExtraActivityDialog);
   const bm = document.getElementById("btn-messages"); if (bm) bm.addEventListener("click", openMessages);
   const bsup = document.getElementById("btn-supply"); if (bsup) bsup.addEventListener("click", openSupply);
   const bidea = document.getElementById("btn-ideas"); if (bidea) bidea.addEventListener("click", openIdeas);
