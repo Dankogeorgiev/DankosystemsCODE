@@ -812,6 +812,27 @@ async function erpFlowApply(meta, productLines) {
     });
     Object.keys(reserved).forEach(pid => { avail[pid] = Math.max(0, (Number(avail[pid]) || 0) - reserved[pid]); });
   }
+
+  // 0г) СОБСТВЕНИЯТ вече заприходен напредък НЕ се нетва повторно. При
+  //     ПРЕ-пускане задачите на заявката се запазват с отчетеното (produced),
+  //     а произведеното от тях вече стои и в Склад детайли. Ако се нетне и
+  //     оттам, същите бройки се броят два пъти — веднъж като наличност, веднъж
+  //     като свършена работа — и цехът произвежда ПО-МАЛКО от нужното (напр.
+  //     заявка 66→80 при произведени 20: нетват се 53, задачата става 20/27 и
+  //     излизат 60 вместо 80). Затова ги вадим от avail преди нетването, а
+  //     по-долу ги добавяме обратно към резервацията — те са на рафта, ПАЗЕНИ
+  //     за заявката.
+  let flowRowsSnap = null;   // снимка на поточните задачи — преизползва се в стъпка 3
+  let ownStocked = {};       // pid -> наши заприходени, все още на рафта
+  if (stockOn && !toStock) {
+    try {
+      const { data: fr } = await erpSelectAll("tasks", "id,data,done", "data->source->>flow", "true");
+      flowRowsSnap = fr || [];
+      ownStocked = erpFlowOwnStockedLeft(flowRowsSnap, sid, avail);
+      Object.keys(ownStocked).forEach(pid => { avail[pid] = Math.max(0, (Number(avail[pid]) || 0) - ownStocked[pid]); });
+    } catch (e) { flowRowsSnap = null; ownStocked = {}; }   // при грешка — старото поведение
+  }
+
   // Снимка на РЕАЛНАТА (заскладена) част — за съобщението „колко са от рафта
   // и колко се очакват от цеха" (преди erpFlowSteps да започне да вади от avail).
   const shelfAvail = {};
@@ -868,6 +889,9 @@ async function erpFlowApply(meta, productLines) {
   if (stockOn) {
     const mineNet = {};
     Object.keys(consumed).forEach(pid => { const u = Number(consumed[pid]) || 0; if (u > 0) mineNet[pid] = u; });
+    // Собственото заприходено (изключено от нетването в 0г) също е на рафта,
+    // ПАЗЕНО за тази заявка — влиза обратно в резервацията ѝ.
+    Object.keys(ownStocked).forEach(pid => { mineNet[pid] = (Number(mineNet[pid]) || 0) + ownStocked[pid]; });
     // Записваме СРЕЩУ СВЕЖО четене: ако междувременно друга заявка е записала
     // своята резервация (пускане едно след друго), да не я изтрием с нашата
     // стара снимка. Пипаме само своя ключ + изчистените завършени.
@@ -934,9 +958,13 @@ async function erpFlowApply(meta, productLines) {
   // 2) Изчистваме стари НЕпоточни задачи на тази поръчка (стар последователен режим).
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid).is("data->source->>flow", null);
 
-  // 3) Съществуващите поточни серии.
-  const { data: exRows, error: exErr } = await erpSelectAll("tasks", "id,data,done", "data->source->>flow", "true");
-  if (exErr) return { error: exErr };
+  // 3) Съществуващите поточни серии (снимката от 0г, ако я има — едно четене).
+  let exRows = flowRowsSnap;
+  if (!exRows) {
+    const { data: ex2, error: exErr } = await erpSelectAll("tasks", "id,data,done", "data->source->>flow", "true");
+    if (exErr) return { error: exErr };
+    exRows = ex2 || [];
+  }
   const bySeries = {};
   (exRows || []).forEach(r => {
     const d = r.data || {}, src = d.source || {};
@@ -1069,17 +1097,13 @@ async function erpFlowApply(meta, productLines) {
   // 5) Клиент/срок според броя поръчки; трием изпразнените серии. Записват се
   //    САМО пипнатите от тази поръчка серии (_new/_touched) — и то на партиди
   //    паралелно, не една по една.
-  const toInsert = [], toUpdate = [];
+  const toInsert = [], toUpdate = [], toDrop = [];
   for (const k of Object.keys(bySeries)) {
     const r = bySeries[k], src = r.data.source || {}, orders = src.orders || [];
     if (!orders.length) {
-      if (r.id) {
-        await sb.from("tasks").delete().eq("id", r.id);
-        // Чистим и породените движения — иначе остават „фантомни" готови детайли/
-        // материали и повторното пускане ги удвоява (както в erpFlowRemoveOrder).
-        try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
-        try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
-      }
+      // Изпразнена серия: готовото ѝ ОСТАВА в склада (нетването по-горе вече
+      // разчита на него!), недовършеното се анулира — виж erpFlowDropSeries.
+      if (r.id) toDrop.push({ id: r.id, data: r.data });
       continue;
     }
     if (!r._new && !r._touched) continue;   // чужда серия — не я пипаме
@@ -1089,6 +1113,7 @@ async function erpFlowApply(meta, productLines) {
     if (r._new) { toInsert.push(r.data); continue; }
     toUpdate.push(r);
   }
+  await erpFlowDropSeries(toDrop);
   const UP_CHUNK = 10;
   for (let i = 0; i < toUpdate.length; i += UP_CHUNK) {
     const part = toUpdate.slice(i, i + UP_CHUNK);
@@ -1151,8 +1176,80 @@ async function erpReleaseNetting(sampleId) {
   } catch (e) {}
 }
 
+// Готовите (заприходени) бройки на възела, разнесени по всяка задача от
+// веригата му: последната операция ги знае (source.stocked), останалите ги
+// научават назад по prevKey. Ползва се при триене на изпразнени серии, за да
+// се раздели ДОВЪРШЕНОТО (остава в склада) от недовършеното (анулира се).
+function erpFlowChainStocked(rows) {
+  const byKey = {}, out = {};
+  rows.forEach(r => { const src = ((r.data || {}).source) || {}; if (src.seriesKey) byKey[src.seriesKey] = r; });
+  rows.forEach(r => {
+    const src = ((r.data || {}).source) || {};
+    if (!src.last) return;
+    const st = Number(src.stocked) || 0;
+    let cur = r; const seen = new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      out[cur.id] = st;
+      const pk = (((cur.data || {}).source) || {}).prevKey;
+      cur = pk ? byKey[pk] : null;
+    }
+  });
+  return out;
+}
+
+// Трие изпразнени поточни серии, като ПАЗИ следите на реално произведеното:
+// заприходеното готово (prod:) остава в Склад детайли — бройките са произведени
+// и физически стоят на рафта, изтеглянето на заявката не ги връща в материал.
+// Изписаният материал (matprod:) и вложените части (consume:) остават изписани
+// за ДОВЪРШЕНИТЕ (заприходени) бройки; връща се само частта за недовършените —
+// тях повторно пускане ще ги пре-отчете и изпише наново (нетно веднъж).
+async function erpFlowDropSeries(rows) {
+  if (!rows || !rows.length) return;
+  const stockedBy = erpFlowChainStocked(rows);
+  for (const r of rows) {
+    const d = r.data || {}, src = d.source || {};
+    const st = Number(stockedBy[r.id]) || 0;
+    await sb.from("tasks").delete().eq("id", r.id);
+    // Вложени части при сглобяване: за недовършените бройки се връщат в Склад
+    // детайли (сглобеното им е анулирано), за довършените остават изписани.
+    if (Array.isArray(src.consumes) && src.consumes.length) {
+      const used = Number(src.consumedUnits) || 0;
+      const keep = Math.min(used, st);
+      if (used > keep) {
+        try {
+          await sb.from("product_movements").delete().eq("ref", "consume:" + r.id);
+          const back = [];
+          src.consumes.forEach(c => {
+            const pid = Number(c && c.pid) || 0, use = (Number(c && c.per) || 0) * keep;
+            if (pid && use > 0) back.push({ product_id: pid, kind: "изписване", quantity: -use, ref: "consume:" + r.id, note: "Вложен в " + (d.code || d.product || "") });
+          });
+          if (back.length) await sb.from("product_movements").insert(back);
+        } catch (e) { console.error("drop consume", e); }
+      }
+    }
+    // Материал при рязане: същото — остава изписан само за довършените бройки.
+    if (Array.isArray(src.materials) && src.materials.length) {
+      const used = Number(src.matConsumed) || 0;
+      const keep = Math.min(used, st);
+      if (used > keep) {
+        try {
+          await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id);
+          const back = [];
+          src.materials.forEach(m => {
+            const mid = Number(m && m.mid) || 0, use = (Number(m && m.per) || 0) * keep;
+            if (mid && use > 0) back.push({ material_id: mid, kind: "изписване", quantity: -use, ref: "matprod:" + r.id, note: "Вложен в " + (d.code || d.product || "") });
+          });
+          if (back.length) await sb.from("stock_movements").insert(back);
+        } catch (e) { console.error("drop matprod", e); }
+      }
+    }
+  }
+}
+
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии
-// се трият; частично споделените се обновяват (количество/клиент/срок).
+// се трият (готовото им ОСТАВА в склада — виж erpFlowDropSeries); частично
+// споделените се обновяват (количество/клиент/срок).
 async function erpFlowRemoveOrder(sampleId) {
   const sid = String(sampleId);
   await sb.from("tasks").delete().eq("data->source->>sampleId", sid);   // стари непоточни
@@ -1161,6 +1258,7 @@ async function erpFlowRemoveOrder(sampleId) {
   await erpReleaseNetting(sid);
   const { data } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
   const jobs = [];
+  const dropped = [];   // изпразнени серии — трият се накуп, за да се сметне готовото по веригите
   for (const r of (data || [])) {
     const d = r.data || {}, src = d.source || {};
     if (src.kind !== "series") continue;
@@ -1169,16 +1267,7 @@ async function erpFlowRemoveOrder(sampleId) {
     if (idx < 0) continue;
     d.qty = Math.max(0, (Number(d.qty) || 0) - (Number(orders[idx].qty) || 0));
     orders.splice(idx, 1);
-    if (!orders.length) {
-      jobs.push(async () => {
-        await sb.from("tasks").delete().eq("id", r.id);
-        // Изтриваме и движенията, породени от тази задача — иначе остават „фантомни"
-        // готови детайли/материали и повторното пускане ги удвоява.
-        try { await sb.from("product_movements").delete().in("ref", ["prod:" + r.id, "consume:" + r.id]); } catch (e) {}
-        try { await sb.from("stock_movements").delete().eq("ref", "matprod:" + r.id); } catch (e) {}
-      });
-      continue;
-    }
+    if (!orders.length) { dropped.push({ id: r.id, data: d }); continue; }
     src.orders = orders; src.orderIds = orders.map(o => String(o.id));
     d.client = orders.length >= 2 ? "" : (orders[0].client || "");
     d.due = orders.length >= 2 ? "" : (orders[0].due || "");
@@ -1194,6 +1283,7 @@ async function erpFlowRemoveOrder(sampleId) {
   }
   // Всяка серия е отделен ред — обработваме по 5 успоредно.
   for (let i = 0; i < jobs.length; i += 5) await Promise.all(jobs.slice(i, i + 5).map(f => f()));
+  await erpFlowDropSeries(dropped);
 }
 
 // Карта на произведеното по серии (ключ код+операция) от текущите задачи.
@@ -1331,10 +1421,77 @@ async function erpStockCredit(pid, qty, note, ref) {
   } catch (e) { console.error("stock credit", e); }
 }
 
+// Дялове на заявките от бройките [from, to) на споделена серия — по реда на
+// заявките в source.orders (кумулативно по количествата им). Бройки над общото
+// поръчано (свръхпроизводство) не се падат на никого — остават свободни.
+function erpFlowOrderShares(src, from, to) {
+  const out = [];
+  let off = 0;
+  ((src && src.orders) || []).forEach(o => {
+    const q = Number(o && o.qty) || 0;
+    if (!(q > 0)) return;
+    const a = Math.max(from, off), b = Math.min(to, off + q);
+    if (b > a) out.push({ sid: String(o.id), qty: b - a });
+    off += q;
+  });
+  return out;
+}
+
+// Собственият заприходен и все още неизконсумиран напредък на заявка, по
+// детайли: делът ѝ от заприходеното (source.stocked на последните операции)
+// минус дела ѝ от вложеното при нейните сглобявания (consumes), ограничен до
+// реалната наличност. Ползва се при ПРЕ-пускане (erpFlowApply, стъпка 0г), за
+// да не се нетнат повторно бройки, които задачите вече отчитат като свършени.
+function erpFlowOwnStockedLeft(rows, sampleId, avail) {
+  const sid = String(sampleId);
+  const stocked = {}, cons = {};
+  (rows || []).forEach(r => {
+    const d = r.data || {}, src = d.source || {};
+    if (src.kind !== "series" || src.stock) return;   // „за склад" трупа свободна наличност — нетва се нормално
+    if (!(src.orders || []).some(o => String(o.id) === sid)) return;
+    const myShare = n => erpFlowOrderShares(src, 0, Number(n) || 0)
+      .reduce((s, x) => s + (String(x.sid) === sid ? x.qty : 0), 0);
+    if (src.last && src.pid) {
+      const st = myShare(src.stocked);
+      if (st > 0) stocked[src.pid] = (Number(stocked[src.pid]) || 0) + st;
+    }
+    if (Array.isArray(src.consumes) && src.consumes.length) {
+      const cu = myShare(src.consumedUnits);
+      if (cu > 0) src.consumes.forEach(c => {
+        const pid = Number(c && c.pid) || 0, use = (Number(c && c.per) || 0) * cu;
+        if (pid && use > 0) cons[pid] = (Number(cons[pid]) || 0) + use;
+      });
+    }
+  });
+  const out = {};
+  Object.keys(stocked).forEach(pid => {
+    const left = Math.min(Math.max(0, stocked[pid] - (Number(cons[pid]) || 0)), Math.max(0, Number(avail && avail[pid]) || 0));
+    if (left > 0) out[pid] = left;
+  });
+  return out;
+}
+
+// Добавя (sign +1) или маха (sign −1) резервирани бройки в кръстосаното нетване
+// (app_config → flow_netting). Чете СВЕЖО и пипа само подадените заявки — да не
+// затрие резервация, записана междувременно от пускане на друга заявка.
+async function erpNettingBump(shares, pid, sign) {
+  if (!shares || !shares.length || !pid) return;
+  const key = String(pid);
+  const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+  const byOrder = (data && data.data && data.data.byOrder) || {};
+  shares.forEach(s => {
+    const m = byOrder[s.sid] || (byOrder[s.sid] = {});
+    const v = (Number(m[key]) || 0) + sign * s.qty;
+    if (v > 0) m[key] = v; else delete m[key];
+    if (!Object.keys(m).length) delete byOrder[s.sid];
+  });
+  await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() });
+}
+
 // След отчитане на ПОСЛЕДНАТА операция на детайл/възел — вкарва ВСИЧКОТО
-// произведено в Склад детайли (не се заключва към заявка). Изписва се после при
-// сглобяване на родителя (erpFlowConsume) или при Продажба. Идемпотентно чрез
-// source.stocked (заприходяваме само новата разлика).
+// произведено в Склад детайли. Изписва се после при сглобяване на родителя
+// (erpFlowConsume) или при Продажба. Идемпотентно чрез source.stocked
+// (заприходяваме само новата разлика).
 async function erpFlowStockIn(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.last || !src.pid) return;
@@ -1344,6 +1501,15 @@ async function erpFlowStockIn(t) {
   const delta = produced - stocked;
   if (delta <= 0) return;
   await erpStockCredit(src.pid, delta, "Производство · " + (t.code || t.product || ""), "prod:" + t.id);
+  // Готовото изделие на ЗАЯВКА стои на рафта ПАЗЕНО за нея до продажбата —
+  // дозаключваме заприходеното към резервацията ѝ (кръстосано нетване). Иначе
+  // следваща заявка го вижда „свободно" в Склад детайли и го нетва повторно,
+  // а при продажбата на първата складът излиза на минус. „Производство за
+  // склад" (src.stock) нарочно трупа свободна наличност — него не го пазим.
+  if (src.toStock && !src.stock) {
+    try { await erpNettingBump(erpFlowOrderShares(src, stocked, produced), src.pid, +1); }
+    catch (e) { console.error("stock-in netting", e); }   // изравнява се при повторно пускане на заявката
+  }
   src.stocked = produced;
   if (typeof tSaveTask === "function") await tSaveTask(t);
 }
@@ -1413,6 +1579,11 @@ async function erpFlowRollback(t) {
           product_id: Number(src.pid), kind: "изписване", quantity: -back,
           ref: "prodfix:" + t.id, note: "Корекция на отчет · " + (t.code || t.product || ""),
         });
+        // Смъкваме и резервацията на заявките за върнатите бройки — симетрично
+        // на дозаключването при заприходяване (erpFlowStockIn).
+        if (src.toStock && !src.stock && typeof erpNettingBump === "function") {
+          try { await erpNettingBump(erpFlowOrderShares(src, produced, produced + back), src.pid, -1); } catch (e) {}
+        }
         src.stocked = produced; out.stock = back;
       } catch (e) { console.error("rollback stock", e); }
     }
@@ -1612,6 +1783,30 @@ async function erpFlowTasksFor(sampleId) {
     return src && src.kind === "series" && (src.orderIds || []).map(String).includes(sid);
   });
   return { rows, error: null };
+}
+
+// Преглед ПРЕДИ изтегляне от производство: какво ОСТАВА в склада (готовото,
+// вече заприходено) и каква отчетена, но НЕдовършена работа ще се анулира.
+// shared = задачи в серии, споделени с други заявки — изработеното по тях
+// остава и се зачита на останалите заявки (виж erpFlowRemoveOrder).
+async function erpFlowWithdrawPreview(sampleId) {
+  const sid = String(sampleId);
+  const { rows, error } = await erpFlowTasksFor(sid);
+  if (error) return { keep: [], lose: [], shared: 0, error };
+  const sole = [], out = { keep: [], lose: [], shared: 0, error: null };
+  rows.forEach(r => {
+    const src = (r.data || {}).source || {};
+    if ((src.orders || []).length > 1) out.shared++; else sole.push(r);
+  });
+  const stockedBy = erpFlowChainStocked(sole);
+  sole.forEach(r => {
+    const d = r.data || {}, src = d.source || {};
+    const st = Number(stockedBy[r.id]) || 0;
+    if (src.last && st > 0) out.keep.push({ code: d.code || d.product || "", qty: st });
+    const lost = (Number(d.produced) || 0) - st;
+    if (lost > 0) out.lose.push({ code: d.code || d.product || "", operation: d.operation || "", qty: lost });
+  });
+  return out;
 }
 
 async function erpShowProduction(s) {
