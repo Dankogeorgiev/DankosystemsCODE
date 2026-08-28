@@ -116,6 +116,17 @@ function masterArticles(e) {
   arts.forEach(a => {
     a.total = a.details.reduce((s, d) => s + d.ops.length, 0);
     a.done = a.details.reduce((s, d) => s + d.ops.filter(mDone).length, 0);
+    // Нуждите на реда по рецептата (код¦операция → бройки) — за етикета „за
+    // реда N" по чиповете, за капата при отчитане и за самопроверката по-долу.
+    a.needs = masterArticleNeeds(a.pid, a.qty);
+    // САМОПРОВЕРКА: операции от рецептата, за които НЯМА задача в цеховете —
+    // изцяло покрити от склада при пускането, още непуснати или с променена
+    // рецепта. Показват се под артикула, за да се вижда цялата рецепта.
+    if (a.needs) {
+      const have = new Set();
+      a.details.forEach(d => d.ops.forEach(t => have.add(String(t.code || "") + "¦" + String(t.operation || ""))));
+      a.missingOps = Object.keys(a.needs).filter(k => !have.has(k));
+    }
   });
   return { arts, misc };
 }
@@ -133,15 +144,15 @@ function mOrderShare(t, oid) {
 }
 
 // Докарва един детайл до дадена стъпка (отчита всяка операция до наличното,
-// но най-много дела на заявката).
-async function masterAdvanceDetail(oid, ops, targetStep) {
+// но най-много дела на заявката; capFn стяга капата до нуждата на реда).
+async function masterAdvanceDetail(oid, ops, targetStep, capFn) {
   const sorted = ops.slice().sort((a, b) => mStep(a) - mStep(b));
   for (const t of sorted) {
     if (mStep(t) > targetStep) break;
     const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-    const toReport = Math.min(rem, Math.max(0, avail), mOrderShare(t, oid));
+    const toReport = Math.min(rem, Math.max(0, avail), capFn ? capFn(t) : mOrderShare(t, oid));
     // mOrder: за коя заявка е натиснат мастерът — за точна отмяна по заявка.
     if (toReport > 0) await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
   }
@@ -366,18 +377,24 @@ function masterRender() {
   const wrap = document.getElementById("master-modal"); if (!wrap) return;
   const groups = masterGroups();
   const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
-  const chip = (oid, d, t) => {
+  const chip = (oid, d, t, art) => {
     const q = Number(t.qty) || 0, p = Number(t.produced) || 0;
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : (q - p);
     const cls = mDone(t) ? "m-done" : (avail > 0 ? (p > 0 ? "m-prog" : "m-ready") : "m-wait");
-    // Споделена серия: показваме и дела на ТАЗИ заявка — толкова най-много ще отчете кликът.
+    // Капата на клика: делът на заявката в серията, а под артикул — стеснена
+    // до нуждата на РЕДА по рецептата (numbers-ът на чипа показва точно нея).
     const share = mOrderShare(t, oid);
-    const shareTxt = (isFinite(share) && share < q) ? ` · дял ${share}` : "";
-    return `<button type="button" class="m-chip ${cls}" data-oid="${escapeAttr(oid)}" data-code="${escapeAttr(d.key)}" data-step="${mStep(t)}" title="Докарай детайла до „${escapeAttr(t.operation || "")}"${shareTxt ? ` — серията е споделена, отчита се най-много делът на тази заявка (${share} бр.)` : ""}">${escapeHtml(t.operation || "")}<span class="m-qn">${p}/${q}${shareTxt}</span></button>`;
+    let cap = share;
+    if (art && art.needs) {
+      const need = art.needs[String(t.code || "") + "¦" + String(t.operation || "")];
+      if (need != null) cap = Math.min(share, Math.ceil(need));
+    }
+    const capTxt = (isFinite(cap) && cap < q) ? (art && art.needs ? ` · за реда ${cap}` : ` · дял ${cap}`) : "";
+    return `<button type="button" class="m-chip ${cls}" data-oid="${escapeAttr(oid)}" data-code="${escapeAttr(d.key)}" data-step="${mStep(t)}" data-pid="${escapeAttr(art && art.pid != null ? String(art.pid) : "")}" title="Докарай детайла до „${escapeAttr(t.operation || "")}"${capTxt ? ` — серията е обща, отчита се най-много ${cap} бр. (${art && art.needs ? "нуждата на този ред" : "делът на тази заявка"})` : ""}">${escapeHtml(t.operation || "")}<span class="m-qn">${p}/${q}${capTxt}</span></button>`;
   };
-  const detailHtml = (oid, d) => `<div class="m-detail">
+  const detailHtml = (oid, d, art) => `<div class="m-detail">
       <div class="m-detail-h">🔩 <b>${escapeHtml(d.code)}</b> ${escapeHtml(d.name)}</div>
-      <div class="m-chips">${d.ops.map(t => chip(oid, d, t)).join("")}</div>
+      <div class="m-chips">${d.ops.map(t => chip(oid, d, t, art)).join("")}</div>
     </div>`;
   // Артикул от заявката: ред с прогрес + „▶▶ готов"; клик върху заглавието разгъва детайлите.
   const artHtml = (oid, a) => {
@@ -394,7 +411,10 @@ function masterRender() {
             ? `<span class="m-art-ok">✔ готов</span>`
             : `<button type="button" class="btn btn-small btn-primary m-art-complete" data-oid="${escapeAttr(oid)}" data-pid="${escapeAttr(String(a.pid))}" title="Отчита ВСИЧКИ детайли и операции на този артикул до готово">▶▶ готов</button>`}
       </div>
-      ${open ? a.details.map(d => detailHtml(oid, d)).join("") || `<p class="rt-muted" style="margin:6px 0 2px 18px">Няма детайли в цех за този артикул.</p>` : ""}
+      ${open ? (a.details.map(d => detailHtml(oid, d, a)).join("") || `<p class="rt-muted" style="margin:6px 0 2px 18px">Няма детайли в цех за този артикул.</p>`)
+        + (a.missingOps && a.missingOps.length
+          ? `<p class="rt-muted" style="margin:6px 0 2px 18px">🛈 От рецептата, БЕЗ задача в цех (покрито от склада при пускането, още непуснато или сменена рецепта): ${a.missingOps.map(k => escapeHtml(k.replace("¦", " · "))).join("; ")}</p>`
+          : "") : ""}
     </div>`;
   };
   const orderHtml = e => {
@@ -484,8 +504,20 @@ function masterRender() {
     const oid = b.dataset.oid, code = b.dataset.code, step = Number(b.dataset.step);
     const g = masterGroups().find(e => String(e.id) === String(oid)); if (!g) return;
     const d = g.details.find(x => x.key === code); if (!d) return;
+    // Чип под артикул: капата се стяга до нуждата на реда (както „▶▶ готов").
+    let capFn = null;
+    const artPid = b.dataset.pid;
+    if (artPid && artPid !== "misc") {
+      const { arts } = masterArticles(g);
+      const a = arts.find(x => String(x.pid) === String(artPid));
+      if (a && a.needs) capFn = t => {
+        const need = a.needs[String(t.code || "") + "¦" + String(t.operation || "")];
+        const share = mOrderShare(t, oid);
+        return (need != null) ? Math.min(share, Math.ceil(need)) : share;
+      };
+    }
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterAdvanceDetail(oid, d.ops, step); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try { await masterAdvanceDetail(oid, d.ops, step, capFn); } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
