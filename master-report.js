@@ -262,7 +262,10 @@ function masterUndoDialog() {
   const dates = masterUndoScan();
   if (!dates.length) { alert("Няма мастер отчитания за отмяна."); return; }
   const wrap = document.createElement("div");
-  wrap.className = "overlay";
+  // Като мастер прозореца (z-index 300 + подредбата му) и НАД него — голият
+  // .overlay е z-index 100 и диалогът се отваряше невидим, ЗАД мастера.
+  wrap.className = "overlay master-modal";
+  wrap.style.zIndex = "400";
   wrap.innerHTML = `<div class="master-box" style="max-width:520px">
     <div class="master-head"><h3>⏪ Отмяна на мастер отчитания</h3><button type="button" class="btn btn-small" id="mu-close">Затвори</button></div>
     <p class="hint">Избери ден — махат се мастер вписванията от него, бройките и складът се връщат назад (заприходено готово, вложени части, материал), а заявки „готова за продажба", които вече не са готови, стават пак „в производство".<br>⚠ Ако междувременно е <b>продавано или влагано</b> от отчетените бройки, складът може да отиде на минус — провери „Склад детайли" след отмяната.</p>
