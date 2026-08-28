@@ -590,9 +590,15 @@ async function openTasks() {
   if (!tasksLoaded) {
     // Четирите зареждания са независими → ПАРАЛЕЛНО (преди се чакаха едно
     // друго и отварянето на Цехове се бавеше).
-    await Promise.all([tLoadWorkers(), tLoadRoles(), tLoadTasks(), mLoad(), tLoadQuickDrawings()]);
+    await Promise.all([tLoadWorkers(), tLoadRoles(), tLoadTasks(), mLoad()]);
     tasksLoaded = true; subscribeTasks(); subscribeMessages();
   }
+  // Чертежите на бързите изделия се опресняват при ВСЯКО отваряне (иначе
+  // изделие, създадено след първото отваряне, оставаше без 📄 до презареждане).
+  tLoadQuickDrawings().then(() => {
+    const tv = document.getElementById("tasks-view");
+    if (tv && !tv.hidden) renderTasks();
+  }).catch(() => {});
   msgNotifyState = snapshotNotify();
   requestNotifyPermission();
   applyTasksAccess();

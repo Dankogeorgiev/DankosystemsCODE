@@ -90,12 +90,18 @@ async function renderPulse() {
   // Финанси: приходи (издадени фактури този месец), разходи (покупки този месец),
   // вземания от клиенти и задължения към доставчици. Всичко в EUR (BGN → /1.95583).
   const toEur = (n, cur) => cur === "BGN" ? n / 1.95583 : n;
-  let invMonth = 0;
+  let invMonth = 0, invToday = 0, invTodayVat = 0, invTodayN = 0;
   invoices.forEach(o => {
     if (!o.posted || o.kind === "proforma") return;
-    if (String(o.issueDate || "").slice(0, 7) !== month) return;
+    const d = String(o.issueDate || "").slice(0, 10);
+    if (d.slice(0, 7) !== month && d !== today) return;
     const sign = o.kind === "credit" ? -1 : 1;
-    invMonth += sign * toEur(lineNet(o.lines), o.currency || "EUR");
+    const net = sign * toEur(lineNet(o.lines), o.currency || "EUR");
+    if (d.slice(0, 7) === month) invMonth += net;
+    if (d === today) {
+      const rate = Number(o.vatRate != null ? o.vatRate : 20);
+      invToday += net; invTodayVat += net * (1 + rate / 100); invTodayN++;
+    }
   });
   let purchMonth = 0;
   purchases.forEach(o => {
@@ -163,6 +169,7 @@ async function renderPulse() {
 
   v.innerHTML = `
     <div class="pulse-cards">
+      ${card(`фактурирано ДНЕС (без ДДС) · ${invTodayN} бр. · с ДДС ${money(invTodayVat, "EUR")}`, money(invToday, "EUR"), invTodayN ? "money" : "", "invoices")}
       ${card("фактурирано месец (без ДДС)", money(invMonth, "EUR"), "money", "invoices")}
       ${card("разходи месец (без ДДС)", money(purchMonth, "EUR"), "money", "purchases")}
       ${card("вземания от клиенти (с ДДС)", money(recvSum, "EUR"), recvOver.length ? "warn" : "money", "receivables")}
