@@ -169,6 +169,122 @@ async function masterCompleteOrder(oid, details) {
   }
 }
 
+/* ---------- ⏪ Отмяна на мастер отчитания ----------
+   Всяко мастер вписване носи note: "мастер отчитане" и дата в дневника на
+   задачата, затова може да се намери и развърти точно. Отмяната за избран ден:
+   маха вписванията, смъква produced, връща складовите последствия
+   (erpFlowRollback: заприходено готово, вложени части, материал) и сваля
+   статуса „готова за продажба" на заявки, които вече не са готови. Авто-боята,
+   пусната от мастер отчета (worker „авто-боя", същия ден, по веригите на
+   засегнатите задачи), също се отменя. Вечният дневник (production_log) НЕ се
+   трие — добавя се коригиращ запис, както при „поправка на сгрешен отчет". */
+function masterUndoScan() {
+  const flow = (typeof TASKS !== "undefined" ? TASKS : []).filter(t => t.source && t.source.flow && t.source.kind === "series");
+  const isM = l => l && l.note === "мастер отчитане";
+  const dates = {};
+  flow.forEach(t => (t.logs || []).forEach(l => {
+    if (!isM(l)) return;
+    const d = dates[l.date] || (dates[l.date] = { date: l.date, items: new Map(), master: 0, paint: 0 });
+    const it = d.items.get(t) || { t, qty: 0, entries: [] };
+    it.qty += Number(l.qty) || 0; it.entries.push(l);
+    d.items.set(t, it);
+    d.master += Number(l.qty) || 0;
+  }));
+  Object.values(dates).forEach(d => {
+    // Веригите (по prevKey, в двете посоки) на засегнатите задачи — за авто-боята.
+    const keys = new Set();
+    d.items.forEach(it => { if (it.t.source.seriesKey) keys.add(it.t.source.seriesKey); });
+    let grew = true;
+    while (grew) {
+      grew = false;
+      flow.forEach(t => {
+        const sk = t.source.seriesKey, pk = t.source.prevKey;
+        if (!sk) return;
+        if (keys.has(sk)) { if (pk && !keys.has(pk)) { keys.add(pk); grew = true; } }
+        else if (pk && keys.has(pk)) { keys.add(sk); grew = true; }
+      });
+    }
+    flow.forEach(t => {
+      if (!keys.has(t.source.seriesKey)) return;
+      (t.logs || []).forEach(l => {
+        if (!l || isM(l) || l.worker !== "авто-боя" || l.date !== d.date) return;
+        const it = d.items.get(t) || { t, qty: 0, entries: [] };
+        it.qty += Number(l.qty) || 0; it.entries.push(l);
+        d.items.set(t, it);
+        d.paint += Number(l.qty) || 0;
+      });
+    });
+  });
+  return Object.values(dates).map(d => ({ date: d.date, items: [...d.items.values()], master: d.master, paint: d.paint }))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+async function masterUndoApply(d) {
+  const affected = [];
+  for (const it of d.items) {
+    const t = it.t;
+    t.logs = (t.logs || []).filter(l => !it.entries.includes(l));
+    t.produced = Math.max(0, (Number(t.produced) || 0) - it.qty);
+    await tSaveTask(t);   // първо броячът и дневникът на задачата
+    try {
+      await prodLogWrite(t, {
+        date: (typeof todayStr === "function") ? todayStr() : d.date,
+        worker: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.name || MY_ACCESS.email)) || "офис",
+        qty: -it.qty,
+        lid: (typeof prodLogId === "function") ? prodLogId() : (Date.now().toString(36) + "-u" + Math.random().toString(36).slice(2, 5)),
+        activity: "Отмяна на мастер отчитане", notes: "мастер от " + d.date,
+      });
+    } catch (e) { /* дневникът може да липсва — отмяната продължава */ }
+    // Складът: връща излишно заприходеното/вложеното до новото produced.
+    try { if (typeof erpFlowRollback === "function") await erpFlowRollback(t); } catch (e) { console.error("undo rollback", e); }
+    try { await tSaveTask(t); } catch (e) {}   // персистира смъкнатите броячи (stocked/consumedUnits/matConsumed)
+    affected.push(t);
+  }
+  // Статус „готова за продажба" → назад към „в производство", ако вече не е готова.
+  const flow = (typeof TASKS !== "undefined" ? TASKS : []).filter(t => t.source && t.source.flow && t.source.kind === "series");
+  const oids = new Set();
+  affected.forEach(t => ((t.source.orders) || []).forEach(o => { if (o && o.id != null) oids.add(String(o.id)); }));
+  for (const oid of oids) {
+    try {
+      const co = await sb.from("customer_orders").select("id,data").eq("id", oid).maybeSingle();
+      if (!co || !co.data) continue;
+      const dd = (co.data.data) || {};
+      if (dd.status !== "готова за продажба") continue;
+      const rows = flow.filter(t => ((t.source.orderIds) || []).map(String).includes(oid));
+      const allDone = rows.length > 0 && rows.every(t => { const q = Number(t.qty) || 0; return q > 0 && (Number(t.produced) || 0) >= q; });
+      if (!allDone) { dd.status = "в производство"; await sb.from("customer_orders").update({ data: dd, updated_at: new Date().toISOString() }).eq("id", oid); }
+    } catch (e) { /* следващата заявка */ }
+  }
+  return affected.length;
+}
+
+function masterUndoDialog() {
+  const dates = masterUndoScan();
+  if (!dates.length) { alert("Няма мастер отчитания за отмяна."); return; }
+  const wrap = document.createElement("div");
+  wrap.className = "overlay";
+  wrap.innerHTML = `<div class="master-box" style="max-width:520px">
+    <div class="master-head"><h3>⏪ Отмяна на мастер отчитания</h3><button type="button" class="btn btn-small" id="mu-close">Затвори</button></div>
+    <p class="hint">Избери ден — махат се мастер вписванията от него, бройките и складът се връщат назад (заприходено готово, вложени части, материал), а заявки „готова за продажба", които вече не са готови, стават пак „в производство".<br>⚠ Ако междувременно е <b>продавано или влагано</b> от отчетените бройки, складът може да отиде на минус — провери „Склад детайли" след отмяната.</p>
+    ${dates.map((d, i) => `<button type="button" class="btn mu-date" data-i="${i}" style="display:block;width:100%;margin:4px 0;text-align:left">📅 <b>${escapeHtml(d.date)}</b> — ${d.items.length} задачи, ${d.master} бр. мастер${d.paint ? ` + ${d.paint} бр. авто-боя` : ""}</button>`).join("")}
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener("click", e => { if (e.target === wrap) wrap.remove(); });
+  wrap.querySelector("#mu-close").addEventListener("click", () => wrap.remove());
+  wrap.querySelectorAll(".mu-date").forEach(b => b.addEventListener("click", async () => {
+    const d = dates[Number(b.dataset.i)]; if (!d) return;
+    const lines = d.items.slice(0, 15).map(it => `• ${it.t.code || it.t.product || ""} · ${it.t.operation || ""}: −${it.qty} бр.`).join("\n");
+    if (!confirm(`Да ОТМЕНЯ ли мастер отчитанията от ${d.date}?\n\n${lines}${d.items.length > 15 ? `\n… и още ${d.items.length - 15} задачи` : ""}\n\nОбщо: −${d.master + d.paint} бр. Складът се връща назад.`)) return;
+    wrap.querySelectorAll("button").forEach(x => x.disabled = true);
+    let n = 0;
+    try { n = await masterUndoApply(d); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    wrap.remove();
+    alert(`✓ Отменени са мастер отчитанията от ${d.date} по ${n} задачи.\nПровери „Склад детайли" и „Склад материали" за разминавания, ако междувременно е продавано/влагано.`);
+    masterRender();
+    if (typeof renderTasks === "function") renderTasks();
+  }));
+}
+
 async function openMasterReport() {
   let wrap = document.getElementById("master-modal");
   if (!wrap) {
@@ -240,7 +356,10 @@ function masterRender() {
   wrap.innerHTML = `<div class="master-box">
     <div class="master-head">
       <h3>⚡ Мастер отчитане <span class="rt-muted">— по артикули от заявката</span></h3>
-      <button type="button" class="btn btn-small" id="m-close">Затвори</button>
+      <span>
+        <button type="button" class="btn btn-small btn-danger" id="m-undo" title="Връща назад мастер отчитания по дни — бройки, склад и статуси">⏪ Отмяна</button>
+        <button type="button" class="btn btn-small" id="m-close">Затвори</button>
+      </span>
     </div>
     <p class="hint">Всеки ред е <b>артикул от заявката на клиента</b>. „▶▶ готов" отчита всичките му детайли и операции докрай (когато цехът не е отчитал). От серии, споделени с други заявки, се отчита <b>само делът на тази заявка</b> (пише го на чипа: „дял N"). Клик върху артикула го разгъва до отделните детайли. Легенда: <span class="m-chip m-ready" style="pointer-events:none">готова</span> <span class="m-chip m-prog" style="pointer-events:none">частично</span> <span class="m-chip m-wait" style="pointer-events:none">чака</span> <span class="m-chip m-done" style="pointer-events:none">готово</span></p>
     <div class="master-tools"><input type="search" id="m-q" placeholder="🔎 търси заявка / клиент…" value="${escapeAttr(masterQuery)}" autocomplete="off" /><span class="rt-muted">${groups.length} заявки в производство</span></div>
@@ -248,6 +367,8 @@ function masterRender() {
   </div>`;
 
   wrap.querySelector("#m-close").addEventListener("click", () => wrap.remove());
+  const undoBtn = wrap.querySelector("#m-undo");
+  if (undoBtn) undoBtn.addEventListener("click", masterUndoDialog);
   const qEl = wrap.querySelector("#m-q");
   if (qEl) qEl.addEventListener("input", e => { masterQuery = e.target.value; masterRender(); const el = document.getElementById("m-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
 
