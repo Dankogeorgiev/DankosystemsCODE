@@ -332,15 +332,25 @@
     }
   }
 
-  /* ---------- 🎨 Авто-боя (както в главното табло) ----------
-     Бояджийно не се отчита — щом отчет от масите/роботите отключи детайли
-     за него, задачата му се отчита автоматично („авто-боя") и потокът
-     продължава. Изключване: app_config id="paint_auto" data {"on": false}. */
+  /* ---------- 🎨 Авто-отчитане (както в главното табло) ----------
+     Бояджийно не се отчита + леките финални операции („Зачистване …",
+     „Опаковане/Опаковка", „Шлайф…" — по префикс на името) — щом отчет от
+     масите/роботите отключи детайли за тях, задачата се отчита автоматично
+     и потокът продължава. Изключване: app_config id="paint_auto" (боята) /
+     id="auto_report" (операциите), data {"on": false}. */
+  const AUTO_OPS = ["зачистване", "опаков", "шлайф"];
+  const autoOp = op => { const s = String(op || "").toLowerCase().trim(); return AUTO_OPS.some(p => s.startsWith(p)); };
   async function autoPaint(c) {
+    let doPaint = true, doOps = true;
     try {
       const { data } = await c.from("app_config").select("data").eq("id", "paint_auto").maybeSingle();
-      if (data && data.data && data.data.on === false) return 0;
+      if (data && data.data && data.data.on === false) doPaint = false;
     } catch (e) { /* без връзка към ключа — автоматиката е включена */ }
+    try {
+      const { data } = await c.from("app_config").select("data").eq("id", "auto_report").maybeSingle();
+      if (data && data.data && data.data.on === false) doOps = false;
+    } catch (e) {}
+    if (!doPaint && !doOps) return 0;
     let total = 0;
     for (let pass = 0; pass < 3; pass++) {
       let rows;
@@ -349,7 +359,9 @@
       const map = seriesProduced(all);
       let changed = 0;
       for (const t of all) {
-        if ((t.workshop || "") !== "Бояджийно") continue;
+        const isPaint = (t.workshop || "") === "Бояджийно";
+        const isOp = !isPaint && autoOp(t.operation);
+        if (!((isPaint && doPaint) || (isOp && doOps))) continue;
         const src = t.source || {};
         const qty = n(t.qty), prod = n(t.produced);
         let add = 0;
@@ -359,7 +371,7 @@
         if (add <= 0) continue;
         t.produced = prod + add;
         t.logs = Array.isArray(t.logs) ? t.logs : [];
-        const entry = { date: new Date().toISOString().slice(0, 10), worker: "авто-боя", qty: add, lid: Date.now().toString(36) + "-p-" + Math.random().toString(36).slice(2, 6), notes: "автоматично (Бояджийно не се отчита)" };
+        const entry = { date: new Date().toISOString().slice(0, 10), worker: isPaint ? "авто-боя" : "авто-отчет", qty: add, lid: Date.now().toString(36) + "-p-" + Math.random().toString(36).slice(2, 6), notes: isPaint ? "автоматично (Бояджийно не се отчита)" : "автоматично (операцията се отчита сама)" };
         t.logs.push(entry);
         const done = qty > 0 && n(t.produced) >= qty;
         const { error } = await c.from("tasks").update({ data: t, done, updated_at: new Date().toISOString() }).eq("id", t.id);

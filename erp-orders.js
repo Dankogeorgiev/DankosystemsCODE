@@ -304,15 +304,24 @@ async function erpMaybeStartFinal(t, src) {
   if (error) console.error("seq final", error);
 }
 
-/* ---------- 🎨 АВТО-БОЯДИСВАНЕ ----------
+/* ---------- 🎨 АВТО-ОТЧИТАНЕ ----------
    Цех Бояджийно не се отчита (по думите на Данко, 29.07.2026) — изделията
-   „потъват" там и всичко се бута ръчно. Затова: щом до Бояджийно стигнат
-   детайли (поточно: наличното от предната операция; верижно: пусната стъпка),
-   задачата му се отчита АВТОМАТИЧНО (запис „авто-боя" в дневника) и потокът
+   „потъват" там и всичко се бута ръчно. Освен него (29.08.2026, по решение
+   на Данко) АВТОМАТИЧНО се отчитат и леките финални операции, които никой
+   реално не отчита: всички „Зачистване …" (барабан/лента/шлайф/ръчно),
+   „Опаковане/Опаковка" и „Шлайф…" — по ПРЕФИКС на името на операцията
+   (нарочно не „лента"/„ръчно" самостоятелно — иначе се хващат „Рязане
+   лентоотрезна" и „Заваряване ръчно"). Щом предната операция даде детайли,
+   стъпката се отчита сама (запис „авто-боя"/„авто-отчет") и потокът
    продължава. Складовите последствия са същите като при ръчен отчет.
-   ИЗКЛЮЧВАНЕ (когато цехът започне да се отчита реално): ред в app_config
-   id="paint_auto" с data {"on": false} — без нов деплой. */
+   ИЗКЛЮЧВАНЕ без деплой: боята — app_config id="paint_auto" {"on": false};
+   останалите операции — id="auto_report" {"on": false}. */
 const PAINT_AUTO_WS = "Бояджийно";
+const AUTO_REPORT_OPS = ["зачистване", "опаков", "шлайф"];
+function erpAutoReportOp(op) {
+  const s = String(op || "").toLowerCase().trim();
+  return AUTO_REPORT_OPS.some(p => s.startsWith(p));
+}
 let erpPaintAutoOn = null;
 async function erpPaintAutoEnabled() {
   if (erpPaintAutoOn != null) return erpPaintAutoOn;
@@ -322,12 +331,23 @@ async function erpPaintAutoEnabled() {
   } catch (e) { erpPaintAutoOn = true; }
   return erpPaintAutoOn;
 }
-async function erpAutoPaintSweep() {
+let erpAutoRepOn = null;
+async function erpAutoReportEnabled() {
+  if (erpAutoRepOn != null) return erpAutoRepOn;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "auto_report").maybeSingle();
+    erpAutoRepOn = !(data && data.data && data.data.on === false);
+  } catch (e) { erpAutoRepOn = true; }
+  return erpAutoRepOn;
+}
+async function erpAutoPaintSweep(doPaint, doOps) {
   const list = (typeof TASKS !== "undefined" && TASKS) || [];
   const map = erpSeriesProduced(list);
   let done = 0;
   for (const t of list) {
-    if ((t.workshop || "") !== PAINT_AUTO_WS) continue;
+    const isPaint = (t.workshop || "") === PAINT_AUTO_WS;
+    const isOp = !isPaint && erpAutoReportOp(t.operation);
+    if (!((isPaint && doPaint) || (isOp && doOps))) continue;
     const src = t.source || {};
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     let add = 0;
@@ -337,7 +357,12 @@ async function erpAutoPaintSweep() {
     if (add <= 0) continue;
     t.produced = prod + add;
     t.logs = t.logs || [];
-    const entry = { date: new Date().toISOString().slice(0, 10), worker: "авто-боя", qty: add, notes: "автоматично (Бояджийно не се отчита)" };
+    const entry = {
+      date: new Date().toISOString().slice(0, 10),
+      worker: isPaint ? "авто-боя" : "авто-отчет",
+      qty: add,
+      notes: isPaint ? "автоматично (Бояджийно не се отчита)" : "автоматично (операцията се отчита сама)",
+    };
     if (typeof prodLogId === "function") entry.lid = prodLogId();
     t.logs.push(entry);
     await tSaveTask(t);
@@ -352,13 +377,15 @@ async function erpAutoPaintSweep() {
   return done;
 }
 async function erpAutoPaint() {
-  if (!(await erpPaintAutoEnabled())) return 0;
+  const doPaint = await erpPaintAutoEnabled();
+  const doOps = await erpAutoReportEnabled();
+  if (!doPaint && !doOps) return 0;
   let total = 0;
-  // Няколко прохода: advanceSeq може да пусне НОВА Бояджийно стъпка,
+  // Няколко прохода: advanceSeq може да пусне НОВА авто-стъпка,
   // която следващият проход веднага да отчете.
   for (let i = 0; i < 4; i++) {
     let c = 0;
-    try { c = await erpAutoPaintSweep(); } catch (e) { console.warn("авто-боя", e); break; }
+    try { c = await erpAutoPaintSweep(doPaint, doOps); } catch (e) { console.warn("авто-отчет", e); break; }
     total += c;
     if (!c) break;
     try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) { break; }

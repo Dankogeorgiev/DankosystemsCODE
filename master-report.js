@@ -240,7 +240,7 @@ function masterUndoPaint(items, date) {
   flow.forEach(t => {
     if (!keys.has(t.source.seriesKey)) return;
     (t.logs || []).forEach(l => {
-      if (!l || l.note === "мастер отчитане" || l.worker !== "авто-боя" || l.date !== date) return;
+      if (!l || l.note === "мастер отчитане" || (l.worker !== "авто-боя" && l.worker !== "авто-отчет") || l.date !== date) return;
       mUndoAdd(out, t, l);
     });
   });
