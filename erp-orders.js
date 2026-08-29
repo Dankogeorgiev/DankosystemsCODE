@@ -832,6 +832,18 @@ async function erpFlowApply(meta, productLines) {
     } catch (e) { flowRowsSnap = null; ownStocked = {}; }   // при грешка — старото поведение
   }
 
+  // 0д) РЪЧЕН ИЗБОР какво от склада да се ползва (диалогът при пускане,
+  //     erpCOProduce): наличността се реже до избраното ПО ДЕТАЙЛ — човекът
+  //     решава, не системата. Детайл без ред в избора = 0 (не се пипа).
+  //     Очакваното от „Производство за склад" (expectedWip) НЕ се реже — то
+  //     бездруго се произвежда и без него заявката би го пуснала ВТОРИ път.
+  if (stockOn && meta.useStock) {
+    Object.keys(avail).forEach(pid => {
+      const cap = (Number(meta.useStock[pid]) || 0) + (Number(expectedWip[pid]) || 0);
+      if ((Number(avail[pid]) || 0) > cap) avail[pid] = cap;
+    });
+  }
+
   // Снимка на РЕАЛНАТА (заскладена) част — за съобщението „колко са от рафта
   // и колко се очакват от цеха" (преди erpFlowSteps да започне да вади от avail).
   const shelfAvail = {};

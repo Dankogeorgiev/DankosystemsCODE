@@ -1242,6 +1242,16 @@ async function erpCOStockPreview(o, lines) {
       });
     });
   } catch (e) { /* без резервации — по-скоро ще попитаме, отколкото да пропуснем */ }
+  // Собствените ВЕЧЕ произведени бройки на тази заявка (при пре-пускане) не се
+  // предлагат като „налични" — те са отчетени по задачите ѝ и пускането ги
+  // брои там (erpFlowOwnStockedLeft, стъпка 0г), не като наличност от рафта.
+  try {
+    if (typeof erpFlowOwnStockedLeft === "function" && typeof erpSelectAll === "function" && o.production) {
+      const { data: fr } = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
+      const own = erpFlowOwnStockedLeft(fr || [], o.id, stock);
+      Object.keys(own).forEach(pid => { stock[pid] = Math.max(0, (Number(stock[pid]) || 0) - own[pid]); });
+    }
+  } catch (e) { /* без корекцията — прегледът показва повече, пускането пак смята вярно */ }
   const consumed = {};
   const topIds = new Set(lines.map(l => String(l.productId)));
   const need = {};
@@ -1308,24 +1318,32 @@ async function erpCOProduce(o) {
   // Какво БИ СЕ ВЗЕЛО от склада — не само готовите изделия, а и частите им.
   // Наличностите се четат ПРЯСНО (кешът от отварянето на ЕРП остарява) и от тях
   // се маха резервираното от другите заявки.
-  let noNet = false;
+  let noNet = false, useStock = null;
   const ready = await erpCOStockPreview(o, lines);
   if (ready.length) {
-    noNet = await new Promise(resolve => {
+    const ans = await new Promise(resolve => {
       const { wrap, close } = erpDialog(`
         <h3>📦 За тази заявка има налични бройки в склада</h3>
-        <p class="hint">Ако са произведени за <b>друга заявка</b>, която още не е продадена/взета, избери „Произведи всичко наново" — наличните остават запазени за нея. Ако наистина са свободни — „Ползвай наличните" (толкова не се пуска в цех).</p>
+        <p class="hint">В колоната „Ползвай" напиши КОЛКО от наличните да се вземат — толкова НЕ се пуска в цех, останалото се произвежда. 0 = не пипай този детайл. Ако наличните са правени за <b>друга заявка</b>, която още не е продадена — „Произведи всичко наново" ги пази всичките.</p>
         <div style="max-height:46vh;overflow:auto"><table class="report-table erp-table">
-          <thead><tr><th>Код</th><th>Изделие</th><th class="num">Нужни</th><th class="num">От склада</th></tr></thead>
-          <tbody>${ready.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}${x.top ? "" : ' <span class="erp-muted">(част)</span>'}</td><td class="num">${erpNum(x.need)}</td><td class="num"><b>${erpNum(x.use)}</b></td></tr>`).join("")}</tbody>
+          <thead><tr><th>Код</th><th>Изделие</th><th class="num">Нужни</th><th class="num">Свободни</th><th class="num">Ползвай</th></tr></thead>
+          <tbody>${ready.map((x, i) => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}${x.top ? "" : ' <span class="erp-muted">(част)</span>'}</td><td class="num">${erpNum(x.need)}</td><td class="num">${erpNum(x.use)}</td><td class="num"><input type="number" class="ns-q" data-i="${i}" min="0" max="${x.use}" step="1" value="${x.use}" style="width:84px"></td></tr>`).join("")}</tbody>
         </table></div>
         <div class="erp-dialog-actions">
-          <button class="btn" id="nn-use">➖ Ползвай наличните (произвеждаме по-малко)</button>
+          <button class="btn" id="nn-use">➖ Ползвай избраните (произвеждаме останалото)</button>
           <button class="btn btn-primary" id="nn-new">🏭 Произведи ВСИЧКО наново (пази наличните)</button>
         </div>`);
-      wrap.querySelector("#nn-use").addEventListener("click", () => { close(); resolve(false); });
-      wrap.querySelector("#nn-new").addEventListener("click", () => { close(); resolve(true); });
+      wrap.querySelector("#nn-use").addEventListener("click", () => {
+        const m = {};
+        wrap.querySelectorAll(".ns-q").forEach(inp => {
+          const x = ready[Number(inp.dataset.i)]; if (!x) return;
+          m[x.pid] = Math.min(x.use, Math.max(0, Math.round(Number(String(inp.value).replace(",", ".")) || 0)));
+        });
+        close(); resolve({ noNet: false, useStock: m });
+      });
+      wrap.querySelector("#nn-new").addEventListener("click", () => { close(); resolve({ noNet: true, useStock: null }); });
     });
+    noNet = ans.noNet; useStock = ans.useStock;
   }
 
   const res = await erpFlowApply({
@@ -1333,6 +1351,7 @@ async function erpCOProduce(o) {
     sampleType: "customer_order", orderNo: o.ourNo || "",
     noNet,      // true = складът изобщо не се пипа (нито изделията, нито частите)
     noNetTop: noNet,
+    useStock,   // { pid: брой } — ръчният избор какво/колко от склада да се ползва (0д)
     matSubs: o.matSubs || null,   // смяна на материал само за тази поръчка (Щрипс → Шина)
     stockTop: true,   // готовото изделие влиза в Склад детайли при завършване (после се изписва с Продажба)
   }, lines);
