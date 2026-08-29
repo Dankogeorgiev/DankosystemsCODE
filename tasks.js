@@ -835,32 +835,18 @@ async function workerCapDialog() {
   });
 }
 
-/* ⚙ Сливане: в кои цехове поръчките да НЕ се сливат в обща серия.
-   Сливането пести настройки и материал, но крие сроковете на отделните
-   поръчки. Тук се изключва там, където пречи. Важи при следващото пускане
-   на заявка — вече създадените задачи не се разделят със задна дата. */
+/* ⚙ Сливане: ИНФОРМАЦИОНЕН прозорец. От 29.08.2026 правилото е фиксирано —
+   задачите се сливат само в рамките на ЕДНА заявка; две заявки никога не
+   делят серия (виж erpFlowApply). Старата настройка series_off не се чете. */
 async function seriesMergeDialog() {
-  let off = [];
-  try {
-    const { data } = await sb.from("app_config").select("data").eq("id", "series_off").maybeSingle();
-    off = (data && data.data && data.data.workshops) || [];
-  } catch (e) {}
-  const list = workshopList();
   const { wrap, close } = erpDialog(`
-    <h3>⚙ Сливане на поръчките в серии</h3>
-    <p class="hint" style="margin:-4px 0 8px">Сливането прави ЕДНА задача от няколко поръчки за същия код и операция — една настройка, по-малко отпадък. Отметни цеховете, в които НЕ искаш сливане (всяка поръчка = отделна задача).</p>
-    <div class="erp-lp-list" style="max-height:46vh;overflow:auto">
-      ${list.map(w => `<label class="erp-inline" style="display:block;padding:3px 0"><input type="checkbox" class="sm-w" value="${escapeAttr(w)}" ${off.includes(w) ? "checked" : ""}> ${escapeHtml(w)}</label>`).join("")}
-    </div>
-    <p class="hint" style="margin:8px 0 0">⚠ Важи за задачите, които ще се пуснат ОТСЕГА нататък. Вече пуснатите остават както са.</p>
-    <div class="erp-dialog-actions"><button class="btn" id="sm-cancel">Отказ</button><button class="btn btn-primary" id="sm-save">Запази</button></div>`);
+    <h3>⚙ Сливане на задачите</h3>
+    <p class="hint" style="margin:-4px 0 8px">Правилото е едно и също за всички цехове:<br><br>
+      • Еднаквите детайли от <b>няколко механизма на ЕДНА заявка</b> се обединяват в един ред — операторът вижда една бройка и една настройка.<br>
+      • Две <b>различни заявки никога</b> не делят задача, дори за идентични детайли — всяка заявка има собствени редове в цеховете.</p>
+    <p class="hint">Така всяка задача има точно един собственик: отчитането, Мастер отчитането, отмяната и изтеглянето не преплитат заявки. Вече пуснати стари ОБЩИ серии (отпреди правилото) си остават, докато заявките им приключат или се пре-пуснат.</p>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="sm-cancel">Разбрах</button></div>`);
   wrap.querySelector("#sm-cancel").addEventListener("click", close);
-  wrap.querySelector("#sm-save").addEventListener("click", async () => {
-    const ws = [...wrap.querySelectorAll(".sm-w")].filter(i => i.checked).map(i => i.value);
-    try { await sb.from("app_config").upsert({ id: "series_off", data: { workshops: ws }, updated_at: new Date().toISOString() }); } catch (e) {}
-    close();
-    alert(ws.length ? `Без сливане в: ${ws.join(", ")}.\nВажи за новите пускания.` : "Сливането е включено за всички цехове.");
-  });
 }
 
 /* Планът за смяната за САМИЯ служител — БЕЗ да сменяме изгледа му:
