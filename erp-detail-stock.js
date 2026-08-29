@@ -1418,7 +1418,7 @@ function dsMoveDialog(pid, kind) {
     erpRenderDetailStock();
     // РЪЧНАТА КОРЕКЦИЯ Е ИСТИНАТА: това е всичко налично — на склад И по
     // линията. Затова пренастройваме производството по новата бройка.
-    if (isCorr) { try { await dsReplanAfterCorrection(pid, val); } catch (e) { alert("Пренастройката не мина: " + (e.message || e)); } }
+    if (isCorr) { try { await dsReplanAfterCorrection(pid, val, cur); } catch (e) { alert("Пренастройката не мина: " + (e.message || e)); } }
   });
 }
 
@@ -1428,11 +1428,16 @@ function dsMoveDialog(pid, kind) {
    Затова:
      1) чистим резервациите (flow_netting) за този детайл — свободен е;
      2) нулираме отчетеното по НЕЗАВЪРШЕНИТЕ междинни операции за кода
-        (полуфабрикатът физически го няма) — последната операция не се
-        пипа, защото складът вече е зададен от корекцията;
+        (полуфабрикатът физически го няма);
+     2б) при корекция НАДОЛУ смъкваме „произведено" (и заприходено) по
+        ПОСЛЕДНИТЕ операции на активните вериги с липсващата разлика —
+        иначе броячите „помнят" готови бройки, които вече не съществуват,
+        никой не ги преработва и недостигът изплува чак при сглобяване/
+        продажба. Вечният дневник пази труда — добавя се коригиращ запис;
      3) пре-пускаме активните заявки, в които участва детайлът — плановете
-        се преизчисляват спрямо реалната наличност. */
-async function dsReplanAfterCorrection(pid, newQty) {
+        се преизчисляват спрямо реалната наличност (липсващите влизат
+        отново като работа за цеховете). */
+async function dsReplanAfterCorrection(pid, newQty, oldQty) {
   const p = (ERP.prodById || {})[pid] || {};
   const code = String(p.code || "").trim();
   if (!code) return;
@@ -1450,16 +1455,34 @@ async function dsReplanAfterCorrection(pid, newQty) {
     catch (e) { return false; }
   });
   const affected = orders.filter(uses);
-  // Незавършени поточни задачи за кода (междинни операции).
-  let midTasks = [];
+  // Поточните задачи за кода: незавършените МЕЖДИННИ операции (полуготовите)
+  // и ПОСЛЕДНИТЕ операции на активните вериги (за смъкване при липси).
+  let midTasks = [], lastTasks = [];
   try {
     const { data } = await erpSelectAll("tasks", "id,done,data", "data->source->>flow", "true");
-    midTasks = (data || []).filter(r => {
+    (data || []).forEach(r => {
       const d = r.data || {}, src = d.source || {};
-      return !r.done && src.kind === "series" && String(src.code || "").trim() === code
-        && !src.last && (Number(d.produced) || 0) > 0;
+      if (src.kind !== "series" || String(src.code || "").trim() !== code) return;
+      if (String(src.seriesKey || "").includes("¦арх:")) return;   // архив — не се пипа
+      if (!src.last && !r.done && (Number(d.produced) || 0) > 0) midTasks.push(r);
+      if (src.last && (Number(d.produced) || 0) > 0) lastTasks.push(r);
     });
   } catch (e) {}
+  // Липсващи ГОТОВИ бройки (корекция надолу): разпределяме разликата като
+  // смъкване на „произведено" по последните операции — първо от най-големите
+  // броячи. Толкова ще се ПРЕРАБОТИ при пре-пускането.
+  const lost = Math.max(0, (Number(oldQty) || 0) - (Number(newQty) || 0));
+  const lastCuts = [];
+  if (lost > 0 && lastTasks.length) {
+    lastTasks.sort((a, b) => (Number(b.data.produced) || 0) - (Number(a.data.produced) || 0));
+    let left = lost;
+    lastTasks.forEach(r => {
+      if (left <= 0) return;
+      const cut = Math.min(Number(r.data.produced) || 0, left);
+      if (cut > 0) { lastCuts.push({ r, cut }); left -= cut; }
+    });
+  }
+  const cutTotal = lastCuts.reduce((s, x) => s + x.cut, 0);
   // Снимка на задачите за ТОЗИ код преди пренастройването — за да се види
   // черно на бяло какво се променя (и че вече произведеното НЕ се губи).
   const snapTasks = async () => {
@@ -1488,6 +1511,8 @@ async function dsReplanAfterCorrection(pid, newQty) {
     + `Да пренастроя ли производството?\n`
     + `• освобождавам резервациите на този детайл по заявките\n`
     + (midTasks.length ? `• нулирам отчетеното по ${midTasks.length} незавършени МЕЖДИННИ операции (полуготовите ги няма)\n` : "")
+    + (cutTotal > 0 ? `• смъквам „произведено" по ${lastCuts.length} задачи (последна операция) с общо ${erpNum(cutTotal)} бр. — липсващите готови се ПРЕРАБОТВАТ от цеховете\n` : "")
+    + (lost > cutTotal ? `• ⚠ ${erpNum(lost - cutTotal)} бр. от липсата не се водят по никоя задача (ръчно заприходени/стари) — просто ги няма\n` : "")
     + (affected.length ? `• пре-пускам ${affected.length} активни заявки, за да се преизчислят по реалната наличност\n` : "• няма активни заявки с този детайл\n")
     + (partLines.length
       ? `\n⚠ ЧАСТИЧНО ДОСТАВЕНИ ЗАЯВКИ:\n${partLines.join("\n")}\n`
@@ -1510,6 +1535,27 @@ async function dsReplanAfterCorrection(pid, newQty) {
     d.produced = 0;
     (d.source || {}).consumedUnits = 0;
     try { await sb.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", r.id); } catch (e) {}
+  }
+  // 2б) липсващите готови: смъкваме „произведено"/заприходено на последните
+  // операции — задачите се „отварят" наново и цехът ги преработва. БЕЗ
+  // складово движение (корекцията вече смъкна наличността); дневникът
+  // получава коригиращ запис, оригиналните отчети на хората остават.
+  for (const x of lastCuts) {
+    const d = x.r.data || {}, src = d.source || {};
+    d.produced = Math.max(0, (Number(d.produced) || 0) - x.cut);
+    if ((Number(src.stocked) || 0) > d.produced) src.stocked = d.produced;   // повторното отчитане да заприходи наново
+    const q = Number(d.qty) || 0;
+    const done = !!d.closed || (q > 0 && (Number(d.produced) || 0) >= q);
+    try { await sb.from("tasks").update({ data: d, done, updated_at: new Date().toISOString() }).eq("id", x.r.id); } catch (e) {}
+    try {
+      if (typeof prodLogWrite === "function") await prodLogWrite(d, {
+        date: new Date().toISOString().slice(0, 10),
+        worker: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.name || MY_ACCESS.email)) || "офис",
+        qty: -x.cut,
+        lid: (typeof prodLogId === "function") ? prodLogId() : (Date.now().toString(36) + "-c" + Math.random().toString(36).slice(2, 5)),
+        activity: "Корекция на наличност — липсващи готови за преработка",
+      });
+    } catch (e) { /* дневникът може да липсва */ }
   }
   // 3) пре-пускане на засегнатите заявки
   let ok = 0, fail = 0;
