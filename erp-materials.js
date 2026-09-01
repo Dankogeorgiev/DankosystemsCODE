@@ -79,6 +79,7 @@ function erpRenderMaterials() {
             <td class="erp-row-actions" data-label="">
               <button class="btn btn-small" data-move="${m.id}">Движение</button>
               <button class="btn btn-small" data-hist="${m.id}">История</button>
+              <button class="btn btn-small" data-supp="${m.id}" title="От кои доставчици сме купували този артикул — кога, колко и на каква цена">🚚 Доставчици</button>
               <button class="btn btn-small" data-edit="${m.id}">✎</button>
             </td>
           </tr>`; }).join("") ||
@@ -103,6 +104,8 @@ function erpRenderMaterials() {
     b.addEventListener("click", () => erpMovementDialog(Number(b.dataset.move))));
   v.querySelectorAll("[data-hist]").forEach(b =>
     b.addEventListener("click", () => erpHistoryDialog(Number(b.dataset.hist))));
+  v.querySelectorAll("[data-supp]").forEach(b =>
+    b.addEventListener("click", () => erpMatSuppliersDialog(Number(b.dataset.supp))));
   v.querySelectorAll("[data-edit]").forEach(b =>
     b.addEventListener("click", () => erpEditMaterial(Number(b.dataset.edit))));
   v.querySelectorAll("[data-setkg]").forEach(b =>
@@ -253,6 +256,98 @@ async function erpHistoryDialog(matId) {
           <td>${escapeHtml(r.created_by || "")}</td>
         </tr>`).join("")}</tbody>
     </table>`;
+}
+
+/* ---------- 🚚 Доставчици на артикула ----------
+   От кои доставчици сме купували този материал: обобщение по доставчик (брой
+   доставки, общо количество, последна дата и цена) + всички доставки. Черпи от
+   „Покупки" (редовете на фактурите с този материал) и допълва с приходите в
+   склада, където доставчикът е писан на ръка (Бърз приход / Движение) — без
+   тези от заприходена фактура (ref „Фактура …"), за да не излизат двойно. */
+async function erpMatSuppliersDialog(matId) {
+  const m = ERP.matById[matId]; if (!m) return;
+  const { wrap, close } = erpDialog(`
+    <h3>🚚 Доставчици — ${escapeHtml(m.name || "")}</h3>
+    <p class="erp-muted" style="margin:-4px 0 8px">${escapeHtml(m.code || "")}${m.group_name ? " · " + escapeHtml(m.group_name) : ""} · мярка: ${escapeHtml(m.unit || "—")}</p>
+    <div id="msup-body"><p class="erp-loading">Зареждане…</p></div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="msup-close">Затвори</button></div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector("#msup-close").addEventListener("click", close);
+
+  // 1) Покупките (фактурите) с ред за този материал.
+  try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
+  const buys = [];
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => (o.lines || []).forEach(l => {
+    if (Number(l.materialId) !== Number(matId)) return;
+    buys.push({
+      date: String(o.date || ""), supplier: String(o.supplierName || "").trim() || "—",
+      qty: erpToNum(l.qty) || 0, price: erpToNum(l.unitPrice) || 0,
+      cur: (typeof erpPuCur === "function") ? erpPuCur(o) : (o.currency || "EUR"),
+      inv: o.invoiceNo || "", posted: !!o.posted,
+    });
+  }));
+  buys.sort((a, b) => b.date.localeCompare(a.date));
+
+  // 2) Приходи в склада с бележка за доставчик, писана на ръка.
+  let intakes = [];
+  try {
+    const { data } = await sb.from("stock_movements").select("created_at,quantity,ref")
+      .eq("material_id", matId).eq("kind", "входящ").not("ref", "is", null)
+      .order("created_at", { ascending: false }).limit(200);
+    intakes = (data || []).filter(r => String(r.ref || "").trim() && !/^Фактура /.test(String(r.ref)));
+  } catch (e) {}
+
+  const body = wrap.querySelector("#msup-body");
+  if (!body) return;
+  if (!buys.length && !intakes.length) {
+    body.innerHTML = `<p class="report-empty">Няма записани доставки за този артикул — нито фактура в „Покупки", нито приход в склада с посочен доставчик.</p>`;
+    return;
+  }
+  const money = (v, cur) => (typeof erpPuMoney === "function") ? erpPuMoney(v, cur) : erpEur(v);
+  // Обобщение по доставчик (последната доставка определя „последна цена").
+  const bySup = {};
+  buys.forEach(b => {
+    const k = b.supplier.toLowerCase();
+    const g = bySup[k] || (bySup[k] = { name: b.supplier, n: 0, qty: 0, last: "", lastPrice: 0, lastCur: "EUR" });
+    g.n++; g.qty += b.qty;
+    if (b.date >= g.last) { g.last = b.date; if (b.price) { g.lastPrice = b.price; g.lastCur = b.cur; } }
+  });
+  const groups = Object.values(bySup).sort((a, b) => b.last.localeCompare(a.last));
+  body.innerHTML = `
+    ${groups.length ? `
+      <table class="report-table erp-table">
+        <thead><tr><th>Доставчик</th><th class="num">Доставки</th><th class="num">Общо кол-во</th><th>Последна доставка</th><th class="num">Последна цена</th></tr></thead>
+        <tbody>${groups.map(g => `<tr>
+          <td data-label="Доставчик"><b>${escapeHtml(g.name)}</b></td>
+          <td class="num" data-label="Доставки">${g.n}</td>
+          <td class="num" data-label="Общо кол-во">${erpNum(g.qty)} ${escapeHtml(m.unit || "")}</td>
+          <td data-label="Последна доставка">${escapeHtml(erpDMY(g.last) || "—")}</td>
+          <td class="num" data-label="Последна цена">${g.lastPrice ? money(g.lastPrice, g.lastCur) : "—"}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <h4 style="margin:12px 0 4px">Доставките по фактури (${buys.length})</h4>
+      <table class="report-table erp-table">
+        <thead><tr><th>Дата</th><th>Доставчик</th><th class="num">Кол-во</th><th class="num">Ед. цена</th><th>Фактура №</th></tr></thead>
+        <tbody>${buys.slice(0, 50).map(b => `<tr>
+          <td>${escapeHtml(erpDMY(b.date) || "—")}</td>
+          <td>${escapeHtml(b.supplier)}</td>
+          <td class="num">${erpNum(b.qty)}</td>
+          <td class="num">${b.price ? money(b.price, b.cur) : "—"}</td>
+          <td>${escapeHtml(b.inv)}${b.posted ? "" : ' <span class="erp-muted">(чернова)</span>'}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      ${buys.length > 50 ? `<p class="hint">Показани са последните 50 от ${buys.length} доставки.</p>` : ""}`
+    : `<p class="report-empty">Няма фактури с този артикул в „Покупки".</p>`}
+    ${intakes.length ? `
+      <h4 style="margin:12px 0 4px">Приходи в склада с посочен доставчик (${intakes.length})</h4>
+      <table class="report-table erp-table">
+        <thead><tr><th>Дата</th><th class="num">Кол-во</th><th>Доставчик / бележка</th></tr></thead>
+        <tbody>${intakes.slice(0, 30).map(r => `<tr>
+          <td>${escapeHtml(erpDMY(String(r.created_at || "").slice(0, 10)) || "")}</td>
+          <td class="num">${erpNum(r.quantity)}</td>
+          <td>${escapeHtml(r.ref || "")}</td>
+        </tr>`).join("")}</tbody>
+      </table>` : ""}`;
 }
 
 /* ---------- Ръчно добавяне / редакция на материал ---------- */
