@@ -237,6 +237,13 @@ function taskOrderNos(t) {
   return [];
 }
 
+// Текстът, в който рови търсачката на Цехове/Планиране: клиент, продукт, код,
+// операция + НОМЕРАТА на заявките и клиентите от серията — за да намира „118"
+// точно както Мастер отчитането търси по № на заявка.
+function taskSearchHay(t) {
+  return `${t.client} ${t.product} ${t.code} ${t.operation} ${taskOrderNos(t).join(" ")} ${taskClients(t).join(" ")}`.toLowerCase();
+}
+
 // Всички клиенти, за които работи тази задача (серия може да е за няколко клиента).
 function taskClients(t) {
   const set = new Set();
@@ -1605,7 +1612,7 @@ function renderTasks() {
       return false;
     }
     if (PROD_MODE && PROD_OP && opNorm(t.operation) !== PROD_OP) return false;   // ⚙ операция през всички цехове
-    if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    if (term && !taskSearchHay(t).includes(term)) return false;
     if (clientFilter && !taskClients(t).includes(clientFilter)) return false;   // всичко пуснато за избрания клиент
     if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
     return true;
@@ -1882,7 +1889,7 @@ function exportWorkshopTasksExcel() {
     else if (ws !== "__all" && t.workshop !== ws) return false;
     if (isW) { const as = taskAssignees(t); if (as.length && !as.includes(MY_WORKER)) return false; }
     else if (worker && !taskHasWorker(t, worker)) return false;
-    if (term && !(`${t.client} ${t.product} ${t.code} ${t.operation}`.toLowerCase().includes(term))) return false;
+    if (term && !taskSearchHay(t).includes(term)) return false;
     return true;
   });
   const selKey = (sortState.key && SORT_KEYS[sortState.key]) ? sortState.key : "due";
