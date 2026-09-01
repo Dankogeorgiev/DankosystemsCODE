@@ -1495,12 +1495,20 @@ function renderWorkerBar() {
 /* Индексът се строи ВЕДНЪЖ на рисуване (нулира се в renderTasks) — иначе
    всеки ред от таблицата обхождаше всички задачи и списъкът ставаше квадратен. */
 let FD_IDX = null;
+// Ключ на веригата: код + собственика от ключа на серията (¦зая:/¦склад:) —
+// иначе прогресът на изделието смесваше различни заявки и стари/закрити
+// вериги със същия код на детайла.
+function fdKey(s) {
+  const own = (String(s.seriesKey || "").match(/¦(?:зая|склад|арх):[^¦]*/) || [""])[0];
+  return s.code + "|" + (!!s.stock) + "|" + own;
+}
 function flowDetailIndex() {
   if (FD_IDX) return FD_IDX;
   FD_IDX = {};
   (TASKS || []).forEach(x => {
     const s = x.source; if (!s || !s.flow || !s.code) return;
-    const k = s.code + "|" + (!!s.stock);
+    if (x.closed) return;   // закритите (🗄) редове не влизат в прогреса
+    const k = fdKey(s);
     const g = FD_IDX[k] || (FD_IDX[k] = { total: 0, doneOps: 0, prodSum: 0, qtySum: 0 });
     const q = Number(x.qty) || 0, p = Number(x.produced) || 0;
     g.total++; if (q > 0 && p >= q) g.doneOps++;
@@ -1511,7 +1519,7 @@ function flowDetailIndex() {
 function flowDetailProgress(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.code) return null;
-  const g = flowDetailIndex()[src.code + "|" + (!!src.stock)];
+  const g = flowDetailIndex()[fdKey(src)];
   if (!g || !g.total) return null;
   return { total: g.total, doneOps: g.doneOps, pct: g.qtySum > 0 ? Math.round(g.prodSum / g.qtySum * 100) : 0, step: (Number(src.step) || 0) + 1 };
 }

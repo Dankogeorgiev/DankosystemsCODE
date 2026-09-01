@@ -15,7 +15,9 @@ function masterWorker() {
   return (typeof MY_ACCESS !== "undefined" && MY_ACCESS && (MY_ACCESS.name || MY_ACCESS.email)) || "Мастер";
 }
 function mStep(t) { return Number(t && t.source && t.source.step) || 0; }
-function mDone(t) { const q = Number(t.qty) || 0, p = Number(t.produced) || 0; return q > 0 && p >= q; }
+// Закритият (🗄) ред се брои за приключен — иначе държи заявката „активна"
+// в мастера завинаги, а в Цехове не се вижда (разминаване между двата екрана).
+function mDone(t) { if (t && t.closed) return true; const q = Number(t.qty) || 0, p = Number(t.produced) || 0; return q > 0 && p >= q; }
 
 // Групиране: заявка → детайл → операции (сортирани по стъпка).
 function masterGroups() {
@@ -149,6 +151,7 @@ async function masterAdvanceDetail(oid, ops, targetStep, capFn) {
   const sorted = ops.slice().sort((a, b) => mStep(a) - mStep(b));
   for (const t of sorted) {
     if (mStep(t) > targetStep) break;
+    if (t.closed) continue;   // закрит ред — мастерът не пише в него
     const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));

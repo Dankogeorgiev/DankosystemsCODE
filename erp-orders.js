@@ -345,6 +345,7 @@ async function erpAutoPaintSweep(doPaint, doOps) {
   const map = erpSeriesProduced(list);
   let done = 0;
   for (const t of list) {
+    if (t.closed) continue;   // закрит (🗄) ред — не се отчита автоматично
     const isPaint = (t.workshop || "") === PAINT_AUTO_WS;
     const isOp = !isPaint && erpAutoReportOp(t.operation);
     if (!((isPaint && doPaint) || (isOp && doOps))) continue;
@@ -779,6 +780,7 @@ async function erpFlowApply(meta, productLines) {
       const { data: wipRows } = await erpSelectAll("tasks", "id,data", "data->source->>stock", "true");
       (wipRows || []).forEach(r => {
         const d = r.data || {}, src = d.source || {};
+        if (d.closed) return;   // закрита складова верига — тези бройки няма да дойдат
         if (src.kind !== "series" || !src.flow || !src.last || !src.pid) return;
         if (String(src.seriesKey || "").includes("¦арх:")) return;   // архивирана (готова) верига
         const rem = Math.max(0, (Number(d.qty) || 0) - (Number(src.stocked) || 0));
@@ -1949,6 +1951,7 @@ function erpFlowMatNeeded(tasks) {
   const need = {};   // material_id -> оставаща нужда
   (tasks || []).forEach(t => {
     const src = t && t.source;
+    if (t && t.closed) return;   // закрит ред — не иска материал
     if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return;
     const remaining = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
     if (remaining <= 0) return;

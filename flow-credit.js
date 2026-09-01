@@ -359,6 +359,7 @@
       const map = seriesProduced(all);
       let changed = 0;
       for (const t of all) {
+        if (t.closed) continue;   // закрит (🗄) ред — не се отчита автоматично
         const isPaint = (t.workshop || "") === "Бояджийно";
         const isOp = !isPaint && autoOp(t.operation);
         if (!((isPaint && doPaint) || (isOp && doOps))) continue;
