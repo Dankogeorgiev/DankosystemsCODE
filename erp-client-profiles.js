@@ -230,7 +230,7 @@ async function erpRenderClientProfiles() {
         const pct = cliFilled(p);
         const mist = String((p.quality && p.quality.mistakes) || "").split("\n").filter(x => x.trim());
         return `<tr class="erp-clickable" data-open="${escapeAttr(r.name)}">
-          <td data-label="Клиент"><b>${escapeHtml(r.name)}</b>${r.last ? `<div class="erp-muted" style="font-size:11px">последно движение ${escapeHtml(erpDMY(r.last) || "")}</div>` : ""}</td>
+          <td data-label="Клиент"><b>${escapeHtml(r.name)}</b>${(p.files || []).length ? ` <span class="cli-fbadge" title="Прикачени файлове към клиента: ${(p.files || []).length}">📎${(p.files || []).length}</span>` : ""}${r.last ? `<div class="erp-muted" style="font-size:11px">последно движение ${escapeHtml(erpDMY(r.last) || "")}</div>` : ""}</td>
           <td data-label="Отговорник">${escapeHtml(p.owner || "")}</td>
           <td data-label="Палет">${escapeHtml(cliLbl(CLI_PALLET, p.pack && p.pack.type))}</td>
           <td data-label="Транспорт">${escapeHtml(cliLbl(CLI_TRANSPORT, p.transport && p.transport.who))}</td>
@@ -272,6 +272,7 @@ async function cliForm(name) {
   p.contacts = p.contacts || CLI_ROLES.map(([role]) => ({ role, name: "", phone: "", email: "", note: "" }));
   p.quality = p.quality || {}; p.pack = p.pack || {}; p.transport = p.transport || {};
   p.claims = p.claims || {}; p.trade = p.trade || {}; p.lessons = p.lessons || [];
+  p.files = p.files || [];
   const g = f => escapeAttr(f == null ? "" : f);
 
   const claims = await cliClaimsFor(name);
@@ -382,6 +383,13 @@ async function cliForm(name) {
       <label>Заместник <input type="text" id="cp-deputy" value="${g(p.deputy)}" /></label>
     </div>
 
+    <h4 class="erp-group-head">📎 Прикачени файлове</h4>
+    <div id="cp-files" class="cli-files"></div>
+    <button type="button" class="btn btn-small" id="cp-add-file">📎 Прикачи файл…</button>
+    <input type="file" id="cp-file-input" multiple hidden />
+    <span id="cp-file-status" class="erp-muted" style="font-size:12px;margin-left:8px"></span>
+    <p class="hint" style="margin:4px 0 0">Договори, чертежи, изисквания, снимки, сертификати — каквото е важно за този клиент. Файлът се записва <b>веднага</b> при качване (не чака „Запази").</p>
+
     <h4 class="erp-group-head">📚 Научени уроци (хронология)</h4>
     <div id="cp-lessons" class="cli-lessons">${(p.lessons || []).map((l, i) => cliLessonRow(l, i)).join("") || `<p class="hint" style="margin:0">Още няма записани уроци. Всеки проблем, който сме преживели с този клиент, се пише тук — с дата, причина и какво правим оттук нататък.</p>`}</div>
     <button type="button" class="btn btn-small" id="cp-add-lesson">+ Урок</button>
@@ -404,6 +412,49 @@ async function cliForm(name) {
     cliWireLessons(lessonsBox);
   });
   cliWireLessons(lessonsBox);
+
+  // 📎 Файлове: качват се в склада за файлове (BUCKET) и се записват в паспорта
+  // ВЕДНАГА (не чакат „Запази") — за да не се губят качени файлове при „Отказ".
+  const filesBox = wrap.querySelector("#cp-files");
+  const fileInput = wrap.querySelector("#cp-file-input");
+  const fileStatus = wrap.querySelector("#cp-file-status");
+  const persistFiles = async () => {
+    CLI_PROFILES.byKey = CLI_PROFILES.byKey || {};
+    CLI_PROFILES.byKey[key] = { ...(CLI_PROFILES.byKey[key] || { name: String(name).trim() }), files: p.files };
+    await cliSave();
+  };
+  const renderFiles = () => {
+    filesBox.innerHTML = cliFilesHtml(p);
+    filesBox.querySelectorAll(".cp-f-rm").forEach(b => b.addEventListener("click", async () => {
+      const f = p.files[Number(b.dataset.i)]; if (!f) return;
+      if (!confirm(`Да махна ли файла „${f.name || ""}"?`)) return;
+      if (f.path) { try { await sb.storage.from(BUCKET).remove([f.path]); } catch (e) {} }
+      p.files.splice(Number(b.dataset.i), 1);
+      await persistFiles();
+      renderFiles();
+    }));
+  };
+  renderFiles();
+  wrap.querySelector("#cp-add-file").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const list = Array.from(fileInput.files || []);
+    fileInput.value = "";
+    for (const file of list) {
+      fileStatus.textContent = "Качвам „" + file.name + "“…";
+      const path = `clients/${safeName(key) || "klient"}/${Date.now()}-${safeName(file.name)}`;
+      const { error } = await sb.storage.from(BUCKET).upload(path, file);
+      if (error) { alert("Грешка при качване на „" + file.name + "“: " + error.message); continue; }
+      const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+      p.files.push({
+        name: file.name, type: file.type, path, url: data.publicUrl,
+        date: new Date().toISOString(),
+        by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
+      });
+    }
+    fileStatus.textContent = "";
+    await persistFiles();
+    renderFiles();
+  });
 
   const collect = () => {
     const val = id => { const el = wrap.querySelector("#" + id); return el ? el.value.trim() : ""; };
@@ -442,6 +493,7 @@ async function cliForm(name) {
       trade: { currency: val("cp-tr2-cur"), term: val("cp-tr2-term"), moq: val("cp-tr2-moq"), contract: val("cp-tr2-contract") },
       owner: val("cp-owner"), deputy: val("cp-deputy"),
       lessons,
+      files: p.files,
       updatedAt: new Date().toISOString(),
       updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
     };
@@ -453,6 +505,15 @@ async function cliForm(name) {
     CLI_PROFILES.byKey[key] = collect();
     if (await cliSave()) { close(); cliUpdateBadge(); erpRenderClientProfiles(); }
   });
+}
+function cliFilesHtml(p) {
+  const files = (p && p.files) || [];
+  if (!files.length) return `<p class="hint" style="margin:0">Още няма прикачени файлове.</p>`;
+  return files.map((f, i) => `<div class="cli-frow">
+    <a href="${escapeAttr(f.url || "#")}" target="_blank" rel="noopener" title="Отвори файла">📄 ${escapeHtml(f.name || "файл")}</a>
+    <span class="erp-muted">${f.date ? escapeHtml(erpDMY(String(f.date).slice(0, 10)) || "") : ""}${f.by ? " · " + escapeHtml(f.by) : ""}</span>
+    <button type="button" class="btn btn-small cp-f-rm" data-i="${i}" title="Махни файла (трие го и от склада за файлове)">×</button>
+  </div>`).join("");
 }
 function cliLessonRow(l, i) {
   return `<div class="cli-lrow">
@@ -559,6 +620,7 @@ async function cliQuickView(name) {
       ${pk.note ? `<tr><td><b>Опаковка</b></td><td>${escapeHtml(pk.note)}</td></tr>` : ""}
       ${tr.who ? `<tr><td><b>Транспорт</b></td><td>${escapeHtml(cliLbl(CLI_TRANSPORT, tr.who))}${tr.carrier ? " · " + escapeHtml(tr.carrier) : ""}${tr.lead ? " · заявка " + escapeHtml(tr.lead) : ""}</td></tr>` : ""}
       ${p.owner ? `<tr><td><b>Отговорник</b></td><td>${escapeHtml(p.owner)}</td></tr>` : ""}
+      ${(p.files || []).length ? `<tr><td><b>📎 Файлове</b></td><td>${p.files.map(f => `<a href="${escapeAttr(f.url || "#")}" target="_blank" rel="noopener">${escapeHtml(f.name || "файл")}</a>`).join(" · ")}</td></tr>` : ""}
     </table>
     <div class="erp-dialog-actions"><button class="btn" id="cq-open">✎ Целият паспорт</button><span class="spacer" style="flex:1"></span><button class="btn btn-primary" id="cq-close">Затвори</button></div>`);
   wrap.querySelector("#cq-close").addEventListener("click", close);
