@@ -514,11 +514,29 @@ function erpDirectStockComponents(pid, anc) {
    колкото частите стигат. ref „сглоб:…" не се трие от „Нулирай тестови
    движения" (реална складова трансформация, като нит-сглоб).
    Връща { made, missing:[{pid,code,name,short}], error? }. */
-async function erpAssembleFromParts(pid, qty, refLbl, _depth) {
+// opts (по избор, ползва го ПРОДАЖБАТА): { freeOnly:true, exceptOrderId } —
+// сглобява САМО от свободни части: наличност минус резервираното от активните
+// заявки (кръстосаното нетване). Така продажба на един артикул не „изяжда"
+// части, запазени за друга заявка. Резервацията на собствената заявка на
+// продажбата (exceptOrderId) си е нейна и не се брои срещу нея.
+// Ръчното сглобяване (Склад детайли) остава без opts — съзнателно действие.
+async function erpAssembleFromParts(pid, qty, refLbl, _depth, opts) {
   qty = Math.floor(Number(qty) || 0);
   const out = { made: 0, missing: [] };
   if (!(qty > 0)) return out;
   const depth = _depth || 0;
+  if (opts && opts.freeOnly && !opts.reserved) {
+    const reserved = {};
+    try {
+      const { data } = await sb.from("app_config").select("data").eq("id", "flow_netting").maybeSingle();
+      const byOrder = (data && data.data && data.data.byOrder) || {};
+      Object.keys(byOrder).forEach(oid => {
+        if (opts.exceptOrderId != null && String(oid) === String(opts.exceptOrderId)) return;
+        Object.keys(byOrder[oid] || {}).forEach(p => { reserved[p] = (Number(reserved[p]) || 0) + (Number(byOrder[oid][p]) || 0); });
+      });
+    } catch (e) {}
+    opts = { ...opts, reserved };
+  }
   let comps = erpDirectStockComponents(pid);
   // АКСЕСОАРИТЕ (спирачки, пружини, уши…) не се влагат при опаковката — те се
   // изписват при осчетоводяването на продажбата (erp-sales.js), иначе излизат
@@ -532,13 +550,18 @@ async function erpAssembleFromParts(pid, qty, refLbl, _depth) {
     if (error) { out.error = error.message; return out; }
     (data || []).forEach(r => { stock[r.id] = Number(r.stock) || 0; });
   } catch (e) { out.error = String(e && e.message || e); return out; }
+  // Режим „само свободни": резервираното за другите заявки не се пипа.
+  if (opts && opts.reserved) comps.forEach(c => {
+    const rsv = Number(opts.reserved[c.pid]) || 0;
+    if (rsv > 0) stock[c.pid] = Math.max(0, (Number(stock[c.pid]) || 0) - rsv);
+  });
   // Недостигащи части: първо опитваме да ги сглобим от техните части.
   if (depth < 5) {
     for (const c of comps) {
       const needQ = Math.ceil((Number(c.per) || 0) * qty);
       const have = Math.max(0, stock[c.pid] || 0);
       if (have < needQ) {
-        const sub = await erpAssembleFromParts(c.pid, needQ - have, refLbl, depth + 1);
+        const sub = await erpAssembleFromParts(c.pid, needQ - have, refLbl, depth + 1, opts);
         if (sub.made > 0) stock[c.pid] = have + sub.made;
       }
     }
@@ -1286,6 +1309,39 @@ async function erpFlowDropSeries(rows) {
       }
     }
   }
+}
+
+// Затваря (🗄 архивира) отворените поточни редове на НАПЪЛНО приключена
+// заявка — завършена чрез продажба заявка не бива да има активни редове в
+// Цехове. Пипат се само задачи, чийто ЕДИНСТВЕН собственик е заявката;
+// стара ОБЩА серия с още заявки не се закрива (другите работят по нея).
+async function erpCloseOrderTasks(orderId) {
+  const oid = String(orderId);
+  const { data, error } = await erpSelectAll("tasks", "id,data,done", "data->source->>flow", "true");
+  if (error || !data) return 0;
+  const jobs = [];
+  (data || []).forEach(r => {
+    const d = r.data || {}, src = d.source || {};
+    if (src.kind !== "series" || d.closed) return;
+    const ids = (src.orderIds || []).map(String);
+    if (ids.length !== 1 || ids[0] !== oid) return;
+    const q = Number(d.qty) || 0, p = Number(d.produced) || 0;
+    if (q > 0 && p >= q) return;   // изпълнените и без това са в архива
+    d.closed = true; d.closedAt = new Date().toISOString();
+    jobs.push(() => sb.from("tasks").update({ data: d, done: true, updated_at: new Date().toISOString() }).eq("id", r.id));
+  });
+  for (let i = 0; i < jobs.length; i += 10) await Promise.all(jobs.slice(i, i + 10).map(f => f()));
+  // Опресняваме отворения екран Цехове/Планиране, ако има такъв.
+  if (jobs.length) {
+    try {
+      if (typeof tLoadTasks === "function" && typeof TASKS !== "undefined" && TASKS && TASKS.length) {
+        await tLoadTasks();
+        const modal = document.getElementById("tasks-modal");
+        if (typeof renderTasks === "function" && modal && !modal.hidden) renderTasks();
+      }
+    } catch (e) {}
+  }
+  return jobs.length;
 }
 
 // Маха поръчка от поточните серии (при триене на заявка). Изпразнените серии

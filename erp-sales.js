@@ -662,10 +662,14 @@ async function erpPostSale(o) {
     msg += `\n\nЩе се изпишат ${mids.length} материала от склад материали (движения „изписване").`;
     msg += `\n⚠ Ако тази заявка вече е минала през „Пусни в производство", материалите СА ИЗПИСАНИ там — не потвърждавай материалните редове тук, за да не се броят двойно.`;
   }
-  if (negatives.length) msg += `\n\n⚠ Материали на минус:\n` + negatives.slice(0, 12).join("\n") + (negatives.length > 12 ? `\n…и още ${negatives.length - 12}` : "");
+  if (negatives.length) {
+    msg += `\n\n⚠ Недостигащи материали:\n` + negatives.slice(0, 12).join("\n") + (negatives.length > 12 ? `\n…и още ${negatives.length - 12}` : "");
+    msg += `\n→ Изписва се САМО наличното — складът не отива на минус, липсата не пипа склада.`;
+  }
   if (dNegatives.length) {
-    msg += `\n\n⚠ Детайли на минус:\n` + dNegatives.slice(0, 12).join("\n") + (dNegatives.length > 12 ? `\n…и още ${dNegatives.length - 12}` : "");
-    msg += `\n🧩 Недостигащите готови артикули ще опитам първо да сглобя от наличните им части („опаковка" по рецептата).`;
+    msg += `\n\n⚠ Недостигащи детайли:\n` + dNegatives.slice(0, 12).join("\n") + (dNegatives.length > 12 ? `\n…и още ${dNegatives.length - 12}` : "");
+    msg += `\n🧩 Опитвам да ги сглобя от СВОБОДНИТЕ части (резервираните за други заявки НЕ се пипат).`;
+    msg += `\n→ Каквото пак не достига, се изписва САМО до наличното — без минус, без да се бърка склада.`;
   }
   msg += `\n\nДействието се прави веднъж.`;
   if (!confirm(msg)) return;
@@ -683,24 +687,47 @@ async function erpPostSale(o) {
       const have = Number((ERP.prodById[pid] || {}).stock) || 0;
       const short = detailNeed[pid] - have;
       if (short > 0) {
-        const res = await erpAssembleFromParts(pid, short, "сглоб:прод " + (o.saleNo || ""));
+        // Само от СВОБОДНИ части — резервираните за другите активни заявки не
+        // се пипат (иначе продажбата „изяжда" частите на чужда заявка и тя
+        // после не може да се сглоби). Собствената заявка е изключена.
+        const res = await erpAssembleFromParts(pid, short, "сглоб:прод " + (o.saleNo || ""), 0, { freeOnly: true, exceptOrderId: o.fromOrderId || null });
         if (res && res.made > 0) {
           const p = ERP.prodById[pid] || {};
-          asmNotes.push(`🧩 Сглобени ${erpNum(res.made)} бр. ${(p.code ? p.code + " " : "") + (p.name || "")} от наличните части (опаковка).`);
+          asmNotes.push(`🧩 Сглобени ${erpNum(res.made)} бр. ${(p.code ? p.code + " " : "") + (p.name || "")} от свободните части (опаковка).`);
         }
       }
     }
   }
 
+  // НИКОГА на минус (решение на Данко, 01.09.2026): изписва се най-много
+  // наличното. Липсващото НЕ пипа склада — продажбата, заявката и планът се
+  // отчитат нормално; разминаването е знак за стар бъг в данните, не за
+  // реална липса, и не бива да го разнася по склада.
+  const skippedNotes = [];
   if (mids.length) {
-    const moves = mids.map(mid => ({ material_id: Number(mid), kind: "изписване", quantity: -Math.abs(need[mid]), ref, created_by: by }));
-    const ins = await sb.from("stock_movements").insert(moves);
-    if (ins.error) { alert("Грешка при движенията на материали: " + ins.error.message); return; }
+    const moves = [];
+    mids.forEach(mid => {
+      const wq = Math.min(Math.abs(need[mid]), Math.max(0, stockById[mid] || 0));
+      if (wq > 0) moves.push({ material_id: Number(mid), kind: "изписване", quantity: -wq, ref, created_by: by });
+      if (wq < need[mid]) { const m = ERP.matById[mid] || {}; skippedNotes.push(`• ${m.code || ""} ${m.name || ""}: ${erpNum(need[mid] - wq)} ${m.unit || ""} не са изписани (нямаше наличност)`); }
+    });
+    if (moves.length) {
+      const ins = await sb.from("stock_movements").insert(moves);
+      if (ins.error) { alert("Грешка при движенията на материали: " + ins.error.message); return; }
+    }
   }
   if (dids.length) {
-    const dMoves = dids.map(pid => ({ product_id: Number(pid), kind: "изписване", quantity: -Math.abs(detailNeed[pid]), ref, note: "Продажба" }));
-    const dIns = await sb.from("product_movements").insert(dMoves);
-    if (dIns.error) { alert("Грешка при движенията на детайли: " + dIns.error.message); return; }
+    const dMoves = [];
+    dids.forEach(pid => {
+      const haveNow = Math.max(0, Number((ERP.prodById[pid] || {}).stock) || 0);   // след сглобяването
+      const wq = Math.min(Math.abs(detailNeed[pid]), haveNow);
+      if (wq > 0) dMoves.push({ product_id: Number(pid), kind: "изписване", quantity: -wq, ref, note: "Продажба" });
+      if (wq < detailNeed[pid]) { const p = ERP.prodById[pid] || {}; skippedNotes.push(`• ${p.code || ""} ${p.name || ""}: ${erpNum(detailNeed[pid] - wq)} бр. не са изписани (нямаше наличност)`); }
+    });
+    if (dMoves.length) {
+      const dIns = await sb.from("product_movements").insert(dMoves);
+      if (dIns.error) { alert("Грешка при движенията на детайли: " + dIns.error.message); return; }
+    }
   }
 
   o.posted = true; o.postedAt = new Date().toISOString();
@@ -718,6 +745,7 @@ async function erpPostSale(o) {
     + (dids.length ? `\nИзписани ${dids.length} готови детайла от Склад детайли.` : "")
     + (asmNotes.length ? `\n` + asmNotes.join("\n") : "")
     + (mids.length ? `\nИзписани ${mids.length} материала от склад материали.` : "")
+    + (skippedNotes.length ? `\n\n⚠ БЕЗ складово движение (нямаше наличност — складът НЕ е на минус):\n` + skippedNotes.slice(0, 12).join("\n") + (skippedNotes.length > 12 ? `\n…и още ${skippedNotes.length - 12}` : "") : "")
     + closedNote);
   erpRenderSaleForm(o);
 }
@@ -751,7 +779,14 @@ async function erpMarkOrderDone(orderId, saleLines) {
       if (allDone && typeof erpReleaseNetting === "function") { try { await erpReleaseNetting(orderId); } catch (e) {} }
       else if (typeof erpScaleNetting === "function") { try { await erpScaleNetting(orderId, erpOrderRemainFactor(d)); } catch (e) {} }
       if (typeof erpCOList !== "undefined" && Array.isArray(erpCOList)) { const it = erpCOList.find(x => String(x.id) === String(orderId)); if (it) { it.status = d.status; it.lines = lines; } }
-      if (allDone) return `\n\n✅ Заявка №${d.ourNo || ""} е доставена НАПЪЛНО и приключена.`;
+      // Напълно приключена заявка → отворените ѝ редове в Цехове се затварят
+      // (архив): завършена заявка няма какво да се работи по нея.
+      if (allDone) {
+        let closedRows = 0;
+        if (typeof erpCloseOrderTasks === "function") { try { closedRows = await erpCloseOrderTasks(orderId); } catch (e) {} }
+        return `\n\n✅ Заявка №${d.ourNo || ""} е доставена НАПЪЛНО и приключена.`
+          + (closedRows ? `\n🗄 Затворени ${closedRows} отворени реда в Цехове (отидоха в архива).` : "");
+      }
       const rem = lines.filter(l => (Number(l.delivered) || 0) < (erpToNum(l.qty) || 0))
         .map(l => `• ${l.code ? l.code + " " : ""}${l.ourName || l.name || ""}: остават ${erpNum((erpToNum(l.qty) || 0) - (Number(l.delivered) || 0))} бр.`);
       return `\n\n📦 Заявка №${d.ourNo || ""} — частична доставка. Остава да се издължи:\n` + rem.join("\n");
@@ -763,7 +798,10 @@ async function erpMarkOrderDone(orderId, saleLines) {
       const d = sm.data.data || {}; d.completed = true;
       await sb.from("samples").update({ data: d, completed: true, updated_at: new Date().toISOString() }).eq("id", orderId);
       if (typeof erpReleaseNetting === "function") { try { await erpReleaseNetting(orderId); } catch (e) {} }
-      return `\n\n✅ Поръчката е отбелязана като завършена.`;
+      let closedRows = 0;
+      if (typeof erpCloseOrderTasks === "function") { try { closedRows = await erpCloseOrderTasks(orderId); } catch (e) {} }
+      return `\n\n✅ Поръчката е отбелязана като завършена.`
+        + (closedRows ? `\n🗄 Затворени ${closedRows} отворени реда в Цехове (отидоха в архива).` : "");
     }
   } catch (e) {}
   return "";
