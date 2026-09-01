@@ -676,6 +676,29 @@ async function openProduction() {
   const h = document.querySelector("#tasks-modal .tasks-head h2");
   if (h) h.textContent = "📊 Планиране на производство — раздаване на задачите по служители";
   renderProdWsBar();
+  prodSplitLegacySeries();   // старите ОБЩИ серии (отпреди 29.08.2026) → по заявки
+}
+
+/* ✂ Разделя старите ОБЩИ серии (еднакви детайли от НЯКОЛКО заявки в един ред,
+   пуснати преди правилото „една задача = една заявка" от 29.08.2026) — всяка
+   заявка получава собствена задача, за да се раздават поотделно на хората.
+   Пуска се фоново при отваряне на Планирането; щом не останат общи серии,
+   не прави нищо (проверката е върху вече заредените задачи — без заявка към
+   базата на всяко отваряне). */
+async function prodSplitLegacySeries() {
+  if (typeof erpFlowSplitSharedSeries !== "function") return;
+  const has = (TASKS || []).some(t => t.source && t.source.kind === "series"
+    && !String(t.source.seriesKey || "").includes("¦арх:")
+    && (t.source.orders || []).filter(o => (Number(o && o.qty) || 0) > 0).length >= 2);
+  if (!has) return;
+  try {
+    const res = await erpFlowSplitSharedSeries();
+    if (res && res.error) { console.error("split series", res.error); return; }
+    if (!res || !res.series) return;
+    await tLoadTasks();
+    if (PROD_MODE && !document.getElementById("tasks-modal").hidden) renderTasks();
+    alert(`✂ Старите общи серии са разделени по заявки: ${res.series} серии → ${res.split} задачи.\nВсяка заявка вече има собствени редове в цеховете — раздават се поотделно.`);
+  } catch (e) { console.error("split series", e); }
 }
 // Изключва админския режим (при връщане към обикновените Цехове).
 function prodModeOff() {
@@ -844,7 +867,7 @@ async function seriesMergeDialog() {
     <p class="hint" style="margin:-4px 0 8px">Правилото е едно и също за всички цехове:<br><br>
       • Еднаквите детайли от <b>няколко механизма на ЕДНА заявка</b> се обединяват в един ред — операторът вижда една бройка и една настройка.<br>
       • Две <b>различни заявки никога</b> не делят задача, дори за идентични детайли — всяка заявка има собствени редове в цеховете.</p>
-    <p class="hint">Така всяка задача има точно един собственик: отчитането, Мастер отчитането, отмяната и изтеглянето не преплитат заявки. Вече пуснати стари ОБЩИ серии (отпреди правилото) си остават, докато заявките им приключат или се пре-пуснат.</p>
+    <p class="hint">Така всяка задача има точно един собственик: отчитането, Мастер отчитането, отмяната и изтеглянето не преплитат заявки. Стари ОБЩИ серии (отпреди правилото) се разделят автоматично по заявки при отваряне на „Планиране на производство".</p>
     <div class="erp-dialog-actions"><button class="btn btn-primary" id="sm-cancel">Разбрах</button></div>`);
   wrap.querySelector("#sm-cancel").addEventListener("click", close);
 }

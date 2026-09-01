@@ -1476,6 +1476,292 @@ function erpFlowOrderShares(src, from, to) {
   return out;
 }
 
+/* ---------- ✂ Разделяне на старите ОБЩИ серии (отпреди 29.08.2026) ----------
+   Правилото „една задача = една заявка" (erpFlowApply) важи за пусканията след
+   29.08.2026. Пуснатите ПРЕДИ това общи серии (еднакви детайли от няколко
+   заявки в един ред) обаче си оставаха слети, докато заявките им не приключат.
+   Тази функция ги разделя НА МЯСТО: за всяка заявка — собствена задача със
+   собствено количество, а произведеното/заприходеното/вложеното се дели по реда
+   на заявките (същият кумулативен модел като erpFlowOrderShares, който ползват
+   мастерът и заприходяването). Свръхпроизведеното остава при последната заявка.
+   Вика се при отваряне на „Планиране на производство" и е идемпотентна —
+   работи само докато още има серии с 2+ заявки. */
+async function erpFlowSplitSharedSeries() {
+  // Заключване през app_config (id е първичен ключ → второто insert пада):
+  // двама админи да не разделят едновременно. Застоял ключ (>10 мин) се чисти.
+  try {
+    const { data: lk } = await sb.from("app_config").select("updated_at").eq("id", "flow_split_lock").maybeSingle();
+    if (lk) {
+      if (String(lk.updated_at || "") > new Date(Date.now() - 10 * 60000).toISOString()) return { split: 0, series: 0, locked: true };
+      await sb.from("app_config").delete().eq("id", "flow_split_lock");
+    }
+    const { error: lockErr } = await sb.from("app_config").insert({ id: "flow_split_lock", data: {}, updated_at: new Date().toISOString() });
+    if (lockErr) return { split: 0, series: 0, locked: true };
+  } catch (e) { return { split: 0, series: 0, locked: true }; }
+  try {
+    return await erpFlowSplitSharedSeriesRun();
+  } finally {
+    try { await sb.from("app_config").delete().eq("id", "flow_split_lock"); } catch (e) {}
+  }
+}
+
+async function erpFlowSplitSharedSeriesRun() {
+  const { data: rows, error } = await erpSelectAll("tasks", "id,data,done", "data->source->>flow", "true");
+  if (error) return { error };
+  const byKey = {};   // seriesKey -> ред (всички поточни серии)
+  (rows || []).forEach(r => {
+    const src = ((r.data || {}).source) || {};
+    if (src.kind === "series" && src.seriesKey) byKey[src.seriesKey] = r;
+  });
+  // Общите серии: 2+ заявки с реално количество, не-архив.
+  const sharedKeys = Object.keys(byKey).filter(k => {
+    if (String(k).includes("¦арх:")) return false;
+    const src = byKey[k].data.source || {};
+    return (src.orders || []).filter(o => (Number(o && o.qty) || 0) > 0).length >= 2;
+  });
+  if (!sharedKeys.length) return { split: 0, series: 0 };
+
+  // Свързани компоненти по prevKey/gate — веригата се дели ЦЯЛАТА, иначе
+  // следващата операция би сочила ключ, който вече не съществува.
+  const linkKeys = src => {
+    const out = [];
+    if (src.prevKey) out.push(src.prevKey);
+    if (Array.isArray(src.gate)) src.gate.forEach(g => { const k = (typeof g === "string") ? g : (g && g.key); if (k) out.push(k); });
+    return out;
+  };
+  const sharedSet = new Set(sharedKeys);
+  const adj = {};
+  sharedKeys.forEach(k => {
+    linkKeys(byKey[k].data.source || {}).forEach(pk => {
+      if (!sharedSet.has(pk)) return;
+      (adj[k] = adj[k] || new Set()).add(pk);
+      (adj[pk] = adj[pk] || new Set()).add(k);
+    });
+  });
+  const seenK = new Set(); const comps = [];
+  sharedKeys.forEach(k => {
+    if (seenK.has(k)) return;
+    const comp = [k]; seenK.add(k);
+    for (let i = 0; i < comp.length; i++) [...(adj[comp[i]] || [])].forEach(n => { if (!seenK.has(n)) { seenK.add(n); comp.push(n); } });
+    comps.push(comp);
+  });
+  // Колизия (целевият ключ вече съществува — не би трябвало): оставяме цялата
+  // верига слята, вместо да омешаме две серии една в друга.
+  const okComps = comps.filter(comp => comp.every(k => {
+    const src = byKey[k].data.source || {};
+    return (src.orders || []).every(o => !byKey[k + "¦зая:" + String(o && o.id)]);
+  }));
+  const splitting = new Set(); okComps.forEach(c => c.forEach(k => splitting.add(k)));
+  if (!splitting.size) return { split: 0, series: 0 };
+
+  // Препратка към делена серия → новият ключ носи заявката. Делена серия, която
+  // НЕ включва тази заявка (частите ѝ са изцяло от склад — gateStock), остава
+  // със стария ключ: след делението той не съществува и гейтът го чете като
+  // „изцяло от склад, не ограничава" (erpFlowAvailable).
+  const ren = (k, oid) => {
+    if (!k || !splitting.has(k)) return k;
+    const src = byKey[k].data.source || {};
+    return (src.orderIds || []).some(x => String(x) === String(oid)) ? k + "¦зая:" + String(oid) : k;
+  };
+  // Дели брояч по реда на заявките (кумулативно, като erpFlowOrderShares);
+  // излишъкът (свръхпроизводство / допълнителните бройки за брак) остава при
+  // ПЪРВАТА заявка — тя запазва и оригиналния ред с брака и историята.
+  const shares = (orders, n) => {
+    n = Math.max(0, Number(n) || 0);
+    let off = 0;
+    const out = orders.map(o => {
+      const q = Number(o && o.qty) || 0;
+      const v = Math.max(0, Math.min(n, off + q) - Math.min(n, off));
+      off += q; return v;
+    });
+    const used = out.reduce((s, x) => s + x, 0);
+    if (n > used && out.length) out[0] += n - used;
+    return out;
+  };
+  // Дял на всяка заявка от „части от склад" на гейт: запомненият ѝ принос
+  // (gateStock), а за съвсем стари серии без него — кумулативно по нуждите.
+  const gateStockShares = (g, orders) => {
+    if (orders.some(o => o && o.gateStock && o.gateStock[g.key] != null))
+      return orders.map(o => (o && o.gateStock && Number(o.gateStock[g.key])) || 0);
+    const per = (g && g.per != null) ? Number(g.per) : null;
+    let left = Math.max(0, Number(g && g.stock) || 0);
+    const out = orders.map(o => {
+      const w = Math.max(0, (Number(o && o.qty) || 0) * (per != null ? per : 1));
+      const v = Math.min(left, w); left -= v; return v;
+    });
+    if (left > 0 && out.length) out[out.length - 1] += left;
+    return out;
+  };
+
+  // Резервно копие на пипаните редове (последното делене), после делим.
+  const backupRows = [];
+  okComps.forEach(comp => comp.forEach(k => backupRows.push({ id: byKey[k].id, data: byKey[k].data, done: byKey[k].done })));
+  try { await sb.from("app_config").upsert({ id: "flow_split_backup", data: { when: new Date().toISOString(), rows: backupRows }, updated_at: new Date().toISOString() }); } catch (e) {}
+
+  let seriesN = 0, taskN = 0;
+  for (const comp of okComps) {
+    const updates = [], inserts = [], moveJobs = [];
+    for (const k of comp) {
+      const r = byKey[k];
+      const d = r.data, src = d.source || {};
+      // Принос с 0 бройки (изцяло нетнат от склада) не ражда празна задача.
+      const orders = (src.orders || []).filter(o => (Number(o && o.qty) || 0) > 0);
+      const prodSh = shares(orders, d.produced);
+      const stockSh = shares(orders, src.stocked);
+      const consSh = shares(orders, src.consumedUnits);
+      const matSh = shares(orders, src.matConsumed);
+      const totalQ = orders.reduce((s, o) => s + (Number(o && o.qty) || 0), 0);
+      // Количество НАД сумата на заявките (напр. +N бр. за брак при настройка,
+      // вдигнати върху първата операция) — остава при първия ред, при брака.
+      const extraQty = Math.max(0, (Number(d.qty) || 0) - totalQ);
+      const splitRows = orders.map((o, i) => {
+        const oid = String(o.id);
+        const nd = { ...d };
+        nd.client = o.client || "";
+        nd.due = o.due || "";
+        nd.qty = (Number(o.qty) || 0) + (i === 0 ? extraQty : 0);
+        nd.produced = prodSh[i];
+        nd.files = (d.files || []).slice();
+        // Историята (вписвания на служителите), планът за смяната и бракът при
+        // настройка не могат да се разделят по заявки — остават при първата,
+        // за да не се броят двойно в отчетите.
+        if (i > 0) { nd.logs = []; delete nd.plan; delete nd.brak; delete nd.brakNeed; delete nd.brakLog; delete nd.brakReqs; }
+        const gate = (Array.isArray(src.gate) && src.gate.length)
+          ? src.gate.map(g => {
+              if (typeof g === "string") return ren(g, oid);
+              const ng = { key: ren(g.key, oid) };
+              if (g.per !== undefined) ng.per = g.per;
+              // Стар формат {key, need, stock}: need е за цялата серия — дели се
+              // пропорционално на количествата (perL = (need+stock)/qty остава верен).
+              if (g.need !== undefined) ng.need = (Number(d.qty) || 0) > 0 ? (Number(g.need) || 0) * nd.qty / Number(d.qty) : g.need;
+              ng.stock = gateStockShares(g, orders)[i];
+              return ng;
+            })
+          : src.gate;
+        nd.source = {
+          ...src,
+          seriesKey: k + "¦зая:" + oid,
+          prevKey: src.prevKey ? ren(src.prevKey, oid) : null,
+          gate,
+          orders: [o],
+          orderIds: [oid],
+          stocked: stockSh[i],
+          consumedUnits: consSh[i],
+          matConsumed: matSh[i],
+        };
+        return nd;
+      });
+      // Първата заявка остава на СЪЩИЯ ред (пази въпросите/съобщенията по id
+      // и складовите движения prod:/consume:/matprod:, които сочат този id);
+      // останалите са нови редове.
+      updates.push({ id: r.id, data: splitRows[0] });
+      for (let i = 1; i < splitRows.length; i++) inserts.push(splitRows[i]);
+      if (!((typeof erpNitManagedCode === "function") && erpNitManagedCode(d.code))) {
+        moveJobs.push({ origId: r.id, seriesKeys: splitRows.map(x => x.source.seriesKey), stockSh, consSh, matSh });
+      }
+      seriesN++; taskN += splitRows.length;
+    }
+    // 1) Първо свиваме оригиналните редове (ако нещо падне после, липсват
+    //    приноси — оправя се с пре-пускане на заявката; обратният ред би
+    //    ДУБЛИРАЛ количества при повторно делене).
+    for (let i = 0; i < updates.length; i += 10) {
+      const part = updates.slice(i, i + 10);
+      const res = await Promise.all(part.map(u => {
+        const qty = Number(u.data.qty) || 0, prod = Number(u.data.produced) || 0;
+        return sb.from("tasks").update({ data: u.data, done: qty > 0 && prod >= qty, updated_at: new Date().toISOString() }).eq("id", u.id);
+      }));
+      const bad = res.find(x => x && x.error);
+      if (bad) return { error: bad.error, series: seriesN, split: taskN };
+    }
+    // 2) Новите редове на останалите заявки (с id-та за пренасочването на движенията).
+    const insById = {};   // seriesKey -> ново id
+    if (inserts.length) {
+      const { data: ins, error: insErr } = await sb.from("tasks")
+        .insert(inserts.map(dd => ({ data: dd, done: (Number(dd.qty) || 0) > 0 && (Number(dd.produced) || 0) >= (Number(dd.qty) || 0) })))
+        .select("id,data");
+      if (insErr) return { error: insErr, series: seriesN, split: taskN };
+      (ins || []).forEach(row => { const sk = row.data && row.data.source && row.data.source.seriesKey; if (sk) insById[sk] = row.id; });
+    }
+    // 3) Складовите движения по стария ред (prod:/consume:/matprod: и
+    //    поправките им) се разнасят по новите редове със същите дялове, за да
+    //    сочи всяко движение СВОЯТА задача (изтеглянето на заявка трие/възстановява
+    //    по тези ref-ове — erpFlowDropSeries). Първият ред поема закръгленията.
+    for (const job of moveJobs) {
+      const ids = job.seriesKeys.map((sk, i) => (i === 0 ? job.origId : insById[sk])).filter(x => x != null);
+      if (ids.length !== job.seriesKeys.length) continue;   // не всички редове са налице — не пипаме движенията
+      const buckets = [
+        { tbl: "product_movements", idCol: "product_id", pref: "prod:", w: job.stockSh },
+        { tbl: "product_movements", idCol: "product_id", pref: "prodfix:", w: job.stockSh },
+        { tbl: "product_movements", idCol: "product_id", pref: "consume:", w: job.consSh },
+        { tbl: "product_movements", idCol: "product_id", pref: "consumefix:", w: job.consSh },
+        { tbl: "stock_movements", idCol: "material_id", pref: "matprod:", w: job.matSh },
+        { tbl: "stock_movements", idCol: "material_id", pref: "matfix:", w: job.matSh },
+      ];
+      for (const b of buckets) {
+        const wSum = b.w.reduce((s, x) => s + x, 0);
+        if (!(wSum > 0)) continue;                    // няма какво да се дели — всичко остава при първия
+        try {
+          const oldRef = b.pref + job.origId;
+          const { data: mv, error: mvErr } = await sb.from(b.tbl).select("*").eq("ref", oldRef);
+          if (mvErr || !mv || !mv.length) continue;
+          const byPid = {};
+          mv.forEach(m => {
+            const g = byPid[m[b.idCol]] || (byPid[m[b.idCol]] = { total: 0, kind: m.kind, note: m.note || "" });
+            g.total += Number(m.quantity) || 0;
+          });
+          const fresh = [];
+          Object.keys(byPid).forEach(pid => {
+            const g = byPid[pid];
+            let rest = g.total;
+            for (let i = 1; i < ids.length; i++) {
+              const q = g.total * (b.w[i] / wSum);
+              if (q) { fresh.push({ [b.idCol]: Number(pid), kind: g.kind, quantity: q, ref: b.pref + ids[i], note: g.note }); rest -= q; }
+            }
+            if (rest) fresh.push({ [b.idCol]: Number(pid), kind: g.kind, quantity: rest, ref: oldRef, note: g.note });
+          });
+          const { error: delErr } = await sb.from(b.tbl).delete().eq("ref", oldRef);
+          if (delErr) continue;
+          if (fresh.length) {
+            const { error: insErr2 } = await sb.from(b.tbl).insert(fresh);
+            if (insErr2) {   // връщаме старите редове, за да не изчезнат движения
+              try { await sb.from(b.tbl).insert(mv.map(m => { const c = { ...m }; delete c.id; return c; })); } catch (e2) {}
+              console.error("split moves", insErr2);
+            }
+          }
+        } catch (e) { console.error("split moves", e); }
+      }
+    }
+  }
+  // 4) Единични серии, чиито гейтове/prevKey сочат делен ключ (напр. сглобяване
+  //    на ЕДНА заявка, чакащо части от обща серия) — пренасочваме ги към дела
+  //    на своята заявка, иначе гейтът им увисва на несъществуващ ключ.
+  const fixJobs = [];
+  (rows || []).forEach(r => {
+    const d = r.data || {}, src = d.source || {};
+    if (src.kind !== "series" || !src.seriesKey || splitting.has(src.seriesKey)) return;
+    const oid = String((src.orderIds && src.orderIds[0]) || "");
+    if (!oid) return;
+    let changed = false;
+    if (src.prevKey && splitting.has(src.prevKey)) {
+      const nk = ren(src.prevKey, oid);
+      if (nk !== src.prevKey) { src.prevKey = nk; changed = true; }
+    }
+    if (Array.isArray(src.gate)) {
+      src.gate = src.gate.map(g => {
+        const k = (typeof g === "string") ? g : (g && g.key);
+        if (!k || !splitting.has(k)) return g;
+        const nk = ren(k, oid);
+        if (nk === k) return g;
+        changed = true;
+        return (typeof g === "string") ? nk : { ...g, key: nk };
+      });
+    }
+    if (changed) fixJobs.push(() => sb.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", r.id));
+  });
+  for (let i = 0; i < fixJobs.length; i += 10) await Promise.all(fixJobs.slice(i, i + 10).map(f => f()));
+  return { series: seriesN, split: taskN };
+}
+
 // Собственият заприходен и все още неизконсумиран напредък на заявка, по
 // детайли: делът ѝ от заприходеното (source.stocked на последните операции)
 // минус дела ѝ от вложеното при нейните сглобявания (consumes), ограничен до
