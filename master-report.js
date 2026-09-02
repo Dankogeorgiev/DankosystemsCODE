@@ -185,6 +185,11 @@ function masterArticleNeeds(pid, cnt) {
 // капата допълнително — напр. до нуждата на конкретния артикул/бройки.
 async function masterCompleteOrder(oid, details, capFn) {
   const reported = new Map();   // задача -> отчетено от това действие
+  // Снимка на произведеното ПРЕДИ действието: реалният напредък включва и
+  // авто-отчетеното покрай мастер вълната (авто-боя/зачистване), което самият
+  // мастер не пише — иначе тези операции излизаха като „чакат" в съобщението.
+  const before = new Map();
+  for (const d of details) for (const t of d.ops) if (!before.has(t)) before.set(t, Number(t.produced) || 0);
   let progressed = true, guard = 0;
   while (progressed && guard++ < 60) {
     progressed = false;
@@ -208,28 +213,32 @@ async function masterCompleteOrder(oid, details, capFn) {
       }
     }
   }
-  // Какво ОСТАНА недокарано и защо — връща се за съобщението на бутона, за да
-  // не се налага човекът да гадае и да цъка втори/трети път на сляпо.
+  // Какво ОСТАНА от ДЕЛА НА ТОВА ДЕЙСТВИЕ и защо. Смята се спрямо реалния
+  // напредък (произведено сега − произведено в началото), за да се брои и
+  // авто-отчетеното покрай вълната (авто-боя/зачистване). Остатък, който
+  // принадлежи на ДРУГ артикул/заявка (делът на действието е покрит), НЕ е
+  // проблем и не се показва — иначе съобщението плашеше с чужди бройки.
   const leftover = [];
   const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
   for (const d of details) for (const t of d.ops) {
     if (t.closed) continue;
-    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-    if (rem <= 0) continue;
-    const cap = capFn ? capFn(t) : mOrderShare(t, oid);
-    const capLeft = Math.max(0, cap - (reported.get(t) || 0));
+    const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
+    if (qty > 0 && prod >= qty) continue;                       // операцията е изцяло готова
+    const remBefore = Math.max(0, qty - (before.get(t) || 0));
+    const cap = Math.max(0, capFn ? capFn(t) : mOrderShare(t, oid));
+    const intended = Math.min(remBefore, cap);                  // колкото действието ИСКАШЕ да добави
+    const advanced = Math.max(0, prod - (before.get(t) || 0));  // колкото реално се добави (мастер + авто)
+    const missing = intended - advanced;
+    if (missing <= 0) continue;                                 // делът е покрит — остатъкът е на друг артикул/заявка
+    const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : missing;
     let why;
-    if (capLeft <= 0) why = "делът на това действие е изчерпан (детайлът е споделен с друг артикул/заявка)";
-    else {
-      const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : rem;
-      if (avail <= 0) {
-        const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
-        why = pend.length
-          ? "чака части: " + pend.map(p => `${p.code}${p.operation ? " · " + p.operation : ""} (${erpNum(p.produced)}/${erpNum(p.qty)})`).join(", ")
-          : "чака предната операция";
-      } else why = "недовършено — провери реда в Цехове";
-    }
-    leftover.push(`• ${t.code ? t.code + " " : ""}${t.product || ""} · ${t.operation || "?"}: остават ${erpNum(Math.min(rem, capLeft || rem))} бр. — ${why}`);
+    if (avail <= 0) {
+      const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
+      why = pend.length
+        ? "чака части: " + pend.map(p => `${p.code}${p.operation ? " · " + p.operation : ""} (готови ${erpNum(p.produced)}/${erpNum(p.qty)})`).join(", ")
+        : "чака предната операция";
+    } else why = "недовършено — провери реда в Цехове";
+    leftover.push(`• ${t.code ? t.code + " " : ""}${t.product || ""} · ${t.operation || "?"}: остават ${erpNum(missing)} бр. от дела на действието — ${why}`);
   }
   return leftover;
 }
