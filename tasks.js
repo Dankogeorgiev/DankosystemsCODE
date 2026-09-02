@@ -1602,6 +1602,28 @@ function renderTasks() {
     }).join("");
     clientFilter = clientSel.value;
   }
+  // Филтър по НАШ № на заявка — падащо меню с номерата на всичко пуснато
+  // (най-новите отгоре), с клиента до номера за ориентир.
+  const orderSel = document.getElementById("task-order-filter");
+  let orderFilter = "";
+  if (orderSel) {
+    const cur = orderSel.value;
+    const byNo = {};   // № -> клиенти
+    TASKS.forEach(t => {
+      const cls = taskClients(t);
+      taskOrderNos(t).forEach(n => {
+        const set = byNo[n] || (byNo[n] = new Set());
+        cls.forEach(c => { if (c) set.add(c); });
+      });
+    });
+    const nos = Object.keys(byNo).sort((a, b) => String(b).localeCompare(String(a), "bg", { numeric: true }));
+    orderSel.innerHTML = `<option value="">Всички №</option>` + nos.map(n => {
+      const cls = [...byNo[n]];
+      const label = "№" + n + (cls.length ? " · " + (cls.length === 1 ? cls[0] : cls.length + " клиента") : "");
+      return `<option value="${escapeAttr(n)}" ${n === cur ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+    orderFilter = orderSel.value;
+  }
   tbody.innerHTML = "";
 
   const flowMap = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
@@ -1622,6 +1644,7 @@ function renderTasks() {
     if (PROD_MODE && PROD_OP && opNorm(t.operation) !== PROD_OP) return false;   // ⚙ операция през всички цехове
     if (term && !taskSearchHay(t).includes(term)) return false;
     if (clientFilter && !taskClients(t).includes(clientFilter)) return false;   // всичко пуснато за избрания клиент
+    if (orderFilter && !taskOrderNos(t).includes(orderFilter)) return false;    // всичко по избраната наша заявка
     if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
     return true;
   });
@@ -4020,6 +4043,8 @@ function tInit() {
   document.getElementById("task-worker-filter").addEventListener("change", () => { renderTasks(); renderProdLoadBar(); });
   const clientFilterEl = document.getElementById("task-client-filter");
   if (clientFilterEl) clientFilterEl.addEventListener("change", renderTasks);
+  const orderFilterEl = document.getElementById("task-order-filter");
+  if (orderFilterEl) orderFilterEl.addEventListener("change", renderTasks);
   const ordersProdBtn = document.getElementById("btn-orders-prod");
   if (ordersProdBtn) ordersProdBtn.addEventListener("click", openOrdersInProduction);
   const masterBtn = document.getElementById("btn-master");
