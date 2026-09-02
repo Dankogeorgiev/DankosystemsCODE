@@ -188,8 +188,14 @@ async function masterCompleteOrder(oid, details, capFn) {
   let progressed = true, guard = 0;
   while (progressed && guard++ < 60) {
     progressed = false;
-    const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
     for (const d of details) for (const t of d.ops) {
+      if (t.closed) continue;   // закрит (🗄) ред — мастерът не пише в него
+      // СВЕЖА карта преди ВСЯКА операция (не веднъж на обиколка): следващата
+      // операция вижда прясно отчетеното от предната още в същата обиколка,
+      // а гейтовете на сглобяването се отключват веднага щом частите станат —
+      // иначе веригата напредваше с по една стъпка на обиколка и на дълги
+      // рецепти „▶▶ готов" изглеждаше, че не хваща от първия път.
+      const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
       const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
       const cap = capFn ? capFn(t) : mOrderShare(t, oid);
@@ -202,6 +208,30 @@ async function masterCompleteOrder(oid, details, capFn) {
       }
     }
   }
+  // Какво ОСТАНА недокарано и защо — връща се за съобщението на бутона, за да
+  // не се налага човекът да гадае и да цъка втори/трети път на сляпо.
+  const leftover = [];
+  const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
+  for (const d of details) for (const t of d.ops) {
+    if (t.closed) continue;
+    const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
+    if (rem <= 0) continue;
+    const cap = capFn ? capFn(t) : mOrderShare(t, oid);
+    const capLeft = Math.max(0, cap - (reported.get(t) || 0));
+    let why;
+    if (capLeft <= 0) why = "делът на това действие е изчерпан (детайлът е споделен с друг артикул/заявка)";
+    else {
+      const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : rem;
+      if (avail <= 0) {
+        const pend = (typeof erpFlowGatePending === "function") ? erpFlowGatePending(t, map) : [];
+        why = pend.length
+          ? "чака части: " + pend.map(p => `${p.code}${p.operation ? " · " + p.operation : ""} (${erpNum(p.produced)}/${erpNum(p.qty)})`).join(", ")
+          : "чака предната операция";
+      } else why = "недовършено — провери реда в Цехове";
+    }
+    leftover.push(`• ${t.code ? t.code + " " : ""}${t.product || ""} · ${t.operation || "?"}: остават ${erpNum(Math.min(rem, capLeft || rem))} бр. — ${why}`);
+  }
+  return leftover;
 }
 
 /* ---------- ⏪ Отмяна на мастер отчитания ----------
@@ -496,7 +526,10 @@ function masterRender() {
     }
     if (!confirm(`Да отчета ли артикула „${a.code ? a.code + " " : ""}${a.name}"${cntTxt || (a.qty ? ` × ${a.qty} бр.` : "")} до ГОТОВО?\n\nЩе се отчетат детайлите и операциите му (${a.details.length} детайла)${cntTxt ? " до нуждата на тези бройки по рецептата" : ""}. Детайли, споделени с други артикули/заявки, не се пипат отвъд този дял.`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterCompleteOrder(oid, a.details, capFn); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try {
+      const left = await masterCompleteOrder(oid, a.details, capFn);
+      if (left && left.length) alert(`⚠ Не всичко стигна до готово (${left.length} операции):\n` + left.slice(0, 12).join("\n") + (left.length > 12 ? `\n…и още ${left.length - 12}` : ""));
+    } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
@@ -531,7 +564,10 @@ function masterRender() {
     const g = masterGroups().find(e => String(e.id) === String(oid)); if (!g) return;
     if (!confirm(`Да докарам ли цялата заявка ${g.no ? "№" + g.no : ""} до готово (всички операции)?\n\nОт споделените с други заявки серии се отчита САМО делът на тази заявка.`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterCompleteOrder(oid, g.details); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try {
+      const left = await masterCompleteOrder(oid, g.details);
+      if (left && left.length) alert(`⚠ Не всичко стигна до готово (${left.length} операции):\n` + left.slice(0, 12).join("\n") + (left.length > 12 ? `\n…и още ${left.length - 12}` : ""));
+    } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
