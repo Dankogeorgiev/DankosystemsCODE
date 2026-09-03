@@ -92,6 +92,17 @@ async function erpRenderReceivables() {
     const bo = (b.ord != null && b.ord !== "") ? Number(b.ord) : BIG;
     return (ao - bo) || String(a.dueDate || "9999").localeCompare(b.dueDate || "9999");
   }));
+  // ✓ Платени (архив): последно ПЛАТЕНИТЕ най-отгоре — клиентите се редят по
+  // най-скорошното си плащане, а фактурите на всеки клиент по „Платена на"
+  // (нови отгоре). Азбучният ред остава само за активните вземания.
+  if (recvFilter === "paid") {
+    const lastPaid = {};
+    Object.keys(groups).forEach(k => {
+      lastPaid[k] = groups[k].reduce((m, p) => String(p.paidDate || "") > m ? String(p.paidDate || "") : m, "");
+      groups[k].sort((a, b) => String(b.paidDate || "").localeCompare(String(a.paidDate || "")));
+    });
+    clientNames.sort((a, b) => lastPaid[b].localeCompare(lastPaid[a]));
+  }
 
   const card = (label, arr, hl) => `<div class="pay-card ${hl || ""}"><div class="pay-card-l">${label}</div><div class="pay-card-v">${recvMoney(sum(arr))} EUR</div><div class="pay-card-n">${arr.length} фактури</div></div>`;
   const tab = (key, label) => `<button class="btn btn-small ${recvFilter === key ? "btn-primary" : ""}" data-rf="${key}">${label}</button>`;
