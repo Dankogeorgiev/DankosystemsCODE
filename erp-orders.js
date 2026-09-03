@@ -1871,17 +1871,43 @@ async function erpNettingBump(shares, pid, sign) {
   await sb.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() });
 }
 
+/* Атомарно „заявяване" на поточен брояч (stocked / consumedUnits /
+   matConsumed): чете СВЕЖИЯ ред от базата и вдига брояча с УСЛОВЕН запис —
+   минава само ако в базата още стои старата стойност. Така само ЕДИН клиент
+   печели делтата; другият вижда 0 и не пипа склада. Без това мастер вълната
+   на офиса и авто-отчетът на цехов таблет смятаха ЕДНА И СЪЩА делта от свои
+   снимки и заприходяваха/изписваха ДВОЙНО (по два реда „+350" за един отчет).
+   Връща спечелената делта (0 = друг клиент изпревари или няма ново). */
+async function erpFlowClaimCounter(taskId, field, target) {
+  try {
+    const { data: row, error } = await sb.from("tasks").select("id,data").eq("id", taskId).maybeSingle();
+    if (error || !row || !row.data || !row.data.source) return 0;
+    const raw = row.data.source[field];
+    const cur = Number(raw) || 0;
+    const delta = (Number(target) || 0) - cur;
+    if (delta <= 0) return 0;
+    const d = row.data;
+    d.source[field] = Number(target) || 0;
+    let q = sb.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", taskId);
+    q = (raw == null) ? q.is("data->source->>" + field, null) : q.eq("data->source->>" + field, String(raw));
+    const { data: upd, error: e2 } = await q.select("id");
+    if (e2 || !upd || !upd.length) return 0;   // друг клиент изпревари — той прави движението
+    return delta;
+  } catch (e) { return 0; }
+}
+
 // След отчитане на ПОСЛЕДНАТА операция на детайл/възел — вкарва ВСИЧКОТО
 // произведено в Склад детайли. Изписва се после при сглобяване на родителя
-// (erpFlowConsume) или при Продажба. Идемпотентно чрез source.stocked
-// (заприходяваме само новата разлика).
+// (erpFlowConsume) или при Продажба. Идемпотентно чрез source.stocked,
+// заявен АТОМАРНО (erpFlowClaimCounter) — само един клиент заприходява.
 async function erpFlowStockIn(t) {
   const src = t && t.source;
   if (!src || !src.flow || !src.last || !src.pid) return;
   if (erpNitManagedCode(t.code)) return;   // складът на този код се води от Занитване
   const produced = Number(t.produced) || 0;
-  const stocked = Number(src.stocked) || 0;
-  const delta = produced - stocked;
+  if (produced - (Number(src.stocked) || 0) <= 0) return;
+  const delta = await erpFlowClaimCounter(t.id, "stocked", produced);
+  src.stocked = produced;   // локален синхрон (и при загубена заявка — чужд клиент я пое)
   if (delta <= 0) return;
   await erpStockCredit(src.pid, delta, "Производство · " + (t.code || t.product || ""), "prod:" + t.id);
   // Готовото изделие на ЗАЯВКА стои на рафта ПАЗЕНО за нея до продажбата —
@@ -1890,11 +1916,9 @@ async function erpFlowStockIn(t) {
   // а при продажбата на първата складът излиза на минус. „Производство за
   // склад" (src.stock) нарочно трупа свободна наличност — него не го пазим.
   if (src.toStock && !src.stock) {
-    try { await erpNettingBump(erpFlowOrderShares(src, stocked, produced), src.pid, +1); }
+    try { await erpNettingBump(erpFlowOrderShares(src, produced - delta, produced), src.pid, +1); }
     catch (e) { console.error("stock-in netting", e); }   // изравнява се при повторно пускане на заявката
   }
-  src.stocked = produced;
-  if (typeof tSaveTask === "function") await tSaveTask(t);
 }
 
 // При отчитане на СГЛОБЯВАЩАТА операция — изписва вложените части от Склад
@@ -1906,8 +1930,9 @@ async function erpFlowConsume(t) {
   if (!src || !src.flow || !Array.isArray(src.consumes) || !src.consumes.length) return;
   if (erpNitManagedCode(t.code)) return;   // влагането на частите го прави нит-отчетът
   const produced = Number(t.produced) || 0;
-  const done = Number(src.consumedUnits) || 0;
-  const delta = produced - done;
+  if (produced - (Number(src.consumedUnits) || 0) <= 0) return;
+  const delta = await erpFlowClaimCounter(t.id, "consumedUnits", produced);   // атомарно — без двойно влагане
+  src.consumedUnits = produced;
   if (delta <= 0) return;
   const rows = [];
   src.consumes.forEach(c => {
@@ -1916,8 +1941,6 @@ async function erpFlowConsume(t) {
     if (pid && use > 0) rows.push({ product_id: pid, kind: "изписване", quantity: -use, ref: "consume:" + t.id, note: "Вложен в " + (t.code || t.product || "") });
   });
   if (rows.length) { try { await sb.from("product_movements").insert(rows); } catch (e) { console.error("consume", e); } }
-  src.consumedUnits = produced;
-  if (typeof tSaveTask === "function") await tSaveTask(t);
 }
 
 // При отчитане на РЯЗАНЕТО (първата операция) — изписва материала от склад
@@ -1928,8 +1951,9 @@ async function erpFlowMaterialConsume(t) {
   if (!src || !src.flow || !Array.isArray(src.materials) || !src.materials.length) return;
   if (erpNitManagedCode(t.code)) return;   // нитовете/шайбите ги изписва нит-отчетът
   const produced = Number(t.produced) || 0;
-  const done = Number(src.matConsumed) || 0;
-  const delta = produced - done;
+  if (produced - (Number(src.matConsumed) || 0) <= 0) return;
+  const delta = await erpFlowClaimCounter(t.id, "matConsumed", produced);   // атомарно — без двойно изписване
+  src.matConsumed = produced;
   if (delta <= 0) return;
   const rows = [];
   src.materials.forEach(m => {
@@ -1938,8 +1962,6 @@ async function erpFlowMaterialConsume(t) {
     if (mid && use > 0) rows.push({ material_id: mid, kind: "изписване", quantity: -use, ref: "matprod:" + t.id, note: "Вложен в " + (t.code || t.product || "") });
   });
   if (rows.length) { try { await sb.from("stock_movements").insert(rows); } catch (e) { console.error("mat consume", e); } }
-  src.matConsumed = produced;
-  if (typeof tSaveTask === "function") await tSaveTask(t);
 }
 
 /* ---------- ОТКАТ при поправка на сгрешен отчет ----------

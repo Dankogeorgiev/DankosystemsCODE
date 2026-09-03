@@ -230,9 +230,31 @@
     await c.from("app_config").upsert({ id: "flow_netting", data: { byOrder }, updated_at: new Date().toISOString() });
   }
 
+  // Атомарно „заявяване" на поточен брояч — огледало на erpFlowClaimCounter в
+  // главното табло: чете свежия ред и вдига брояча с УСЛОВЕН запис. Само един
+  // клиент печели делтата — без двойно заприходяване/изписване, когато мастер
+  // вълната на офиса и авто-отчетът тук сметнат една и съща делта едновременно.
+  async function claimCounter(c, rowId, field, target) {
+    try {
+      const { data: row, error } = await c.from("tasks").select("id,data").eq("id", rowId).maybeSingle();
+      if (error || !row || !row.data || !row.data.source) return 0;
+      const raw = row.data.source[field];
+      const cur = n(raw);
+      const delta = n(target) - cur;
+      if (delta <= 0) return 0;
+      const d = row.data;
+      d.source[field] = n(target);
+      let q = c.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", rowId);
+      q = (raw == null) ? q.is("data->source->>" + field, null) : q.eq("data->source->>" + field, String(raw));
+      const { data: upd, error: e2 } = await q.select("id");
+      if (e2 || !upd || !upd.length) return 0;
+      return delta;
+    } catch (e) { return 0; }
+  }
+
   // Складовите движения по една задача. t = данните СЛЕД вдигането на produced
-  // (същият обект, който току-що е записан). Мутира t.source (stocked /
-  // consumedUnits / matConsumed) и презаписва задачата само ако има промяна.
+  // (същият обект, който току-що е записан). Броячите се заявяват атомарно
+  // (claimCounter) — задачата не се презаписва повторно оттук.
   async function afterCredit(c, rowId, t) {
     // Последователна верига (мостра / производство за склад): готова стъпка →
     // пусни следващата операция (порт на erpAdvanceSeq, липсваше тук).
@@ -241,55 +263,46 @@
     if (!src || !src.flow) return;   // стар модел / ръчна задача — няма складова логика
     const produced = n(t.produced);
     const name = t.code || t.product || "";
-    let changed = false;
     // 1) Последна операция → готовото влиза в Склад детайли.
-    if (src.last && src.pid) {
-      const delta = produced - n(src.stocked);
+    if (src.last && src.pid && produced - n(src.stocked) > 0) {
+      const delta = await claimCounter(c, rowId, "stocked", produced);
+      src.stocked = produced;
       if (delta > 0) {
         const { error } = await c.from("product_movements").insert({ product_id: Number(src.pid), kind: "заприходяване", quantity: delta, ref: "prod:" + rowId, note: "Производство · " + name });
-        if (!error) {
-          // Готовото изделие на ЗАЯВКА се дозаключва към резервацията ѝ
-          // (кръстосано нетване) — както erpFlowStockIn в главното табло.
-          // „Производство за склад" (src.stock) не се пази — то е свободно.
-          if (src.toStock && !src.stock) {
-            try { await nettingBump(c, orderShares(src, n(src.stocked), produced), src.pid, +1); }
-            catch (e) { console.warn("stock-in netting", e); }   // изравнява се при повторно пускане
-          }
-          src.stocked = produced; changed = true;
+        // Готовото изделие на ЗАЯВКА се дозаключва към резервацията ѝ
+        // (кръстосано нетване) — както erpFlowStockIn в главното табло.
+        // „Производство за склад" (src.stock) не се пази — то е свободно.
+        if (!error && src.toStock && !src.stock) {
+          try { await nettingBump(c, orderShares(src, produced - delta, produced), src.pid, +1); }
+          catch (e) { console.warn("stock-in netting", e); }   // изравнява се при повторно пускане
         }
       }
     }
     // 2) Сглобяваща операция → изписва вложените части от Склад детайли.
-    if (Array.isArray(src.consumes) && src.consumes.length) {
-      const delta = produced - n(src.consumedUnits);
+    if (Array.isArray(src.consumes) && src.consumes.length && produced - n(src.consumedUnits) > 0) {
+      const delta = await claimCounter(c, rowId, "consumedUnits", produced);
+      src.consumedUnits = produced;
       if (delta > 0) {
         const rows = [];
         src.consumes.forEach(cc => {
           const pid = Number(cc && cc.pid) || 0; const use = n(cc && cc.per) * delta;
           if (pid && use > 0) rows.push({ product_id: pid, kind: "изписване", quantity: -use, ref: "consume:" + rowId, note: "Вложен в " + name });
         });
-        let ok = true;
-        if (rows.length) { const { error } = await c.from("product_movements").insert(rows); ok = !error; }
-        if (ok) { src.consumedUnits = produced; changed = true; }
+        if (rows.length) { try { await c.from("product_movements").insert(rows); } catch (e) { console.warn("consume", e); } }
       }
     }
     // 3) Първа операция (рязане) → изписва материала от Склад материали.
-    if (Array.isArray(src.materials) && src.materials.length) {
-      const delta = produced - n(src.matConsumed);
+    if (Array.isArray(src.materials) && src.materials.length && produced - n(src.matConsumed) > 0) {
+      const delta = await claimCounter(c, rowId, "matConsumed", produced);
+      src.matConsumed = produced;
       if (delta > 0) {
         const rows = [];
         src.materials.forEach(m => {
           const mid = Number(m && m.mid) || 0; const use = n(m && m.per) * delta;
           if (mid && use > 0) rows.push({ material_id: mid, kind: "изписване", quantity: -use, ref: "matprod:" + rowId, note: "Вложен в " + name });
         });
-        let ok = true;
-        if (rows.length) { const { error } = await c.from("stock_movements").insert(rows); ok = !error; }
-        if (ok) { src.matConsumed = produced; changed = true; }
+        if (rows.length) { try { await c.from("stock_movements").insert(rows); } catch (e) { console.warn("mat consume", e); } }
       }
-    }
-    if (changed) {
-      const done = n(t.qty) > 0 && produced >= n(t.qty);
-      await c.from("tasks").update({ data: t, done, updated_at: new Date().toISOString() }).eq("id", rowId);
     }
   }
 
