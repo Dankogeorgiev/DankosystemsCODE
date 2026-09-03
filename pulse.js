@@ -151,17 +151,21 @@ async function renderPulse() {
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
   const recvOverSum = recvOver.reduce((s, p) => s + recvRest(p), 0);
   const payUnpaid = payList.filter(p => !p.paid);
-  const paySum = payUnpaid.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
+  // Остатък по фактура = с ДДС − платеното до момента (частичните плащания) —
+  // същата сметка като в екрана „Задължения", иначе Пулсът показваше пълните
+  // суми и се разминаваше с него.
+  const payRest = p => Math.max(0, (num(p.amountVat) || 0) - (num(p.paidAmount) || 0));
+  const paySum = payUnpaid.reduce((s, p) => s + payRest(p), 0);
   // Дължимо до края на месеца (с ДДС): неплатени фактури със срок до последния
   // ден на текущия месец — включително вече просрочените.
   const eomD = new Date(); const eom = `${eomD.getFullYear()}-${String(eomD.getMonth() + 1).padStart(2, "0")}-${String(new Date(eomD.getFullYear(), eomD.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
   const payMonthItems = payUnpaid.filter(p => p.dueDate && p.dueDate <= eom);
-  const payMonthSum = payMonthItems.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
+  const payMonthSum = payMonthItems.reduce((s, p) => s + payRest(p), 0);
   // Задължения СЛЕДВАЩ месец (с ДДС): падеж след края на този месец, до края на следващия.
   const nmEndD = new Date(eomD.getFullYear(), eomD.getMonth() + 2, 0);
   const nmEom = `${nmEndD.getFullYear()}-${String(nmEndD.getMonth() + 1).padStart(2, "0")}-${String(nmEndD.getDate()).padStart(2, "0")}`;
   const payNextItems = payUnpaid.filter(p => p.dueDate && p.dueDate > eom && p.dueDate <= nmEom);
-  const payNextSum = payNextItems.reduce((s, p) => s + (num(p.amountVat) || 0), 0);
+  const payNextSum = payNextItems.reduce((s, p) => s + payRest(p), 0);
 
   // Всяка карта е ВРАТА към модула, от който идват числата ѝ (go = ЕРП раздел
   // или "tasks" за Цехове) — клик = отиваш там.
