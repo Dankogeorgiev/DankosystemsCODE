@@ -165,7 +165,7 @@ async function erpRenderPayables() {
       <label class="erp-inline">Доставчик
         <select id="pyb-supplier"><option value="">Всички</option>${supplierOpts.map(s => `<option ${s === pybSupplier ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}</select></label>
       <label class="erp-inline">Подреди по
-        <select id="pyb-sort">${PYB_SORTS.map(([k, l]) => `<option value="${k}" ${k === pybSort ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <select id="pyb-sort">${PYB_SORTS.map(([k, l]) => `<option value="${k}" ${k === pybSort ? "selected" : ""}>${pybFilter === "paid" && k === "due" ? "Платена на (последните отгоре)" : l}</option>`).join("")}</select></label>
       ${pybSupplier ? '<button class="btn btn-small" id="pyb-clearf">✕ Изчисти филтъра</button>' : ""}
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} ${rows.length === 1 ? "фактура" : "фактури"} · ${payMoney(rows.reduce((s, p) => s + (pybFilter === "paid" ? payNum(p.amountVat) : payLeft(p)), 0))} EUR</span>
@@ -215,7 +215,13 @@ async function erpRenderPayables() {
     </table></div>
     ${pybFilter !== "paid" ? `<div class="pay-paybar" id="pay-paybar"></div>` : ""}`;
 
-  v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => { pybFilter = b.dataset.pf; paySelected.clear(); erpRenderPayables(); }));
+  v.querySelectorAll("[data-pf]").forEach(b => b.addEventListener("click", () => {
+    pybFilter = b.dataset.pf;
+    // Влизане в архива → последно ПЛАТЕНИТЕ най-отгоре (каквато и подредба да
+    // е стояла преди това); в архива „due" сортира по „Платена на", нови отгоре.
+    if (pybFilter === "paid") pybSort = "due";
+    paySelected.clear(); erpRenderPayables();
+  }));
   const pqEl = document.getElementById("pyb-q");
   if (pqEl) pqEl.addEventListener("input", uiDebounce(e => {
     pybQuery = e.target.value;
