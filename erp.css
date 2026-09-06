@@ -813,3 +813,7 @@ img.ai-doc-content { max-width: none; }
 .pack-combofloat { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 99000; display: flex; align-items: center; gap: 10px; background: #065f46; color: #fff; border-radius: 999px; padding: 9px 16px; font-size: 14px; box-shadow: 0 10px 26px rgba(6,95,70,.42); }
 .pack-combofloat[hidden] { display: none; }
 .pack-combofloat .btn { border: none; }
+/* Себестойности (калкулация на изделие) */
+.cs-head { margin: 4px 0 10px; }
+.cs-checks { margin: 0 0 8px; padding-left: 18px; line-height: 1.5; }
+.cs-checks li { margin: 2px 0; }

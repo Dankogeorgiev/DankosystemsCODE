@@ -469,7 +469,7 @@ function erpSetTab(tab, force) {
   if (!tab) tab = "materials";
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
-      && ["sales", "pricelists", "purchases", "supprofiles", "finance", "invoices", "payables", "receivables"].includes(tab)) tab = "customer";
+      && ["sales", "pricelists", "purchases", "supprofiles", "finance", "invoices", "payables", "receivables", "costsheet"].includes(tab)) tab = "customer";
   ERP.tab = tab;
   // „Отворени раздели" (като табове на документи) — добавяме отворения, ако още го няма.
   ERP.openTabs = ERP.openTabs || [];
@@ -506,6 +506,11 @@ function erpDispatchTab(tab) {
       if (typeof financeAllowed === "function" && !financeAllowed()) {
         erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>Модул „Финанси" е достъпен само за оторизирани потребители.</p></div>`;
       } else erpRenderFinance();
+      break;
+    case "costsheet":
+      if (typeof financeAllowed === "function" && !financeAllowed()) {
+        erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>„Себестойности" е част от финансовия достъп.</p></div>`;
+      } else if (typeof erpRenderCostSheet === "function") erpRenderCostSheet();
       break;
     case "purchases":    erpRenderPurchases(); break;
     case "supprofiles": erpRenderSupplierProfiles(); break;
