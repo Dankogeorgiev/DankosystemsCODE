@@ -817,3 +817,10 @@ img.ai-doc-content { max-width: none; }
 .cs-head { margin: 4px 0 10px; }
 .cs-checks { margin: 0 0 8px; padding-left: 18px; line-height: 1.5; }
 .cs-checks li { margin: 2px 0; }
+.cs-extras-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin: 8px 0; }
+.cs-extras-edit h5 { margin: 0 0 6px; font-size: 13px; color: #0f766e; }
+.cs-extras-edit label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; margin: 3px 0; }
+.cs-extras-edit label input { margin: 0; }
+@media (max-width: 780px) { .cs-extras-edit { grid-template-columns: 1fr; } }
+.cs-more { margin: 4px 0 8px; }
+.cs-more summary { cursor: pointer; color: #475569; font-size: 13px; }

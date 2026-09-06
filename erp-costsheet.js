@@ -33,6 +33,111 @@ async function csEnsureData() {
   // Времената: вечният дневник + живите задачи (както в „Отчети").
   try { if (typeof loadProdLog === "function" && (typeof PROD_LOG === "undefined" || !PROD_LOG || !PROD_LOG.length)) await loadProdLog(); } catch (e) {}
   try { if (typeof tLoadTasks === "function" && (typeof TASKS === "undefined" || !TASKS || !TASKS.length)) await tLoadTasks(); } catch (e) {}
+  await csLoadExtras();
+}
+
+/* ---------- ➕ Допълнителни разходи (извън рецептата) ----------
+   Общи параметри (за всички изделия) + стойности за конкретното изделие.
+   Пази се в app_config id="cost_extras": { params, byProduct: { pid: {...} } }.
+   • Прахова боя: боядисана площ м²/изделие (за изделието) × €/м² (общо или
+     за изделието). Влиза само ако рецептата минава през Бояджийно.
+   • Опаковка: АВТОМАТИЧНО от таб „Опаковки" (бр./кашон, кашони/палет за
+     клиента и кода) × цени на кашон/палет/стреч (общи); или €/бр. ръчно.
+   • Транспорт: €/палет (общо) ÷ бройки на палет (от Опаковки); или €/бр.
+   • Брак: % надбавка върху материали+операции (общ или за изделието);
+     показва се и измереният брак при настройка от цеховете за сравнение.
+   • Заваръчни консумативи (тел, газ, дюзи): €/час заваряване × измереното време.
+   • Административни / гаранция: % върху всичко. */
+let CS_EXTRAS = null;
+const CS_EXTRA_DEFAULTS = { paintEurM2: 1.8, boxEur: 0.9, palletEur: 8, wrapEur: 2.5, transportPallet: 45, scrapPct: 2, weldEurH: 3.5, otherPct: 0 };
+const CS_PARAM_LABELS = [
+  ["paintEurM2", "Прахова боя, € за 1 м² боядисана площ", "прах ~€8–12/кг × ~0,15 кг/м² + газ за пещта"],
+  ["boxEur", "Кашон, € за 1 бр.", ""],
+  ["palletEur", "Палет, € за 1 бр.", "EUR палет / еднократен"],
+  ["wrapEur", "Стреч + ъгли + лента, € за 1 палет", ""],
+  ["transportPallet", "Транспорт, € за 1 палет", "средно за курс ÷ палети в курса"],
+  ["scrapPct", "Брак и загуби, % върху материали + операции", "ако няма измерен за изделието"],
+  ["weldEurH", "Заваръчни консумативи (тел, газ), € за 1 час заваряване", ""],
+  ["otherPct", "Административни / гаранция / рекламации, % върху всичко", ""],
+];
+async function csLoadExtras() {
+  if (CS_EXTRAS) return CS_EXTRAS;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "cost_extras").maybeSingle();
+    CS_EXTRAS = (data && data.data) || {};
+  } catch (e) { CS_EXTRAS = {}; }
+  CS_EXTRAS.params = Object.assign({}, CS_EXTRA_DEFAULTS, CS_EXTRAS.params || {});
+  CS_EXTRAS.byProduct = CS_EXTRAS.byProduct || {};
+  return CS_EXTRAS;
+}
+async function csSaveExtras() {
+  const { error } = await sb.from("app_config").upsert({ id: "cost_extras", data: CS_EXTRAS, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис: " + error.message); return false; }
+  return true;
+}
+function csPackSpec(clientName, code) {
+  const list = (typeof PACKAGING !== "undefined" && PACKAGING) || [];
+  const cn = csNorm(clientName), cd = csNorm(code);
+  if (!cd) return null;
+  return list.find(x => csNorm(x.code) === cd && (!cn || csNorm(x.clientName) === cn))
+      || list.find(x => csNorm(x.code) === cd) || null;
+}
+// Измерен брак при настройка за детайлите от дървото (от живите задачи).
+function csMeasuredScrap(codes) {
+  const set = new Set(codes.map(csNorm).filter(Boolean));
+  let brak = 0, prod = 0;
+  ((typeof TASKS !== "undefined" && TASKS) || []).forEach(t => {
+    if (!t.source || !t.source.flow || !set.has(csNorm(t.code))) return;
+    brak += Number(t.brak) || 0; prod += Number(t.produced) || 0;
+  });
+  return prod > 0 ? brak / prod * 100 : null;
+}
+function csExtras(pid, clientName, base) {
+  const X = CS_EXTRAS || { params: CS_EXTRA_DEFAULTS, byProduct: {} };
+  const P = X.params, o = X.byProduct[String(pid)] || {};
+  const p = ERP.prodById[pid] || {};
+  const num = v => (v === "" || v == null) ? null : (Number(String(v).replace(",", ".")) || 0);
+  const rows = [], checks = [];
+  const hasPaint = base.ops.some(r => /бояд|боя/i.test(r.ws) || /бояд/i.test(r.op));
+  // 1) Прахова боя
+  const m2 = num(o.paintM2), eurM2 = num(o.paintEurM2) != null ? num(o.paintEurM2) : P.paintEurM2;
+  if (hasPaint) {
+    const cost = (m2 || 0) * (eurM2 || 0);
+    rows.push({ key: "paint", label: "Прахова боя", how: m2 ? `${erpNum(m2)} м² × ${erpEur(eurM2)}/м²` : "няма зададена боядисана площ", cost, source: m2 ? (num(o.paintEurM2) != null ? "площ и €/м² за изделието" : "площ за изделието × общ €/м²") : "—" });
+    if (!m2) checks.push({ level: "warn", what: "Прахова боя", why: "рецептата минава през Бояджийно, но няма зададена боядисана площ (м²) — боята влиза с 0 €" });
+  }
+  // 2) Опаковка
+  const spec = csPackSpec(clientName, p.code);
+  const ppb = spec ? Number(spec.piecesPerBox) || 0 : 0, bpp = spec ? Number(spec.boxesPerPallet) || 0 : 0;
+  const palletPieces = ppb * bpp;
+  let packCost = 0, packHow = "", packSrc = "";
+  if (num(o.packEur) != null) { packCost = num(o.packEur); packHow = "ръчно €/бр."; packSrc = "за изделието"; }
+  else if (ppb > 0) {
+    packCost = P.boxEur / ppb + (palletPieces > 0 ? (P.palletEur + P.wrapEur) / palletPieces : 0);
+    packHow = `кашон ${erpEur(P.boxEur)} ÷ ${ppb} бр.` + (palletPieces > 0 ? ` + палет ${erpEur(P.palletEur + P.wrapEur)} ÷ ${palletPieces} бр.` : "");
+    packSrc = `таб „Опаковки" (${spec.clientName || ""})`;
+  } else { packHow = "няма опаковъчна спецификация"; checks.push({ level: "info", what: "Опаковка", why: `няма ред в таб „Опаковки" за ${clientName || "клиента"} и код ${p.code || ""} — опаковката влиза с 0 € (или задай €/бр. тук)` }); }
+  rows.push({ key: "pack", label: "Опаковка", how: packHow, cost: packCost, source: packSrc || "—" });
+  // 3) Транспорт
+  let trCost = 0, trHow = "", trSrc = "";
+  if (num(o.transportEur) != null) { trCost = num(o.transportEur); trHow = "ръчно €/бр."; trSrc = "за изделието"; }
+  else if (palletPieces > 0) { trCost = P.transportPallet / palletPieces; trHow = `${erpEur(P.transportPallet)}/палет ÷ ${palletPieces} бр.`; trSrc = "общ €/палет × Опаковки"; }
+  else { trHow = "няма бройки на палет"; checks.push({ level: "info", what: "Транспорт", why: "без бройки на палет (Опаковки) транспортът не може да се разпредели — задай €/бр. тук" }); }
+  rows.push({ key: "transport", label: "Транспорт", how: trHow, cost: trCost, source: trSrc || "—" });
+  // 4) Заваръчни консумативи
+  const weldH = base.ops.filter(r => /зав/i.test(r.ws) && r.sec != null).reduce((s, r) => s + (r.sec + (r.setupSec || 0)) / 3600 * r.mult, 0);
+  if (weldH > 0) rows.push({ key: "weld", label: "Заваръчни консумативи", how: `${erpNum(Math.round(weldH * 600) / 10)} мин заваряване × ${erpEur(P.weldEurH)}/ч`, cost: weldH * P.weldEurH, source: "измерено време × общ €/ч" });
+  // 5) Брак
+  const measured = csMeasuredScrap(base.codes || []);
+  const scrapPct = num(o.scrapPct) != null ? num(o.scrapPct) : P.scrapPct;
+  const scrapBase = base.mat + base.ops.reduce((s, r) => s + r.cost, 0);
+  rows.push({ key: "scrap", label: "Брак и загуби", how: `${erpNum(scrapPct)} % × ${erpEur(scrapBase)}` + (measured != null ? ` · измерен при настройка: ${erpNum(Math.round(measured * 10) / 10)} %` : ""), cost: scrapBase * scrapPct / 100, source: num(o.scrapPct) != null ? "за изделието" : "общ %" });
+  if (measured != null && measured > scrapPct + 1) checks.push({ level: "info", what: "Брак", why: `измереният брак при настройка (${erpNum(Math.round(measured * 10) / 10)} %) е над заложения ${erpNum(scrapPct)} %` });
+  // 6) Административни
+  const sub = base.real + rows.reduce((s, r) => s + r.cost, 0);
+  if (P.otherPct > 0) rows.push({ key: "other", label: "Административни / гаранция", how: `${erpNum(P.otherPct)} % × ${erpEur(sub)}`, cost: sub * P.otherPct / 100, source: "общ %" });
+  const total = rows.reduce((s, r) => s + r.cost, 0);
+  return { rows, total, checks, override: o, params: P, hasPaint, spec, palletPieces, measuredScrap: measured };
 }
 
 /* ---------- Индекс на времената: детайл¦операция → статистика ---------- */
@@ -112,7 +217,7 @@ function csLastPurchase(mid) {
 function csBuild(pid, clientName) {
   const R = (typeof erpCostRates === "function") ? erpCostRates() : { rate: {}, machineRate: {}, overheadRate: 0 };
   const T = csTimeIndex();
-  const mats = {}, ops = [], nodes = [], checks = [];
+  const mats = {}, ops = [], nodes = [], checks = [], opAgg = {};
   const route = op => (typeof erpEffectiveRoute === "function") ? (erpEffectiveRoute(op).primary || op.workshop || "") : (op.workshop || "");
   const check = (level, what, why) => checks.push({ level, what, why });
 
@@ -136,51 +241,61 @@ function csBuild(pid, clientName) {
         const g = mats[key] || (mats[key] = { mid: l.material_id, code: m.code || "", name: m.name || ("#" + l.material_id), unit: l.unit || m.unit || "", avg: Number(m.avg_cost) || 0, qty: 0, usedIn: new Set() });
         g.qty += q * mult; g.usedIn.add(node.code || node.name); node.mats++;
       } else if (l.operation_id) {
-        const op = ERP.opById[l.operation_id] || {};
-        const ws = route(op);
-        const perUnit = q || 1;   // технологичен множител (напр. 4 огъвки) — за цената по рецепта
-        const unitCost = (typeof erpOpLinePrice === "function") ? erpOpLinePrice(l) : (Number(op.unit_cost) || 0);
-        const md = T.detailOp(node.code, op.name);
-        const mo = md && md.n ? null : T.op(op.name);
-        const meas = (md && md.n) ? md : ((mo && mo.n) ? mo : null);
-        const rate = R.rate[ws] || null;
-        const machine = meas ? meas.machine : "";
-        const mRate = rate ? ((typeof erpMachineRateFor === "function") ? erpMachineRateFor(machine, ws, R) : rate.machine) : 0;
-        const labor = rate ? rate.labor : 0, overhead = R.overheadRate || 0;
-        const full = labor + mRate + overhead;
-        const row = {
-          node: node.code || node.name, nodeName: node.name, mult, op: op.name || "", ws, perUnit,
-          unitCost, recipeCost: perUnit * unitCost * mult,
-          machine, labor, mRate, overhead, full,
-          sec: meas ? meas.avg : null, setupSec: meas ? meas.setupPerPiece : 0,
-          n: meas ? meas.n : 0, pieces: meas ? meas.pieces : 0, last: meas ? meas.last : "",
-          source: (md && md.n) ? "измерено за детайла" : ((mo && mo.n) ? "средно за операцията (друг детайл)" : (unitCost > 0 ? "рецепта (ставка на операцията)" : "няма данни")),
-          sourceLvl: (md && md.n) ? 0 : ((mo && mo.n) ? 1 : (unitCost > 0 ? 2 : 3)),
-        };
-        if (row.sec != null && full > 0) {
-          row.timeCost = (row.sec + row.setupSec) / 3600 * full * mult;   // времето за 1 детайл покрива всички огъвки
-          row.laborCost = (row.sec + row.setupSec) / 3600 * labor * mult;
-          row.machineCost = (row.sec + row.setupSec) / 3600 * mRate * mult;
-          row.overheadCost = (row.sec + row.setupSec) / 3600 * overhead * mult;
-          row.cost = row.timeCost;
-        } else {
-          row.cost = row.recipeCost; row.laborCost = 0; row.machineCost = 0; row.overheadCost = 0; row.timeCost = null;
-        }
-        ops.push(row); node.ops++;
-        if (!ws) check("warn", `${row.node} · ${row.op}`, "операцията няма цех — няма ставка");
-        else if (!rate || !(rate.full > 0)) check("warn", `${row.node} · ${row.op}`, `няма ставка за цех „${ws}" в „Разходи и ставки"`);
-        if (row.sourceLvl === 1) check("info", `${row.node} · ${row.op}`, "няма измерено време за този детайл — ползва се средното за операцията от други детайли");
-        else if (row.sourceLvl === 2) check("warn", `${row.node} · ${row.op}`, "няма измерено време — ползва се цената от рецептата");
-        else if (row.sourceLvl === 3) check("bad", `${row.node} · ${row.op}`, "няма нито време, нито цена в рецептата — операцията влиза с 0 €");
-        if (row.sourceLvl === 0 && row.n < 3) check("info", `${row.node} · ${row.op}`, `само ${row.n} измерване${row.n === 1 ? "" : "ния"} — времето не е надеждно още`);
-        if (row.sourceLvl <= 1 && machine && rate && typeof COST_CFG !== "undefined" && COST_CFG && !(COST_CFG.machineAlias || {})[machine] && R.machineRate[machine] == null)
-          check("info", `${row.node} · ${row.op}`, `машина „${machine}" не е свързана с ред от разходите — ползва се средната машинна ставка на цеха`);
+        // Събираме по детайл+операция: един детайл, влизащ през два възела
+        // (напр. Винкел в ляв и десен механизъм), е ЕДИН ред с общата бройка.
+        const key = (node.code || node.name) + "¦" + l.operation_id;
+        const g = opAgg[key] || (opAgg[key] = { node, l, mult: 0 });
+        g.mult += mult; node.ops++;
       } else if (l.child_product_id && !anc.has(l.child_product_id)) {
         node.children++;
         walk(l.child_product_id, mult * (q || 1), new Set([...anc, l.child_product_id]), depth + 1, node.code || node.name);
       }
     });
   })(pid, 1, new Set([pid]), 0, "");
+
+  Object.values(opAgg).forEach(({ node, l, mult }) => {
+    const q = Number(l.quantity) || 0;
+    const op = ERP.opById[l.operation_id] || {};
+    const ws = route(op);
+    const perUnit = q || 1;   // технологичен множител (напр. 4 огъвки) — за цената по рецепта
+    const unitCost = (typeof erpOpLinePrice === "function") ? erpOpLinePrice(l) : (Number(op.unit_cost) || 0);
+    const md = T.detailOp(node.code, op.name);
+    const mo = md && md.n ? null : T.op(op.name);
+    const meas = (md && md.n) ? md : ((mo && mo.n) ? mo : null);
+    const rate = R.rate[ws] || null;
+    const machine = meas ? meas.machine : "";
+    const mRate = rate ? ((typeof erpMachineRateFor === "function") ? erpMachineRateFor(machine, ws, R) : rate.machine) : 0;
+    const labor = rate ? rate.labor : 0, overhead = R.overheadRate || 0;
+    const full = labor + mRate + overhead;
+    const row = {
+      node: node.code || node.name, nodeName: node.name, mult, op: op.name || "", ws, perUnit,
+      unitCost, recipeCost: perUnit * unitCost * mult,
+      machine, labor, mRate, overhead, full,
+      sec: meas ? meas.avg : null, setupSec: meas ? meas.setupPerPiece : 0,
+      n: meas ? meas.n : 0, pieces: meas ? meas.pieces : 0, last: meas ? meas.last : "",
+      source: (md && md.n) ? "измерено за детайла" : ((mo && mo.n) ? "средно за операцията (друг детайл)" : (unitCost > 0 ? "рецепта (ставка на операцията)" : "няма данни")),
+      sourceLvl: (md && md.n) ? 0 : ((mo && mo.n) ? 1 : (unitCost > 0 ? 2 : 3)),
+    };
+    if (row.sec != null && full > 0) {
+      const h = (row.sec + row.setupSec) / 3600 * mult;   // времето за 1 детайл покрива всички огъвки
+      row.timeCost = h * full; row.laborCost = h * labor; row.machineCost = h * mRate; row.overheadCost = h * overhead;
+      row.cost = row.timeCost;
+    } else {
+      row.cost = row.recipeCost; row.laborCost = 0; row.machineCost = 0; row.overheadCost = 0; row.timeCost = null;
+    }
+    ops.push(row);
+    if (!ws) check("warn", `${row.node} · ${row.op}`, "операцията няма цех — няма ставка");
+    else if (!rate || !(rate.full > 0)) check("warn", `${row.node} · ${row.op}`, `няма ставка за цех „${ws}" в „Разходи и ставки"`);
+    if (row.sourceLvl === 1) check("info", `${row.node} · ${row.op}`, "няма измерено време за този детайл — ползва се средното за операцията от други детайли");
+    else if (row.sourceLvl === 2) check("warn", `${row.node} · ${row.op}`, "няма измерено време — ползва се цената от рецептата");
+    else if (row.sourceLvl === 3) check("bad", `${row.node} · ${row.op}`, "няма нито време, нито цена в рецептата — операцията влиза с 0 €");
+    if (row.sourceLvl === 0 && row.n < 3) check("info", `${row.node} · ${row.op}`, `само ${row.n} измерване${row.n === 1 ? "" : "ния"} — времето не е надеждно още`);
+    if (row.sourceLvl <= 1 && machine && rate && typeof COST_CFG !== "undefined" && COST_CFG && !(COST_CFG.machineAlias || {})[machine] && R.machineRate[machine] == null)
+      check("info", `${row.node} · ${row.op}`, `машина „${machine}" не е свързана с ред от разходите — ползва се средната машинна ставка на цеха`);
+  });
+  // Редът на операциите: по реда на възлите в дървото, после по позиция в рецептата.
+  const nodeOrder = {}; nodes.forEach((n, i) => { nodeOrder[n.code || n.name] = i; });
+  ops.sort((a, b) => (nodeOrder[a.node] - nodeOrder[b.node]) || 0);
 
   const matRows = Object.values(mats).map(g => {
     const lp = csLastPurchase(g.mid);
@@ -205,10 +320,14 @@ function csBuild(pid, clientName) {
   if (!sale) check("warn", "Продажна цена", `няма цена за ${clientName || "клиента"} — нито в ценова листа, нито в заявка`);
   else if (sale.source.startsWith("заявка на друг")) check("info", "Продажна цена", `ползва се цена от ${sale.source} (${sale.client}) — за ${clientName || "клиента"} няма собствена`);
   if (recipe > 0 && real > 0 && Math.abs(real - recipe) / recipe > 0.25) check("info", "Рецепта ↔ реално", `рецептната себестойност ${erpEur(recipe)} и реалната ${erpEur(real)} се разминават с ${Math.round(Math.abs(real - recipe) / recipe * 100)}%`);
+  // ➕ Допълнителните разходи (боя, опаковка, транспорт, консумативи, брак, административни).
+  const ex = csExtras(pid, clientName, { mat: T_mat + T_manual, ops, real, codes: nodes.map(n => n.code) });
+  ex.checks.forEach(k => checks.push(k));
+  const realFull = real + ex.total;
   const order = { bad: 0, warn: 1, info: 2 };
   checks.sort((a, b) => order[a.level] - order[b.level]);
-  return { pid, clientName, mats: matRows, ops, nodes, checks, R,
-    totals: { mat: T_mat, manual: T_manual, labor: T_labor, mach: T_mach, over: T_over, opsRecipe: T_opsRecipe, ops: T_ops, real, recipe, manualTop, measured, opsN },
+  return { pid, clientName, mats: matRows, ops, nodes, checks, R, extras: ex,
+    totals: { mat: T_mat, manual: T_manual, labor: T_labor, mach: T_mach, over: T_over, opsRecipe: T_opsRecipe, ops: T_ops, realBase: real, extras: ex.total, real: realFull, recipe, manualTop, measured, opsN },
     sale };
 }
 
@@ -295,6 +414,8 @@ async function erpRenderCostSheet() {
     v.querySelector("#cs-xls").addEventListener("click", () => csExport(calc, "xls"));
     v.querySelector("#cs-print").addEventListener("click", () => csExport(calc, "print"));
     body.querySelectorAll("[data-cs-open]").forEach(b => b.addEventListener("click", () => { CS.pid = Number(b.dataset.csOpen); erpRenderCostSheet(); }));
+    const xs = body.querySelector("#cs-x-save");
+    if (xs) xs.addEventListener("click", async () => { xs.disabled = true; if (await csSaveExtrasFromForm(body, CS.pid)) erpRenderCostSheet(); else xs.disabled = false; });
   } else {
     const list = csClientProducts(CS.client);
     const calcs = list.map(p => ({ p, c: csBuild(p.id, CS.client) }));
@@ -321,7 +442,7 @@ function csListHtml(calcs) {
       <div class="fin-card"><div class="fin-card-l">🟠 предупреждения</div><div class="fin-card-v">${T.warn}</div></div>
     </div>
     <table class="report-table erp-table fin-table">
-      <thead><tr><th>Код</th><th>Изделие</th><th class="num">Материали</th><th class="num">Операции</th><th class="num">Реална себест.</th><th class="num">Рецептна</th><th class="num">Продажна цена</th><th class="num">Маржин %</th><th class="num">Времена</th><th>Проверки</th><th></th></tr></thead>
+      <thead><tr><th>Код</th><th>Изделие</th><th class="num">Материали</th><th class="num">Операции</th><th class="num">Допълн.</th><th class="num">Реална себест.</th><th class="num">Рецептна</th><th class="num">Продажна цена</th><th class="num">Маржин %</th><th class="num">Времена</th><th>Проверки</th><th></th></tr></thead>
       <tbody>${calcs.map(({ p, c }) => {
         const t = c.totals; const price = c.sale ? c.sale.price : 0; const pct = csPct(t.real, price);
         const bad = c.checks.filter(k => k.level === "bad").length, warn = c.checks.filter(k => k.level === "warn").length;
@@ -330,10 +451,11 @@ function csListHtml(calcs) {
           <td data-label="Изделие">${escapeHtml(p.name || "")}</td>
           <td class="num" data-label="Материали">${erpEur(t.mat + t.manual)}</td>
           <td class="num" data-label="Операции">${erpEur(t.ops)}</td>
+          <td class="num" data-label="Допълнителни">${erpEur(t.extras)}</td>
           <td class="num" data-label="Реална"><b>${erpEur(t.real)}</b></td>
           <td class="num" data-label="Рецептна">${erpEur(t.recipe)}</td>
           <td class="num" data-label="Цена">${price > 0 ? erpEur(price) + (c.sale.currency && c.sale.currency !== "EUR" ? " " + escapeHtml(c.sale.currency) : "") : "—"}${c.sale ? `<div class="erp-muted" style="font-size:11px">${escapeHtml(c.sale.source)}</div>` : ""}</td>
-          <td class="num ${csPctCls(pct)}" data-label="Маржин %">${pct == null ? "—" : erpNum(pct) + " %"}</td>
+          <td class="num ${csPctCls(pct)}" data-label="Маржин %">${pct == null ? "—" : erpNum(Math.round(pct * 10) / 10) + " %"}</td>
           <td class="num" data-label="Времена" title="Операции с измерено време за самия детайл / всички операции">${t.measured}/${t.opsN}</td>
           <td data-label="Проверки">${bad ? `<span class="fin-neg">🔴 ${bad}</span> ` : ""}${warn ? `<span>🟠 ${warn}</span>` : ""}${!bad && !warn ? `<span class="fin-good">✓</span>` : ""}</td>
           <td class="erp-row-actions"><button class="btn btn-small" data-cs-open="${p.id}">🧾</button></td>
@@ -360,14 +482,21 @@ function csSheetHtml(c) {
       <div class="fin-card"><div class="fin-card-l">Машини</div><div class="fin-card-v">${erpEur(t.mach)}</div></div>
       <div class="fin-card"><div class="fin-card-l">Режийни</div><div class="fin-card-v">${erpEur(t.over)}</div></div>
       ${t.opsRecipe ? `<div class="fin-card"><div class="fin-card-l">Операции без време (по рецепта)</div><div class="fin-card-v">${erpEur(t.opsRecipe)}</div></div>` : ""}
-      <div class="fin-card" style="border-color:#0f766e"><div class="fin-card-l">РЕАЛНА себестойност</div><div class="fin-card-v">${erpEur(t.real)}</div><div class="erp-muted" style="font-size:11px">рецептна: ${erpEur(t.recipe)}</div></div>
+      <div class="fin-card"><div class="fin-card-l">➕ Допълнителни (боя, опаковка, транспорт…)</div><div class="fin-card-v">${erpEur(t.extras)}</div></div>
+      <div class="fin-card" style="border-color:#0f766e"><div class="fin-card-l">РЕАЛНА себестойност</div><div class="fin-card-v">${erpEur(t.real)}</div><div class="erp-muted" style="font-size:11px">производство ${erpEur(t.realBase)} · рецептна: ${erpEur(t.recipe)}</div></div>
       <div class="fin-card"><div class="fin-card-l">Продажна цена${c.sale ? ` <span class="erp-muted">(${escapeHtml(c.sale.source)})</span>` : ""}</div><div class="fin-card-v">${price > 0 ? erpEur(price) : "—"}</div></div>
-      <div class="fin-card"><div class="fin-card-l">Маржин (реален / по рецепта)</div><div class="fin-card-v ${csPctCls(pct)}">${pct == null ? "—" : erpNum(pct) + " %"} <span class="erp-muted" style="font-size:12px">/ ${pctR == null ? "—" : erpNum(pctR) + " %"}</span></div>${price > 0 ? `<div class="erp-muted" style="font-size:11px">${erpEur(price - t.real)} на брой</div>` : ""}</div>
+      <div class="fin-card"><div class="fin-card-l">Маржин (реален / по рецепта)</div><div class="fin-card-v ${csPctCls(pct)}">${pct == null ? "—" : erpNum(Math.round(pct * 10) / 10) + " %"} <span class="erp-muted" style="font-size:12px">/ ${pctR == null ? "—" : erpNum(Math.round(pctR * 10) / 10) + " %"}</span></div>${price > 0 ? `<div class="erp-muted" style="font-size:11px">${erpEur(price - t.real)} на брой</div>` : ""}</div>
       <div class="fin-card"><div class="fin-card-l">Покритие с времена</div><div class="fin-card-v">${t.measured}/${t.opsN}</div></div>
     </div>
 
     <h4 class="erp-group-head">🔍 Проверки (${c.checks.length})</h4>
-    ${c.checks.length ? `<ul class="cs-checks">${c.checks.map(k => `<li>${csLvlIcon(k.level)} <b>${escapeHtml(k.what)}</b> — ${escapeHtml(k.why)}</li>`).join("")}</ul>` : `<p class="fin-good">✓ Всичко е налице: материалите имат цени, всички операции имат измерено време и ставка, има продажна цена.</p>`}
+    ${(function () {
+      const li = k => `<li>${csLvlIcon(k.level)} <b>${escapeHtml(k.what)}</b> — ${escapeHtml(k.why)}</li>`;
+      const hard = c.checks.filter(k => k.level !== "info"), soft = c.checks.filter(k => k.level === "info");
+      if (!c.checks.length) return `<p class="fin-good">✓ Всичко е налице: материалите имат цени, всички операции имат измерено време и ставка, има продажна цена.</p>`;
+      return (hard.length ? `<ul class="cs-checks">${hard.map(li).join("")}</ul>` : `<p class="fin-good" style="margin:0 0 6px">✓ Няма критични пропуски.</p>`)
+        + (soft.length ? `<details class="cs-more"><summary>🔵 Още ${soft.length} бележки (по-точни времена, връзки на машини, сверки на цени)</summary><ul class="cs-checks">${soft.map(li).join("")}</ul></details>` : "");
+    })()}
 
     <h4 class="erp-group-head">⚙️ Операции (за 1 бр. изделие)</h4>
     <table class="report-table erp-table">
@@ -402,6 +531,9 @@ function csSheetHtml(c) {
       <tfoot><tr><td colspan="7" style="text-align:right"><b>Общо материали</b></td><td class="num"><b>${erpEur(t.mat + t.manual)}</b></td></tr></tfoot>
     </table>
 
+    <h4 class="erp-group-head">➕ Допълнителни разходи (за 1 бр. изделие)</h4>
+    ${csExtrasHtml(c)}
+
     <h4 class="erp-group-head">🌳 Рецептно дърво</h4>
     <table class="report-table erp-table">
       <thead><tr><th>Възел</th><th class="num">бр. за 1 изд.</th><th class="num">операции</th><th class="num">материали</th><th class="num">под-възли</th><th></th></tr></thead>
@@ -421,10 +553,12 @@ function csSections(c) {
     { title: "Обобщение", headers: [{ label: "Показател" }, { label: "Стойност", num: true }], rows: [
       ["Изделие", `${p.code || ""} ${p.name || ""}`], ["Клиент", c.clientName || "—"],
       ["Материали (+ покупни части)", erpEur(t.mat + t.manual)], ["Труд", erpEur(t.labor)], ["Машини", erpEur(t.mach)], ["Режийни", erpEur(t.over)],
-      ["Операции без време (по рецепта)", erpEur(t.opsRecipe)], ["РЕАЛНА себестойност", erpEur(t.real)], ["Рецептна себестойност", erpEur(t.recipe)],
-      ["Продажна цена", price > 0 ? erpEur(price) + " (" + (c.sale.source || "") + ")" : "—"], ["Маржин %", pct == null ? "—" : erpNum(pct) + " %"],
+      ["Операции без време (по рецепта)", erpEur(t.opsRecipe)], ["Производствена себестойност", erpEur(t.realBase)],
+      ["Допълнителни (боя, опаковка, транспорт, консумативи, брак, адм.)", erpEur(t.extras)], ["РЕАЛНА себестойност", erpEur(t.real)], ["Рецептна себестойност", erpEur(t.recipe)],
+      ["Продажна цена", price > 0 ? erpEur(price) + " (" + (c.sale.source || "") + ")" : "—"], ["Маржин %", pct == null ? "—" : erpNum(Math.round(pct * 10) / 10) + " %"],
       ["Покритие с времена", `${t.measured}/${t.opsN}`],
     ] },
+    { title: "Допълнителни разходи", headers: [{ label: "Разход" }, { label: "Как е сметнат" }, { label: "Източник" }, { label: "€/изд.", num: true }], rows: c.extras.rows.map(r => [r.label, r.how, r.source, erpNum(Math.round(r.cost * 100) / 100)]) },
     { title: "Проверки", headers: [{ label: "Ниво" }, { label: "Какво" }, { label: "Защо" }], rows: c.checks.map(k => [k.level === "bad" ? "критично" : (k.level === "warn" ? "внимание" : "инфо"), k.what, k.why]) },
     { title: "Операции", headers: [{ label: "Детайл" }, { label: "бр./изд.", num: true }, { label: "Операция" }, { label: "Цех" }, { label: "Машина" }, { label: "Време/бр. (с)", num: true }, { label: "Настройка/бр. (с)", num: true }, { label: "Ставка €/ч", num: true }, { label: "Измервания", num: true }, { label: "Източник" }, { label: "€/изд.", num: true }],
       rows: c.ops.map(r => [r.node, erpNum(r.mult), r.op + (r.perUnit > 1 ? " ×" + r.perUnit : ""), r.ws, r.machine, r.sec == null ? "" : erpNum(Math.round(r.sec)), r.setupSec ? erpNum(Math.round(r.setupSec)) : "", r.full > 0 ? erpNum(Math.round(r.full * 100) / 100) : "", r.n || "", r.source, erpNum(Math.round(r.cost * 100) / 100)]) },
@@ -447,4 +581,46 @@ function csExportList(calcs, print) {
   const sections = [{ title, headers, rows }];
   if (print) { if (typeof reportOpenView === "function") reportOpenView(title, sections); return; }
   if (typeof reportExportXls === "function") reportExportXls(`sebestoynosti-${(CS.client || "vsichki").replace(/[^a-zA-Zа-яА-Я0-9]+/g, "_")}`, title, sections);
+}
+
+/* ---------- ➕ Допълнителни разходи: изглед и запис ---------- */
+function csExtrasHtml(c) {
+  const ex = c.extras, o = ex.override || {}, P = ex.params;
+  const val = v => (v === "" || v == null) ? "" : escapeAttr(String(v));
+  const inp = (key, ph, w) => `<input type="number" step="any" min="0" class="cs-x" data-cs-x="${key}" value="${val(o[key])}" placeholder="${escapeAttr(ph)}" style="width:${w || 90}px" />`;
+  let packInfo = `Няма спецификация в таб „Опаковки" за този клиент и код — попълни я там и опаковката и транспортът ще се сметнат сами.`;
+  if (ex.spec) {
+    packInfo = `Опаковка от таб „Опаковки": <b>` + erpNum(ex.spec.piecesPerBox || 0) + " бр./кашон</b>";
+    if (ex.spec.boxesPerPallet) packInfo += " · <b>" + erpNum(ex.spec.boxesPerPallet) + " кашона/палет</b> · " + erpNum(ex.palletPieces) + " бр./палет";
+  }
+  return `
+    <table class="report-table erp-table">
+      <thead><tr><th>Разход</th><th>Как е сметнат</th><th>Източник</th><th class="num">€ / изд.</th></tr></thead>
+      <tbody>${ex.rows.map(r => `<tr><td><b>${escapeHtml(r.label)}</b></td><td>${escapeHtml(r.how)}</td><td class="erp-muted" style="font-size:12px">${escapeHtml(r.source)}</td><td class="num"><b>${erpEur(r.cost)}</b></td></tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма допълнителни разходи.</td></tr>`}</tbody>
+      <tfoot><tr><td colspan="3" style="text-align:right"><b>Общо допълнителни</b></td><td class="num"><b>${erpEur(ex.total)}</b></td></tr></tfoot>
+    </table>
+    <div class="cs-extras-edit">
+      <div class="cs-extras-col">
+        <h5>За това изделие</h5>
+        <label>Боядисана площ, м²/изделие ${inp("paintM2", ex.hasPaint ? "напр. 0,85" : "няма боя в рецептата")}</label>
+        <label>Боя €/м² само за това изделие ${inp("paintEurM2", "общо: " + erpNum(P.paintEurM2))}</label>
+        <label>Опаковка €/бр. (ръчно, вместо от „Опаковки") ${inp("packEur", ex.spec ? "авто от Опаковки" : "напр. 0,40")}</label>
+        <label>Транспорт €/бр. (ръчно) ${inp("transportEur", ex.palletPieces ? "авто: €/палет ÷ " + ex.palletPieces : "напр. 0,60")}</label>
+        <label>Брак % само за това изделие ${inp("scrapPct", "общо: " + erpNum(P.scrapPct))}</label>
+        <p class="hint" style="margin:4px 0 0">${packInfo}</p>
+      </div>
+      <div class="cs-extras-col">
+        <h5>Общи параметри (за всички изделия)</h5>
+        ${CS_PARAM_LABELS.map(([k, l, hint]) => `<label>${escapeHtml(l)} <input type="number" step="any" min="0" class="cs-p" data-cs-p="${k}" value="${escapeAttr(String(P[k] != null ? P[k] : ""))}" style="width:90px" />${hint ? `<span class="erp-muted" style="font-size:11px"> ${escapeHtml(hint)}</span>` : ""}</label>`).join("")}
+      </div>
+    </div>
+    <div class="erp-co-linebar"><button class="btn btn-small btn-primary" id="cs-x-save">💾 Запази допълнителните разходи</button><span class="erp-muted" style="font-size:12px">Празно поле за изделието = ползва се общият параметър / автоматичната сметка.</span></div>`;
+}
+async function csSaveExtrasFromForm(root, pid) {
+  await csLoadExtras();
+  const o = {};
+  root.querySelectorAll(".cs-x").forEach(i => { const v = String(i.value).trim(); if (v !== "") o[i.dataset.csX] = Number(v.replace(",", ".")) || 0; });
+  root.querySelectorAll(".cs-p").forEach(i => { const v = String(i.value).trim(); if (v !== "") CS_EXTRAS.params[i.dataset.csP] = Number(v.replace(",", ".")) || 0; });
+  if (Object.keys(o).length) CS_EXTRAS.byProduct[String(pid)] = o; else delete CS_EXTRAS.byProduct[String(pid)];
+  return csSaveExtras();
 }
