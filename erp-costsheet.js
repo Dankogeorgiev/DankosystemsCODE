@@ -34,7 +34,28 @@ async function csEnsureData() {
   try { if (typeof loadProdLog === "function" && (typeof PROD_LOG === "undefined" || !PROD_LOG || !PROD_LOG.length)) await loadProdLog(); } catch (e) {}
   try { if (typeof tLoadTasks === "function" && (typeof TASKS === "undefined" || !TASKS || !TASKS.length)) await tLoadTasks(); } catch (e) {}
   await csLoadExtras();
+  await csLoadNorms();
 }
+
+/* ---------- ✎ Норми (ръчно зададени време/машина за детайл+операция) ----------
+   Когато измереното време е сгрешено/липсва, тук се задава нормовреме и/или
+   машина — калкулацията ги ползва вместо измереното. app_config id="cost_norms". */
+let CS_NORMS = null;
+async function csLoadNorms() {
+  if (CS_NORMS) return CS_NORMS;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "cost_norms").maybeSingle();
+    CS_NORMS = (data && data.data) || {};
+  } catch (e) { CS_NORMS = {}; }
+  CS_NORMS.byKey = CS_NORMS.byKey || {};
+  return CS_NORMS;
+}
+async function csSaveNorms() {
+  const { error } = await sb.from("app_config").upsert({ id: "cost_norms", data: CS_NORMS, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на нормите: " + error.message); return false; }
+  return true;
+}
+function csNormKey(code, op) { return csNorm(code) + "¦" + csNorm(op); }
 
 /* ---------- ➕ Допълнителни разходи (извън рецептата) ----------
    Общи параметри (за всички изделия) + стойности за конкретното изделие.
@@ -238,8 +259,9 @@ function csBuild(pid, clientName) {
       if (l.material_id) {
         const m = ERP.matById[l.material_id] || {};
         const key = String(l.material_id);
-        const g = mats[key] || (mats[key] = { mid: l.material_id, code: m.code || "", name: m.name || ("#" + l.material_id), unit: l.unit || m.unit || "", avg: Number(m.avg_cost) || 0, qty: 0, usedIn: new Set() });
+        const g = mats[key] || (mats[key] = { mid: l.material_id, code: m.code || "", name: m.name || ("#" + l.material_id), unit: l.unit || m.unit || "", avg: Number(m.avg_cost) || 0, qty: 0, usedIn: new Set(), lines: [] });
         g.qty += q * mult; g.usedIn.add(node.code || node.name); node.mats++;
+        g.lines.push({ id: l.id, qty: q, node: node.code || node.name, mult });
       } else if (l.operation_id) {
         // Събираме по детайл+операция: един детайл, влизащ през два възела
         // (напр. Винкел в ляв и десен механизъм), е ЕДИН ред с общата бройка.
@@ -263,18 +285,25 @@ function csBuild(pid, clientName) {
     const mo = md && md.n ? null : T.op(op.name);
     const meas = (md && md.n) ? md : ((mo && mo.n) ? mo : null);
     const rate = R.rate[ws] || null;
-    const machine = meas ? meas.machine : "";
+    const nkey = csNormKey(node.code, op.name);
+    const nm = (CS_NORMS && CS_NORMS.byKey && CS_NORMS.byKey[nkey]) || null;
+    const normSec = nm && Number(nm.sec) > 0 ? Number(nm.sec) : null;
+    const machine = (nm && nm.machine) ? nm.machine : (meas ? meas.machine : "");
     const mRate = rate ? ((typeof erpMachineRateFor === "function") ? erpMachineRateFor(machine, ws, R) : rate.machine) : 0;
     const labor = rate ? rate.labor : 0, overhead = R.overheadRate || 0;
     const full = labor + mRate + overhead;
     const row = {
       node: node.code || node.name, nodeName: node.name, mult, op: op.name || "", ws, perUnit,
       unitCost, recipeCost: perUnit * unitCost * mult,
+      lineId: l.id, lineCost: (typeof erpLineCostOf === "function") ? erpLineCostOf(l.id) : null, opUnitCost: Number(op.unit_cost) || 0,
+      key: nkey, norm: nm || null, measSec: meas ? meas.avg : null, measSetup: meas ? meas.setupPerPiece : 0, measMachine: meas ? meas.machine : "",
       machine, labor, mRate, overhead, full,
-      sec: meas ? meas.avg : null, setupSec: meas ? meas.setupPerPiece : 0,
+      sec: normSec != null ? normSec : (meas ? meas.avg : null),
+      setupSec: normSec != null ? (Number(nm.setupSec) || 0) : (meas ? meas.setupPerPiece : 0),
       n: meas ? meas.n : 0, pieces: meas ? meas.pieces : 0, last: meas ? meas.last : "",
-      source: (md && md.n) ? "измерено за детайла" : ((mo && mo.n) ? "средно за операцията (друг детайл)" : (unitCost > 0 ? "рецепта (ставка на операцията)" : "няма данни")),
-      sourceLvl: (md && md.n) ? 0 : ((mo && mo.n) ? 1 : (unitCost > 0 ? 2 : 3)),
+      source: normSec != null ? "норма (зададена ръчно)" : ((md && md.n) ? "измерено за детайла" : ((mo && mo.n) ? "средно за операцията (друг детайл)" : (unitCost > 0 ? "рецепта (ставка на операцията)" : "няма данни"))),
+      sourceLvl: normSec != null ? 0 : ((md && md.n) ? 0 : ((mo && mo.n) ? 1 : (unitCost > 0 ? 2 : 3))),
+      isNorm: normSec != null,
     };
     if (row.sec != null && full > 0) {
       const h = (row.sec + row.setupSec) / 3600 * mult;   // времето за 1 детайл покрива всички огъвки
@@ -289,7 +318,7 @@ function csBuild(pid, clientName) {
     if (row.sourceLvl === 1) check("info", `${row.node} · ${row.op}`, "няма измерено време за този детайл — ползва се средното за операцията от други детайли");
     else if (row.sourceLvl === 2) check("warn", `${row.node} · ${row.op}`, "няма измерено време — ползва се цената от рецептата");
     else if (row.sourceLvl === 3) check("bad", `${row.node} · ${row.op}`, "няма нито време, нито цена в рецептата — операцията влиза с 0 €");
-    if (row.sourceLvl === 0 && row.n < 3) check("info", `${row.node} · ${row.op}`, `само ${row.n} измерване${row.n === 1 ? "" : "ния"} — времето не е надеждно още`);
+    if (row.sourceLvl === 0 && !row.isNorm && row.n < 3) check("info", `${row.node} · ${row.op}`, `само ${row.n} измерване${row.n === 1 ? "" : "ния"} — времето не е надеждно още (задай норма в ✎ Редакция)`);
     if (row.sourceLvl <= 1 && machine && rate && typeof COST_CFG !== "undefined" && COST_CFG && !(COST_CFG.machineAlias || {})[machine] && R.machineRate[machine] == null)
       check("info", `${row.node} · ${row.op}`, `машина „${machine}" не е свързана с ред от разходите — ползва се средната машинна ставка на цеха`);
   });
@@ -385,6 +414,7 @@ async function erpRenderCostSheet() {
         <datalist id="cs-prod-list">${prodOpts.map(p => `<option value="${escapeAttr((p.code ? p.code + " · " : "") + (p.name || ""))}"></option>`).join("")}</datalist></label>
       <button class="btn btn-small ${CS.view === "list" ? "btn-primary" : ""}" id="cs-view-list" title="Всички изделия на избрания клиент — рецептна и реална себестойност, цена, маржин">📋 Изделията на клиента</button>
       <button class="btn btn-small ${CS.view === "sheet" ? "btn-primary" : ""}" id="cs-view-sheet" title="Пълна калкулация на избраното изделие">🧾 Калкулация</button>
+      ${CS.view === "sheet" ? `<button class="btn btn-small ${CS.edit ? "btn-primary" : ""}" id="cs-edit" title="Коригирай направо тук: нормовреме и машина на операция, цена на операцията в рецептата, средна цена и количество на материал, продажна цена, ръчна себестойност">✎ Редакция</button>` : ""}
       <span class="spacer"></span>
       <button class="btn btn-small" id="cs-refresh" title="Презарежда времената и цените">🔄 Опресни</button>
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
@@ -403,6 +433,8 @@ async function erpRenderCostSheet() {
   v.querySelector("#cs-prod").addEventListener("change", e => { const p = pickProduct(e.target.value); if (p) { CS.pid = p.id; CS.view = "sheet"; erpRenderCostSheet(); } });
   v.querySelector("#cs-view-list").addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
   v.querySelector("#cs-view-sheet").addEventListener("click", () => { CS.view = "sheet"; erpRenderCostSheet(); });
+  const edBtn = v.querySelector("#cs-edit");
+  if (edBtn) edBtn.addEventListener("click", () => { CS.edit = !CS.edit; erpRenderCostSheet(); });
   v.querySelector("#cs-refresh").addEventListener("click", async () => {
     try { if (typeof loadProdLog === "function") await loadProdLog(); if (typeof tLoadTasks === "function") await tLoadTasks(); if (typeof erpLoadAll === "function") await erpLoadAll(); if (typeof PL_CACHE !== "undefined") PL_CACHE = null; } catch (e) {}
     erpRenderCostSheet();
@@ -414,6 +446,7 @@ async function erpRenderCostSheet() {
     v.querySelector("#cs-xls").addEventListener("click", () => csExport(calc, "xls"));
     v.querySelector("#cs-print").addEventListener("click", () => csExport(calc, "print"));
     body.querySelectorAll("[data-cs-open]").forEach(b => b.addEventListener("click", () => { CS.pid = Number(b.dataset.csOpen); erpRenderCostSheet(); }));
+    csWireEdit(body, calc);
     const xs = body.querySelector("#cs-x-save");
     if (xs) xs.addEventListener("click", async () => { xs.disabled = true; if (await csSaveExtrasFromForm(body, CS.pid)) erpRenderCostSheet(); else xs.disabled = false; });
   } else {
@@ -476,6 +509,17 @@ function csSheetHtml(c) {
       <h3 style="margin:0">🧾 ${escapeHtml(p.code || "")} · ${escapeHtml(p.name || "")}</h3>
       <div class="erp-muted">Клиент: <b>${escapeHtml(c.clientName || "—")}</b> · база: 1 бр. · рецепта: ${c.nodes.length} възела, ${c.ops.length} операции, ${c.mats.length} материала${t.manualTop != null ? ` · ⚠ има ръчна себестойност ${erpEur(t.manualTop)}` : ""}</div>
     </div>
+    ${CS.edit ? `<div class="cs-editbar">
+      <b>✎ Режим редакция</b> — попълни каквото искаш да промениш и натисни „Запази". Празно поле = без промяна / връщане към автоматичното.
+      <div class="cs-editbar-row">
+        <label>Продажна цена за ${escapeHtml(c.clientName || "клиента")} (ценова листа) <input type="number" step="any" min="0" class="cs-e" data-f="price" data-init="" value="" placeholder="${price > 0 ? erpNum(price) : "—"}" style="width:90px" /> €</label>
+        <label>Ръчна себестойност на изделието <input type="number" step="any" min="0" class="cs-e" data-f="manual" data-init="${t.manualTop != null ? t.manualTop : ""}" value="${t.manualTop != null ? t.manualTop : ""}" placeholder="няма (смята се от рецептата)" style="width:110px" /> €</label>
+        <span class="spacer"></span>
+        <button class="btn btn-small" id="cs-e-apply" title="За всички операции с измерено време или норма: реалната цена (време × ставка) се записва като цена на операцията в рецептата на този детайл">📥 Реалните цени → рецептата</button>
+        <button class="btn btn-small btn-primary" id="cs-e-save">💾 Запази промените</button>
+      </div>
+      <datalist id="cs-machines">${((typeof erpVremenaMachines === "function") ? erpVremenaMachines() : []).map(m => `<option value="${escapeAttr(m)}"></option>`).join("")}</datalist>
+    </div>` : ""}
     <div class="fin-cards">
       <div class="fin-card"><div class="fin-card-l">Материали${t.manual ? " (+ покупни части)" : ""}</div><div class="fin-card-v">${erpEur(t.mat + t.manual)}</div></div>
       <div class="fin-card"><div class="fin-card-l">Труд</div><div class="fin-card-v">${erpEur(t.labor)}</div></div>
@@ -506,12 +550,16 @@ function csSheetHtml(c) {
         <td class="num">${erpNum(r.mult)}</td>
         <td>${escapeHtml(r.op)}${r.perUnit > 1 ? ` <span class="erp-muted">×${r.perUnit}</span>` : ""}</td>
         <td>${escapeHtml(r.ws || "—")}</td>
-        <td>${escapeHtml(r.machine || "—")}</td>
+        ${CS.edit ? `<td><input class="cs-e" data-f="machine" data-key="${escapeAttr(r.key)}" list="cs-machines" data-init="${escapeAttr((r.norm && r.norm.machine) || "")}" value="${escapeAttr((r.norm && r.norm.machine) || "")}" placeholder="${escapeAttr(r.measMachine || "—")}" style="width:130px" /></td>
+        <td class="num"><input type="number" step="any" min="0" class="cs-e" data-f="sec" data-key="${escapeAttr(r.key)}" data-init="${r.isNorm ? r.norm.sec : ""}" value="${r.isNorm ? r.norm.sec : ""}" placeholder="${r.measSec != null ? Math.round(r.measSec * 10) / 10 : "—"}" style="width:70px" title="Нормовреме за 1 бр., секунди (празно = измереното)" /> с</td>
+        <td class="num"><input type="number" step="any" min="0" class="cs-e" data-f="setupSec" data-key="${escapeAttr(r.key)}" data-init="${r.isNorm && r.norm.setupSec ? r.norm.setupSec : ""}" value="${r.isNorm && r.norm.setupSec ? r.norm.setupSec : ""}" placeholder="${r.measSetup ? Math.round(r.measSetup * 10) / 10 : "—"}" style="width:60px" title="Настройка, амортизирана за 1 бр., секунди" /> с</td>`
+        : `<td>${escapeHtml(r.machine || "—")}</td>
         <td class="num">${csSec(r.sec)}</td>
-        <td class="num">${r.setupSec ? csSec(r.setupSec) : "—"}</td>
+        <td class="num">${r.setupSec ? csSec(r.setupSec) : "—"}</td>`}
         <td class="num" title="${escapeAttr(rateTip(r))}">${r.full > 0 ? erpEur(r.full) : "—"}</td>
-        <td>${src(r)}</td>
-        <td class="num"><b>${erpEur(r.cost)}</b>${r.timeCost == null && r.recipeCost ? "" : (r.recipeCost && Math.abs(r.recipeCost - r.cost) > 0.005 ? `<div class="erp-muted" style="font-size:11px">рецепта ${erpEur(r.recipeCost)}</div>` : "")}</td>
+        <td>${r.isNorm ? `<span class="fin-good" title="Ръчно зададена норма">✎ норма</span>` : src(r)}</td>
+        <td class="num"><b>${erpEur(r.cost)}</b>${r.timeCost == null && r.recipeCost ? "" : (r.recipeCost && Math.abs(r.recipeCost - r.cost) > 0.005 ? `<div class="erp-muted" style="font-size:11px">рецепта ${erpEur(r.recipeCost)}</div>` : "")}
+          ${CS.edit ? `<div class="cs-e-line">рецепта: <input type="number" step="any" min="0" class="cs-e" data-f="lineCost" data-line="${r.lineId}" data-init="${r.lineCost != null ? r.lineCost : ""}" value="${r.lineCost != null ? r.lineCost : ""}" placeholder="${erpNum(Math.round(r.opUnitCost * 10000) / 10000)}" style="width:70px" title="Цена на 1 операция в рецептата на този детайл (празно = общата ставка на операцията ${erpNum(r.opUnitCost)} €)" /> €/оп.${r.timeCost != null ? ` <button type="button" class="btn btn-small cs-fill" data-line="${r.lineId}" data-val="${Math.round(r.timeCost / r.mult / r.perUnit * 10000) / 10000}" title="Вземи реалната цена (време × ставка) = ${erpEur(r.timeCost / r.mult / r.perUnit)} за 1 операция">⤵</button>` : ""}</div>` : ""}</td>
       </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Рецептата няма операции.</td></tr>`}</tbody>
       <tfoot><tr><td colspan="9" style="text-align:right"><b>Общо операции</b></td><td class="num"><b>${erpEur(t.ops)}</b></td></tr></tfoot>
     </table>
@@ -521,8 +569,8 @@ function csSheetHtml(c) {
       <thead><tr><th>Код</th><th>Материал</th><th class="num">Кол-во</th><th>Мярка</th><th class="num">Средна цена</th><th class="num">Последна покупка</th><th>Влага се в</th><th class="num">€ / изд.</th></tr></thead>
       <tbody>${c.mats.map(m => `<tr>
         <td>${escapeHtml(m.code)}</td><td>${escapeHtml(m.name)}</td>
-        <td class="num">${erpNum(m.qty)}</td><td>${escapeHtml(m.unit)}</td>
-        <td class="num ${m.avg > 0 ? "" : "fin-neg"}">${m.avg > 0 ? erpEur(m.avg) : "няма"}</td>
+        ${CS.edit && m.lines.length === 1 ? `<td class="num"><input type="number" step="any" min="0" class="cs-e" data-f="matQty" data-line="${m.lines[0].id}" data-init="${m.lines[0].qty}" value="${m.lines[0].qty}" style="width:80px" title="Количество в рецептата за 1 бр. ${escapeAttr(m.lines[0].node)}${m.lines[0].mult !== 1 ? " (× " + erpNum(m.lines[0].mult) + " в изделието)" : ""}" />${m.lines[0].mult !== 1 ? `<div class="erp-muted" style="font-size:11px">за 1 бр. ${escapeHtml(m.lines[0].node)}</div>` : ""}</td>` : `<td class="num">${erpNum(m.qty)}${CS.edit && m.lines.length > 1 ? `<div class="erp-muted" style="font-size:11px" title="Материалът е в ${m.lines.length} реда на рецептата — редактирай ги в Продукти">${m.lines.length} реда</div>` : ""}</td>`}<td>${escapeHtml(m.unit)}</td>
+        ${CS.edit ? `<td class="num"><input type="number" step="any" min="0" class="cs-e" data-f="matAvg" data-mat="${m.mid}" data-init="${m.avg || ""}" value="${m.avg || ""}" placeholder="няма" style="width:80px" title="Средна складова цена на материала (важи за всички изделия)" /> €</td>` : `<td class="num ${m.avg > 0 ? "" : "fin-neg"}">${m.avg > 0 ? erpEur(m.avg) : "няма"}</td>`}
         <td class="num">${m.lastPrice != null ? `${erpEur(m.lastPrice)}<div class="erp-muted" style="font-size:11px">${erpDMY(m.lastDate)}${m.supplier ? " · " + escapeHtml(m.supplier) : ""}</div>` : "—"}</td>
         <td class="erp-muted" style="font-size:12px">${escapeHtml(m.usedIn)}</td>
         <td class="num"><b>${erpEur(m.cost)}</b></td>
@@ -623,4 +671,82 @@ async function csSaveExtrasFromForm(root, pid) {
   root.querySelectorAll(".cs-p").forEach(i => { const v = String(i.value).trim(); if (v !== "") CS_EXTRAS.params[i.dataset.csP] = Number(v.replace(",", ".")) || 0; });
   if (Object.keys(o).length) CS_EXTRAS.byProduct[String(pid)] = o; else delete CS_EXTRAS.byProduct[String(pid)];
   return csSaveExtras();
+}
+
+/* ---------- ✎ Редакция: закачане и запис ---------- */
+function csWireEdit(body, c) {
+  if (!CS.edit) return;
+  body.querySelectorAll(".cs-fill").forEach(b => b.addEventListener("click", () => {
+    const inp = body.querySelector(`.cs-e[data-f="lineCost"][data-line="${b.dataset.line}"]`);
+    if (inp) { inp.value = b.dataset.val; inp.style.background = "#fef9c3"; }
+  }));
+  const applyBtn = body.querySelector("#cs-e-apply");
+  if (applyBtn) applyBtn.addEventListener("click", async () => {
+    const rows = c.ops.filter(r => r.timeCost != null && r.lineId);
+    if (!rows.length) { alert("Няма операции с измерено време или норма."); return; }
+    if (!confirm(`Ще запиша реалната цена (време × ставка) като цена на операцията в рецептата за ${rows.length} операции на това изделие.\nТова презаписва досегашните ръчни цени на тези редове. Да продължа?`)) return;
+    applyBtn.disabled = true;
+    for (const r of rows) await erpLineCostSave(r.lineId, Math.round(r.timeCost / r.mult / r.perUnit * 10000) / 10000);
+    alert(`Записани ${rows.length} цени в рецептата. Рецептната себестойност вече ги отразява.`);
+    erpRenderCostSheet();
+  });
+  const saveBtn = body.querySelector("#cs-e-save");
+  if (saveBtn) saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true; saveBtn.textContent = "Записва…";
+    try { const n = await csSaveEdits(body, c); alert(n ? `Записани ${n} промени.` : "Няма промени."); CS.edit = false; }
+    catch (e) { alert("Грешка при запис: " + (e.message || e)); }
+    erpRenderCostSheet();
+  });
+}
+async function csSaveEdits(body, c) {
+  const changed = [...body.querySelectorAll(".cs-e")].filter(i => String(i.value).trim() !== String(i.dataset.init || "").trim());
+  if (!changed.length) return 0;
+  const num = v => { const s = String(v).trim(); return s === "" ? null : (Number(s.replace(",", ".")) || 0); };
+  let n = 0, reloadErp = false, normsDirty = false;
+  await csLoadNorms();
+  for (const i of changed) {
+    const f = i.dataset.f, v = num(i.value);
+    if (f === "sec" || f === "setupSec" || f === "machine") {
+      const k = i.dataset.key; const cur = CS_NORMS.byKey[k] || {};
+      if (f === "machine") { const m = String(i.value).trim(); if (m) cur.machine = m; else delete cur.machine; }
+      else if (v != null && v > 0) cur[f] = v; else delete cur[f];
+      if (Object.keys(cur).length) CS_NORMS.byKey[k] = cur; else delete CS_NORMS.byKey[k];
+      normsDirty = true; n++;
+    } else if (f === "lineCost") {
+      await erpLineCostSave(Number(i.dataset.line), v); n++;
+    } else if (f === "matAvg") {
+      const { error } = await sb.from("materials").update({ avg_cost: v || 0 }).eq("id", Number(i.dataset.mat));
+      if (error) throw error; reloadErp = true; n++;
+    } else if (f === "matQty") {
+      if (v == null) continue;
+      const { error } = await sb.from("recipe_lines").update({ quantity: v }).eq("id", Number(i.dataset.line));
+      if (error) throw error; reloadErp = true; n++;
+    } else if (f === "manual") {
+      await erpManualCostSave(c.pid, v); n++;
+    } else if (f === "price") {
+      if (v == null) continue;
+      await csSavePrice(c.clientName, c.pid, v); n++;
+    }
+  }
+  if (normsDirty) await csSaveNorms();
+  if (reloadErp && typeof erpLoadAll === "function") await erpLoadAll();
+  return n;
+}
+// Записва продажна цена в ценовата листа на клиента (създава листа, ако няма).
+async function csSavePrice(clientName, pid, price) {
+  if (!clientName) throw new Error("Избери клиент, за да запишеш цена в ценовата му листа.");
+  await erpPLEnsureCache();
+  const cn = csNorm(clientName);
+  let d = Object.values(PL_CACHE || {}).find(x => csNorm(x.clientName) === cn);
+  if (!d) {
+    const { data } = await sb.from("partners").select("id,name").eq("kind", "client");
+    const pr = (data || []).find(x => csNorm(x.name) === cn);
+    if (!pr) throw new Error(`Няма ценова листа и няма партньор „${clientName}" (Клиенти/Доставчици) — създай клиента първо.`);
+    d = { clientId: pr.id, clientName: pr.name, entries: {} };
+  }
+  const entries = Object.assign({}, d.entries || {});
+  entries[String(pid)] = Object.assign({}, entries[String(pid)] || entries[pid] || { cname: "", currency: "EUR" }, { price });
+  const ok = await erpPLSave(d.clientId, d.clientName, entries);
+  if (!ok) throw new Error("Ценовата листа не се записа.");
+  await erpPLEnsureCache();
 }
