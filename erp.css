@@ -830,3 +830,12 @@ img.ai-doc-content { max-width: none; }
 .cs-editbar-row .spacer { flex: 1; }
 .cs-e-line { font-size: 11px; color: #64748b; margin-top: 3px; white-space: nowrap; }
 .erp-table input.cs-e { margin: 0; padding: 3px 6px; font-size: 13px; }
+/* Чертеж при посочване на кода (Себестойности) */
+.cs-code.has-draw { cursor: pointer; border-bottom: 1px dotted #2563eb; color: #1d4ed8; white-space: nowrap; }
+.cs-code.has-draw::after { content: " 📄"; font-size: 11px; }
+.cs-code.no-draw { color: inherit; }
+#cs-pop { position: fixed; z-index: 10050; width: 540px; max-width: calc(100vw - 16px); background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.25); padding: 8px; }
+#cs-pop .cs-pop-h { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: #475569; margin-bottom: 6px; }
+#cs-pop img { display: block; max-width: 520px; max-height: 400px; margin: 0 auto; border-radius: 6px; }
+#cs-pop iframe { display: block; width: 520px; max-width: 100%; height: 390px; border: 0; border-radius: 6px; background: #f8fafc; }
+#cs-pop .cs-pop-more, #cs-pop .cs-pop-other { font-size: 12px; color: #475569; margin-top: 6px; }

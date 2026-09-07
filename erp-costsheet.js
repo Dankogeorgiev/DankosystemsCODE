@@ -293,7 +293,7 @@ function csBuild(pid, clientName) {
     const labor = rate ? rate.labor : 0, overhead = R.overheadRate || 0;
     const full = labor + mRate + overhead;
     const row = {
-      node: node.code || node.name, nodeName: node.name, mult, op: op.name || "", ws, perUnit,
+      node: node.code || node.name, nodeName: node.name, nodePid: node.pid, mult, op: op.name || "", ws, perUnit,
       unitCost, recipeCost: perUnit * unitCost * mult,
       lineId: l.id, lineCost: (typeof erpLineCostOf === "function") ? erpLineCostOf(l.id) : null, opUnitCost: Number(op.unit_cost) || 0,
       key: nkey, norm: nm || null, measSec: meas ? meas.avg : null, measSetup: meas ? meas.setupPerPiece : 0, measMachine: meas ? meas.machine : "",
@@ -447,12 +447,14 @@ async function erpRenderCostSheet() {
     v.querySelector("#cs-print").addEventListener("click", () => csExport(calc, "print"));
     body.querySelectorAll("[data-cs-open]").forEach(b => b.addEventListener("click", () => { CS.pid = Number(b.dataset.csOpen); erpRenderCostSheet(); }));
     csWireEdit(body, calc);
+    csAttachDrawings(body, calc.nodes.map(n => n.pid));
     const xs = body.querySelector("#cs-x-save");
     if (xs) xs.addEventListener("click", async () => { xs.disabled = true; if (await csSaveExtrasFromForm(body, CS.pid)) erpRenderCostSheet(); else xs.disabled = false; });
   } else {
     const list = csClientProducts(CS.client);
     const calcs = list.map(p => ({ p, c: csBuild(p.id, CS.client) }));
     body.innerHTML = csListHtml(calcs);
+    csAttachDrawings(body, calcs.map(x => x.p.id));
     body.querySelectorAll("[data-cs-open]").forEach(b => b.addEventListener("click", () => { CS.pid = Number(b.dataset.csOpen); CS.view = "sheet"; erpRenderCostSheet(); }));
     v.querySelector("#cs-xls").addEventListener("click", () => csExportList(calcs));
     v.querySelector("#cs-print").addEventListener("click", () => csExportList(calcs, true));
@@ -480,7 +482,7 @@ function csListHtml(calcs) {
         const t = c.totals; const price = c.sale ? c.sale.price : 0; const pct = csPct(t.real, price);
         const bad = c.checks.filter(k => k.level === "bad").length, warn = c.checks.filter(k => k.level === "warn").length;
         return `<tr class="erp-clickable" data-cs-open="${p.id}">
-          <td data-label="Код"><b>${escapeHtml(p.code || "")}</b></td>
+          <td data-label="Код"><span class="cs-code" data-pid="${p.id}"><b>${escapeHtml(p.code || "")}</b></span></td>
           <td data-label="Изделие">${escapeHtml(p.name || "")}</td>
           <td class="num" data-label="Материали">${erpEur(t.mat + t.manual)}</td>
           <td class="num" data-label="Операции">${erpEur(t.ops)}</td>
@@ -506,7 +508,7 @@ function csSheetHtml(c) {
   const rateTip = r => `труд ${erpEur(r.labor)}/ч + машина ${erpEur(r.mRate)}/ч${r.machine ? " (" + r.machine + ")" : " (средно за цеха)"} + режийни ${erpEur(r.overhead)}/ч`;
   return `
     <div class="cs-head">
-      <h3 style="margin:0">🧾 ${escapeHtml(p.code || "")} · ${escapeHtml(p.name || "")}</h3>
+      <h3 style="margin:0">🧾 <span class="cs-code" data-pid="${c.pid}">${escapeHtml(p.code || "")}</span> · ${escapeHtml(p.name || "")}</h3>
       <div class="erp-muted">Клиент: <b>${escapeHtml(c.clientName || "—")}</b> · база: 1 бр. · рецепта: ${c.nodes.length} възела, ${c.ops.length} операции, ${c.mats.length} материала${t.manualTop != null ? ` · ⚠ има ръчна себестойност ${erpEur(t.manualTop)}` : ""}</div>
     </div>
     ${CS.edit ? `<div class="cs-editbar">
@@ -546,7 +548,7 @@ function csSheetHtml(c) {
     <table class="report-table erp-table">
       <thead><tr><th>Детайл</th><th class="num">бр./изд.</th><th>Операция</th><th>Цех</th><th>Машина</th><th class="num">Време/бр.</th><th class="num">Настройка/бр.</th><th class="num">Ставка €/ч</th><th>Източник</th><th class="num">€ / изд.</th></tr></thead>
       <tbody>${c.ops.map(r => `<tr>
-        <td title="${escapeAttr(r.nodeName)}">${escapeHtml(r.node)}</td>
+        <td title="${escapeAttr(r.nodeName)}"><span class="cs-code" data-pid="${r.nodePid}">${escapeHtml(r.node)}</span></td>
         <td class="num">${erpNum(r.mult)}</td>
         <td>${escapeHtml(r.op)}${r.perUnit > 1 ? ` <span class="erp-muted">×${r.perUnit}</span>` : ""}</td>
         <td>${escapeHtml(r.ws || "—")}</td>
@@ -586,7 +588,7 @@ function csSheetHtml(c) {
     <table class="report-table erp-table">
       <thead><tr><th>Възел</th><th class="num">бр. за 1 изд.</th><th class="num">операции</th><th class="num">материали</th><th class="num">под-възли</th><th></th></tr></thead>
       <tbody>${c.nodes.map(n => `<tr>
-        <td style="padding-left:${8 + n.depth * 18}px">${n.depth ? "↳ " : ""}<b>${escapeHtml(n.code)}</b> ${escapeHtml(n.name)}</td>
+        <td style="padding-left:${8 + n.depth * 18}px">${n.depth ? "↳ " : ""}<span class="cs-code" data-pid="${n.pid}"><b>${escapeHtml(n.code)}</b></span> ${escapeHtml(n.name)}</td>
         <td class="num">${erpNum(n.mult)}</td><td class="num">${n.ops || ""}</td><td class="num">${n.mats || ""}</td><td class="num">${n.children || ""}</td>
         <td class="erp-row-actions">${n.depth ? `<button class="btn btn-small" data-cs-open="${n.pid}" title="Калкулация само на този възел">🧾</button>` : ""}</td>
       </tr>`).join("")}</tbody>
@@ -749,4 +751,68 @@ async function csSavePrice(clientName, pid, price) {
   const ok = await erpPLSave(d.clientId, d.clientName, entries);
   if (!ok) throw new Error("Ценовата листа не се записа.");
   await erpPLEnsureCache();
+}
+
+/* ---------- 📄 Чертеж при посочване на кода ----------
+   Кодовете на детайлите са „живи": посочваш с мишката → изскача чертежът
+   (снимка или PDF) от products.drawings; клик → отваря го в нов раздел.
+   Чертежите се теглят лениво за възлите на екрана и се кешират. */
+let CS_DRAW = {};
+async function csAttachDrawings(body, pids) {
+  const want = [...new Set((pids || []).filter(Boolean).map(Number))].filter(id => CS_DRAW[id] === undefined);
+  if (want.length) {
+    try {
+      const { data } = await sb.from("products").select("id,drawings").in("id", want);
+      (data || []).forEach(r => { CS_DRAW[r.id] = Array.isArray(r.drawings) ? r.drawings.filter(d => d && d.url) : []; });
+    } catch (e) {}
+    want.forEach(id => { if (CS_DRAW[id] === undefined) CS_DRAW[id] = []; });
+  }
+  body.querySelectorAll(".cs-code[data-pid]").forEach(el => {
+    if (el.dataset.wired) return;
+    el.dataset.wired = "1";
+    const list = CS_DRAW[Number(el.dataset.pid)] || [];
+    if (!list.length) { el.classList.add("no-draw"); el.title = (el.title ? el.title + " · " : "") + "няма качен чертеж"; return; }
+    el.classList.add("has-draw");
+    el.title = `Чертеж: ${list.map(d => d.name || "").filter(Boolean).join(", ") || "1 файл"} — посочи за преглед, клик за отваряне`;
+    el.addEventListener("mouseenter", e => csShowDraw(el, list, e));
+    el.addEventListener("mouseleave", () => csHideDraw(false));
+    el.addEventListener("click", e => { e.stopPropagation(); window.open(list[0].url, "_blank", "noopener"); });
+  });
+}
+let csPopTimer = null;
+function csDrawKind(d) {
+  const t = String(d.type || "").toLowerCase(), u = String(d.url || d.name || "").toLowerCase().split("?")[0];
+  if (t.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(u)) return "image";
+  if (t === "application/pdf" || /\.pdf$/.test(u)) return "pdf";
+  return "other";
+}
+function csShowDraw(el, list, e) {
+  clearTimeout(csPopTimer);
+  let pop = document.getElementById("cs-pop");
+  if (!pop) {
+    pop = document.createElement("div"); pop.id = "cs-pop";
+    pop.addEventListener("mouseenter", () => clearTimeout(csPopTimer));
+    pop.addEventListener("mouseleave", () => csHideDraw(false));
+    document.body.appendChild(pop);
+  }
+  const d = list[0], kind = csDrawKind(d);
+  const more = list.length > 1 ? `<div class="cs-pop-more">+ още ${list.length - 1}: ${list.slice(1).map(x => `<a href="${escapeAttr(x.url)}" target="_blank" rel="noopener">${escapeHtml(x.name || "файл")}</a>`).join(" · ")}</div>` : "";
+  pop.innerHTML = `<div class="cs-pop-h">${escapeHtml(d.name || "чертеж")} <a href="${escapeAttr(d.url)}" target="_blank" rel="noopener">отвори ↗</a></div>`
+    + (kind === "image" ? `<img src="${escapeAttr(d.url)}" alt="" />`
+      : kind === "pdf" ? `<iframe src="${escapeAttr(d.url)}#toolbar=0&navpanes=0&view=FitH" title="чертеж"></iframe>`
+      : `<div class="cs-pop-other">📎 ${escapeHtml(d.name || "файл")} — <a href="${escapeAttr(d.url)}" target="_blank" rel="noopener">отвори</a></div>`)
+    + more;
+  pop.hidden = false;
+  // Позиция: до елемента, вътре в екрана.
+  const r = el.getBoundingClientRect();
+  const W = 540, H = 460;
+  let x = r.right + 12, y = r.top - 10;
+  if (x + W > window.innerWidth - 8) x = Math.max(8, r.left - W - 12);
+  if (y + H > window.innerHeight - 8) y = Math.max(8, window.innerHeight - H - 8);
+  pop.style.left = x + "px"; pop.style.top = y + "px";
+}
+function csHideDraw(now) {
+  clearTimeout(csPopTimer);
+  const f = () => { const pop = document.getElementById("cs-pop"); if (pop) { pop.hidden = true; pop.innerHTML = ""; } };
+  if (now) f(); else csPopTimer = setTimeout(f, 250);
 }
