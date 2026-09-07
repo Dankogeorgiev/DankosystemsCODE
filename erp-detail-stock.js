@@ -971,6 +971,7 @@ async function dsBulkUpload(groups, wrap, close, onlyMissing) {
       const { error } = await sb.from("products").update({ drawings: list }).eq("id", p.id);
       if (error) { saveErr++; }
       else if (ERP.prodById[p.id]) ERP.prodById[p.id].drawings = list;
+      if (!error && window.DrawPreview) { DrawPreview.forget(p.id); DrawPreview.refresh(true); }
     }
   }
   if (close) close();
@@ -1061,6 +1062,7 @@ async function dsCheckDrawings() {
       if (error) { errs++; continue; }
       cleaned += (p.drawings.length - kept.length);
       if (ERP.prodById[pid]) ERP.prodById[pid].drawings = kept;
+      if (window.DrawPreview) DrawPreview.forget(pid);
     }
     alert(`Премахнати ${cleaned} счупени записа.` + (errs ? `\n${errs} детайла с грешка при запис.` : ""));
     close();
