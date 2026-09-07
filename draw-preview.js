@@ -8,6 +8,8 @@
      • в прозорчето има „отвори ↗" за нов раздел.
    Кликът върху самия код НЕ се прихваща — редовете/бутоните си работят както
    досега.
+   Освен по код: всеки елемент с клас dp-file и data-url (напр. 📎 закачен
+   файл на задача в Цехове) показва същото прозорче с този файл.
 
    Откъде идват чертежите:
      • products.drawings (Склад детайли → 📎) — зарежда се лек списък
@@ -263,8 +265,15 @@
   }
   async function show(anchor) {
     clearTimeout(popTimer);
-    const code = anchor.dataset.code;
-    const rec = DP.byCode[norm(code)] || Object.values(DP.byName).find(r => r.pid && String(r.pid) === anchor.dataset.pid);
+    let rec, list = null;
+    if (anchor.dataset.url) {
+      // 📎 Закачен файл (задача в Цехове и др.): показваме направо него.
+      rec = { code: anchor.dataset.code || "", name: anchor.dataset.name || "" };
+      list = [{ url: anchor.dataset.url, name: anchor.dataset.name || "", type: anchor.dataset.type || "" }];
+    } else {
+      const code = anchor.dataset.code;
+      rec = DP.byCode[norm(code)] || Object.values(DP.byName).find(r => r.pid && String(r.pid) === anchor.dataset.pid);
+    }
     if (!rec) return;
     curEl = anchor;
     const my = ++seq;
@@ -272,7 +281,7 @@
     el.innerHTML = `<div class="dp-pop-h"><b>${esc(rec.code)}</b> ${esc(rec.name || "")}<span class="dp-pop-x" title="затвори">✕</span></div><div class="dp-pop-wait">зареждане на чертежа…</div>`;
     el.hidden = false;
     place(el, anchor);
-    const list = await filesFor(rec);
+    if (!list) list = await filesFor(rec);
     if (my !== seq || el.hidden) return;
     if (!list.length) { el.innerHTML = `<div class="dp-pop-h"><b>${esc(rec.code)}</b> ${esc(rec.name || "")}<span class="dp-pop-x" title="затвори">✕</span></div><div class="dp-pop-other">няма качен чертеж</div>`; return; }
     const d = list[0], kind = kindOf(d);
@@ -292,21 +301,21 @@
 
   function wireEvents() {
     document.addEventListener("mouseover", e => {
-      const t = e.target && e.target.closest && e.target.closest(".dp-code");
+      const t = e.target && e.target.closest && e.target.closest(".dp-code,.dp-file");
       if (!t) return;
       if (curEl === t) { clearTimeout(popTimer); return; }
       clearTimeout(popTimer);
       popTimer = setTimeout(() => show(t), 120);
     });
     document.addEventListener("mouseout", e => {
-      const t = e.target && e.target.closest && e.target.closest(".dp-code");
+      const t = e.target && e.target.closest && e.target.closest(".dp-code,.dp-file");
       if (!t) return;
       hide(false);
     });
     // Таблет/телефон: докосване на кода показва; докосване встрани — скрива.
     document.addEventListener("pointerdown", e => {
       if (e.pointerType !== "touch") return;
-      const t = e.target && e.target.closest && e.target.closest(".dp-code");
+      const t = e.target && e.target.closest && e.target.closest(".dp-code,.dp-file");
       if (t) { if (curEl === t) hide(true); else show(t); return; }
       if (!(e.target.closest && e.target.closest("#dp-pop"))) hide(true);
     }, true);
@@ -323,6 +332,7 @@
     st.id = "dp-style";
     st.textContent = `
 .dp-code { cursor: help; border-bottom: 1px dotted #2563eb; color: inherit; white-space: nowrap; }
+.dp-file { cursor: pointer; }
 .dp-code::after { content: " 📄"; font-size: .8em; opacity: .85; }
 #dp-pop { position: fixed; z-index: 100000; width: 540px; max-width: calc(100vw - 16px); background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.28); padding: 8px; font: 13px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; text-align: left; }
 #dp-pop .dp-pop-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; color: #475569; margin-bottom: 6px; }
@@ -332,7 +342,8 @@
 #dp-pop iframe { display: block; width: 520px; max-width: 100%; height: 390px; border: 0; border-radius: 6px; background: #f8fafc; }
 #dp-pop .dp-pop-more, #dp-pop .dp-pop-other, #dp-pop .dp-pop-f, #dp-pop .dp-pop-wait { font-size: 12px; color: #475569; margin-top: 6px; }
 #dp-pop .dp-pop-wait { padding: 18px 0; text-align: center; }
-@media print { .dp-code { border-bottom: 0; } .dp-code::after { content: ""; } #dp-pop { display: none !important; } }
+@media print { .dp-code { border-bottom: 0; } .dp-file { cursor: pointer; }
+.dp-code::after { content: ""; } #dp-pop { display: none !important; } }
 `;
     (document.head || document.documentElement).appendChild(st);
   }

@@ -2194,11 +2194,11 @@ function taskFilesCell(t) {
   const files = t.files || [];
   let links = files.map((f, i) => {
     const x = amWorker() ? "" : `<button class="tf-x" data-i="${i}" title="Премахни">×</button>`;
-    return `<span class="tf"><a href="${f.url}" target="_blank" title="${escapeAttr(f.name)}">📎</a>${x}</span>`;
+    return `<span class="tf"><a href="${f.url}" target="_blank" class="dp-file" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name || "")}" data-type="${escapeAttr(f.type || "")}" data-code="${escapeAttr(t.code || "")}" title="${escapeAttr(f.name)} — посочи за преглед, клик за отваряне">📎</a>${x}</span>`;
   }).join("");
   // Чертежът на бързото изделие (Нестандартни поръчки) — идва с изделието по код.
   const qd = QUICK_DRAW && QUICK_DRAW[String(t.code || "").trim()];
-  if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" title="Чертеж на изделието (от Нестандартни поръчки)">📄</a></span>`;
+  if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" class="dp-file" data-url="${escapeAttr(qd)}" data-name="${escapeAttr(t.product || "")}" data-code="${escapeAttr(t.code || "")}" title="Чертеж на изделието (от Нестандартни поръчки) — посочи за преглед, клик за отваряне">📄</a></span>`;
   const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${(files.length || qd) ? "+" : "Прикачи"}</button>`;
   return (links || (amWorker() ? "—" : "")) + add;
 }
