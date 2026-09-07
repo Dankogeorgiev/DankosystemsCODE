@@ -103,7 +103,8 @@
   async function journalAdd(entry) {
     if (!sbx || !ready) return false;
     try {
-      const row = Object.assign({ line: "ръчна", ver: 2, by: (window.PAINT_USER || ""), at: new Date().toISOString() }, entry);
+      const jid = "pj" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      const row = Object.assign({ jid: jid, line: "ръчна", ver: 2, by: (window.PAINT_USER || ""), at: new Date().toISOString() }, entry);
       const { data } = await sbx.from("app_config").select("*").eq("id", "paint_journal").maybeSingle();
       const list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
       list.push(row);
