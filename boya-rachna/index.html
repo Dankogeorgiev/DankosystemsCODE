@@ -143,7 +143,7 @@
   .v2today{margin-left:auto;font-family:var(--mono);font-size:13px;color:var(--muted)}
   .v2today b{color:var(--ok);font-size:15px}
   .v2grid{flex:1 1 auto;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:14px;margin-top:12px}
-  .v2tile{position:relative;border:1.5px solid var(--line);border-radius:14px;background:var(--panel);cursor:pointer;display:flex;flex-direction:column;overflow:hidden;transition:.12s;min-height:150px}
+  .v2tile{position:relative;border:1.5px solid var(--line);border-radius:14px;background:var(--panel);cursor:pointer;display:flex;flex-direction:column;overflow:hidden;transition:.12s;min-height:150px;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   .v2tile:hover{border-color:var(--ink);box-shadow:0 4px 16px rgba(31,56,100,.14)}
   .v2tile:active{transform:translateY(1px)}
   .v2tile .thumb{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;background:#F4F7FB;overflow:hidden}
@@ -154,6 +154,20 @@
   .v2tile .cap .lb{font-family:var(--disp);font-weight:700;font-size:15.5px;line-height:1.25}
   .v2tile .cap .cd{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px}
   .v2tile .cnt{position:absolute;top:8px;right:8px;font-family:var(--disp);font-weight:700;font-size:13px;color:#fff;background:var(--ok);border-radius:20px;padding:3px 10px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+  /* Подреждане с влачене (като иконите на iPhone): задръж и мести. */
+  @keyframes v2wig{0%{transform:rotate(-1.15deg)}50%{transform:rotate(1.15deg)}100%{transform:rotate(-1.15deg)}}
+  .v2grid.editing{touch-action:none}
+  .v2grid.editing .v2tile{animation:v2wig .3s ease-in-out infinite;cursor:grab;touch-action:none}
+  .v2grid.editing .v2tile:nth-child(2n){animation-delay:-.15s}
+  .v2grid.editing .v2tile:nth-child(3n){animation-delay:-.09s}
+  .v2grid.editing .v2tile:hover{box-shadow:0 4px 16px rgba(31,56,100,.14)}
+  .v2grid.editing .v2tile:active{transform:none}
+  .v2tile.placeholder{opacity:.28;border-style:dashed;animation:none!important;box-shadow:none!important}
+  .v2ghost{position:fixed;z-index:3000;pointer-events:none;margin:0;border-radius:14px;overflow:hidden;box-shadow:0 16px 38px rgba(0,0,0,.32);transform:scale(1.05);transition:none;animation:none;will-change:left,top}
+  .v2editbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2500;display:flex;align-items:center;gap:14px;background:rgba(31,56,100,.96);color:#fff;padding:10px 12px 10px 18px;border-radius:14px;box-shadow:0 8px 26px rgba(0,0,0,.28);font-family:var(--mono);font-size:13px;font-weight:600}
+  .v2editbar b{font-family:var(--disp);font-weight:700}
+  .v2editbar .done{font-family:var(--disp);font-weight:700;font-size:15px;background:var(--ok);color:#fff;border:none;border-radius:10px;padding:9px 18px;cursor:pointer}
+  .v2editbar .done:hover{background:#26643f}
   .v2detail{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
   .v2left{border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden;min-height:0}
   .v2left .big{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;background:#F4F7FB;padding:10px}
@@ -963,18 +977,150 @@
     V2_PARTS.forEach(function (p, i) {
       var cnt = todayCount[p.label] || 0;
       var t = document.createElement("div");
-      t.className = "v2tile";
+      t.className = "v2tile" + (drag && drag.curIndex === i ? " placeholder" : "");
       t.innerHTML = (cnt ? '<span class="cnt">' + cnt + ' бр.</span>' : "") +
         '<div class="thumb">' + thumb(p, false) + '</div>' +
         '<div class="cap"><div class="lb">' + esc(p.label) + '</div>' +
         '<div class="cd">' + (p.code ? "Код " + esc(p.code) : "код —") + '</div></div>';
-      t.onclick = function () { openPart(i); };
+      wireTile(t, i);
       grid.appendChild(t);
       wireImg(t, false);
     });
     var tot = Object.keys(todayCount).reduce(function (s, k) { return s + todayCount[k]; }, 0);
     $("v2today").innerHTML = tot ? ('Отчетени днес: <b>' + tot + ' бр.</b>') : "";
   }
+  /* ── Подреждане с влачене (като иконите на iPhone) ──────────────────
+     Задържане (мишка или пръст) върху плочка → режим на подреждане: всички
+     плочки „танцуват", а хванатата се влачи. Пускане → новата подредба се
+     запазва локално (localStorage). Кратко докосване = отваря детайла. */
+  var ORDER_KEY = "rachna_v2_order";
+  var LONG_MS = 420, MOVE_CANCEL = 10;
+  var editMode = false, drag = null, editBar = null;
+
+  function pid(p) { return p.code || p.label; }
+
+  function saveOrder() {
+    try { localStorage.setItem(ORDER_KEY, JSON.stringify(V2_PARTS.map(pid))); } catch (e) {}
+  }
+  function applySavedOrder() {
+    var saved;
+    try { saved = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]"); } catch (e) { saved = []; }
+    if (!Array.isArray(saved) || !saved.length) return;
+    var by = {}; V2_PARTS.forEach(function (p) { by[pid(p)] = p; });
+    var out = [], used = {};
+    saved.forEach(function (k) { if (by[k] && !used[k]) { out.push(by[k]); used[k] = 1; } });
+    V2_PARTS.forEach(function (p) { if (!used[pid(p)]) { out.push(p); used[pid(p)] = 1; } });
+    V2_PARTS.length = 0; Array.prototype.push.apply(V2_PARTS, out);
+  }
+
+  function enterEdit() {
+    if (editMode) return;
+    editMode = true; grid.classList.add("editing");
+    if (!editBar) {
+      editBar = document.createElement("div");
+      editBar.className = "v2editbar";
+      editBar.innerHTML = '<span>Влачи, за да подредиш · <b>пази се</b></span>';
+      var b = document.createElement("button");
+      b.className = "done"; b.textContent = "Готово ✓";
+      b.onclick = function () { exitEdit(); };
+      editBar.appendChild(b);
+      document.body.appendChild(editBar);
+    }
+    editBar.style.display = "flex";
+  }
+  function exitEdit() {
+    if (drag) dragEnd();
+    editMode = false; grid.classList.remove("editing");
+    if (editBar) editBar.style.display = "none";
+  }
+  window.V2_EDIT_EXIT = exitEdit;   // ползва се от табовете при връщане към Версия 1
+
+  function wireTile(t, i) {
+    t.addEventListener("pointerdown", function (e) { onTileDown(e, t, i); });
+    t.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    t.addEventListener("dragstart", function (e) { e.preventDefault(); });
+  }
+
+  function onTileDown(e, tile, index) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    var sx = e.clientX, sy = e.clientY, last = { x: sx, y: sy };
+    var activated = false, canceled = false, timer = null;
+
+    function activate() {
+      if (activated || canceled) return;
+      activated = true;
+      if (!editMode) enterEdit();
+      beginDrag(tile, index, last.x, last.y);
+    }
+    if (editMode) activate();
+    else timer = setTimeout(activate, LONG_MS);
+
+    function onMove(ev) {
+      last.x = ev.clientX; last.y = ev.clientY;
+      if (activated) { dragMove(ev.clientX, ev.clientY); if (ev.cancelable) ev.preventDefault(); return; }
+      if (Math.abs(ev.clientX - sx) > MOVE_CANCEL || Math.abs(ev.clientY - sy) > MOVE_CANCEL) {
+        canceled = true; clearTimeout(timer); cleanup();
+      }
+    }
+    function onUp() {
+      clearTimeout(timer);
+      if (activated) dragEnd();
+      else if (!canceled && !editMode) openPart(index);
+      cleanup();
+    }
+    function cleanup() {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
+    }
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
+  }
+
+  function beginDrag(tile, index, x, y) {
+    var r = tile.getBoundingClientRect();
+    var g = tile.cloneNode(true);
+    g.className = "v2ghost v2tile";
+    g.style.width = r.width + "px"; g.style.height = r.height + "px";
+    g.style.left = r.left + "px"; g.style.top = r.top + "px";
+    document.body.appendChild(g);
+    drag = { fromIndex: index, curIndex: index, ghost: g, offX: x - r.left, offY: y - r.top };
+    tile.classList.add("placeholder");
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+    dragMove(x, y);
+  }
+  function dragMove(x, y) {
+    if (!drag) return;
+    drag.ghost.style.left = (x - drag.offX) + "px";
+    drag.ghost.style.top = (y - drag.offY) + "px";
+    var el = document.elementFromPoint(x, y);
+    var over = el ? el.closest(".v2tile") : null;
+    if (!over || over.classList.contains("v2ghost")) return;
+    var overIndex = Array.prototype.indexOf.call(grid.children, over);
+    if (overIndex < 0 || overIndex === drag.curIndex) return;
+    var item = V2_PARTS.splice(drag.curIndex, 1)[0];
+    V2_PARTS.splice(overIndex, 0, item);
+    drag.curIndex = overIndex;
+    renderGrid();   // пренарежда; плочката на drag.curIndex получава клас „placeholder"
+  }
+  function dragEnd() {
+    if (!drag) return;
+    if (drag.ghost && drag.ghost.parentNode) drag.ghost.parentNode.removeChild(drag.ghost);
+    var changed = drag.fromIndex !== drag.curIndex;
+    drag = null;
+    renderGrid();
+    if (changed) saveOrder();
+  }
+
+  // Докосване извън плочка и извън лентата „Готово" също излиза от режима.
+  document.addEventListener("pointerdown", function (e) {
+    if (!editMode || drag) return;
+    if (e.target.closest && (e.target.closest(".v2tile") || e.target.closest(".v2editbar"))) return;
+    if (v2.hidden) return;
+    exitEdit();
+  }, true);
+
   function openPart(i) {
     current = V2_PARTS[i]; qty = "";
     $("v2big").innerHTML = thumb(current, true);
@@ -1025,6 +1171,7 @@
     d.textContent = msg; d.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(function () { d.style.opacity = "0"; }, 2200);
   }
 
+  applySavedOrder();
   renderGrid();
 })();
 </script>
@@ -1037,6 +1184,7 @@
   var v1 = document.getElementById("v1"), v2 = document.getElementById("v2");
   if (!t1 || !t2 || !v1 || !v2) return;
   function show(v) {
+    if (v !== "2" && window.V2_EDIT_EXIT) window.V2_EDIT_EXIT();
     v1.hidden = v !== "1"; v2.hidden = v !== "2";
     t1.classList.toggle("active", v === "1");
     t2.classList.toggle("active", v === "2");
