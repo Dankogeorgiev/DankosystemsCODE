@@ -293,6 +293,20 @@ function prodExportPdf() {
 // Чете общия журнал 'paint_journal' и го обобщава по код+цвят за периода.
 // Независим от другите операции — вижда се само от админи (в Отчет).
 function pwShortUser(s) { s = String(s || ""); var i = s.indexOf("@"); return i > 0 ? s.slice(0, i) : (s || "—"); }
+function pwSwatch(c) { const m = { "ЧЕРЕН ШАГРЕН": "#1a1a1a", "RAL 9005 - Наше черно": "#0a0a0a" }; return m[c] || "#9aa4b2"; }
+function pwDot(c) { return '<span style="display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:middle;margin:0 6px -1px 0;border:1px solid rgba(0,0,0,.25);background:' + pwSwatch(c) + '"></span>'; }
+// Бележка към Склад Боя за период (напр. колко човека са свършили работата).
+async function savePaintNote(from, to, text) {
+  const key = from + (from !== to ? "|" + to : "");
+  try {
+    const { data } = await sb.from("app_config").select("*").eq("id", "paint_notes").maybeSingle();
+    const map = (data && data.data && data.data.map) || {};
+    map[key] = text;
+    const { error } = await sb.from("app_config").upsert({ id: "paint_notes", data: { map }, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    return true;
+  } catch (e) { console.warn("Склад Боя: запис на бележка", e); return false; }
+}
 function pwDateTime(iso) {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString("bg", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
@@ -323,15 +337,45 @@ async function loadPaintWarehouse(from, to) {
   const gs = pwGroups(rows);
   const grand = gs.reduce((s, g) => s + g.qty, 0);
   const ops = g => Object.keys(g.ops).map(pwShortUser).join(", ");
+  // Цветове за периода: подсбор по цвят + кодове, боядисани в повече от един цвят.
+  const colorSub = {}, codeColors = {};
+  rows.forEach(r => {
+    const c = r.color || "—"; colorSub[c] = (colorSub[c] || 0) + (Number(r.qty) || 0);
+    const cc = r.code || "—"; (codeColors[cc] || (codeColors[cc] = {}))[c] = 1;
+  });
+  const colors = Object.keys(colorSub);
+  const multiCode = {}; Object.keys(codeColors).forEach(cc => { if (Object.keys(codeColors[cc]).length > 1) multiCode[cc] = 1; });
+  // Индикатор „смяна на цвят": когато за периода има повече от един цвят.
+  const banner = !gs.length ? "" : (colors.length > 1
+    ? `<div style="background:#FFF4E5;border:1px solid #F0C67A;color:#7A4E00;border-radius:10px;padding:10px 14px;margin:10px 0 4px;font-weight:600">⚠ Смяна на цвят — през периода е боядисвано в ${colors.length} цвята: ` +
+      colors.map(c => `${pwDot(c)}<b>${escapeHtml(c)}</b> — ${Number(colorSub[c]).toLocaleString("bg")} бр.`).join(" &nbsp;·&nbsp; ") + `</div>`
+    : `<div style="background:#EEF6EF;border:1px solid #CBE3CD;color:#2C5E38;border-radius:10px;padding:9px 14px;margin:10px 0 4px">Един цвят за периода: ${pwDot(colors[0])}<b>${escapeHtml(colors[0] || "—")}</b></div>`);
+  // Запазена бележка за периода.
+  let noteText = "";
+  try {
+    const nkey = from + (from !== to ? "|" + to : "");
+    const { data: nd } = await sb.from("app_config").select("*").eq("id", "paint_notes").maybeSingle();
+    const nmap = (nd && nd.data && nd.data.map) || {};
+    noteText = nmap[nkey] || "";
+  } catch (e) {}
+  const commentBox = !gs.length ? "" :
+    `<div style="margin-top:14px;background:var(--card,#fff);border:1px solid #E1E7EF;border-radius:10px;padding:12px 14px;max-width:720px">
+       <label for="pw-note" style="display:block;font-weight:600;margin-bottom:6px">📝 Бележка за периода <span style="font-weight:400;color:#7A869A">(напр. колко човека свършиха работата)</span></label>
+       <textarea id="pw-note" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #CBD5E1;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical">${escapeHtml(noteText)}</textarea>
+       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+         <button id="pw-note-save" class="btn btn-small">💾 Запази бележката</button>
+         <span id="pw-note-status" style="color:#2C5E38;font-weight:600"></span>
+       </div>
+     </div>`;
   box.innerHTML =
     `<div class="workers-head" style="margin-top:22px"><h3>🎨 Склад Боя — прахово отчитане по снимка</h3>` +
-    (gs.length ? `<button id="pw-csv" class="btn btn-small">⤓ Excel</button>` : "") + `</div>` +
+    (gs.length ? `<button id="pw-csv" class="btn btn-small">⤓ Excel</button>` : "") + `</div>` + banner +
     (gs.length
       ? `<table class="report-table"><thead><tr><th>Код</th><th>Детайл</th><th>Цвят</th><th class="num">Общо (бр.)</th><th class="num">Записи</th><th>Оператори</th><th>Последно</th></tr></thead><tbody>` +
         gs.map(g => `<tr>
-          <td class="pr-code"><b>${escapeHtml(g.code)}</b></td>
+          <td class="pr-code"><b>${escapeHtml(g.code)}</b>${multiCode[g.code] ? ` <span title="Този код е боядисван в повече от един цвят" style="color:#B8760B">⚠</span>` : ""}</td>
           <td>${escapeHtml(g.label) || "—"}</td>
-          <td>${escapeHtml(g.color) || "—"}</td>
+          <td>${pwDot(g.color)}${escapeHtml(g.color) || "—"}</td>
           <td class="num">${Number(g.qty).toLocaleString("bg")}</td>
           <td class="num">${g.cnt}</td>
           <td>${escapeHtml(ops(g))}</td>
@@ -339,9 +383,16 @@ async function loadPaintWarehouse(from, to) {
         </tr>`).join("") +
         `<tr class="pr-total"><td colspan="3"><b>Всичко боядисано</b></td><td class="num"><b>${grand.toLocaleString("bg")}</b></td><td colspan="3"></td></tr>` +
         `</tbody></table>`
-      : `<p class="report-empty">Няма отчетено боядисване за периода.</p>`);
+      : `<p class="report-empty">Няма отчетено боядисване за периода.</p>`) + commentBox;
   const csv = document.getElementById("pw-csv");
   if (csv) csv.addEventListener("click", () => exportPaintWarehouseXls(gs, grand, from, to));
+  const noteSave = document.getElementById("pw-note-save");
+  if (noteSave) noteSave.addEventListener("click", async () => {
+    const ta = document.getElementById("pw-note"), st = document.getElementById("pw-note-status");
+    if (st) st.textContent = "запазва…";
+    const ok = await savePaintNote(from, to, ta ? ta.value : "");
+    if (st) { st.textContent = ok ? "✓ запазено" : "грешка при запис"; st.style.color = ok ? "#2C5E38" : "#C0392B"; setTimeout(() => { st.textContent = ""; }, 2600); }
+  });
 }
 function exportPaintWarehouseXls(gs, grand, from, to) {
   const rows = gs.map(g => [g.code, g.label, g.color, g.qty, g.cnt, Object.keys(g.ops).map(pwShortUser).join(" ")]);

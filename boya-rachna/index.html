@@ -168,6 +168,23 @@
   .v2editbar b{font-family:var(--disp);font-weight:700}
   .v2editbar .done{font-family:var(--disp);font-weight:700;font-size:15px;background:var(--ok);color:#fff;border:none;border-radius:10px;padding:9px 18px;cursor:pointer}
   .v2editbar .done:hover{background:#26643f}
+  /* Цвят на плочката (под кода) */
+  .v2tile .cap .clr{display:inline-block;margin-top:4px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink);background:#EEF2F7;border:1px solid var(--line);border-radius:20px;padding:2px 9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Таб „Изделия за боядисване" */
+  .v3head{display:flex;align-items:baseline;gap:14px;flex:0 0 auto;padding:12px 0 4px}
+  .v3wrap{flex:1 1 auto;min-height:0;overflow:auto;margin-top:8px;padding-bottom:8px}
+  .v3grp{margin-bottom:18px}
+  .v3grph{display:flex;align-items:center;gap:10px;font-family:var(--disp);font-weight:700;font-size:16px;color:var(--ink);margin:0 0 10px}
+  .v3grph .sw{width:16px;height:16px;border-radius:5px;border:1px solid rgba(0,0,0,.25)}
+  .v3grph .n{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--muted)}
+  .v3cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+  .v3card{border:1.5px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden;display:flex;flex-direction:column}
+  .v3card .th{height:120px;display:flex;align-items:center;justify-content:center;background:#F4F7FB;overflow:hidden}
+  .v3card .th img{width:100%;height:100%;object-fit:contain}
+  .v3card .th .ph{color:var(--muted);font-size:26px;opacity:.5}
+  .v3card .bd{padding:9px 11px;border-top:1px solid var(--line)}
+  .v3card .bd .lb{font-family:var(--disp);font-weight:700;font-size:13.5px;line-height:1.25}
+  .v3card .bd .cd{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px}
   .v2detail{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
   .v2left{border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden;min-height:0}
   .v2left .big{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;background:#F4F7FB;padding:10px}
@@ -235,6 +252,7 @@
   <div class="vertabs">
     <button class="vtab active" id="tab1">Версия 1</button>
     <button class="vtab" id="tab2">Версия 2</button>
+    <button class="vtab" id="tab3">Изделия за боядисване</button>
   </div>
 
   <div id="v1" class="vpane">
@@ -287,7 +305,7 @@
   <div id="v2" class="vpane" hidden>
     <div class="v2head">
       <div class="v2plan">План за деня — <span id="v2date">08.09.2026</span></div>
-      <div class="v2color">Цвят: <b id="v2colorTx">ЧЕРЕН ШАГРЕН</b></div>
+      <div class="v2color" id="v2colors">Цвят: <b>ЧЕРЕН ШАГРЕН</b></div>
       <div class="v2today" id="v2today"></div>
     </div>
 
@@ -307,6 +325,15 @@
         <button class="v2back" id="v2back">← Назад към снимките</button>
       </div>
     </div>
+  </div>
+
+  <!-- Таб „Изделия за боядисване" — каталог: код + снимка + цвят -->
+  <div id="v3" class="vpane" hidden>
+    <div class="v3head">
+      <div class="v2plan">Изделия за боядисване</div>
+      <div class="v2color" id="v3count"></div>
+    </div>
+    <div class="v3wrap" id="v3wrap"></div>
   </div>
 </div>
 
@@ -944,18 +971,24 @@
   var $ = function (id) { return document.getElementById(id); };
   var v2 = $("v2"); if (!v2) return;
 
-  // Ден: план + цвят (сменяй тук в началото на деня).
-  var V2_DAY = { date: "08.09.2026", color: "ЧЕРЕН ШАГРЕН" };
+  // Ден: план (сменяй датата тук в началото на деня). Цветът вече е ПО ИЗДЕЛИЕ.
+  var V2_DAY = { date: "09.09.2026" };
+  // Цветове → мостра (за етикетите и каталога). Ако цвят липсва тук, се показва сив.
+  var V2_COLORS = { "ЧЕРЕН ШАГРЕН": "#1a1a1a", "RAL 9005 - Наше черно": "#0a0a0a" };
+  function colorSwatch(c) { return V2_COLORS[c] || "#9aa4b2"; }
   // Детайли за боядисване. code = първите 6 цифри (кодът = рецептата за боядисване).
-  // img = път до снимка; сложи файловете в boya-rachna/v2/img/ и попълни пътя.
+  // color = с какъв цвят се боядисва това изделие. img = път до снимка.
   var V2_PARTS = [
-    { code: "103850", label: "Ъгъл 2мм за Дроп Ин", img: "v2/img/103850.jpg" },
-    { code: "103877", label: "Д3 Д4 Механизъм 1 Дроп Ин", img: "v2/img/103877.jpg" },
-    { code: "101771", label: "3Д Планка за сторидж", img: "v2/img/101771.jpg" },
-    { code: "103808", label: "Д1–Д2 (Панта)", img: "v2/img/103808.jpg" },
-    { code: "103828", label: "Планка Д6 (×4 в механизъм)", img: "v2/img/103828.jpg" },
-    { code: "103ХХХ", label: "Дроп Ин без", img: "v2/img/103xxx.jpg" },
-    { code: "103ХХ1", label: "Дроп Ин с пишка", img: "v2/img/103xx1.jpg" }
+    { code: "103850", label: "Ъгъл 2мм за Дроп Ин", img: "v2/img/103850.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103877", label: "Д3 Д4 Механизъм 1 Дроп Ин", img: "v2/img/103877.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "101771", label: "3Д Планка за сторидж", img: "v2/img/101771.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103808", label: "Д1–Д2 (Панта)", img: "v2/img/103808.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103828", label: "Планка Д6 (×4 в механизъм)", img: "v2/img/103828.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103ХХХ", label: "Дроп Ин без", img: "v2/img/103xxx.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103ХХ1", label: "Дроп Ин с пишка", img: "v2/img/103xx1.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "100452", label: "Винкел Сърбия М51", img: "v2/img/100452.jpg", color: "RAL 9005 - Наше черно" },
+    { code: "100485", label: "Бастун малък бял", img: "v2/img/100485.jpg", color: "RAL 9005 - Наше черно" },
+    { code: "100512", label: "късо малък бял", img: "v2/img/100512.jpg", color: "RAL 9005 - Наше черно" }
   ];
 
   var grid = $("v2grid"), detail = $("v2detail");
@@ -964,7 +997,18 @@
 
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   $("v2date").textContent = V2_DAY.date;
-  $("v2colorTx").textContent = V2_DAY.color;
+  // Заглавие „Цвят(ове)" — динамично от цветовете в плана.
+  function renderColorsHead() {
+    var el = $("v2colors"); if (!el) return;
+    var seen = [], cnt = {};
+    V2_PARTS.forEach(function (p) { var c = p.color || "—"; if (cnt[c] == null) { cnt[c] = 0; seen.push(c); } cnt[c]++; });
+    el.innerHTML = (seen.length > 1 ? "Цветове: " : "Цвят: ") + seen.map(function (c) {
+      return '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">' +
+        '<span style="width:13px;height:13px;border-radius:4px;border:1px solid rgba(0,0,0,.25);background:' + colorSwatch(c) + '"></span>' +
+        '<b>' + esc(c) + '</b></span>';
+    }).join("");
+  }
+  renderColorsHead();
 
   function thumb(p, big) {
     if (p.img) return '<img src="' + esc(p.img) + '" alt="">';
@@ -984,7 +1028,9 @@
       t.innerHTML = (cnt ? '<span class="cnt">' + cnt + ' бр.</span>' : "") +
         '<div class="thumb">' + thumb(p, false) + '</div>' +
         '<div class="cap"><div class="lb">' + esc(p.label) + '</div>' +
-        '<div class="cd">' + (p.code ? "Код " + esc(p.code) : "код —") + '</div></div>';
+        '<div class="cd">' + (p.code ? "Код " + esc(p.code) : "код —") + '</div>' +
+        (p.color ? '<span class="clr"><span style="display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:middle;margin-right:5px;border:1px solid rgba(0,0,0,.25);background:' + colorSwatch(p.color) + '"></span>' + esc(p.color) + '</span>' : "") +
+        '</div>';
       wireTile(t, i);
       grid.appendChild(t);
       wireImg(t, false);
@@ -1129,7 +1175,9 @@
     $("v2big").innerHTML = thumb(current, true);
     wireImg($("v2big"), true);
     $("v2lb").textContent = current.label;
-    $("v2cd").textContent = (current.code ? "Код " + current.code + " · " : "") + V2_DAY.color;
+    $("v2cd").innerHTML = (current.code ? "Код " + esc(current.code) + " · " : "") +
+      '<span style="display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:middle;margin:0 5px -1px 0;border:1px solid rgba(0,0,0,.25);background:' + colorSwatch(current.color) + '"></span>' +
+      '<b>' + esc(current.color || "—") + '</b>';
     updateQty();
     grid.hidden = true; detail.hidden = false;
   }
@@ -1147,7 +1195,7 @@
     var n = parseInt(qty, 10);
     if (!(n > 0) || !current) return;
     var btn = $("v2done"); btn.disabled = true;
-    var entry = { code: current.code || "", label: current.label, qty: n, color: V2_DAY.color, date: V2_DAY.date };
+    var entry = { code: current.code || "", label: current.label, qty: n, color: current.color || "", date: V2_DAY.date };
     var ok = false;
     try { if (window.paintJournalAdd) ok = await window.paintJournalAdd(entry); } catch (e) {}
     todayCount[current.label] = (todayCount[current.label] || 0) + n;
@@ -1174,8 +1222,35 @@
     d.textContent = msg; d.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(function () { d.style.opacity = "0"; }, 2200);
   }
 
+  // ── Таб „Изделия за боядисване" — каталог с всички изделия, групирани по цвят.
+  function renderCatalog() {
+    var wrap = $("v3wrap"); if (!wrap) return;
+    var order = [], byColor = {};
+    V2_PARTS.forEach(function (p) {
+      var c = p.color || "—";
+      if (!byColor[c]) { byColor[c] = []; order.push(c); }
+      byColor[c].push(p);
+    });
+    wrap.innerHTML = order.map(function (c) {
+      var items = byColor[c];
+      return '<div class="v3grp">' +
+        '<div class="v3grph"><span class="sw" style="background:' + colorSwatch(c) + '"></span>' + esc(c) +
+        ' <span class="n">' + items.length + ' изд.</span></div>' +
+        '<div class="v3cards">' + items.map(function (p) {
+          return '<div class="v3card"><div class="th">' + thumb(p, false) + '</div>' +
+            '<div class="bd"><div class="lb">' + esc(p.label) + '</div>' +
+            '<div class="cd">Код ' + esc(p.code || "—") + '</div></div></div>';
+        }).join("") + '</div></div>';
+    }).join("");
+    Array.prototype.forEach.call(wrap.querySelectorAll(".v3card .th"), function (th) { wireImg(th, false); });
+    var cc = $("v3count");
+    if (cc) cc.textContent = V2_PARTS.length + " изделия · " + order.length + (order.length === 1 ? " цвят" : " цвята");
+  }
+  window.V2_RENDER_CATALOG = renderCatalog;
+
   applySavedOrder();
   renderGrid();
+  renderColorsHead();
 })();
 </script>
 
@@ -1183,19 +1258,22 @@
 /* Табове: Версия 1 (текущата линия) / Версия 2 (нова, за изграждане). */
 (function () {
   "use strict";
-  var t1 = document.getElementById("tab1"), t2 = document.getElementById("tab2");
-  var v1 = document.getElementById("v1"), v2 = document.getElementById("v2");
+  var t1 = document.getElementById("tab1"), t2 = document.getElementById("tab2"), t3 = document.getElementById("tab3");
+  var v1 = document.getElementById("v1"), v2 = document.getElementById("v2"), v3 = document.getElementById("v3");
   if (!t1 || !t2 || !v1 || !v2) return;
   function show(v) {
     if (v !== "2" && window.V2_EDIT_EXIT) window.V2_EDIT_EXIT();
-    v1.hidden = v !== "1"; v2.hidden = v !== "2";
+    v1.hidden = v !== "1"; v2.hidden = v !== "2"; if (v3) v3.hidden = v !== "3";
     t1.classList.toggle("active", v === "1");
     t2.classList.toggle("active", v === "2");
+    if (t3) t3.classList.toggle("active", v === "3");
     try { localStorage.setItem("rachna_ver", v); } catch (e) {}
     if (v === "1") setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 30);
+    if (v === "3" && window.V2_RENDER_CATALOG) window.V2_RENDER_CATALOG();
   }
   t1.addEventListener("click", function () { show("1"); });
   t2.addEventListener("click", function () { show("2"); });
+  if (t3) t3.addEventListener("click", function () { show("3"); });
   var init = "1"; try { init = localStorage.getItem("rachna_ver") || "1"; } catch (e) {}
   show(init);
 })();
