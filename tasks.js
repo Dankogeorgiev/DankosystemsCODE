@@ -617,6 +617,8 @@ async function openTasks() {
   if (typeof erpAutoPaint === "function") {
     erpAutoPaint().then(n => { if (n && !document.getElementById("tasks-modal").hidden) renderTasks(); }).catch(() => {});
   }
+  // 🎨 „Склад Боя“ (прахово по снимка) → разнеси неприложените отчети към Бояджийно.
+  if (typeof reconcilePaintJournal === "function") { reconcilePaintJournal().catch(() => {}); }
   // Зареждаме наличностите на материалите за индикатора „чака материал" (без да
   // бавим таблицата) и пре-рисуваме, щом дойдат.
   if (typeof erpEnsureLoaded === "function") {
@@ -2197,11 +2199,11 @@ function taskFilesCell(t) {
   const files = t.files || [];
   let links = files.map((f, i) => {
     const x = amWorker() ? "" : `<button class="tf-x" data-i="${i}" title="Премахни">×</button>`;
-    return `<span class="tf"><a href="${f.url}" target="_blank" title="${escapeAttr(f.name)}">📎</a>${x}</span>`;
+    return `<span class="tf"><a href="${f.url}" target="_blank" class="dp-file" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name || "")}" data-type="${escapeAttr(f.type || "")}" data-code="${escapeAttr(t.code || "")}" title="${escapeAttr(f.name)} — посочи за преглед, клик за отваряне">📎</a>${x}</span>`;
   }).join("");
   // Чертежът на бързото изделие (Нестандартни поръчки) — идва с изделието по код.
   const qd = QUICK_DRAW && QUICK_DRAW[String(t.code || "").trim()];
-  if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" title="Чертеж на изделието (от Нестандартни поръчки)">📄</a></span>`;
+  if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" class="dp-file" data-url="${escapeAttr(qd)}" data-name="${escapeAttr(t.product || "")}" data-code="${escapeAttr(t.code || "")}" title="Чертеж на изделието (от Нестандартни поръчки) — посочи за преглед, клик за отваряне">📄</a></span>`;
   const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${(files.length || qd) ? "+" : "Прикачи"}</button>`;
   return (links || (amWorker() ? "—" : "")) + add;
 }
@@ -2963,6 +2965,80 @@ function computeReport() {
     <tbody>${sRows.map(([s, q]) => `<tr><td>${escapeHtml(s)}</td><td class="num">${q}</td></tr>`).join("") || `<tr><td colspan="2" class="report-empty">Няма данни за периода.</td></tr>`}</tbody></table>`;
 }
 
+/* ---------- Връзка „Склад Боя“ (прахово по снимка, Версия 2) → Бояджийно ----------
+   Бояджията отчита боядисани бройки по снимка в отделната страница
+   boya-rachna (ред 'paint_journal' в app_config). Тъй като предходните
+   операции (лазер/преси/абкант/заварки) може да НЕ са отчетени, отчитането
+   на боята е независимо. Тук, в основното приложение (при админ), всеки още
+   неприложен запис се разнася към НАЙ-СТАРАТА чакаща задача „Бояджийно“ със
+   същия код: увеличава produced, добавя ред в logs и вечен production_log,
+   и се маркира applied в дневника (запазва се и там — двойно, за проследимост).
+   Заобикаля поточния гейт (за разлика от logProduction), защото Склад Боя е
+   независим отчет. */
+function pjKey(r) { return r && (r.jid || [r.at || "", r.code || "", r.qty || "", r.by || ""].join("|")); }
+// Връзката „Склад Боя“ → Бояджийно е ПАУЗИРАНА (по желание на Данко, 08.09.2026):
+// днес всичко влиза САМО в Склад Боя и НЕ се отчита никъде другаде по системата.
+// За да се включи разнасянето към задачите пак — сложи PAINT_LINK_ENABLED = true.
+const PAINT_LINK_ENABLED = false;
+async function reconcilePaintJournal() {
+  if (!PAINT_LINK_ENABLED) return;                                   // само Склад Боя днес
+  if (typeof sb === "undefined" || !sb || !Array.isArray(TASKS)) return;
+  if (typeof amWorker === "function" && amWorker()) return;   // само админ разнася отчетите
+  if (reconcilePaintJournal._busy) return;
+  reconcilePaintJournal._busy = true;
+  try {
+    const { data } = await sb.from("app_config").select("*").eq("id", "paint_journal").maybeSingle();
+    const list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
+    const marks = {};   // pjKey -> applied маркер
+    for (const r of list) {
+      if (!r || r.applied) continue;
+      const iso = new Date().toISOString();
+      const key = pjKey(r);
+      const qty = Math.floor(Number(r.qty) || 0);
+      const code = String(r.code || "").trim();
+      if (qty <= 0) { marks[key] = { skipped: "no-qty", at: iso }; continue; }
+      if (!code) { marks[key] = { skipped: "no-code", at: iso }; continue; }
+      const cands = TASKS.filter(t =>
+        (t.workshop || "") === "Бояджийно" &&
+        String(t.code || "").trim() === code &&
+        (typeof taskStatus === "function" ? taskStatus(t) !== "done" : true));
+      cands.sort((a, b) =>
+        String((taskOrderNos(a)[0]) || "~").localeCompare(String((taskOrderNos(b)[0]) || "~"), "bg", { numeric: true }));
+      const target = cands[0];
+      if (!target) { marks[key] = { skipped: "no-task", at: iso }; continue; }
+      const worker = (r.by ? String(r.by).split("@")[0] : "") || "Бояджийно";
+      const dt = (typeof r.at === "string" && r.at.length >= 10) ? r.at.slice(0, 10)
+        : (typeof todayStr === "function" ? todayStr() : iso.slice(0, 10));
+      const entry = {
+        date: dt, worker: worker, qty: qty,
+        lid: (typeof prodLogId === "function" ? prodLogId() : (Date.now().toString(36))),
+        origin: "Склад Боя", paintJournal: true
+      };
+      target.produced = (Number(target.produced) || 0) + qty;
+      target.logs = target.logs || [];
+      target.logs.push(entry);
+      try { await tSaveTask(target); }
+      catch (e) { console.warn("Склад Боя→Бояджийно: запис на задача", e); continue; }
+      if (typeof prodLogWrite === "function") { try { await prodLogWrite(target, entry); } catch (e) {} }
+      marks[key] = { taskId: target.id, taskCode: code, qty: qty, at: iso };
+    }
+    if (Object.keys(marks).length) {
+      // Пре-четем дневника, за да не изтрием редове, добавени междувременно.
+      let flist = list;
+      try {
+        const fresh = await sb.from("app_config").select("*").eq("id", "paint_journal").maybeSingle();
+        if (fresh.data && fresh.data.data && Array.isArray(fresh.data.data.list)) flist = fresh.data.data.list;
+      } catch (e) {}
+      flist.forEach(r => { if (r && !r.applied) { const m = marks[pjKey(r)]; if (m) r.applied = m; } });
+      await sb.from("app_config").upsert({ id: "paint_journal", data: { list: flist }, updated_at: new Date().toISOString() });
+      const tv = document.getElementById("tasks-view");
+      if (typeof renderTasks === "function" && tv && !tv.hidden) { try { renderTasks(); } catch (e) {} }
+    }
+  } catch (e) { console.warn("reconcilePaintJournal", e); }
+  finally { reconcilePaintJournal._busy = false; }
+}
+window.reconcilePaintJournal = reconcilePaintJournal;
+
 /* ---------- Realtime ---------- */
 function subscribeTasks() {
   if (tasksSubscribed) return;
@@ -2974,6 +3050,14 @@ function subscribeTasks() {
   }, 600);
   sb.channel("tasks-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => tasksRtRefresh())
+    .subscribe();
+  // Нов отчет „Склад Боя“ от бояджията → разнеси го към Бояджийно на живо.
+  const pjRtRefresh = uiDebounce(() => {
+    if (document.getElementById("tasks-modal").hidden) return;
+    reconcilePaintJournal();
+  }, 800);
+  sb.channel("paint-journal-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "app_config", filter: "id=eq.paint_journal" }, () => pjRtRefresh())
     .subscribe();
 }
 

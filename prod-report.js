@@ -131,6 +131,7 @@ function renderProdReport() {
         <input type="search" id="pr-q" value="${escapeAttr(prodRptQuery)}" placeholder="търси по КОД / продукт / клиент…" style="min-width:220px" autocomplete="off" /></div>
     </div>
     <div id="pr-out"></div>
+    <div id="paint-warehouse"></div>
     <div id="painting-reports"></div>`;
 
   v.querySelector("#pr-back").addEventListener("click", () => { showSub("tasks"); renderTasks(); });
@@ -142,6 +143,7 @@ function renderProdReport() {
   v.querySelector("#pr-csv").addEventListener("click", prodExportCsv);
   v.querySelector("#pr-pdf").addEventListener("click", prodExportPdf);
   prodComputeAndRender();
+  if (typeof loadPaintWarehouse === "function") { const pr = prodPeriodRange(prodRptMode, prodRptDate); loadPaintWarehouse(pr.from, pr.to); }
   if (typeof loadPaintingReports === "function") loadPaintingReports();
 }
 
@@ -285,4 +287,66 @@ function prodExportPdf() {
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за този сайт и опитай пак."); return; }
   w.document.write(html); w.document.close(); w.focus();
+}
+
+/* ---------- Склад Боя (прахово отчитане по снимка — Версия 2) ---------- */
+// Чете общия журнал 'paint_journal' и го обобщава по код+цвят за периода.
+// Независим от другите операции — вижда се само от админи (в Отчет).
+function pwShortUser(s) { s = String(s || ""); var i = s.indexOf("@"); return i > 0 ? s.slice(0, i) : (s || "—"); }
+function pwDateTime(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString("bg", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+  catch (e) { return String(iso).slice(0, 16).replace("T", " "); }
+}
+function pwGroups(rows) {
+  const g = {};
+  rows.forEach(r => {
+    const key = (r.code || "—") + "¦" + (r.color || "");
+    const o = g[key] || (g[key] = { code: r.code || "—", label: r.label || "", color: r.color || "", qty: 0, cnt: 0, ops: {}, last: "" });
+    o.qty += Number(r.qty) || 0; o.cnt++;
+    if (r.by) o.ops[r.by] = (o.ops[r.by] || 0) + (Number(r.qty) || 0);
+    if ((r.at || "") > o.last) o.last = r.at || "";
+    if (!o.label && r.label) o.label = r.label;
+  });
+  return Object.values(g).sort((a, b) => String(a.code).localeCompare(String(b.code)) || b.qty - a.qty);
+}
+async function loadPaintWarehouse(from, to) {
+  const box = document.getElementById("paint-warehouse");
+  if (!box) return;
+  let list = [];
+  try {
+    const { data } = await sb.from("app_config").select("*").eq("id", "paint_journal").maybeSingle();
+    list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
+  } catch (e) {}
+  // Филтър по период (по реалния час на записа 'at').
+  const rows = list.filter(r => { const d = (r.at || "").slice(0, 10); return (!from || d >= from) && (!to || d <= to); });
+  const gs = pwGroups(rows);
+  const grand = gs.reduce((s, g) => s + g.qty, 0);
+  const ops = g => Object.keys(g.ops).map(pwShortUser).join(", ");
+  box.innerHTML =
+    `<div class="workers-head" style="margin-top:22px"><h3>🎨 Склад Боя — прахово отчитане по снимка</h3>` +
+    (gs.length ? `<button id="pw-csv" class="btn btn-small">⤓ Excel</button>` : "") + `</div>` +
+    (gs.length
+      ? `<table class="report-table"><thead><tr><th>Код</th><th>Детайл</th><th>Цвят</th><th class="num">Общо (бр.)</th><th class="num">Записи</th><th>Оператори</th><th>Последно</th></tr></thead><tbody>` +
+        gs.map(g => `<tr>
+          <td class="pr-code"><b>${escapeHtml(g.code)}</b></td>
+          <td>${escapeHtml(g.label) || "—"}</td>
+          <td>${escapeHtml(g.color) || "—"}</td>
+          <td class="num">${Number(g.qty).toLocaleString("bg")}</td>
+          <td class="num">${g.cnt}</td>
+          <td>${escapeHtml(ops(g))}</td>
+          <td>${escapeHtml(pwDateTime(g.last))}</td>
+        </tr>`).join("") +
+        `<tr class="pr-total"><td colspan="3"><b>Всичко боядисано</b></td><td class="num"><b>${grand.toLocaleString("bg")}</b></td><td colspan="3"></td></tr>` +
+        `</tbody></table>`
+      : `<p class="report-empty">Няма отчетено боядисване за периода.</p>`);
+  const csv = document.getElementById("pw-csv");
+  if (csv) csv.addEventListener("click", () => exportPaintWarehouseXls(gs, grand, from, to));
+}
+function exportPaintWarehouseXls(gs, grand, from, to) {
+  const rows = gs.map(g => [g.code, g.label, g.color, g.qty, g.cnt, Object.keys(g.ops).map(pwShortUser).join(" ")]);
+  rows.push(["", "ВСИЧКО БОЯДИСАНО", "", grand, "", ""]);
+  const sections = [{ title: "Склад Боя — по код", headers: [{ label: "Код" }, { label: "Детайл" }, { label: "Цвят" }, { label: "Общо (бр.)", num: true }, { label: "Записи", num: true }, { label: "Оператори" }], rows }];
+  const title = "Склад Боя · " + (from === to ? fmtLogDate(from) : (fmtLogDate(from) + " – " + fmtLogDate(to)));
+  if (typeof reportExportXls === "function") reportExportXls("sklad-boya-" + from + (from !== to ? "_" + to : ""), title, sections);
 }
