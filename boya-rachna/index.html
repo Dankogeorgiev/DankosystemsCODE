@@ -168,6 +168,12 @@
   .v2editbar b{font-family:var(--disp);font-weight:700}
   .v2editbar .done{font-family:var(--disp);font-weight:700;font-size:15px;background:var(--ok);color:#fff;border:none;border-radius:10px;padding:9px 18px;cursor:pointer}
   .v2editbar .done:hover{background:#26643f}
+  /* Прелистване на плочките (макс. 9 на страница) */
+  .v2pager{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:16px;padding:9px 0 2px}
+  .v2pager .pgbtn{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--ink);background:#F1F4F9;border:1.5px solid var(--line);border-radius:10px;padding:9px 20px;cursor:pointer}
+  .v2pager .pgbtn:hover:not(:disabled){background:var(--ink);color:#fff;border-color:var(--ink)}
+  .v2pager .pgbtn:disabled{opacity:.4;cursor:not-allowed}
+  .v2pager .pgnum{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--muted);min-width:120px;text-align:center}
   /* Цвят на плочката (под кода) */
   .v2tile .cap .clr{display:inline-block;margin-top:4px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink);background:#EEF2F7;border:1px solid var(--line);border-radius:20px;padding:2px 9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Таб „Изделия за боядисване" */
@@ -309,8 +315,9 @@
       <div class="v2today" id="v2today"></div>
     </div>
 
-    <!-- Решетка 3×3 със снимките на детайлите -->
+    <!-- Решетка 3×3 със снимките на детайлите (макс. 9 на страница) -->
     <div class="v2grid" id="v2grid"></div>
+    <div class="v2pager" id="v2pager" hidden></div>
 
     <!-- Полуекран: детайл вляво, цифрова клавиатура вдясно -->
     <div class="v2detail" id="v2detail" hidden>
@@ -994,6 +1001,7 @@
   var grid = $("v2grid"), detail = $("v2detail");
   var current = null, qty = "";
   var todayCount = {};   // label -> сбор за сесията (визуална обратна връзка на плочките)
+  var PAGE_SIZE = 9, page = 0;   // макс. 9 плочки на страница (иначе не се виждат ясно)
 
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   $("v2date").textContent = V2_DAY.date;
@@ -1019,9 +1027,14 @@
     var im = container.querySelector("img"); if (!im) return;
     im.onerror = function () { this.onerror = null; this.outerHTML = '<div class="ph"><span class="ic">🖼</span>' + (big ? "" : "снимка предстои") + '</div>'; };
   }
+  function pageCount() { return Math.max(1, Math.ceil(V2_PARTS.length / PAGE_SIZE)); }
   function renderGrid() {
     grid.innerHTML = "";
-    V2_PARTS.forEach(function (p, i) {
+    if (page >= pageCount()) page = pageCount() - 1;
+    if (page < 0) page = 0;
+    var start = page * PAGE_SIZE;
+    V2_PARTS.slice(start, start + PAGE_SIZE).forEach(function (p, rel) {
+      var i = start + rel;   // абсолютен индекс в V2_PARTS
       var cnt = todayCount[p.label] || 0;
       var t = document.createElement("div");
       t.className = "v2tile" + (drag && drag.curIndex === i ? " placeholder" : "");
@@ -1037,6 +1050,20 @@
     });
     var tot = Object.keys(todayCount).reduce(function (s, k) { return s + todayCount[k]; }, 0);
     $("v2today").innerHTML = tot ? ('Отчетени днес: <b>' + tot + ' бр.</b>') : "";
+    renderPager();
+  }
+  function renderPager() {
+    var pg = $("v2pager"); if (!pg) return;
+    var pages = pageCount();
+    if (pages <= 1) { pg.hidden = true; pg.innerHTML = ""; return; }
+    pg.hidden = false;
+    pg.innerHTML =
+      '<button class="pgbtn" id="pgPrev"' + (page <= 0 ? " disabled" : "") + '>← Назад</button>' +
+      '<span class="pgnum">Страница ' + (page + 1) + " / " + pages + "</span>" +
+      '<button class="pgbtn" id="pgNext"' + (page >= pages - 1 ? " disabled" : "") + '>Напред →</button>';
+    var pv = $("pgPrev"), nx = $("pgNext");
+    if (pv) pv.onclick = function () { if (page > 0) { page--; renderGrid(); } };
+    if (nx) nx.onclick = function () { if (page < pages - 1) { page++; renderGrid(); } };
   }
   /* ── Подреждане с влачене (като иконите на iPhone) ──────────────────
      Задържане (мишка или пръст) върху плочка → режим на подреждане: всички
@@ -1146,11 +1173,13 @@
     var el = document.elementFromPoint(x, y);
     var over = el ? el.closest(".v2tile") : null;
     if (!over || over.classList.contains("v2ghost")) return;
-    var overIndex = Array.prototype.indexOf.call(grid.children, over);
-    if (overIndex < 0 || overIndex === drag.curIndex) return;
+    var relIndex = Array.prototype.indexOf.call(grid.children, over);
+    if (relIndex < 0) return;
+    var absOver = page * PAGE_SIZE + relIndex;   // абсолютен индекс (подреждане в рамките на страницата)
+    if (absOver === drag.curIndex) return;
     var item = V2_PARTS.splice(drag.curIndex, 1)[0];
-    V2_PARTS.splice(overIndex, 0, item);
-    drag.curIndex = overIndex;
+    V2_PARTS.splice(absOver, 0, item);
+    drag.curIndex = absOver;
     renderGrid();   // пренарежда; плочката на drag.curIndex получава клас „placeholder"
   }
   function dragEnd() {
