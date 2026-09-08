@@ -2015,14 +2015,15 @@ function printSelectedTasks(visibleRows) {
     const asg = taskAssignees(t);
     return `<tr><td>${i + 1}</td>
       <td>${escapeHtml(cl)}${nos.length ? `<br><small>№ ${escapeHtml(nos.join(", "))}</small>` : ""}</td>
-      <td><b>${escapeHtml(t.code || "")}</b><br><small>${escapeHtml(t.product || "")}</small></td>
+      <td class="code">${escapeHtml(t.code || "")}</td>
+      <td class="pname">${escapeHtml(t.product || "")}</td>
       <td>${escapeHtml(t.operation || "")}${showWs ? `<br><small>${escapeHtml(t.workshop || "")}</small>` : ""}</td>
       <td class="r">${matQtyFmt(qty)}</td><td class="r">${matQtyFmt(prod)}</td><td class="r"><b>${matQtyFmt(rem)}</b></td>
       <td>${t.due ? (typeof erpDMY === "function" ? erpDMY(t.due) : t.due) : "—"}</td>
       <td>${escapeHtml(asg.join(", "))}</td>
       <td style="width:64px"></td><td style="width:74px"></td></tr>`;
   };
-  const head = `<thead><tr><th>№</th><th>Клиент / заявка</th><th>Код / продукт</th><th>Операция${showWs ? " · цех" : ""}</th>
+  const head = `<thead><tr><th>№</th><th>Клиент / заявка</th><th>Код</th><th>Изделие</th><th>Операция${showWs ? " · цех" : ""}</th>
     <th class="r">Кол.</th><th class="r">Готови</th><th class="r">Остават</th><th>Срок</th><th>Възложено на</th><th>Изработени</th><th>Подпис</th></tr></thead>`;
 
   let body = "";
@@ -2043,6 +2044,8 @@ function printSelectedTasks(visibleRows) {
     table{width:100%;border-collapse:collapse;margin-bottom:10px}
     th,td{border:1px solid #94a3b8;padding:4px 6px;font-size:12px;text-align:left;vertical-align:top}
     th{background:#f1f5f9}td.r,th.r{text-align:right}small{color:#555}
+    td.code{font-weight:700;white-space:nowrap}
+    td.pname{font-size:13.5px;font-weight:600;min-width:200px}
     .sign{margin-top:14px;font-size:12px;display:flex;gap:40px}
     @page{size:A4 landscape;margin:8mm}@media print{.noprint{display:none}}</style></head><body>
     <div class="noprint" style="text-align:center;margin-bottom:8px"><button onclick="window.print()" style="padding:8px 18px;font-size:14px">🖨 Печат</button></div>
