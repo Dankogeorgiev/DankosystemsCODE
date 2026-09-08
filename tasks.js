@@ -2973,7 +2973,12 @@ function computeReport() {
    Заобикаля поточния гейт (за разлика от logProduction), защото Склад Боя е
    независим отчет. */
 function pjKey(r) { return r && (r.jid || [r.at || "", r.code || "", r.qty || "", r.by || ""].join("|")); }
+// Връзката „Склад Боя“ → Бояджийно е ПАУЗИРАНА (по желание на Данко, 08.09.2026):
+// днес всичко влиза САМО в Склад Боя и НЕ се отчита никъде другаде по системата.
+// За да се включи разнасянето към задачите пак — сложи PAINT_LINK_ENABLED = true.
+const PAINT_LINK_ENABLED = false;
 async function reconcilePaintJournal() {
+  if (!PAINT_LINK_ENABLED) return;                                   // само Склад Боя днес
   if (typeof sb === "undefined" || !sb || !Array.isArray(TASKS)) return;
   if (typeof amWorker === "function" && amWorker()) return;   // само админ разнася отчетите
   if (reconcilePaintJournal._busy) return;
