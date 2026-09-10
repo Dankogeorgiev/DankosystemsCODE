@@ -147,22 +147,32 @@ function mOrderShare(t, oid) {
 // Колко мастерът ВЕЧЕ е отчел по тази задача ЗА ТАЗИ заявка (вписванията носят
 // mOrder). Без това всяко следващо цъкане прилагаше капата „за реда" наново и
 // докарваше ПРЕДИШНИТЕ операции до целия сериен брой, не до дела на заявката.
-function mMineFor(t, oid) {
-  let s = 0;
-  (t && t.logs || []).forEach(l => { if (String(l.mOrder || "") === String(oid)) s += Number(l.qty) || 0; });
-  return s;
+function mMineFor(t, oid, pid) {
+  let ord = 0, art = 0;
+  (t && t.logs || []).forEach(l => {
+    if (String(l.mOrder || "") !== String(oid)) return;
+    const q = Number(l.qty) || 0;
+    ord += q;
+    // Към артикула: неговите вписвания + старите без mArt (консервативно).
+    if (pid != null && (!l.mArt || String(l.mArt) === String(pid))) art += q;
+  });
+  return { ord, art };
 }
-// Ефективната капа на действието: ред/дял, намалени с вече отчетеното за заявката.
-function mCapLeft(t, oid, capFn, mine) {
+// Ефективната капа на действието: нуждата на реда минус отчетеното ЗА АРТИКУЛА,
+// и делът на заявката минус отчетеното ЗА ЗАЯВКАТА — по-малкото от двете.
+// (Серия, споделена от два артикула на ЕДНА заявка, иначе се докарваше до
+// серийния макс: делът на заявката е общ и не пазеше реда.)
+function mCapLeft(t, oid, capFn, m) {
   const share = mOrderShare(t, oid);
-  const capRow = capFn ? capFn(t) : share;
-  if (!isFinite(share)) return isFinite(capRow) ? Math.max(0, capRow - mine) : Infinity;
-  return Math.max(0, Math.min(capRow, share - mine));
+  const rowLeft = capFn ? Math.max(0, capFn(t) - m.art) : Infinity;
+  const shareLeft = isFinite(share) ? Math.max(0, share - m.ord) : Infinity;
+  const eff = Math.min(rowLeft, shareLeft);
+  return isFinite(eff) ? eff : Infinity;
 }
 
 // Докарва един детайл до дадена стъпка (отчита всяка операция до наличното,
 // но най-много дела на заявката; capFn стяга капата до нуждата на реда).
-async function masterAdvanceDetail(oid, ops, targetStep, capFn) {
+async function masterAdvanceDetail(oid, ops, targetStep, capFn, artPid) {
   const sorted = ops.slice().sort((a, b) => mStep(a) - mStep(b));
   for (const t of sorted) {
     if (mStep(t) > targetStep) break;
@@ -170,9 +180,11 @@ async function masterAdvanceDetail(oid, ops, targetStep, capFn) {
     const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-    const toReport = Math.min(rem, Math.max(0, avail), mCapLeft(t, oid, capFn, mMineFor(t, oid)));
-    // mOrder: за коя заявка е натиснат мастерът — за точна отмяна по заявка.
-    if (toReport > 0) await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
+    const toReport = Math.min(rem, Math.max(0, avail), mCapLeft(t, oid, capFn, mMineFor(t, oid, artPid)));
+    // mOrder/mArt: за коя заявка/артикул е натиснат мастерът — за точна капа и отмяна.
+    const extra = { note: "мастер отчитане", mOrder: String(oid) };
+    if (artPid != null) extra.mArt = String(artPid);
+    if (toReport > 0) await logProduction(t, toReport, extra, { silent: true, worker: masterWorker() });
   }
 }
 
@@ -198,14 +210,14 @@ function masterArticleNeeds(pid, cnt) {
 // цял артикул, и за цялата заявка. Общо отчетеното на задача от ТОВА действие
 // се ограничава до дела на заявката в серията ѝ; capFn (ако е подадена) стяга
 // капата допълнително — напр. до нуждата на конкретния артикул/бройки.
-async function masterCompleteOrder(oid, details, capFn) {
+async function masterCompleteOrder(oid, details, capFn, artPid) {
   const reported = new Map();   // задача -> отчетено от това действие
   // Снимка на произведеното ПРЕДИ действието: реалният напредък включва и
   // авто-отчетеното покрай мастер вълната (авто-боя/зачистване), което самият
   // мастер не пише — иначе тези операции излизаха като „чакат" в съобщението.
   const before = new Map();
   const mine0 = new Map();   // вече отчетеното за заявката ПРЕДИ действието
-  for (const d of details) for (const t of d.ops) if (!before.has(t)) { before.set(t, Number(t.produced) || 0); mine0.set(t, mMineFor(t, oid)); }
+  for (const d of details) for (const t of d.ops) if (!before.has(t)) { before.set(t, Number(t.produced) || 0); mine0.set(t, mMineFor(t, oid, artPid)); }
   let progressed = true, guard = 0;
   while (progressed && guard++ < 60) {
     progressed = false;
@@ -219,11 +231,13 @@ async function masterCompleteOrder(oid, details, capFn) {
       const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
       const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-      const cap = mCapLeft(t, oid, capFn, mine0.get(t) || 0);
+      const cap = mCapLeft(t, oid, capFn, mine0.get(t) || { ord: 0, art: 0 });
       const left = cap - (reported.get(t) || 0);
       const toReport = Math.min(rem, Math.max(0, avail), Math.max(0, left));
       if (toReport > 0) {
-        await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
+        const extra = { note: "мастер отчитане", mOrder: String(oid) };
+        if (artPid != null) extra.mArt = String(artPid);
+        await logProduction(t, toReport, extra, { silent: true, worker: masterWorker() });
         reported.set(t, (reported.get(t) || 0) + toReport);
         progressed = true;
       }
@@ -241,7 +255,7 @@ async function masterCompleteOrder(oid, details, capFn) {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     if (qty > 0 && prod >= qty) continue;                       // операцията е изцяло готова
     const remBefore = Math.max(0, qty - (before.get(t) || 0));
-    const cap = mCapLeft(t, oid, capFn, mine0.get(t) || 0);
+    const cap = mCapLeft(t, oid, capFn, mine0.get(t) || { ord: 0, art: 0 });
     const intended = Math.min(remBefore, cap);                  // колкото действието ИСКАШЕ да добави
     const advanced = Math.max(0, prod - (before.get(t) || 0));  // колкото реално се добави (мастер + авто)
     const missing = intended - advanced;
@@ -552,7 +566,7 @@ function masterRender() {
     if (!confirm(`Да отчета ли артикула „${a.code ? a.code + " " : ""}${a.name}"${cntTxt || (a.qty ? ` × ${a.qty} бр.` : "")} до ГОТОВО?\n\nЩе се отчетат детайлите и операциите му (${a.details.length} детайла)${cntTxt ? " до нуждата на тези бройки по рецептата" : ""}. Детайли, споделени с други артикули/заявки, не се пипат отвъд този дял.`)) return;
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
     try {
-      const left = await masterCompleteOrder(oid, a.details, capFn);
+      const left = await masterCompleteOrder(oid, a.details, capFn, (a.pid != null && a.pid !== "misc") ? String(a.pid) : null);
       if (left && left.length) alert(`⚠ Не всичко стигна до готово (${left.length} операции):\n` + left.slice(0, 12).join("\n") + (left.length > 12 ? `\n…и още ${left.length - 12}` : ""));
     } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
@@ -578,7 +592,7 @@ function masterRender() {
       };
     }
     wrap.querySelectorAll(".m-chip, .m-complete, .m-art-complete").forEach(x => x.disabled = true);
-    try { await masterAdvanceDetail(oid, d.ops, step, capFn); } catch (e) { alert("Грешка: " + (e.message || e)); }
+    try { await masterAdvanceDetail(oid, d.ops, step, capFn, (artPid && artPid !== "misc") ? artPid : null); } catch (e) { alert("Грешка: " + (e.message || e)); }
     if (typeof erpMarkOrderReadyIfDone === "function") { try { await erpMarkOrderReadyIfDone(oid); } catch (e) {} }
     masterRender();
     if (typeof renderTasks === "function") renderTasks();
