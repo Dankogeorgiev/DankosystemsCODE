@@ -144,6 +144,21 @@ function mOrderShare(t, oid) {
   const o = os.find(x => String(x.id) === String(oid));
   return o ? (Number(o.qty) || 0) : 0;
 }
+// Колко мастерът ВЕЧЕ е отчел по тази задача ЗА ТАЗИ заявка (вписванията носят
+// mOrder). Без това всяко следващо цъкане прилагаше капата „за реда" наново и
+// докарваше ПРЕДИШНИТЕ операции до целия сериен брой, не до дела на заявката.
+function mMineFor(t, oid) {
+  let s = 0;
+  (t && t.logs || []).forEach(l => { if (String(l.mOrder || "") === String(oid)) s += Number(l.qty) || 0; });
+  return s;
+}
+// Ефективната капа на действието: ред/дял, намалени с вече отчетеното за заявката.
+function mCapLeft(t, oid, capFn, mine) {
+  const share = mOrderShare(t, oid);
+  const capRow = capFn ? capFn(t) : share;
+  if (!isFinite(share)) return isFinite(capRow) ? Math.max(0, capRow - mine) : Infinity;
+  return Math.max(0, Math.min(capRow, share - mine));
+}
 
 // Докарва един детайл до дадена стъпка (отчита всяка операция до наличното,
 // но най-много дела на заявката; capFn стяга капата до нуждата на реда).
@@ -155,7 +170,7 @@ async function masterAdvanceDetail(oid, ops, targetStep, capFn) {
     const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
     const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
     const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-    const toReport = Math.min(rem, Math.max(0, avail), capFn ? capFn(t) : mOrderShare(t, oid));
+    const toReport = Math.min(rem, Math.max(0, avail), mCapLeft(t, oid, capFn, mMineFor(t, oid)));
     // mOrder: за коя заявка е натиснат мастерът — за точна отмяна по заявка.
     if (toReport > 0) await logProduction(t, toReport, { note: "мастер отчитане", mOrder: String(oid) }, { silent: true, worker: masterWorker() });
   }
@@ -189,7 +204,8 @@ async function masterCompleteOrder(oid, details, capFn) {
   // авто-отчетеното покрай мастер вълната (авто-боя/зачистване), което самият
   // мастер не пише — иначе тези операции излизаха като „чакат" в съобщението.
   const before = new Map();
-  for (const d of details) for (const t of d.ops) if (!before.has(t)) before.set(t, Number(t.produced) || 0);
+  const mine0 = new Map();   // вече отчетеното за заявката ПРЕДИ действието
+  for (const d of details) for (const t of d.ops) if (!before.has(t)) { before.set(t, Number(t.produced) || 0); mine0.set(t, mMineFor(t, oid)); }
   let progressed = true, guard = 0;
   while (progressed && guard++ < 60) {
     progressed = false;
@@ -203,7 +219,7 @@ async function masterCompleteOrder(oid, details, capFn) {
       const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
       const avail = (typeof erpFlowAvailable === "function") ? erpFlowAvailable(t, map) : ((Number(t.qty) || 0) - (Number(t.produced) || 0));
       const rem = Math.max(0, (Number(t.qty) || 0) - (Number(t.produced) || 0));
-      const cap = capFn ? capFn(t) : mOrderShare(t, oid);
+      const cap = mCapLeft(t, oid, capFn, mine0.get(t) || 0);
       const left = cap - (reported.get(t) || 0);
       const toReport = Math.min(rem, Math.max(0, avail), Math.max(0, left));
       if (toReport > 0) {
@@ -225,7 +241,7 @@ async function masterCompleteOrder(oid, details, capFn) {
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     if (qty > 0 && prod >= qty) continue;                       // операцията е изцяло готова
     const remBefore = Math.max(0, qty - (before.get(t) || 0));
-    const cap = Math.max(0, capFn ? capFn(t) : mOrderShare(t, oid));
+    const cap = mCapLeft(t, oid, capFn, mine0.get(t) || 0);
     const intended = Math.min(remBefore, cap);                  // колкото действието ИСКАШЕ да добави
     const advanced = Math.max(0, prod - (before.get(t) || 0));  // колкото реално се добави (мастер + авто)
     const missing = intended - advanced;
