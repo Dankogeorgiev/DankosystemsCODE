@@ -24,7 +24,7 @@
       paint: $id("paint").value, paintRal: (typeof paintRal !== "undefined" ? paintRal : ""),
       belt: +$id("belt").value || 75, pitch: +$id("pitch").value || 1200, preview: 1, capacity: +$id("capacity").value || 62,
       partsSeeded, demoCleaned,
-      phi, runSec, pauseSec, running, painted: (typeof painted !== "undefined" ? painted : {}), paintedH: (typeof paintedH !== "undefined" ? paintedH : {}), batches: (typeof batches !== "undefined" ? batches : []),
+      phi, runSec, pauseSec, running, paintedPc: (typeof paintedPc !== "undefined" ? paintedPc : {}), paintedH: (typeof paintedH !== "undefined" ? paintedH : {}), batches: (typeof batches !== "undefined" ? batches : []),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -38,7 +38,7 @@
     selEntry = (d.selEntry != null && entries.some(e => e.id === d.selEntry)) ? d.selEntry : (entries[0] ? entries[0].id : null);
     if (typeof d.uid === "number") uid = Math.max(uid, d.uid);
     phi = +d.phi || 0; runSec = +d.runSec || 0; pauseSec = +d.pauseSec || 0; running = false;
-    painted = (d.painted && typeof d.painted === "object") ? Object.assign({}, d.painted) : {};
+    paintedPc = (d.paintedPc && typeof d.paintedPc === "object") ? Object.assign({}, d.paintedPc) : {};
     paintedH = (d.paintedH && typeof d.paintedH === "object") ? Object.assign({}, d.paintedH) : {};
     batches = Array.isArray(d.batches) ? d.batches.slice() : [];
     if (typeof d.paintRal === "string") paintRal = d.paintRal;
