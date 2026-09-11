@@ -88,12 +88,24 @@ async function erpPuAIUploadParse(file, st) {
   const cfg = window.DANKO_CONFIG || {};
   let token = cfg.SUPABASE_ANON_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
-  const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/parse-document", {
-    method: "POST", headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
-    body: JSON.stringify({ file_url: fileInfo.url, media_type: file.type, doc_type: "фактура_доставчик" }),
-  });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok || j.error) throw new Error(j.error || ("HTTP " + res.status));
+  // Claude понякога връща „Overloaded" (претоварен) — опитваме до 3 пъти сами,
+  // вместо да оставяме грешката на екрана и човекът да натиска пак на ръка.
+  let j = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/parse-document", {
+      method: "POST", headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
+      body: JSON.stringify({ file_url: fileInfo.url, media_type: file.type, doc_type: "фактура_доставчик" }),
+    });
+    j = await res.json().catch(() => ({}));
+    const err = (!res.ok || j.error) ? String(j.error || ("HTTP " + res.status)) : "";
+    if (!err) break;
+    if (attempt < 3 && /overloaded|529|rate.?limit|too many|timeout/i.test(err)) {
+      if (st) st.textContent = `Claude е претоварен в момента — опитвам пак (${attempt + 1}/3)…`;
+      await new Promise(r => setTimeout(r, attempt * 5000));
+      continue;
+    }
+    throw new Error(/overloaded|529/i.test(err) ? "Claude е претоварен в момента. Изчакай минута и натисни „Разчети“ пак — файлът е качен." : err);
+  }
   await erpPuAIRender(j.parsed || {}, fileInfo, j.usage);
 }
 
@@ -241,6 +253,7 @@ function erpPuAIDraw() {
           <label>Вид разход <select id="pai-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === s.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
           <label>Плащане <select id="pai-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${s.payStatus === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
           <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${erpDMY(s.dueDate)}</span>` : ""}</label>
+          <label class="erp-check" title="Кредитно известие (напр. от ИТТ/Тисен) — сумите влизат с МИНУС в разходите и ДДС-то и не създават задължение"><input type="checkbox" id="pai-credit" ${s.docType === "credit" ? "checked" : ""} /> Кредитно известие (−)</label>
         </div>
         <div id="pai-dup"></div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход. Класификацията идва от избрания Вид разход. Плащането се въвежда на следващата стъпка.</p>
@@ -264,6 +277,8 @@ function erpPuAIDraw() {
   document.getElementById("pai-date").addEventListener("input", e => s.date = e.target.value);
   document.getElementById("pai-cur").addEventListener("change", e => s.currency = e.target.value);
   document.getElementById("pai-etype").addEventListener("change", e => s.expenseType = e.target.value);
+  const crEl = document.getElementById("pai-credit");
+  if (crEl) crEl.addEventListener("change", e => s.docType = e.target.checked ? "credit" : "invoice");
   document.getElementById("pai-pay").addEventListener("change", e => { s.payStatus = e.target.value; const w = document.getElementById("pai-term-wrap"); if (w) w.style.display = s.payStatus === "deferred" ? "" : "none"; });
   document.getElementById("pai-term").addEventListener("input", e => s.termDays = Number(e.target.value) || 0);
   if (typeof erpAISetupViewer === "function") erpAISetupViewer();
@@ -385,7 +400,8 @@ async function erpPuAIConfirm() {
   const btn = document.getElementById("pai-confirm"); if (btn) { btn.disabled = true; btn.textContent = "Създавам…"; }
   try {
     const purchase = {
-      type: "фактура", supplierName: s.supName || "", supplierId: s.supId || null, expenseType: s.expenseType || "",
+      type: "фактура", docType: s.docType === "credit" ? "credit" : "invoice",
+      supplierName: s.supName || "", supplierId: s.supId || null, expenseType: s.expenseType || "",
       invoiceNo: s.invoiceNo || "", date: s.date || new Date().toISOString().slice(0, 10),
       payStatus: s.payStatus || "deferred", termDays: Number(s.termDays) || 0, dueDate: s.dueDate || "", paid: false, paidDate: "",
       currency: s.currency || "BGN", vatRate: 20, note: "", files: [s.fileInfo], aiParsed: s.parsed, posted: false,

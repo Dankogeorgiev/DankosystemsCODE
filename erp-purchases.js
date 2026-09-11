@@ -189,6 +189,12 @@ function erpPuTotals(o) {
   });
   const rates = Object.keys(byRate).map(Number).sort((a, b) => b - a);
   const rate = rates.length === 1 ? rates[0] : Number(o.vatRate != null ? o.vatRate : 20);
+  // Кредитно известие: сумите се пишат ПОЛОЖИТЕЛНИ (както са на документа),
+  // но навсякъде в сметките влизат с МИНУС — намаляват разхода и ДДС кредита.
+  if (o.docType === "credit") {
+    base = -base; vat = -vat;
+    Object.keys(byRate).forEach(k => byRate[k] = -byRate[k]);
+  }
   return { base, vat, total: base + vat, rate, byRate, rates, mixed: rates.length > 1 };
 }
 
@@ -258,7 +264,7 @@ function erpPuFillRows() {
     const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
     return `<tr class="erp-clickable" data-id="${o.id}">
       <td data-label="Дата">${erpDMY(o.date)}</td>
-      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b>${o.docType === "goods" ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e">СР${o.coveredByNo ? " ✓ф. " + escapeHtml(o.coveredByNo) : ""}</span>` : ((o.coversIds || []).length ? ` <span class="erp-co-status" style="background:#e0e7ff;color:#3730a3">покрива ${(o.coversIds || []).length} СР</span>` : "")}</td>
+      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b>${o.docType === "goods" ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e">СР${o.coveredByNo ? " ✓ф. " + escapeHtml(o.coveredByNo) : ""}</span>` : o.docType === "credit" ? ` <span class="erp-co-status" style="background:#fee2e2;color:#991b1b" title="Кредитно известие — влиза с минус в разходите и ДДС-то">КИ −</span>` : ((o.coversIds || []).length ? ` <span class="erp-co-status" style="background:#e0e7ff;color:#3730a3">покрива ${(o.coversIds || []).length} СР</span>` : "")}</td>
       <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
       <td data-label="Класификация">${o.expenseType ? `<b>${erpPuTypeIsMat(o.expenseType) ? "🧱 " : ""}${escapeHtml(o.expenseType)}</b>${cls ? " · " : ""}` : ""}${escapeHtml(cls || (o.expenseType ? "" : "—"))}</td>
       <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
@@ -326,7 +332,7 @@ async function erpRenderPurchaseForm(o) {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад</button>
-      <span class="erp-count">${escapeHtml((o.docType === "goods" ? "Стокова разписка № " : "Фактура № ") + (o.invoiceNo || "")) || "Нов документ"}${o.docType !== "goods" && st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}${(o.coversIds || []).length ? ` · <span class="erp-muted">покрива ${(o.coversIds || []).length} стокови</span>` : ""}</span>
+      <span class="erp-count">${escapeHtml((o.docType === "goods" ? "Стокова разписка № " : o.docType === "credit" ? "Кредитно известие № " : "Фактура № ") + (o.invoiceNo || "")) || "Нов документ"}${o.docType !== "goods" && st === "deferred" && Number(o.termDays) > 0 ? ' · <span class="erp-muted">плащането → Задължения</span>' : ""}${(o.coversIds || []).length ? ` · <span class="erp-muted">покрива ${(o.coversIds || []).length} стокови</span>` : ""}</span>
       ${erpPuStateBadge(o)}
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-next" title="Записва тази и отваря нова празна фактура със същия доставчик и настройки">➕ Следваща фактура</button>
@@ -340,8 +346,9 @@ async function erpRenderPurchaseForm(o) {
         <label>Доставчик <input type="text" id="pu-supplier" list="pu-suppliers" value="${escapeAttr(o.supplierName || "")}" placeholder="избери или въведи" />
           <datalist id="pu-suppliers">${suppliers.map(s => `<option value="${escapeAttr(s.name)}"></option>`).join("")}</datalist></label>
         <label>Документ <select id="pu-doctype">
-          <option value="invoice" ${o.docType !== "goods" ? "selected" : ""}>Фактура</option>
+          <option value="invoice" ${(o.docType !== "goods" && o.docType !== "credit") ? "selected" : ""}>Фактура</option>
           <option value="goods" ${o.docType === "goods" ? "selected" : ""}>Стокова разписка (доставка)</option>
+          <option value="credit" ${o.docType === "credit" ? "selected" : ""}>Кредитно известие (−)</option>
         </select></label>
         <label>№ ${o.docType === "goods" ? "Стокова" : "Фактура"} <input type="text" id="pu-invoice" value="${escapeAttr(o.invoiceNo || "")}" /></label>
         <label>Дата <input type="date" id="pu-date" value="${escapeAttr(o.date || "")}" /></label>
@@ -384,7 +391,7 @@ async function erpRenderPurchaseForm(o) {
     </div>`;
 
   const dtSel = document.getElementById("pu-doctype");
-  if (dtSel) dtSel.addEventListener("change", () => { o.docType = dtSel.value === "goods" ? "goods" : "invoice"; erpRenderPurchaseForm(o); });
+  if (dtSel) dtSel.addEventListener("change", () => { o.docType = (dtSel.value === "goods" || dtSel.value === "credit") ? dtSel.value : "invoice"; erpRenderPurchaseForm(o); });
   const cvBtn = document.getElementById("pu-covers");
   if (cvBtn) cvBtn.addEventListener("click", () => erpPuCoversDialog(o));
   const bind = (id, k, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("input", () => { o[k] = el.value; if (fn) fn(); }); };
@@ -541,7 +548,10 @@ function erpPuWireProfileChips(o) {
   }));
 }
 
-function erpPuAddMaterial(o) {
+async function erpPuAddMaterial(o) {
+  if (typeof ERP === "undefined" || !ERP.materials || !ERP.materials.length) {
+    try { await erpEnsureLoaded(); } catch (e) { alert("Складът не можа да се зареди: " + (e.message || e)); return; }
+  }
   const { wrap, close } = erpDialog(`
     <h3>Добави материал (влиза в склада)</h3>
     <input type="search" id="pu-pp-q" placeholder="търси код или име…" />
@@ -598,6 +608,7 @@ async function erpPuRemoveFile(o, i) {
    стокови) — записът продължава направо със заприходяването; иначе само пише. */
 function erpPuNeedsPost(o) {
   if (o.posted) return false;
+  if (o.docType === "credit") return false;   // кредитното е само пари — складът се коригира ръчно при върната стока
   if (o.docType !== "goods" && (o.coversIds || []).length) return true;   // покриваща фактура (само парите)
   return (o.lines || []).some(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
 }

@@ -437,7 +437,9 @@ async function erpPaySyncFromPurchase(o) {
   if (!o || !o.id) return;
   await erpPayLoad();
   // Стоковата разписка НЕ е плащане — парите идват с фактурата, която я покрива.
-  if (o.docType === "goods") {
+  // Кредитното известие също не влиза в Задължения: то НАМАЛЯВА дължимото —
+  // приспада се при плащането (напр. с „частично плащане" на голямата фактура).
+  if (o.docType === "goods" || o.docType === "credit") {
     const i = (PAYABLES || []).findIndex(p => p.srcPurchaseId === o.id && !p.paid);
     if (i >= 0) { PAYABLES.splice(i, 1); await erpPaySave(); }
     return;
