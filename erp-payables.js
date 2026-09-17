@@ -169,6 +169,7 @@ async function erpRenderPayables() {
       ${pybSupplier ? '<button class="btn btn-small" id="pyb-clearf">✕ Изчисти филтъра</button>' : ""}
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} ${rows.length === 1 ? "фактура" : "фактури"} · ${payMoney(rows.reduce((s, p) => s + (pybFilter === "paid" ? payNum(p.amountVat) : payLeft(p)), 0))} EUR</span>
+      <button class="btn btn-small" id="pyb-audit" title="Минава през ВСИЧКИ въведени покупки и намира неплатени фактури с отложено плащане, които ЛИПСВАТ тук — с един клик ги създава">🔍 Сверка с Покупки</button>
       <button class="btn btn-small" id="pyb-xls" title="Сваля точно това, което се вижда — със същия филтър и подредба">⬇ Excel</button>
     </div>
     <div class="pay-cards">
@@ -229,6 +230,7 @@ async function erpRenderPayables() {
     const el = document.getElementById("pyb-q");
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   }, 220));
+  const au = document.getElementById("pyb-audit"); if (au) au.addEventListener("click", erpPayAuditPurchases);
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);
   const ca = document.getElementById("pay-clear-all"); if (ca) ca.addEventListener("click", erpPayClearAll);
@@ -427,6 +429,67 @@ async function erpPayClearAll() {
   PAYABLES = [];
   paySelected.clear();
   if (await erpPaySave()) { pybFilter = "all"; erpRenderPayables(); alert("Готово. Задълженията са изчистени."); }
+}
+
+/* ---------- 🔍 Сверка Покупки ↔ Задължения ----------
+   Намира: (а) неплатени фактури с ОТЛОЖЕНО плащане, които нямат ред тук —
+   изпуснати плащания; (б) неплатени редове тук, чиято фактура в Покупки е
+   маркирана платена — за преглед. Липсващите се създават с един клик. */
+async function erpPayAuditPurchases() {
+  await erpPayLoad();
+  try { if (typeof erpPurchases === "undefined" || !erpPurchases) await erpLoadPurchases(); } catch (e) { alert("Не мога да заредя Покупките: " + (e.message || e)); return; }
+  const bySrc = new Map();
+  (PAYABLES || []).forEach(p => { if (p.srcPurchaseId) bySrc.set(String(p.srcPurchaseId), p); });
+  const RATE = 1.95583;
+  const missing = [], weird = [];
+  (erpPurchases || []).forEach(o => {
+    if (o.docType === "goods" || o.docType === "credit") return;
+    const st = (typeof erpPuPayStatus === "function") ? erpPuPayStatus(o) : (o.payStatus || "");
+    const pb = bySrc.get(String(o.id));
+    if (!o.paid && st === "deferred" && !pb) missing.push(o);
+    if (o.paid && pb && !pb.paid) weird.push(o);
+  });
+  const money = o => { const t = erpPuTotals(o); const k = erpPuCur(o) === "BGN" ? 1 / RATE : 1; return payMoney(t.total * k); };
+  if (!missing.length && !weird.length) { alert("✅ Сверката е чиста: всички неплатени отложени фактури от Покупки са тук."); return; }
+  const { wrap, close } = erpDialog(`
+    <h3>🔍 Сверка Покупки ↔ Задължения</h3>
+    ${missing.length ? `<p class="pay-neg" style="margin:0 0 6px"><b>⚠ ${missing.length} неплатени фактури с отложено плащане ЛИПСВАТ в Задължения:</b></p>
+    <div style="max-height:38vh;overflow:auto"><table class="report-table erp-table">
+      <thead><tr><th>Дата</th><th>№</th><th>Доставчик</th><th class="num">Сума с ДДС</th><th>Падеж</th></tr></thead>
+      <tbody>${missing.map(o => `<tr><td>${erpDMY(o.date)}</td><td><b>${escapeHtml(o.invoiceNo || "—")}</b></td><td>${escapeHtml(o.supplierName || "")}</td><td class="num">${money(o)}</td><td>${o.dueDate ? erpDMY(o.dueDate) : "—"}</td></tr>`).join("")}</tbody>
+    </table></div>` : `<p style="margin:0 0 6px">✅ Няма липсващи задължения.</p>`}
+    ${weird.length ? `<p class="hint" style="margin:8px 0 0">🛈 За преглед: ${weird.length} реда тук са НЕплатени, а фактурата им в Покупки е маркирана платена — отвори ги и уеднакви (№ ${weird.slice(0, 8).map(o => escapeHtml(o.invoiceNo || "?")).join(", ")}${weird.length > 8 ? "…" : ""}).</p>` : ""}
+    <p class="save-status" id="pba-st"></p>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="pba-close">Затвори</button>
+      ${missing.length ? `<button class="btn btn-primary" id="pba-fix">➕ Създай липсващите (${missing.length})</button>` : ""}
+    </div>`);
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  wrap.querySelector("#pba-close").addEventListener("click", close);
+  const fx = wrap.querySelector("#pba-fix");
+  if (fx) fx.addEventListener("click", async () => {
+    fx.disabled = true;
+    const st = wrap.querySelector("#pba-st");
+    st.textContent = `Създава ${missing.length} задължения…`;
+    // Всичките наведнъж, с ЕДИН запис — и десетки фактури минават за секунда.
+    missing.forEach(o => {
+      const rate = (erpPuCur(o) === "BGN") ? RATE : 1;
+      const t = erpPuTotals(o);
+      PAYABLES.push({
+        id: payNextId(), paid: false, paidDate: "", forToday: false,
+        dueDate: o.dueDate || (typeof erpPuDueDate === "function" ? erpPuDueDate(o) : ""),
+        termDays: Number(o.termDays) || 0, invoiceNo: o.invoiceNo || "", docDate: o.date || "",
+        supplier: o.supplierName || "",
+        article: (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 2).join(", ") || o.note || "",
+        amount: Math.round((t.base / rate) * 100) / 100, amountVat: Math.round((t.total / rate) * 100) / 100,
+        currency: "EUR", payMethod: "Банка", srcPurchaseId: o.id,
+      });
+    });
+    await erpPaySave();
+    close();
+    alert(`✓ Създадени са ${missing.length} задължения — с падежите и сумите от фактурите. Прегледай ги в списъка.`);
+    erpRenderPayables();
+  });
 }
 
 /* ---------- Връзка с Покупки: покупка Банка+срок → задължение ---------- */

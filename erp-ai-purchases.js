@@ -413,6 +413,10 @@ async function erpPuAIConfirm() {
     };
     if (typeof erpPuApplyPay === "function") erpPuApplyPay(purchase);   // канонични полета по статуса
     await erpSavePurchase(purchase);
+    // Отложено плащане → ред в Задължения. Липсваше и AI-фактурите не влизаха
+    // там (изпуснати плащания — ХИ ТРАНСПОРТ, ГИРГИНОВИ), докато някой не ги
+    // отвореше и запишеше наново на ръка.
+    try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(purchase); } catch (e) { console.warn("задължения:", e); }
     const pairs = s.rows.filter(r => r.desc && (r.materialId || r.code)).map(r => ({ desc: r.desc, materialId: r.materialId, code: r.code, article: r.article, groupName: r.groupName }));
     try { await erpMatLearnAliases(s.supId, s.supName, pairs); } catch (e) { console.warn(e); }
     await erpLoadPurchases();
