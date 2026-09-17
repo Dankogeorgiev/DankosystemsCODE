@@ -462,10 +462,24 @@ async function erpPayAuditPurchases() {
     <p class="save-status" id="pba-st"></p>
     <div class="erp-dialog-actions">
       <button class="btn" id="pba-close">Затвори</button>
+      ${(missing.length || weird.length) ? `<button class="btn" id="pba-xls" title="Сваля списъка от сверката в Excel — за преглед/архив преди поправката">⬇ Excel</button>` : ""}
       ${missing.length ? `<button class="btn btn-primary" id="pba-fix">➕ Създай липсващите (${missing.length})</button>` : ""}
     </div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
   wrap.querySelector("#pba-close").addEventListener("click", close);
+  const xb = wrap.querySelector("#pba-xls");
+  if (xb) xb.addEventListener("click", () => {
+    const n2 = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const num = o => { const t = erpPuTotals(o); const k = erpPuCur(o) === "BGN" ? 1 / RATE : 1; return t.total * k; };
+    const headers = [{ label: "Дата" }, { label: "№ фактура" }, { label: "Доставчик" }, { label: "Сума с ДДС (EUR)", num: true }, { label: "Падеж" }, { label: "Артикули" }];
+    const mk = o => [erpDMY(o.date) || "", o.invoiceNo || "", o.supplierName || "", n2(num(o)), o.dueDate ? erpDMY(o.dueDate) : "", (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 3).join(", ")];
+    const rows = missing.map(mk);
+    if (rows.length) rows.push(["", "", `ОБЩО (${missing.length} фактури)`, n2(missing.reduce((s, o) => s + num(o), 0)), "", ""]);
+    const secs = [{ title: `Липсват в Задължения (${missing.length})`, headers, rows }];
+    if (weird.length) secs.push({ title: `За преглед: неплатени тук, а фактурата е „платена" в Покупки (${weird.length})`, headers, rows: weird.map(mk) });
+    const today = new Date().toISOString().slice(0, 10);
+    reportExportXls("zadalzhenia-sverka-" + today, "Сверка Покупки ↔ Задължения · " + erpDMY(today), secs);
+  });
   const fx = wrap.querySelector("#pba-fix");
   if (fx) fx.addEventListener("click", async () => {
     fx.disabled = true;
