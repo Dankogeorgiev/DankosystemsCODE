@@ -198,6 +198,47 @@ function erpPuTotals(o) {
   return { base, vat, total: base + vat, rate, byRate, rates, mixed: rates.length > 1 };
 }
 
+/* ---------- ⤓ Excel: ВСИЧКИ въведени покупки ----------
+   Ред за всеки документ (фактура/стокова/кредитно), без филтри по статус.
+   Сумите са в EUR (BGN ÷ 1.95583); кредитните влизат с минус (erpPuTotals).
+   Отделно стоят и сумите ПО ДОКУМЕНТА в неговата валута — за сверка. */
+function erpPuExportAllXls() {
+  const RATE = 1.95583;
+  const n2 = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const kind = o => o.docType === "goods" ? "Стокова" : o.docType === "credit" ? "Кредитно (−)" : "Фактура";
+  const payTxt = o => {
+    if (o.paid) return "платена" + (o.paidDate ? " · " + erpDMY(o.paidDate) : "");
+    const st = erpPuPayStatus(o);
+    return st === "deferred" ? "НЕплатена (отложено)" : ({ cash: "в брой", card: "с карта", bank: "по банка" }[st] || st);
+  };
+  const rows0 = (erpPurchases || []).slice()
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.invoiceNo || "").localeCompare(String(b.invoiceNo || "")));
+  if (!rows0.length) { alert("Няма въведени покупки."); return; }
+  let gBase = 0, gVat = 0, gTot = 0;
+  const rows = rows0.map(o => {
+    const t = erpPuTotals(o);
+    const cur = erpPuCur(o);
+    const k = cur === "BGN" ? 1 / RATE : 1;
+    gBase += t.base * k; gVat += t.vat * k; gTot += t.total * k;
+    const arts = (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 3).join(", ");
+    return [
+      erpDMY(o.date) || "", kind(o), o.invoiceNo || "", o.supplierName || "", o.expenseType || "",
+      arts, n2(t.base * k), n2(t.vat * k), n2(t.total * k),
+      cur, n2(t.base), n2(t.total),
+      payTxt(o), o.dueDate ? erpDMY(o.dueDate) : "", o.posted ? "да" : "не", o.note || "",
+    ];
+  });
+  rows.push(["", "", "", "ОБЩО (" + rows0.length + " документа)", "", "", n2(gBase), n2(gVat), n2(gTot), "", "", "", "", "", "", ""]);
+  const headers = [
+    { label: "Дата" }, { label: "Вид" }, { label: "№ документ" }, { label: "Доставчик" }, { label: "Вид разход" },
+    { label: "Артикули" }, { label: "Основа EUR", num: true }, { label: "ДДС EUR", num: true }, { label: "Общо EUR", num: true },
+    { label: "Валута" }, { label: "Основа (док.)", num: true }, { label: "Общо (док.)", num: true },
+    { label: "Плащане" }, { label: "Падеж" }, { label: "Заприходена" }, { label: "Бележка" },
+  ];
+  const today = new Date().toISOString().slice(0, 10);
+  reportExportXls("pokupki-vsichki-" + today, "Покупки — всички въведени документи · към " + erpDMY(today), [{ headers, rows }]);
+}
+
 /* ---------- Списък (папки + търсене) ----------
    Зарежда от базата само при вход в таба; търсенето филтрира В ПАМЕТТА (обновява
    само тялото на таблицата) — без нова заявка към Supabase и без трепване/загуба
@@ -219,6 +260,7 @@ async function erpRenderPurchases() {
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
       <button class="btn btn-small" id="pu-dups" title="Намира фактури, въведени два пъти (един и същ номер) и позволява да изтриеш излишната">🔁 Дубликати</button>
       <button class="btn btn-small" id="pu-bgn" title="Проверка: кои документи са записани в лева">💱 В лева</button>
+      <button class="btn btn-small" id="pu-xls-all" title="Сваля ВСИЧКИ въведени покупни документи (фактури, стокови, кредитни) в Excel — платени и неплатени, от началото до днес">⤓ Excel (всички)</button>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
@@ -240,6 +282,7 @@ async function erpRenderPurchases() {
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
   document.getElementById("pu-dups").addEventListener("click", erpPuDupsReport);
   document.getElementById("pu-bgn").addEventListener("click", erpPuBgnReport);
+  document.getElementById("pu-xls-all").addEventListener("click", erpPuExportAllXls);
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
