@@ -177,6 +177,8 @@ function erpProductWeightKg(pid) {
 // Тегло на цял ред (кг) = бройка × тегло на 1 продукт (0, ако редът не е продукт с рецепта).
 // Покупен материал за препродажба: теглото идва от мерната единица на материала.
 function erpInvLineKg(l) {
+  // Ед. кг, зададени на самия ред (фактура от оферта — изделия без каталожен продукт).
+  if (l && Number(l.kgPerPiece) > 0) return Math.round((erpToNum(l.qty) || 0) * Number(l.kgPerPiece) * 1000) / 1000;
   if (l && l.materialId && typeof ERP !== "undefined" && ERP.matById) {
     const m = ERP.matById[l.materialId];
     const f = m && typeof erpMatKgPerUnit === "function" ? erpMatKgPerUnit(m) : null;
@@ -273,6 +275,7 @@ async function erpRenderInvoices() {
       <button class="btn btn-small" id="inv-report" title="Справка за период: вътрешни, външни и покупни фактури — с експорт">📊 Справка</button>
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
+      ${typeof erpInvAIStart === "function" ? '<button class="btn btn-small" id="inv-from-offer" title="Качи нашата оферта (Excel шаблона DANKO Quotation) — редовете влизат във фактурата, материалът се изписва по посочени кодове, палетите се сглобяват до 800 кг">🤖 От оферта…</button>' : ""}
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
       <button class="btn btn-small btn-primary" id="inv-new-invoice">+ Фактура</button>
     </div>
@@ -322,6 +325,8 @@ async function erpRenderInvoices() {
   if (caEl) caEl.addEventListener("click", erpInvClearAll);
   document.getElementById("inv-new-proforma").addEventListener("click", () => erpNewInvoice("proforma"));
   document.getElementById("inv-new-invoice").addEventListener("click", () => erpNewInvoice("invoice"));
+  const foBtn = document.getElementById("inv-from-offer");
+  if (foBtn) foBtn.addEventListener("click", () => erpInvAIStart());
   const fsBtn = document.getElementById("inv-from-sales");
   if (fsBtn) fsBtn.addEventListener("click", erpInvFromSalesDialog);
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenInvoice(Number(b.dataset.open)); }));
