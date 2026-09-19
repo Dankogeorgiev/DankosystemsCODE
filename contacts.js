@@ -26,7 +26,8 @@ const CONTACT_CATEGORIES = [
 
 /* ---------- Зареждане / запис ---------- */
 async function cLoad() {
-  const { data, error } = await sb.from("contacts").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("contacts", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) { alert("Грешка при зареждане на контактите: " + error.message); return; }
   const all = (data || []).map(r => ({ ...r.data, id: r.id }));
   CONTACTS = all.filter(c => c.kind !== "inquiry");
@@ -87,10 +88,15 @@ function allCategories() {
   CONTACTS.forEach(c => { if (c.category) set.add(c.category); });
   return [...set];
 }
+let CAT_COLOR_MAP = null, CAT_COLOR_SRC = null;   // кеш до промяна на списъка
 function catColor(cat) {
-  const list = allCategories();
-  let i = list.indexOf(cat);
-  if (i < 0) i = Math.abs([...String(cat)].reduce((a, ch) => a + ch.charCodeAt(0), 0));
+  if (!CAT_COLOR_MAP || CAT_COLOR_SRC !== CONTACTS) {
+    CAT_COLOR_MAP = new Map(); CAT_COLOR_SRC = CONTACTS;
+    allCategories().forEach((c, i) => CAT_COLOR_MAP.set(c, CAT_PALETTE[i % CAT_PALETTE.length]));
+  }
+  const hit = CAT_COLOR_MAP.get(cat);
+  if (hit) return hit;
+  const i = Math.abs([...String(cat)].reduce((a, ch) => a + ch.charCodeAt(0), 0));
   return CAT_PALETTE[i % CAT_PALETTE.length];
 }
 function catGroup(cat) {
@@ -635,7 +641,7 @@ function cInit() {
   document.getElementById("contacts-close").addEventListener("click", () => {
     document.getElementById("contacts-modal").hidden = true;
   });
-  document.getElementById("contact-search").addEventListener("input", renderContacts);
+  document.getElementById("contact-search").addEventListener("input", uiDebounce(renderContacts, 200));
   document.getElementById("btn-add-contact").addEventListener("click", () => renderContactForm(null));
   document.getElementById("btn-inquiry").addEventListener("click", renderInquiryForm);
   document.getElementById("btn-inquiry-reg").addEventListener("click", renderInquiryRegistry);
