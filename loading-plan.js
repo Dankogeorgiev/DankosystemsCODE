@@ -401,7 +401,11 @@ function lpRender() {
   const wk = lpISOWeek(LP_MONDAY);
   const sunday = lpAddDays(LP_MONDAY, 6);
   const items = LP_ITEMS.filter(x => x.week === mondayStr)
-    .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")) || (a.client || "").localeCompare(b.client || "", "bg"));
+    .sort((a, b) =>
+      // Ръчната подредба (▲▼ на картата) е с предимство; без нея — по срок и клиент.
+      ((a.pos != null ? a.pos : 1e9) - (b.pos != null ? b.pos : 1e9)) ||
+      String(a.due || "9999").localeCompare(String(b.due || "9999")) ||
+      (a.client || "").localeCompare(b.client || "", "bg"));
   const totKg = items.reduce((s, x) => s + lpItemKg(x), 0);
   const totPal = items.reduce((s, x) => s + lpItemPal(x), 0);
   const totLines = items.reduce((s, x) => s + lpItemLines(x).filter(l => l.code || l.goods || l.name).length, 0);
@@ -459,6 +463,8 @@ function lpRender() {
         ${badge}
         <span class="spacer" style="flex:1"></span>
         <span class="lp-sum"><b>${lpFmtNum(pal)}</b> пал. · <b>${lpFmtNum(kg)}</b> кг</span>
+        <button class="btn btn-small lp-up" data-id="${x.id}" title="Премести нагоре в седмицата (ръчната подредба се запомня за всички)">▲</button>
+        <button class="btn btn-small lp-down" data-id="${x.id}" title="Премести надолу в седмицата">▼</button>
         <button class="btn btn-small lp-cli" data-client="${escapeAttr(x.client || "")}" title="Специфики на клиента: чести грешки, палети, етикети, транспорт">🧭</button>
         <button class="btn btn-small lp-edit" data-id="${x.id}" title="Редактирай">✎</button>
         <button class="btn btn-small lp-del" data-id="${x.id}" title="Махни от плана">×</button>
@@ -511,6 +517,8 @@ function lpRender() {
   v.querySelector("#lp-print").addEventListener("click", () => lpPrintWeek(items, wk, sunday));
   v.querySelector("#lp-mech").addEventListener("click", lpMechDialog);
   const cb = v.querySelector("#lp-carry"); if (cb) cb.addEventListener("click", lpCarryOver);
+  v.querySelectorAll(".lp-up").forEach(b => b.addEventListener("click", () => lpMoveItem(b.dataset.id, -1, mondayStr)));
+  v.querySelectorAll(".lp-down").forEach(b => b.addEventListener("click", () => lpMoveItem(b.dataset.id, +1, mondayStr)));
   v.querySelectorAll(".lp-edit").forEach(b => b.addEventListener("click", () => lpOpenForm(b.dataset.id)));
   v.querySelectorAll(".lp-cli").forEach(b => b.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(b.dataset.client); }));
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
@@ -1001,6 +1009,26 @@ function lpPrintWeek(items, wk, sunday) {
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
+}
+
+/* Ръчна подредба: мести записа с една позиция нагоре/надолу в НЕГОВАТА седмица.
+   При първото местене текущият видим ред (срок/клиент) се „замразява" в pos
+   за всички карти на седмицата — после Данко ги реди както иска. Пази се
+   в самия запис, значи подредбата се вижда от всички и в печата. */
+async function lpMoveItem(id, dir, mondayStr) {
+  const list = LP_ITEMS.filter(x => x.week === mondayStr)
+    .sort((a, b) =>
+      ((a.pos != null ? a.pos : 1e9) - (b.pos != null ? b.pos : 1e9)) ||
+      String(a.due || "9999").localeCompare(String(b.due || "9999")) ||
+      (a.client || "").localeCompare(b.client || "", "bg"));
+  const i = list.findIndex(x => String(x.id) === String(id));
+  if (i < 0) return;
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return;   // вече е най-отгоре/най-отдолу
+  const t = list[i]; list[i] = list[j]; list[j] = t;
+  list.forEach((x, k) => { x.pos = k; });   // замразява реда на цялата седмица
+  await lpSave();
+  lpRender();
 }
 
 async function lpDelete(id) {
