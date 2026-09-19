@@ -454,8 +454,9 @@ function lpRender() {
       : (isLate
         ? `<span class="lp-late" title="Първо планирана за седмицата от ${escapeAttr(lpFmtDate(late.orig))}. Прехвърляна ${late.times} ${late.times === 1 ? "път" : "пъти"}; последно от ${escapeAttr(lpFmtDate(late.from))}.">⚠ ИЗОСТАВА с ${lpWeeksWord(late.weeks)}</span>`
         : `<span class="lp-carry" title="Прехвърлена от седмицата на ${escapeAttr(lpFmtDate(late.from))} — вече е изпълнена">⤳ наваксана</span>`);
-    return `<div class="lp-card${pr.plan > 0 && pr.left <= 0 ? " lp-card-done" : ""}${isLate ? " lp-card-late" : ""}">
+    return `<div class="lp-card${pr.plan > 0 && pr.left <= 0 ? " lp-card-done" : ""}${isLate ? " lp-card-late" : ""}" data-id="${escapeAttr(String(x.id))}">
       <div class="lp-card-h">
+        <span class="lp-drag" draggable="true" title="Хвани и влачи, за да преместиш заявката в седмицата">⠿</span>
         <span class="lp-cl">${escapeHtml(x.client || "—")}</span>
         ${x.orderNo ? `<span class="lp-no">📋 № ${escapeHtml(String(x.orderNo))}</span>` : ""}
         ${x.due ? `<span class="lp-due">срок ${escapeHtml(lpFmtDate(x.due))}</span>` : ""}
@@ -519,6 +520,38 @@ function lpRender() {
   const cb = v.querySelector("#lp-carry"); if (cb) cb.addEventListener("click", lpCarryOver);
   v.querySelectorAll(".lp-up").forEach(b => b.addEventListener("click", () => lpMoveItem(b.dataset.id, -1, mondayStr)));
   v.querySelectorAll(".lp-down").forEach(b => b.addEventListener("click", () => lpMoveItem(b.dataset.id, +1, mondayStr)));
+  // Влачене: хващаш ⠿ и пускаш върху друга карта (горна половина = преди нея,
+  // долна = след нея). Стрелките остават за таблет/телефон.
+  let lpDragId = null;
+  const clearDrop = () => v.querySelectorAll(".lp-card").forEach(c => c.classList.remove("lp-dragging", "lp-drop-top", "lp-drop-bot"));
+  v.querySelectorAll(".lp-drag").forEach(h => {
+    h.addEventListener("dragstart", e => {
+      const cardEl = h.closest(".lp-card");
+      lpDragId = cardEl ? cardEl.dataset.id : null;
+      try { e.dataTransfer.setData("text/plain", lpDragId || ""); e.dataTransfer.effectAllowed = "move"; } catch (err) {}
+      if (cardEl) cardEl.classList.add("lp-dragging");
+    });
+    h.addEventListener("dragend", () => { clearDrop(); lpDragId = null; });
+  });
+  v.querySelectorAll(".lp-card").forEach(cardEl => {
+    cardEl.addEventListener("dragover", e => {
+      if (!lpDragId || cardEl.dataset.id === lpDragId) return;
+      e.preventDefault();
+      const r = cardEl.getBoundingClientRect();
+      const top = (e.clientY - r.top) < r.height / 2;
+      cardEl.classList.toggle("lp-drop-top", top);
+      cardEl.classList.toggle("lp-drop-bot", !top);
+    });
+    cardEl.addEventListener("dragleave", () => cardEl.classList.remove("lp-drop-top", "lp-drop-bot"));
+    cardEl.addEventListener("drop", e => {
+      if (!lpDragId || cardEl.dataset.id === lpDragId) return;
+      e.preventDefault();
+      const r = cardEl.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height / 2;
+      const dragId = lpDragId; lpDragId = null; clearDrop();
+      lpDropItem(dragId, cardEl.dataset.id, before, mondayStr);
+    });
+  });
   v.querySelectorAll(".lp-edit").forEach(b => b.addEventListener("click", () => lpOpenForm(b.dataset.id)));
   v.querySelectorAll(".lp-cli").forEach(b => b.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(b.dataset.client); }));
   v.querySelectorAll(".lp-del").forEach(b => b.addEventListener("click", () => lpDelete(b.dataset.id)));
@@ -1027,6 +1060,24 @@ async function lpMoveItem(id, dir, mondayStr) {
   if (j < 0 || j >= list.length) return;   // вече е най-отгоре/най-отдолу
   const t = list[i]; list[i] = list[j]; list[j] = t;
   list.forEach((x, k) => { x.pos = k; });   // замразява реда на цялата седмица
+  await lpSave();
+  lpRender();
+}
+
+/* Пускане след влачене: подрежда цялата седмица наново и записва. */
+async function lpDropItem(dragId, targetId, before, mondayStr) {
+  const list = LP_ITEMS.filter(x => x.week === mondayStr)
+    .sort((a, b) =>
+      ((a.pos != null ? a.pos : 1e9) - (b.pos != null ? b.pos : 1e9)) ||
+      String(a.due || "9999").localeCompare(String(b.due || "9999")) ||
+      (a.client || "").localeCompare(b.client || "", "bg"));
+  const di = list.findIndex(x => String(x.id) === String(dragId));
+  if (di < 0) return;
+  const dragged = list.splice(di, 1)[0];
+  let ti = list.findIndex(x => String(x.id) === String(targetId));
+  if (ti < 0) { list.splice(di, 0, dragged); return; }
+  list.splice(before ? ti : ti + 1, 0, dragged);
+  list.forEach((x, k) => { x.pos = k; });
   await lpSave();
   lpRender();
 }

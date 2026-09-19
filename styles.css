@@ -1587,6 +1587,11 @@ tr.times-click:hover td { background: #ecfdf5; }
 .lp-stats { display: flex; flex-wrap: wrap; gap: 14px; padding: 8px 12px; margin: 6px 0 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 13px; }
 .lp-stats b { color: #0f172a; font-size: 15px; }
 .lp-card { border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
+.lp-drag { cursor: grab; font-size: 16px; color: #94a3b8; padding: 0 4px; user-select: none; }
+.lp-drag:active { cursor: grabbing; }
+.lp-card.lp-dragging { opacity: 0.45; }
+.lp-card.lp-drop-top { box-shadow: 0 -3px 0 0 #2563eb; }
+.lp-card.lp-drop-bot { box-shadow: 0 3px 0 0 #2563eb; }
 .lp-card-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #eef2ff; padding: 8px 12px; border-bottom: 1px solid #e2e8f0; }
 .lp-card-h .lp-cl { font-weight: 800; font-size: 15px; color: #1e293b; }
 .lp-card-h .lp-no { font-size: 12.5px; color: #4338ca; font-weight: 700; }
