@@ -1815,7 +1815,7 @@ function renderTasks() {
         : `<select class="t-thick"><option value="">—</option>${THICKNESS_OPTIONS.map(v => `<option ${t.thickness === v ? "selected" : ""}>${v}</option>`).join("")}</select>`}</td>
       <td data-label="Операция" title="${escapeAttr(t.operation || t.workshop || "")}">${escapeHtml(t.operation) || (ws === "__all" || wsIsFamily(ws) ? escapeHtml(t.workshop) : "—")}${Number(t.opsPerUnit) > 1 ? ` <span class="t-opsper" title="Операцията се прави ${t.opsPerUnit} пъти на всеки брой (напр. ${t.opsPerUnit} огъвки)">×${t.opsPerUnit}/бр.</span>` : ""}</td>
       <td class="num" data-label="Количество">${qty || "—"}</td>
-      <td class="num" data-label="Произведено"><strong>${prod}</strong>${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
+      <td class="num" data-label="Произведено">${(!isW && (Number(prod) || 0) > 0) ? `<a href="#" class="t-prod-log" data-id="${t.id}" title="Кога и колко е отчитано — по дати и служители"><strong>${prod}</strong></a>` : `<strong>${prod}</strong>`}${todayQty ? `<div class="t-today-info">днес +${todayQty}</div>` : ""}</td>
       <td class="num ${rem === 0 && qty > 0 ? "rem-done" : ""}" data-label="Остатък">${rem}${flowAvail != null ? `<div class="t-flow-avail" title="Толкова са произведени в предната операция и чакат за тази">↧ налично ${flowAvail}</div>` : ""}${waitHtml}</td>
       <td data-label="Срок">${t.due
         ? (typeof erpDMY === "function" ? erpDMY(t.due) : escapeHtml(t.due))
@@ -1895,6 +1895,7 @@ function renderTasks() {
     if (input) input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
     const edit = tr.querySelector(".t-edit"); if (edit) edit.addEventListener("click", () => editTask(t));
     const fix = tr.querySelector(".t-fix"); if (fix) fix.addEventListener("click", () => fixLogDialog(t));
+    const plg = tr.querySelector(".t-prod-log"); if (plg) plg.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); taskProdLogDialog(t); });
     const move = tr.querySelector(".t-move"); if (move) move.addEventListener("click", () => moveTaskWorkshop(t));
     const scrap = tr.querySelector(".t-scrap"); if (scrap) scrap.addEventListener("click", () => openScrapDialog(t));
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
@@ -2193,6 +2194,29 @@ async function setDueBulk(due) {
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+/* ---------- 📜 Кога и колко е произвеждано (само админи) ---------- */
+function taskProdLogDialog(t) {
+  const logs = (t.logs || []).slice().reverse();   // най-новите отгоре
+  const days = {};
+  (t.logs || []).forEach(l => { days[l.date] = (days[l.date] || 0) + (Number(l.qty) || 0); });
+  const rows = logs.map(l => `<tr${(Number(l.qty) || 0) < 0 ? ' class="pay-neg"' : ""}>
+      <td>${escapeHtml(fmtLogDate ? fmtLogDate(l.date) : l.date)}</td>
+      <td>${escapeHtml(l.worker || "—")}</td>
+      <td class="num"><b>${Number(l.qty) || 0}</b></td>
+      <td class="erp-muted">${escapeHtml(l.note || "")}${l.mOrder ? " · мастер" : ""}</td>
+    </tr>`).join("");
+  const { wrap, close } = erpDialog(`
+    <h3>📜 Отчитания: ${escapeHtml(t.code || "")} ${escapeHtml(t.product || "")}</h3>
+    <p class="hint" style="margin:0 0 6px">${escapeHtml(t.operation || "")}${t.workshop ? " · " + escapeHtml(t.workshop) : ""} · произведени <b>${Number(t.produced) || 0}</b> от ${Number(t.qty) || 0} бр. · ${logs.length} ${logs.length === 1 ? "вписване" : "вписвания"}</p>
+    <div style="max-height:52vh;overflow:auto">
+    <table class="report-table erp-table">
+      <thead><tr><th>Дата</th><th>Служител</th><th class="num">Брой</th><th>Бележка</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="report-empty">Няма вписвания.</td></tr>`}</tbody>
+    </table></div>
+    <div class="erp-dialog-actions"><button class="btn" id="tpl-close">Затвори</button></div>`);
+  wrap.querySelector("#tpl-close").addEventListener("click", close);
+}
 
 /* ---------- Чертежи към задача ---------- */
 function taskFilesCell(t) {
