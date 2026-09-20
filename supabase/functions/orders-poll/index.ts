@@ -28,8 +28,14 @@ const BUCKET = "drawings";
 const CLASSIFY_MODEL = "claude-haiku-4-5-20251001";
 const PARSE_MODEL = "claude-sonnet-5";
 
+// CORS: без тези заглавки браузърът („🔄 Провери пощата") получава "Failed to fetch".
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 function json(obj: unknown, status = 200): Response {
-  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(obj), { status, headers: { ...CORS, "content-type": "application/json" } });
 }
 function b64urlToBytes(s: string): Uint8Array {
   const b = s.replace(/-/g, "+").replace(/_/g, "/");
@@ -162,7 +168,7 @@ async function sbUpload(url: string, path: string, bytes: Uint8Array, mime: stri
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok");
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const url = Deno.env.get("SUPABASE_URL") || "";
   if (!url) return json({ error: "Липсва SUPABASE_URL" }, 500);
   if (!Deno.env.get("GMAIL_REFRESH_TOKEN")) return json({ error: "Липсват Gmail тайните (GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN)" }, 500);
