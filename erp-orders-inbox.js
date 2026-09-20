@@ -42,7 +42,22 @@ const INBOX_ST = {
   "грешка": ["⚠ грешка", "#fee2e2;color:#991b1b"],
 };
 
-async function erpOrdersInbox() {
+/* Сръчква агента ВЕДНАГА: вика orders-poll директно, без да чака крона. */
+async function inboxPollNow() {
+  try {
+    const cfg = window.DANKO_CONFIG || {};
+    let token = cfg.SUPABASE_ANON_KEY;
+    try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
+    const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/orders-poll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: cfg.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+      body: "{}",
+    });
+    return await res.json().catch(() => ({}));
+  } catch (e) { return { error: String(e && e.message || e) }; }
+}
+
+async function erpOrdersInbox(skipPoll) {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане на входящите…</p>`;
   try { await inboxLoad(); }
@@ -62,7 +77,9 @@ async function erpOrdersInbox() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="ib-back">← Назад към заявките</button>
-      <span class="erp-count">📥 Входящи заявки — danko.orders@gmail.com · проверка на 5 мин</span>
+      <span class="erp-count">📥 Входящи заявки — danko.orders@gmail.com</span>
+      <span class="erp-muted" id="ib-poll-st"></span>
+      <button class="btn btn-small" id="ib-poll" title="Проверява пощата в момента, без да чака автоматичните 5 минути">🔄 Провери пощата</button>
       <span class="spacer"></span>
       ${tab("за_преглед", `⏳ За преглед (${cnt("за_преглед")})`)}
       ${tab("одобрена", "✅")} ${tab("отказана", "✕")} ${tab("не_е_заявка", "—")} ${tab("грешка", "⚠")} ${tab("", "Всички")}
@@ -84,7 +101,21 @@ async function erpOrdersInbox() {
     </table>`;
 
   v.querySelector("#ib-back").addEventListener("click", erpRenderCustomerOrders);
-  v.querySelectorAll("[data-ibf]").forEach(b => b.addEventListener("click", () => { inboxFilter = b.dataset.ibf; erpOrdersInbox(); }));
+  const pollRun = async () => {
+    const st = v.querySelector("#ib-poll-st"), pb = v.querySelector("#ib-poll");
+    if (pb) pb.disabled = true;
+    if (st) st.textContent = "🔄 проверявам пощата…";
+    const r = await inboxPollNow();
+    if (r && r.error) { if (st) st.textContent = "⚠ " + String(r.error).slice(0, 80); if (pb) pb.disabled = false; return; }
+    const fresh = (Number(r && r.orders) || 0) + (Number(r && r.skipped) || 0) + (Number(r && r.errors) || 0);
+    if (fresh > 0) { erpOrdersInbox(true); return; }   // има нови редове — пре-зареждаме списъка
+    if (st) st.textContent = `✓ проверено · нищо ново (${Number(r && r.checked) || 0} писма прегледани)`;
+    if (pb) pb.disabled = false;
+  };
+  const pollBtn = v.querySelector("#ib-poll");
+  if (pollBtn) pollBtn.addEventListener("click", pollRun);
+  if (!skipPoll) pollRun();   // отварянето на „📥 Входящи" веднага чука пощата
+  v.querySelectorAll("[data-ibf]").forEach(b => b.addEventListener("click", () => { inboxFilter = b.dataset.ibf; erpOrdersInbox(true); }));
   v.querySelectorAll("tr[data-ib]").forEach(tr => tr.addEventListener("click", e => {
     if (e.target.closest("button")) return;
     const r = INBOX_LIST.find(x => String(x.id) === tr.dataset.ib);
@@ -132,9 +163,9 @@ function inboxDetail(r) {
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
   wrap.querySelector("#ib-close").addEventListener("click", close);
   const no = wrap.querySelector("#ib-notorder");
-  if (no) no.addEventListener("click", async () => { if (await inboxSetStatus(r, "не_е_заявка")) { close(); erpOrdersInbox(); } });
+  if (no) no.addEventListener("click", async () => { if (await inboxSetStatus(r, "не_е_заявка")) { close(); erpOrdersInbox(true); } });
   const rej = wrap.querySelector("#ib-reject");
-  if (rej) rej.addEventListener("click", async () => { if (confirm("Отказ на тази заявка? (остава в архива като отказана)") && await inboxSetStatus(r, "отказана")) { close(); erpOrdersInbox(); } });
+  if (rej) rej.addEventListener("click", async () => { if (confirm("Отказ на тази заявка? (остава в архива като отказана)") && await inboxSetStatus(r, "отказана")) { close(); erpOrdersInbox(true); } });
   const ap = wrap.querySelector("#ib-approve");
   if (ap) ap.addEventListener("click", () => { close(); inboxApprove(r); });
 }
