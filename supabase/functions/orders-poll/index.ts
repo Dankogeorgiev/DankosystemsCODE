@@ -53,14 +53,18 @@ function stripHtml(h: string): string {
 function safeName(name: string): string { return (name || "file").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60) || "file"; }
 
 // --- Gmail ---
+// Тайните се приемат и като GMAIL_*, и като GOOGLE_* (както са записани при Данко).
+function gmSecret(name: string): string {
+  return Deno.env.get("GMAIL_" + name) || Deno.env.get("GOOGLE_" + name) || "";
+}
 async function gmailToken(): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: Deno.env.get("GMAIL_CLIENT_ID") || "",
-      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET") || "",
-      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN") || "",
+      client_id: gmSecret("CLIENT_ID"),
+      client_secret: gmSecret("CLIENT_SECRET"),
+      refresh_token: gmSecret("REFRESH_TOKEN"),
       grant_type: "refresh_token",
     }),
   });
@@ -171,7 +175,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const url = Deno.env.get("SUPABASE_URL") || "";
   if (!url) return json({ error: "Липсва SUPABASE_URL" }, 500);
-  if (!Deno.env.get("GMAIL_REFRESH_TOKEN")) return json({ error: "Липсват Gmail тайните (GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN)" }, 500);
+  if (!gmSecret("REFRESH_TOKEN")) return json({ error: "Липсват Gmail тайните (GMAIL_/GOOGLE_ CLIENT_ID/SECRET/REFRESH_TOKEN)" }, 500);
 
   const out = { checked: 0, new: 0, orders: 0, skipped: 0, errors: 0 };
   try {
