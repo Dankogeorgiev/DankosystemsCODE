@@ -545,6 +545,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
+      ${typeof erpOrdersInbox === "function" ? '<button class="btn btn-small" id="erp-co-inbox" title="Писмата от danko.orders@gmail.com, които агентът е разчел — чакат одобрение">📥 Входящи</button>' : ""}
       ${typeof erpQuickHome === "function" ? '<button class="btn btn-small" id="erp-co-quick-cat" title="Каталог на бързите изделия по клиентски код — преглед, редакция, чертежи, шаблони">📦</button><button class="btn btn-small" id="erp-co-quick" title="Нова заявка с нестандартни изделия по клиентски код — добавяш ги с „⚡ Ново бързо изделие" направо във формата">+ Нестандартни поръчки</button>' : ""}
       ${typeof erpAIStart === "function" ? '<button class="btn btn-small" id="erp-co-ai" title="Качи сканирана заявка (PDF/снимка) — Claude я разчита, ти потвърждаваш">🤖 Разчети заявка (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-co-new">+ Нова заявка</button>
@@ -570,6 +571,8 @@ async function erpRenderCustomerOrders() {
   if (fStatus) fStatus.addEventListener("change", e => { erpCOStatusFilter = e.target.value; erpCORefreshTable(); });
   const fClient = document.getElementById("erp-co-fclient");
   if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpCORefreshTable(); });
+  const inboxBtn = document.getElementById("erp-co-inbox");
+  if (inboxBtn) { inboxBtn.addEventListener("click", () => erpOrdersInbox()); if (typeof inboxBadge === "function") inboxBadge(inboxBtn); }
   const quickBtn = document.getElementById("erp-co-quick");
   if (quickBtn) quickBtn.addEventListener("click", () => erpNewCO(true));   // същата форма, белязана като нестандартна
   const quickCatBtn = document.getElementById("erp-co-quick-cat");
