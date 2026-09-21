@@ -42,8 +42,10 @@ const INBOX_ST = {
   "грешка": ["⚠ грешка", "#fee2e2;color:#991b1b"],
 };
 
-/* Сръчква агента ВЕДНАГА: вика orders-poll директно, без да чака крона. */
-async function inboxPollNow() {
+/* Сръчква агента ВЕДНАГА: вика orders-poll директно, без да чака крона.
+   С reparseId („↻ Разчети наново") обработва отначало САМО това писмо
+   и презаписва реда му — файлове, разчитане, бележки. */
+async function inboxPollNow(reparseId) {
   try {
     const cfg = window.DANKO_CONFIG || {};
     let token = cfg.SUPABASE_ANON_KEY;
@@ -51,7 +53,7 @@ async function inboxPollNow() {
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/orders-poll", {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: cfg.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
-      body: "{}",
+      body: JSON.stringify(reparseId ? { reparse: reparseId } : {}),
     });
     return await res.json().catch(() => ({}));
   } catch (e) { return { error: String(e && e.message || e) }; }
@@ -153,6 +155,8 @@ function inboxDetail(r) {
       </div>
     </div>
     <div class="erp-dialog-actions">
+      ${inboxAllowed() && ["за_преглед", "грешка", "не_е_заявка"].includes(r.status) && r.gmail_message_id
+        ? `<button class="btn" id="ib-reparse" title="Претегля писмото и файловете от пощата и ги разчита пак (напр. след обновяване на агента)">↻ Разчети наново</button>` : ""}
       ${inboxAllowed() && r.status === "за_преглед" ? `
         <button class="btn" id="ib-notorder">— Не е заявка</button>
         <button class="btn btn-danger" id="ib-reject">✕ Отказ</button>
@@ -168,6 +172,20 @@ function inboxDetail(r) {
   if (rej) rej.addEventListener("click", async () => { if (confirm("Отказ на тази заявка? (остава в архива като отказана)") && await inboxSetStatus(r, "отказана")) { close(); erpOrdersInbox(true); } });
   const ap = wrap.querySelector("#ib-approve");
   if (ap) ap.addEventListener("click", () => { close(); inboxApprove(r); });
+  const rp = wrap.querySelector("#ib-reparse");
+  if (rp) rp.addEventListener("click", async () => {
+    rp.disabled = true; rp.textContent = "🔄 разчитам наново…";
+    const res = await inboxPollNow(r.gmail_message_id);
+    if (res && res.error) {
+      alert("Грешка при преразчитането: " + String(res.error).slice(0, 200));
+      rp.disabled = false; rp.textContent = "↻ Разчети наново";
+      return;
+    }
+    close();
+    await erpOrdersInbox(true);   // презарежда списъка с новото разчитане
+    const fresh = (INBOX_LIST || []).find(x => x.gmail_message_id === r.gmail_message_id);
+    if (fresh) inboxDetail(fresh);
+  });
 }
 
 /* Одобрение: маркира и отваря ПОЗНАТИЯ преглед на AI-разчитането — с мача на

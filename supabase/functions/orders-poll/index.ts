@@ -2,8 +2,10 @@
 // Данко Системс — Edge функция „orders-poll": агентът за входящи заявки.
 // Проверява danko.orders@gmail.com (само четене!), класифицира с Claude
 // Haiku кое писмо е ЗАЯВКА (поръчка за производство), сваля прикачените
-// файлове в Storage, разчита ги (PDF/снимка → parse-document; само текст →
-// Claude тук) и записва всичко в orders_inbox със статус „за_преглед".
+// файлове в Storage, разчита ги (PDF/снимка → parse-document; Word/Excel →
+// текстът се вади тук; голо писмо → Claude) и записва всичко в orders_inbox
+// със статус „за_преглед". POST {reparse: "<gmail_message_id>"} преразчита
+// едно писмо наново (бутонът „↻ Разчети наново" във Входящите).
 // Заявка в Системата се създава ЧАК когато човек одобри от „📥 Входящи".
 //
 // ЖЕЛЕЗНИ ПРАВИЛА:
@@ -51,6 +53,125 @@ function stripHtml(h: string): string {
     .replace(/\n{3,}/g, "\n\n").trim();
 }
 function safeName(name: string): string { return (name || "file").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60) || "file"; }
+
+// --- Office файлове (.docx / .xlsx / стар .doc) → текст ---
+// .docx и .xlsx са ZIP архиви: разархивираме с вградения DecompressionStream,
+// без външни библиотеки, и вадим текста от XML-а. Старият .doc е двоичен —
+// вадим четимите текстови поредици (UTF-16LE / windows-1251) на груба ръка.
+function unxml(s: string): string {
+  return s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)));
+}
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const st = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+// Чете ZIP през централната директория (устойчиво и при data descriptors).
+async function zipEntries(bytes: Uint8Array, want: RegExp, max = 5): Promise<{ name: string; data: Uint8Array }[]> {
+  const out: { name: string; data: Uint8Array }[] = [];
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65557); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return out;
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  for (let n = 0; n < count && out.length < max; n++) {
+    if (off + 46 > bytes.length || dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const csize = dv.getUint32(off + 20, true);
+    const nameLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const cmtLen = dv.getUint16(off + 32, true);
+    const lho = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(off + 46, off + 46 + nameLen));
+    if (want.test(name) && lho + 30 <= bytes.length) {
+      const lnl = dv.getUint16(lho + 26, true), lel = dv.getUint16(lho + 28, true);
+      const start = lho + 30 + lnl + lel;
+      const comp = bytes.subarray(start, start + csize);
+      try {
+        if (method === 8) out.push({ name, data: await inflateRaw(comp) });
+        else if (method === 0) out.push({ name, data: comp });
+      } catch (_) { /* повреден запис — прескачаме */ }
+    }
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+// word/document.xml → чист текст: параграфи на нови редове, клетки на табулации.
+function docxXmlToText(xml: string): string {
+  return unxml(xml
+    .replace(/<w:tab[^>]*\/>/g, "\t")
+    .replace(/<w:br[^>]*\/>/g, "\n")
+    .replace(/<\/w:tc>/g, "\t")
+    .replace(/<\/w:p>/g, "\n")
+    .replace(/<[^>]+>/g, ""))
+    .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+async function docxText(bytes: Uint8Array): Promise<string> {
+  const e = await zipEntries(bytes, /^word\/document\.xml$/, 1);
+  return e.length ? docxXmlToText(new TextDecoder().decode(e[0].data)) : "";
+}
+// .xlsx → редовете като текст с табулации (споделените низове се разгъват).
+async function xlsxText(bytes: Uint8Array): Promise<string> {
+  const shared: string[] = [];
+  const ss = await zipEntries(bytes, /^xl\/sharedStrings\.xml$/, 1);
+  if (ss.length) {
+    const xml = new TextDecoder().decode(ss[0].data);
+    for (const m of xml.matchAll(/<si>([\s\S]*?)<\/si>/g)) {
+      shared.push(unxml((m[1].match(/<t[^>]*>[\s\S]*?<\/t>/g) || []).map(t => t.replace(/<[^>]+>/g, "")).join("")));
+    }
+  }
+  const sheets = await zipEntries(bytes, /^xl\/worksheets\/sheet\d+\.xml$/, 3);
+  const rows: string[] = [];
+  for (const sh of sheets) {
+    const xml = new TextDecoder().decode(sh.data);
+    for (const rm of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+      const cells: string[] = [];
+      for (const cm of rm[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+        const attrs = cm[1], inner = cm[2];
+        const vm = inner.match(/<v>([\s\S]*?)<\/v>/);
+        let v = "";
+        if (/t="s"/.test(attrs)) v = shared[Number(vm && vm[1])] ?? "";
+        else if (/t="inlineStr"/.test(attrs)) v = unxml((inner.match(/<t[^>]*>([\s\S]*?)<\/t>/) || ["", ""])[1]);
+        else v = unxml(vm ? vm[1] : "");
+        cells.push(v.trim());
+      }
+      if (cells.some(c => c)) rows.push(cells.join("\t"));
+      if (rows.length >= 400) break;
+    }
+  }
+  return rows.join("\n").trim();
+}
+// Стар двоичен .doc (Word 97-2003): без пълен парсер — вадим четимите поредици.
+// Кирилицата в тези файлове е или UTF-16LE, или windows-1251; взимаме по-добрия улов.
+function docLegacyText(bytes: Uint8Array): string {
+  const RUN16 = /[ -~ -ɏЀ-ӿ„“”–—№]{5,}/g;
+  const RUN8 = /[ -~Ѐ-ӿ„“”–—№]{6,}/g;
+  const looksReal = (s: string) => {
+    const letters = (s.match(/[A-Za-zЀ-ӿ0-9]/g) || []).length;
+    return letters / s.length >= 0.55 && /[\s]/.test(s.trim()) || /^[A-Za-zЀ-ӿ0-9 .,\-\/№()]+$/.test(s.trim());
+  };
+  const grab = (txt: string, re: RegExp) => (txt.match(re) || []).map(s => s.trim()).filter(s => s.length >= 4 && looksReal(s));
+  let runs = grab(new TextDecoder("utf-16le").decode(bytes), RUN16);
+  if (runs.join("\n").length < 200) {
+    const alt = grab(new TextDecoder("windows-1251").decode(bytes), RUN8);
+    if (alt.join("\n").length > runs.join("\n").length) runs = alt;
+  }
+  // Дедупликация (стиловете повтарят едни и същи низове много пъти).
+  const seenRun = new Set<string>(); const out: string[] = [];
+  for (const r of runs) { if (!seenRun.has(r)) { seenRun.add(r); out.push(r); } }
+  return out.join("\n").slice(0, 15000).trim();
+}
+function officeKind(name: string, type: string): string {
+  if (/\.docx$/i.test(name) || /officedocument\.wordprocessingml/i.test(type)) return "docx";
+  if (/\.xlsx$/i.test(name) || /officedocument\.spreadsheetml/i.test(type)) return "xlsx";
+  if (/\.doc$/i.test(name) || /application\/msword/i.test(type)) return "doc";
+  return "";
+}
 
 // --- Gmail ---
 // Тайните се приемат и като GMAIL_*, и като GOOGLE_* (както са записани при Данко).
@@ -159,8 +280,12 @@ async function sbSelect(url: string, path: string): Promise<any[]> {
   if (!res.ok) throw new Error("DB select: HTTP " + res.status);
   return res.json();
 }
+// Upsert по gmail_message_id: нормалният цикъл никога не дублира (филтърът seen),
+// а „↻ Разчети наново" презаписва същия ред с новото разчитане.
 async function sbInsert(url: string, table: string, row: unknown): Promise<void> {
-  const res = await fetch(`${url}/rest/v1/${table}`, { method: "POST", headers: { ...sbHeaders(), prefer: "return=minimal" }, body: JSON.stringify(row) });
+  const res = await fetch(`${url}/rest/v1/${table}?on_conflict=gmail_message_id`, {
+    method: "POST", headers: { ...sbHeaders(), prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row),
+  });
   if (!res.ok) throw new Error("DB insert: HTTP " + res.status + " " + (await res.text()).slice(0, 200));
 }
 async function sbUpload(url: string, path: string, bytes: Uint8Array, mime: string): Promise<string> {
@@ -177,17 +302,28 @@ Deno.serve(async (req) => {
   if (!url) return json({ error: "Липсва SUPABASE_URL" }, 500);
   if (!gmSecret("REFRESH_TOKEN")) return json({ error: "Липсват Gmail тайните (GMAIL_/GOOGLE_ CLIENT_ID/SECRET/REFRESH_TOKEN)" }, 500);
 
+  // „↻ Разчети наново": {reparse: "<gmail_message_id>"} обработва САМО това писмо
+  // отначало (файлове + разчитане) и презаписва реда му — без класификация.
+  let reqBody: any = {};
+  try { reqBody = await req.json(); } catch (_) { /* празно тяло от pg_cron — ок */ }
+  const reparse = String(reqBody && reqBody.reparse || "").trim();
+
   const out = { checked: 0, new: 0, orders: 0, skipped: 0, errors: 0 };
   try {
     const tok = await gmailToken();
-    // Последните 2 дни от входящата поща — идемпотентността по message id пази от повторения.
-    const list = await gmail(tok, `messages?q=${encodeURIComponent("in:inbox newer_than:2d")}&maxResults=${MAX_PER_RUN}`);
-    const ids = (list.messages || []).map((m: any) => m.id);
+    let ids: string[];
+    if (reparse) {
+      ids = [reparse];
+    } else {
+      // Последните 2 дни от входящата поща — идемпотентността по message id пази от повторения.
+      const list = await gmail(tok, `messages?q=${encodeURIComponent("in:inbox newer_than:2d")}&maxResults=${MAX_PER_RUN}`);
+      ids = (list.messages || []).map((m: any) => m.id);
+    }
     if (!ids.length) return json({ ...out, note: "няма нови писма" });
     out.checked = ids.length;
 
-    // Кои от тях вече са обработени?
-    const seen = new Set((await sbSelect(url, `orders_inbox?select=gmail_message_id&gmail_message_id=in.(${ids.map((x: string) => `"${x}"`).join(",")})`)).map((r: any) => r.gmail_message_id));
+    // Кои от тях вече са обработени? (при reparse нарочно минаваме пак)
+    const seen = reparse ? new Set() : new Set((await sbSelect(url, `orders_inbox?select=gmail_message_id&gmail_message_id=in.(${ids.map((x: string) => `"${x}"`).join(",")})`)).map((r: any) => r.gmail_message_id));
 
     for (const id of ids) {
       if (seen.has(id)) continue;
@@ -203,8 +339,10 @@ Deno.serve(async (req) => {
         const body = bodyText(msg.payload, "text/plain") || stripHtml(bodyText(msg.payload, "text/html"));
         const atts = attachmentsOf(msg.payload);
 
-        // 1) Заявка ли е?
-        const cls = await classify(fromRaw, subject, body, atts.map(a => a.filename));
+        // 1) Заявка ли е? (при ръчно преразчитане не питаме — човекът е решил)
+        const cls = reparse
+          ? { is_order: true, reason: "ръчно преразчитане" }
+          : await classify(fromRaw, subject, body, atts.map(a => a.filename));
         if (!cls.is_order) {
           await sbInsert(url, "orders_inbox", {
             gmail_message_id: id, received_at: receivedAt, from_email: fromEmail, from_name: fromName,
@@ -214,8 +352,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // 2) Файловете → Storage.
+        // 2) Файловете → Storage. Байтовете на Word/Excel пазим и в паметта —
+        //    веднага след това ги разчитаме тук (стъпка 3).
         const files: any[] = [];
+        const officeBytes = new Map<string, Uint8Array>();
         for (const a of atts) {
           try {
             const att = await gmail(tok, `messages/${id}/attachments/${a.attachmentId}`);
@@ -223,11 +363,12 @@ Deno.serve(async (req) => {
             const path = `inbox/${id}/${Date.now()}-${safeName(a.filename)}`;
             const pub = await sbUpload(url, path, bytes, a.mimeType);
             files.push({ name: a.filename, type: a.mimeType, path, url: pub, size: bytes.length });
+            if (officeKind(a.filename, a.mimeType) && bytes.length <= MAX_PARSE_BYTES) officeBytes.set(a.filename, bytes);
           } catch (e) { files.push({ name: a.filename, type: a.mimeType, error: String(e).slice(0, 120) }); }
         }
 
         // 3) Разчитане: PDF/снимка → parse-document (същата схема като в Системата);
-        //    само текст → Claude тук. Excel се записва за ръчен преглед при одобрение.
+        //    Word/Excel → текстът се вади тук и отива при Claude; голо писмо → Claude.
         let parsed: any = null, notes = "";
         const main = files.find(f => f.url && /pdf|image\//i.test(f.type || "") && (f.size || 0) <= MAX_PARSE_BYTES);
         if (main) {
@@ -239,12 +380,38 @@ Deno.serve(async (req) => {
           if (pj && pj.parsed) parsed = pj.parsed;
           else notes = "Файлът не се разчете: " + String(pj && pj.error || pr.status).slice(0, 150);
         }
+        if (!parsed) {
+          for (const f of files) {
+            const bts = officeBytes.get(f.name);
+            if (!bts) continue;
+            const kind = officeKind(f.name, f.type || "");
+            let txt = "";
+            try {
+              if (kind === "docx") txt = await docxText(bts);
+              else if (kind === "xlsx") txt = await xlsxText(bts);
+              else if (kind === "doc") txt = docLegacyText(bts);
+            } catch (e) { notes = (notes ? notes + " · " : "") + `Файлът „${f.name}“ не се отвори: ` + String(e).slice(0, 100); }
+            if (txt.length >= 40) {
+              try {
+                const merged = body.trim()
+                  ? body.slice(0, 3000) + `\n\n=== СЪДЪРЖАНИЕ НА ПРИКАЧЕНИЯ ФАЙЛ „${f.name}“ ===\n` + txt
+                  : `=== СЪДЪРЖАНИЕ НА ПРИКАЧЕНИЯ ФАЙЛ „${f.name}“ ===\n` + txt;
+                parsed = await parseFromText(fromRaw, subject, merged);
+                notes = (notes ? notes + " · " : "") + `Разчетено от прикачения файл „${f.name}“` + (kind === "doc" ? " (стар .doc формат — свери редовете с файла!)" : " — свери при одобрението.");
+                break;
+              } catch (e) { notes = (notes ? notes + " · " : "") + "Файлът не се разчете: " + String(e).slice(0, 100); }
+            } else if (kind === "doc") {
+              notes = (notes ? notes + " · " : "") + `⚠ „${f.name}“ е стар .doc формат и не се чете автоматично — отвори го и въведи редовете при одобрението (или помоли клиента за PDF).`;
+            }
+          }
+        }
         if (!parsed && body.trim()) {
           try { parsed = await parseFromText(fromRaw, subject, body); }
           catch (e) { notes = (notes ? notes + " · " : "") + "Текстът не се разчете: " + String(e).slice(0, 120); }
         }
-        if (files.some(f => /sheet|excel|xls/i.test(f.type || "") || /\.xlsx?$/i.test(f.name || ""))) {
-          notes = (notes ? notes + " · " : "") + "Има Excel — отвори го при одобрението.";
+        // Стар двоичен .xls не се чете автоматично — да се отвори на ръка.
+        if (files.some(f => /\.xls$/i.test(f.name || ""))) {
+          notes = (notes ? notes + " · " : "") + "Има стар .xls файл — отвори го при одобрението.";
         }
         const missing = (parsed && parsed.missing_info || []).join("; ");
         if (missing) notes = (notes ? notes + " · " : "") + "Липсва: " + missing;
