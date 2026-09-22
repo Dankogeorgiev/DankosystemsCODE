@@ -154,6 +154,8 @@ async function erpPalletAI(opts) {
         </select>
       </label>
       ${opts.clientName ? `<span class="erp-muted">заявка на: <b>${escapeHtml(opts.clientName)}</b></span>` : ""}
+      <label>Дата: <input type="date" id="pald" value="${escapeAttr(new Date().toISOString().slice(0, 10))}" /></label>
+      <label>№ заявка: <input type="text" id="palo" value="${escapeAttr(opts.orderNo || "")}" placeholder="напр. 1042 / PO 587" style="width:130px" /></label>
     </div>
     <label style="display:block">Какво пращаме (изделие — бройка, по ред на изделие):
       <textarea id="pali" rows="7" style="width:100%;font-family:inherit" placeholder="напр.&#10;Потапящ малък с крак 61 см — 120 к-та&#10;Тръби L=1240 — 60 бр.&#10;Болтове, спирачки — 400 бр.">${escapeHtml(opts.itemsText || "")}</textarea>
@@ -193,31 +195,77 @@ async function erpPalletAI(opts) {
     } catch (e) { st.textContent = ""; alert("Грешка: " + (e.message || e)); }
     finally { gen.disabled = false; }
   });
-  pb.addEventListener("click", () => palPrint(wrap.querySelector("#palc").value, ta.value));
+  pb.addEventListener("click", () => palPrint(wrap.querySelector("#palc").value, ta.value, {
+    date: wrap.querySelector("#pald").value,
+    orderNo: wrap.querySelector("#palo").value.trim(),
+  }));
   cb.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(ta.value); cb.textContent = "✓ копирано"; setTimeout(() => { cb.textContent = "📋 Копирай"; }, 1500); }
     catch (e) { alert("Копирането не мина — селектирай текста и Ctrl+C."); }
   });
 }
 
-function palPrint(client, text) {
+/* Печат: ВСЕКИ ПАЛЕТ НА ОТДЕЛЕН ЛИСТ, с лого, клиент, дата и № на заявка.
+   Текстът се реже по редовете „ПАЛЕТ № N / PALLET № N"; редове, започващи
+   с „//" (бележките на Claude „Провери:…"), не влизат в печата. */
+function palPrint(client, text, meta) {
+  meta = meta || {};
   if (!String(text || "").trim()) { alert("Няма опис за печат."); return; }
+  const lines = String(text).replace(/\r/g, "").split("\n").filter(l => !/^\s*\/\//.test(l));
+  const starts = [];
+  lines.forEach((l, i) => { if (/^\s*(ПАЛЕТ|PALLET|PALET)\b/i.test(l.trim())) starts.push(i); });
+  let sections;
+  if (starts.length) {
+    sections = starts.map((s, k) => lines.slice(s, k + 1 < starts.length ? starts[k + 1] : lines.length).join("\n").replace(/\n{3,}/g, "\n\n").trim());
+    const pre = lines.slice(0, starts[0]).join("\n").trim();
+    if (pre) sections[0] = pre + "\n\n" + sections[0];   // шапката на описа остава на първия лист
+  } else sections = [lines.join("\n").trim()];
+  const d = meta.date ? new Date(meta.date + "T00:00:00") : new Date();
+  const dmy = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+  const ordHtml = meta.orderNo ? `<b>${escapeHtml(meta.orderNo)}</b>` : `<span class="blank">&nbsp;</span>`;
+  const logo = new URL("logo.png", location.href).href;
+  const head = `
+    <div class="hd">
+      <img src="${escapeAttr(logo)}" alt="Данко Системс" />
+      <div class="hdt">
+        <div class="ttl">ПАЛЕТЕН ОПИС</div>
+        <div class="sub">Данко Системс ЕООД</div>
+      </div>
+      <div class="hdm">
+        <div>Клиент: <b>${escapeHtml(client || "")}</b></div>
+        <div>Дата: <b>${escapeHtml(dmy)}</b></div>
+        <div>№ заявка: ${ordHtml}</div>
+      </div>
+    </div>`;
+  const pages = sections.map((s, i) => `
+    <div class="page">
+      ${head}
+      <pre>${escapeHtml(s)}</pre>
+      <div class="foot">Палет ${i + 1} от ${sections.length}</div>
+    </div>`).join("");
   const w = window.open("", "_blank");
   if (!w) { alert("Браузърът блокира прозореца за печат."); return; }
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Палетен опис — ${escapeHtml(client || "")}</title>
     <style>
-      body{font-family:"Times New Roman",serif;font-size:15px;margin:34px 44px;color:#000}
-      h2{font-size:19px;margin:0 0 2px} .sub{color:#333;margin:0 0 16px;font-size:13px}
-      pre{white-space:pre-wrap;font-family:inherit;font-size:15px;line-height:1.45}
-      @media print{ .noprint{display:none} }
+      body{font-family:"Times New Roman",serif;font-size:16px;margin:0;color:#000}
+      .page{padding:30px 44px 24px;page-break-after:always;min-height:92vh;box-sizing:border-box;position:relative}
+      .page:last-child{page-break-after:auto}
+      .hd{display:flex;align-items:center;gap:16px;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px}
+      .hd img{height:52px}
+      .hdt .ttl{font-size:21px;font-weight:700;letter-spacing:1px}
+      .hdt .sub{font-size:12px;color:#444}
+      .hdm{margin-left:auto;text-align:right;font-size:14px;line-height:1.5}
+      .blank{display:inline-block;min-width:110px;border-bottom:1px solid #000}
+      pre{white-space:pre-wrap;font-family:inherit;font-size:16px;line-height:1.55;tab-size:10}
+      .foot{position:absolute;bottom:14px;left:44px;right:44px;display:flex;justify-content:space-between;font-size:12px;color:#555;border-top:1px solid #ccc;padding-top:6px}
+      .noprint{position:fixed;top:8px;right:8px;font-size:15px;padding:6px 14px}
+      @media print{ .noprint{display:none} .page{min-height:auto;height:auto} }
     </style></head><body>
-    <h2>ПАЛЕТЕН ОПИС${client ? " — " + escapeHtml(client) : ""}</h2>
-    <p class="sub">Данко Системс · ${escapeHtml(new Date().toLocaleDateString("bg-BG"))}</p>
-    <pre>${escapeHtml(text)}</pre>
+    ${pages}
     <button class="noprint" onclick="window.print()">🖨 Печат</button>
     </body></html>`);
   w.document.close();
-  setTimeout(() => { try { w.print(); } catch (e) {} }, 300);
+  setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
 }
 
 /* Помощник за опаковъчния изглед: редовете на заявката → текст за диалога. */

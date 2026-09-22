@@ -540,7 +540,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
     if (palai) palai.addEventListener("click", async () => {
       collect();
       if (typeof erpPalletAI !== "function") { alert("Модулът erp-pallet-ai.js не е зареден."); return; }
-      erpPalletAI({ clientName: o.clientName, itemsText: await palItemsFromOrder(o) });
+      erpPalletAI({ clientName: o.clientName, itemsText: await palItemsFromOrder(o), orderNo: o.clientNo || o.ourNo || "" });
     });
     renderPlan();
   };
