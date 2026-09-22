@@ -143,17 +143,33 @@ async function erpPalletAI(opts) {
     return;
   }
   const pre = palArcMatch(opts.clientName, arc);
+  // Отворените заявки от клиенти — избираш коя пратка опаковаме и всичко се попълва само.
+  let coOpen = [];
+  try {
+    if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders();
+    coOpen = ((typeof erpCOList !== "undefined" && erpCOList) || [])
+      .filter(o => (o.status || "нова") !== "завършена")
+      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  } catch (e) {}
   const { wrap, close } = erpDialog(`
     <h3>🤖 Опис на палети с AI</h3>
-    <p class="hint" style="margin:0 0 8px">Claude чете последните описи на избрания клиент от архива (2019 → днес) и написва новия в СЪЩИЯ стил — език, палети, типични бройки. Прегледай и коригирай преди печат.</p>
+    <p class="hint" style="margin:0 0 8px">Избери ЗАЯВКАТА, която опаковаме (редовете, клиентът и номерът се попълват сами) — или пиши ръчно. Claude чете последните описи на клиента от архива (2019 → днес) и написва новия в СЪЩИЯ стил.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <label>📋 Заявка:
+        <select id="palco" style="min-width:280px">
+          <option value="">— без заявка (пиша ръчно) —</option>
+          ${coOpen.map(o => `<option value="${escapeAttr(String(o.id))}"${String(o.id) === String(opts.orderId || "") ? " selected" : ""}>${escapeHtml(o.ourNo || "—")}${o.clientNo ? " / " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")} · ${typeof erpDMY === "function" ? erpDMY(o.date) : escapeHtml(o.date || "")} (${(o.lines || []).length} реда)</option>`).join("")}
+        </select>
+      </label>
       <label>Клиент (от архива):
-        <select id="palc" style="min-width:220px">
+        <select id="palc" style="min-width:200px">
           <option value="">— избери —</option>
           ${arc.map(a => `<option value="${escapeAttr(a.client)}"${a.client === pre ? " selected" : ""}>${escapeHtml(a.client)} (${a.n} описа${a.last ? ", посл. " + a.last : ""})</option>`).join("")}
         </select>
       </label>
-      ${opts.clientName ? `<span class="erp-muted">заявка на: <b>${escapeHtml(opts.clientName)}</b></span>` : ""}
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <label>Фирма (излиза на печата): <input type="text" id="palfirm" value="${escapeAttr(opts.clientName || "")}" placeholder="името на клиента върху описа" style="width:220px" /></label>
       <label>Дата: <input type="date" id="pald" value="${escapeAttr(new Date().toISOString().slice(0, 10))}" /></label>
       <label>№ заявка: <input type="text" id="palo" value="${escapeAttr(opts.orderNo || "")}" placeholder="напр. 1042 / PO 587" style="width:130px" /></label>
     </div>
@@ -180,6 +196,17 @@ async function erpPalletAI(opts) {
   const st = wrap.querySelector("#palst"), gen = wrap.querySelector("#palgen");
   const out = wrap.querySelector("#palout"), ta = wrap.querySelector("#palt");
   const pb = wrap.querySelector("#palprint"), cb = wrap.querySelector("#palcopy");
+  // Избор на заявка → редовете, клиентът от архива, фирмата и № се попълват сами.
+  const coSel = wrap.querySelector("#palco");
+  coSel.addEventListener("change", async () => {
+    const o = coOpen.find(x => String(x.id) === coSel.value);
+    if (!o) return;
+    wrap.querySelector("#pali").value = await palItemsFromOrder(o);
+    wrap.querySelector("#palo").value = o.clientNo || o.ourNo || "";
+    wrap.querySelector("#palfirm").value = o.clientName || "";
+    const m = palArcMatch(o.clientName, arc);
+    if (m) wrap.querySelector("#palc").value = m;
+  });
   gen.addEventListener("click", async () => {
     const client = wrap.querySelector("#palc").value;
     const items = wrap.querySelector("#pali").value.trim();
@@ -198,6 +225,7 @@ async function erpPalletAI(opts) {
   pb.addEventListener("click", () => palPrint(wrap.querySelector("#palc").value, ta.value, {
     date: wrap.querySelector("#pald").value,
     orderNo: wrap.querySelector("#palo").value.trim(),
+    firm: wrap.querySelector("#palfirm").value.trim(),
   }));
   cb.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(ta.value); cb.textContent = "✓ копирано"; setTimeout(() => { cb.textContent = "📋 Копирай"; }, 1500); }
@@ -232,7 +260,7 @@ function palPrint(client, text, meta) {
         <div class="sub">Данко Системс ЕООД</div>
       </div>
       <div class="hdm">
-        <div>Клиент: <b>${escapeHtml(client || "")}</b></div>
+        <div>Клиент: <b>${escapeHtml(meta.firm || client || "")}</b></div>
         <div>Дата: <b>${escapeHtml(dmy)}</b></div>
         <div>№ заявка: ${ordHtml}</div>
       </div>
