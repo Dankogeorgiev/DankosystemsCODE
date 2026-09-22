@@ -52,7 +52,13 @@ Deno.serve(async (req: Request) => {
     const data = await r.json();
     if (!r.ok) return json({ error: data?.error?.message || ("Claude API грешка (" + r.status + ")") }, r.status);
     const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
-    return json({ text });
+    // Празен текст = нещо не е наред (напр. всичко е отишло в thinking или отговорът
+    // е отрязан) — кажи КАКВО върна Claude, за да се вижда причината в грешката.
+    if (!text) {
+      const types = (data.content || []).map((b: any) => b.type).join(",") || "нищо";
+      return json({ error: `Claude върна празен текст (stop_reason: ${data.stop_reason || "?"}, блокове: ${types})` }, 502);
+    }
+    return json({ text, stop_reason: data.stop_reason });
   } catch (e) {
     return json({ error: "Грешка при връзка с Claude: " + String((e as any)?.message || e) }, 502);
   }
