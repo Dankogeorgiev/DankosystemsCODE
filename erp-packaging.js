@@ -85,6 +85,8 @@ async function erpRenderPackaging() {
       <span class="erp-count" id="pack-count"></span>
       <input type="search" id="pack-q" placeholder="🔎 код / клиент / име…" value="${escapeAttr(packQuery)}" style="min-width:220px" autocomplete="off" />
       <span class="spacer"></span>
+      <button class="btn btn-small" id="pack-arc-import" title="Еднократно: качва архива от старите палетни описи (packing-archive.json) в базата — храната на „🤖 Опис с AI"">⬆ Стари описи (импорт)</button>
+      <button class="btn btn-small" id="pack-ai-opis" title="Claude пише палетния опис в стила на старите описи на клиента">🤖 Опис с AI</button>
       <button class="btn btn-small btn-primary" id="pack-new">+ Нова опаковка</button>
     </div>
     <p class="hint">Как се опакова всяко изделие <b>за всеки клиент</b>. Оттук Придружаващите документи (Packing List, Стокова разписка, Палет опис) вземат теглото на брой, кашоните и палетите. Едно изделие може да има различна опаковка за различни клиенти.</p>
@@ -102,6 +104,10 @@ async function erpRenderPackaging() {
   const qEl = document.getElementById("pack-q");
   if (qEl) qEl.addEventListener("input", uiDebounce(e => { packQuery = e.target.value; erpPackFillRows(); }, 200));
   document.getElementById("pack-new").addEventListener("click", () => erpPackForm(null));
+  const arcBtn = document.getElementById("pack-arc-import");
+  if (arcBtn) arcBtn.addEventListener("click", () => { if (typeof palArcImport === "function") palArcImport(arcBtn); });
+  const aiBtn = document.getElementById("pack-ai-opis");
+  if (aiBtn) aiBtn.addEventListener("click", () => { if (typeof erpPalletAI === "function") erpPalletAI({}); });
   // Опаковъчната верига: папки по клиент + отваряне в опаковъчния изглед.
   packOrdersWire();
   erpPackFillRows();
@@ -439,6 +445,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small" id="pko-packing">🖨 Packing List</button>
         <button class="btn btn-small" id="pko-goods">🖨 Стокова разписка</button>
         <button class="btn btn-small" id="pko-pallets">🖨 Палет опис (по палети)</button>
+        <button class="btn btn-small" id="pko-palai" title="Claude пише описа в стила на старите описи на този клиент (архива 2019 → днес)">🤖 Опис с AI</button>
         <span class="erp-muted">Документите се пълнят от ТАЗИ таблица (Опаковъчната верига).</span>
       </div>
       ${packBoxDatalistHtml()}`;
@@ -528,6 +535,12 @@ async function erpPackOrderOpen(orderId, moreIds) {
       const trayCnt = (P.tray || []).reduce((s, x) => s + x.boxes, 0);
       if (trayCnt && !confirm(`Внимание: ${trayCnt} кашона са „Настрани" и НЯМА да влязат в Палет описа. Да печатам ли все пак?`)) return;
       packPrintPallets(o, docRows(), P);
+    });
+    const palai = v.querySelector("#pko-palai");
+    if (palai) palai.addEventListener("click", async () => {
+      collect();
+      if (typeof erpPalletAI !== "function") { alert("Модулът erp-pallet-ai.js не е зареден."); return; }
+      erpPalletAI({ clientName: o.clientName, itemsText: await palItemsFromOrder(o) });
     });
     renderPlan();
   };

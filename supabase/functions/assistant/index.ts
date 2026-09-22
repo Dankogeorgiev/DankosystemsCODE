@@ -9,8 +9,10 @@
 //   (или през CLI: supabase functions deploy assistant && supabase secrets set ANTHROPIC_API_KEY=...)
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-// По-евтин и бърз модел за помощ. За по-сложни разсъждения смени на "claude-sonnet-5".
+// По-евтин и бърз модел за помощ. Извикващият може да поиска по-силен модел
+// (напр. „🤖 Опис с AI" праща model: "claude-sonnet-5") — само от белия списък.
 const MODEL = "claude-haiku-4-5-20251001";
+const ALLOWED_MODELS = new Set(["claude-haiku-4-5-20251001", "claude-sonnet-5"]);
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +31,7 @@ Deno.serve(async (req: Request) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Невалиден JSON." }, 400); }
-  const { system, messages, max_tokens } = body || {};
+  const { system, messages, max_tokens, model } = body || {};
   if (!Array.isArray(messages) || !messages.length) return json({ error: "Липсват съобщения." }, 400);
 
   try {
@@ -41,8 +43,8 @@ Deno.serve(async (req: Request) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: Math.min(Number(max_tokens) || 1024, 2048),
+        model: ALLOWED_MODELS.has(String(model || "")) ? String(model) : MODEL,
+        max_tokens: Math.min(Number(max_tokens) || 1024, 8192),
         system: String(system || ""),
         messages,
       }),
