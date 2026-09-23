@@ -354,8 +354,12 @@ async function crmSearch(v) {
   const all = await salesAgentApi.getCompanies({});
   const s2Cands = all.filter(c => c.stage2Needed);
   const outCands = all.filter(c => c.outreachEligible && !["DRAFT_CREATED", "NEEDS_REVIEW"].includes(c.outreachStatus));
-  const wsPick = (list, id) => `<div class="crm-card" style="max-height:200px;overflow:auto">
-      ${list.map(c => `<label style="display:block;margin:2px 0"><input type="checkbox" class="${id}" value="${escapeAttr(c.website)}" checked /> ${escapeHtml(c.company)} <span class="erp-muted t-code">${escapeHtml(c.website)}</span></label>`).join("") || `<p class="erp-muted">Няма подходящи компании.</p>`}
+  // Отваря се ПРАЗЕН (изберѝ съзнателно кои; сървърът пуска до 10 на джоб).
+  const wsPick = (list, id) => `<div class="crm-card" style="max-height:220px;overflow:auto">
+      <div style="margin-bottom:6px"><button type="button" class="btn btn-small" data-wsall="${id}">☑ първите 10</button>
+        <button type="button" class="btn btn-small" data-wsnone="${id}">☐ никоя</button>
+        <span class="erp-muted" id="${id}-cnt">избрани: 0</span></div>
+      ${list.map(c => `<label style="display:block;margin:2px 0"><input type="checkbox" class="${id}" value="${escapeAttr(c.website)}" /> ${escapeHtml(c.company)} <span class="erp-muted t-code">${escapeHtml(c.website)}</span>${c.fitScore ? ` · Fit ${c.fitScore}` : ""}</label>`).join("") || `<p class="erp-muted">Няма подходящи компании.</p>`}
     </div>`;
   const prod = crmApiMode() === "n8n";
   v.innerHTML = `
@@ -383,6 +387,19 @@ async function crmSearch(v) {
       <p class="hint"><b>Имейли НЕ се изпращат автоматично</b> — никога.</p>
     </div>`;
   v.querySelectorAll("[data-crmmode]").forEach(b => b.addEventListener("click", () => { CRMS.searchMode = b.dataset.crmmode; crmSearch(v); }));
+  // „първите 10 / никоя" + брояч на избраните
+  const wsSync = id => { const el = v.querySelector(`#${id}-cnt`); if (el) el.textContent = "избрани: " + v.querySelectorAll(`.${id}:checked`).length; };
+  v.querySelectorAll(`.crm-ws2, .crm-wso`).forEach(cb => cb.addEventListener("change", () => wsSync(cb.className.split(" ")[0])));
+  v.querySelectorAll("[data-wsall]").forEach(b => b.addEventListener("click", () => {
+    const id = b.dataset.wsall;
+    v.querySelectorAll(`.${id}`).forEach((cb, i) => { cb.checked = i < 10; });
+    wsSync(id);
+  }));
+  v.querySelectorAll("[data-wsnone]").forEach(b => b.addEventListener("click", () => {
+    const id = b.dataset.wsnone;
+    v.querySelectorAll(`.${id}`).forEach(cb => { cb.checked = false; });
+    wsSync(id);
+  }));
   v.querySelector("#crm-start").addEventListener("click", async () => {
     const st = v.querySelector("#crm-startst");
     const btn = v.querySelector("#crm-start");
