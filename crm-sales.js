@@ -185,8 +185,8 @@ async function crmCompanyDetail(website) {
   ].filter(Boolean).join(" ");
   const kv = (l, val, mono) => `<div class="crm-kv"><span>${l}</span><b class="${mono ? "t-code" : ""}">${escapeHtml(String(val || "—"))}</b></div>`;
   const secs = {
-    "Общ преглед": `${kv("Company", c.company)}${kv("Country", c.country)}${kv("Website", c.websiteRaw || c.website, 1)}${kv("Industry", c.industry)}${kv("Date Added", c.dateAdded)}${kv("Status", c.statusRaw || c.status)}${kv("Potential Opportunity", c.potentialOpportunity)}${c.rowNumber ? kv("CRM ред", "№ " + c.rowNumber) : ""}`,
-    "Описание": `<p>${escapeHtml(c.description || "—")}</p>${kv("Products", c.products)}${kv("Processes", c.processes)}`,
+    "Общ преглед": `${kv("Company", c.company)}${kv("Country", c.country)}${kv("Website", c.websiteRaw || c.website, 1)}${kv("Industry", c.industry)}${kv("Date Added", c.dateAdded)}${kv("Status", c.statusRaw || c.status)}${kv("Est. Annual Opportunity (EUR)", c.potentialOpportunity)}${c.rowNumber ? kv("CRM ред", "№ " + c.rowNumber) : ""}`,
+    "Описание": `<p>${escapeHtml(c.description || "—")}</p>${kv("Potential Products for Danko", c.products)}${kv("Relevant Danko Processes", c.processes)}`,
     "Контакти": `${kv("Decision Maker Role", c.decisionMakerRole)}${kv("Contact Person", c.contactPerson)}${kv("Email", c.email, 1)}${kv("LinkedIn", c.linkedin, 1)}${kv("Business Phone", c.businessPhone, 1)}${kv("Contact Source URL", c.contactSourceUrl, 1)}`,
     "Подход": `${kv("Sales Approach", c.salesApproach)}${kv("Verified Facts", c.verifiedFacts)}${kv("Inferences", c.inferences)}${kv("Notes", c.notes)}`,
     "Източници": `<p class="t-code">${escapeHtml(c.sources || "—")}</p>`,

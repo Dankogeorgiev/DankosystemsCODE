@@ -73,11 +73,13 @@ function normScore(v: unknown): number | null {
 // Имената на колоните в Sheet-а са АВТОРИТЕТНИ — четем ги от реалните редове
 // (n8n Google Sheets node връща обект с ключове = header row). Ако колона
 // липсва → null + доклад в meta.missing_fields (нищо не се измисля).
+// Имената по-долу са СВЕРЕНИ с реалния ред 1 на Qualified Leads (22.09.2026,
+// Данко ги прати дословно) — не ги „оправяй" по памет.
 const FIELD_MAP: [string, string][] = [
   ["Date Added", "date_added"], ["Company", "company"], ["Country", "country"],
-  ["Website", "website"], ["Industry", "industry"], ["Description", "description"],
-  ["Products", "products"], ["Processes", "processes"],
-  ["DANKO Fit Score", "danko_fit_score"], ["Potential Opportunity", "potential_opportunity"],
+  ["Website", "website"], ["Industry", "industry"], ["Company Description", "description"],
+  ["Potential Products for Danko", "products"], ["Relevant Danko Processes", "processes"],
+  ["DANKO Fit Score", "danko_fit_score"], ["Estimated Annual Opportunity EUR", "potential_opportunity"],
   ["Status", "status"],
   ["Decision Maker Role", "decision_maker_role"], ["Contact Person", "contact_person"],
   ["Email", "email"], ["LinkedIn", "linkedin"], ["Business Phone", "business_phone"],
