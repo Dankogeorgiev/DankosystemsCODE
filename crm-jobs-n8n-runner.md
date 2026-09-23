@@ -45,14 +45,14 @@ requested_websites; FULL_PIPELINE → трите поред, като изход
 
 ## Стъпка 2 — договорът за прогреса (HTTP Request node-ове)
 
-Всеки checkpoint е POST към:
+Всеки checkpoint е POST към ОТДЕЛНАТА callback функция (Verify JWT = OFF,
+пази я само тайната — без anon ключ, без Bearer):
 
-    https://hwbblteomrrahfrsyuow.supabase.co/functions/v1/crm-bridge
+    https://hwbblteomrrahfrsyuow.supabase.co/functions/v1/crm-job-callback
 
-Заглавки (и трите задължителни):
+Заглавки (само тези две):
 
-    apikey: <SUPABASE ANON KEY — същият, който ползва сайтът>
-    Authorization: Bearer <същият ANON KEY>
+    Content-Type: application/json
     x-callback-secret: <N8N_CALLBACK_SECRET — нов дълъг таен низ>
 
 Тела (job_id идва от Webhook входа; изпращай само каквото се е променило —
