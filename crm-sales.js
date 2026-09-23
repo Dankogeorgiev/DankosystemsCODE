@@ -61,7 +61,7 @@ async function crmRender() {
   const nav = document.getElementById("crm-nav");
   if (nav) nav.innerHTML = CRM_TABS.map(([k, l]) =>
     `<button class="crm-tab${CRMS.tab === k ? " active" : ""}" data-crmtab="${k}">${l}</button>`).join("") +
-    `<span class="crm-mode">${crmApiMode() === "mock" ? "MOCK ДАННИ" : "PRODUCTION"}</span>`;
+    `<span class="crm-mode">${crmApiMode() === "mock" ? "MOCK ДАННИ" : "PRODUCTION · САМО ЧЕТЕНЕ"}</span>`;
   if (nav) nav.querySelectorAll("[data-crmtab]").forEach(b => b.addEventListener("click", () => { CRMS.tab = b.dataset.crmtab; crmRender(); }));
   const v = crmView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
@@ -138,12 +138,13 @@ async function crmCompanies(v) {
       <input type="search" id="crmq" placeholder="🔎 компания / домейн / контакт…" value="${escapeAttr(f.q || "")}" style="min-width:220px" />
       ${sel("crmf-country", uniq("country"), f.country, "Държава: всички")}
       ${sel("crmf-industry", uniq("industry"), f.industry, "Индустрия: всички")}
-      ${sel("crmf-status", [["STAGE1", "Stage 1"], ["STAGE2_RUNNING", "Stage 2…"], ["RESEARCH_COMPLETE", "Research Complete"]], f.status, "Статус: всички")}
+      ${sel("crmf-status", uniq("status").map(s => [s, (CRM_ST_BG[s] || [s])[0]]), f.status, "Статус: всички")}
       ${sel("crmf-fit", [["90", "Fit ≥ 90 (Strong)"], ["80", "Fit ≥ 80 (Qualified)"]], f.fitMin, "Fit: всички")}
       ${sel("crmf-s2", [["needed", "Stage 2: чака"], ["done", "Stage 2: готов"]], f.stage2, "Stage 2: всички")}
       ${sel("crmf-oe", [["yes", "Eligible: да"], ["no", "Eligible: не"]], f.outreachEligible, "Outreach Eligible")}
       ${sel("crmf-os", Object.keys(CRM_OUT_BG).map(k => [k, CRM_OUT_BG[k][0]]), f.outreachStatus, "Outreach: всички")}
       <span class="erp-count">${list.length} от ${all.length}</span>
+      ${crmApiMode() === "n8n" ? `<button class="btn btn-small" id="crm-refresh" title="Чете CRM-а наново (иначе се пази 60 сек)">↻</button>` : ""}
     </div>
     <table class="report-table erp-table crm-table">
       <thead><tr><th>Company</th><th>Country</th><th>Industry</th><th>Website</th><th class="num">Fit</th><th>Status</th><th>Stage 2</th><th>Eligible</th><th>Outreach</th><th>Date Added</th></tr></thead>
@@ -166,6 +167,8 @@ async function crmCompanies(v) {
   if (q) q.addEventListener("input", uiDebounce(() => { CRMS.filters.q = q.value || undefined; rf(); }, 250));
   bind("crmf-country", "country"); bind("crmf-industry", "industry"); bind("crmf-status", "status");
   bind("crmf-fit", "fitMin"); bind("crmf-s2", "stage2"); bind("crmf-oe", "outreachEligible"); bind("crmf-os", "outreachStatus");
+  const rfBtn = v.querySelector("#crm-refresh");
+  if (rfBtn) rfBtn.addEventListener("click", () => { if (typeof crmProdBust === "function") crmProdBust(); rf(); });
   v.querySelectorAll("[data-crmco]").forEach(tr => tr.addEventListener("click", () => crmCompanyDetail(tr.dataset.crmco)));
 }
 
@@ -182,7 +185,7 @@ async function crmCompanyDetail(website) {
   ].filter(Boolean).join(" ");
   const kv = (l, val, mono) => `<div class="crm-kv"><span>${l}</span><b class="${mono ? "t-code" : ""}">${escapeHtml(String(val || "—"))}</b></div>`;
   const secs = {
-    "Общ преглед": `${kv("Company", c.company)}${kv("Country", c.country)}${kv("Website", c.website, 1)}${kv("Industry", c.industry)}${kv("Date Added", c.dateAdded)}${kv("Status", c.status)}${kv("Potential Opportunity", c.potentialOpportunity)}`,
+    "Общ преглед": `${kv("Company", c.company)}${kv("Country", c.country)}${kv("Website", c.websiteRaw || c.website, 1)}${kv("Industry", c.industry)}${kv("Date Added", c.dateAdded)}${kv("Status", c.statusRaw || c.status)}${kv("Potential Opportunity", c.potentialOpportunity)}${c.rowNumber ? kv("CRM ред", "№ " + c.rowNumber) : ""}`,
     "Описание": `<p>${escapeHtml(c.description || "—")}</p>${kv("Products", c.products)}${kv("Processes", c.processes)}`,
     "Контакти": `${kv("Decision Maker Role", c.decisionMakerRole)}${kv("Contact Person", c.contactPerson)}${kv("Email", c.email, 1)}${kv("LinkedIn", c.linkedin, 1)}${kv("Business Phone", c.businessPhone, 1)}${kv("Contact Source URL", c.contactSourceUrl, 1)}`,
     "Подход": `${kv("Sales Approach", c.salesApproach)}${kv("Verified Facts", c.verifiedFacts)}${kv("Inferences", c.inferences)}${kv("Notes", c.notes)}`,
@@ -229,12 +232,17 @@ function crmDraftPreview(c) {
 async function crmPipeline(v) {
   const runs = await salesAgentApi.getPipelineRuns();
   const all = await salesAgentApi.getCompanies({});
+  // Колоните се строят от ИЗЧИСЛЕНИТЕ полета (Stage2 Needed / Outreach
+  // Eligible + Outreach Status) — те са авторитетни и в Mock, и в живия CRM,
+  // независимо какъв речник ползва колоната Status в Sheet-а.
+  const isDraft = c => ["DRAFT_CREATED", "NEEDS_REVIEW"].includes(c.outreachStatus);
+  const hasResearch = c => !c.stage2Needed && (c.contactPerson || c.verifiedFacts || c.email || c.status === "RESEARCH_COMPLETE");
   const cols = [
-    ["Нови", all.filter(c => c.status === "STAGE1" && c.stage2Needed && !c.outreachStatus)],
-    ["Stage 1 Complete", all.filter(c => c.status === "STAGE1" && !c.stage2Needed)],
-    ["Stage 2 / Research", all.filter(c => c.status === "STAGE2_RUNNING" || (c.status === "RESEARCH_COMPLETE" && !c.outreachEligible && !["MISSING_EMAIL", "SKIPPED"].includes(c.outreachStatus)))],
-    ["Готови за Outreach", all.filter(c => c.outreachEligible && !["DRAFT_CREATED", "NEEDS_REVIEW"].includes(c.outreachStatus))],
-    ["Gmail Drafts", all.filter(c => ["DRAFT_CREATED", "NEEDS_REVIEW"].includes(c.outreachStatus))],
+    ["Нови", all.filter(c => c.stage2Needed && !c.outreachStatus)],
+    ["Stage 1 Complete", all.filter(c => !c.stage2Needed && !hasResearch(c) && !c.outreachEligible && !isDraft(c))],
+    ["Stage 2 / Research", all.filter(c => hasResearch(c) && !c.outreachEligible && !isDraft(c))],
+    ["Готови за Outreach", all.filter(c => c.outreachEligible && !isDraft(c))],
+    ["Gmail Drafts", all.filter(isDraft)],
   ];
   const runRow = r => `<tr class="erp-clickable" data-crmrun="${escapeAttr(r.id)}">
       <td><b>#${escapeHtml(r.id)}</b></td><td>${escapeHtml(r.mode === "full" ? "Пълен пайплайн" : r.mode)}</td>
@@ -311,8 +319,10 @@ async function crmSearch(v) {
   const wsPick = (list, id) => `<div class="crm-card" style="max-height:200px;overflow:auto">
       ${list.map(c => `<label style="display:block;margin:2px 0"><input type="checkbox" class="${id}" value="${escapeAttr(c.website)}" checked /> ${escapeHtml(c.company)} <span class="erp-muted t-code">${escapeHtml(c.website)}</span></label>`).join("") || `<p class="erp-muted">Няма подходящи компании.</p>`}
     </div>`;
+  const prodLock = crmApiMode() === "n8n";
   v.innerHTML = `
     <h2 style="margin:4px 0 10px">Стартирай ново търсене</h2>
+    ${prodLock ? `<p style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:10px;max-width:640px">⏸ <b>Pipeline execution is not connected yet.</b> В Production режим данните са на живо, но стартирането на Stage 1/2/Outreach чака Фаза 2B. За проба на пайплайните мини на Mock от ⚙ Настройки.</p>` : ""}
     <div class="crm-modes">${modes.map(([k, l]) => `<button class="crm-modebtn${mode === k ? " active" : ""}" data-crmmode="${k}">${l}</button>`).join("")}</div>
     ${mode === "full" || mode === "stage1" ? `
       <div class="crm-form">
@@ -325,7 +335,7 @@ async function crmSearch(v) {
       <p class="hint">Stage 2 обогатява СЪЩИТЕ CRM записи (по домейн). Избери кои:</p>${wsPick(s2Cands, "crm-ws2")}` : `
       <p class="hint">Outreach създава Gmail Drafts за проучените компании. Избери кои:</p>${wsPick(outCands, "crm-wso")}`}
     <div style="display:flex;align-items:center;gap:14px;margin:14px 0">
-      <button class="btn btn-primary" id="crm-start" style="font-size:15px">🚀 ${mode === "full" ? "Стартирай пълния пайплайн" : mode === "stage1" ? "Стартирай Stage 1" : mode === "stage2" ? "Стартирай Stage 2" : "Подготви имейлите (Drafts)"}</button>
+      <button class="btn btn-primary" id="crm-start" style="font-size:15px"${prodLock ? " disabled" : ""}>🚀 ${mode === "full" ? "Стартирай пълния пайплайн" : mode === "stage1" ? "Стартирай Stage 1" : mode === "stage2" ? "Стартирай Stage 2" : "Подготви имейлите (Drafts)"}</button>
       <span class="erp-muted" id="crm-startst"></span>
     </div>
     <div class="crm-card" style="max-width:420px">
@@ -431,8 +441,9 @@ async function crmSettings(v) {
     <div class="crm-card" style="max-width:640px">
       <h4>Източник на данни</h4>
       <label style="display:block;margin:6px 0"><input type="radio" name="crmmode" value="mock"${mode === "mock" ? " checked" : ""} /> <b>Mock</b> — примерни данни в браузъра (сегашният режим; нищо не пипа реалния CRM)</label>
-      <label style="display:block;margin:6px 0"><input type="radio" name="crmmode" value="n8n"${mode === "n8n" ? " checked" : ""} /> <b>Production (n8n)</b> — чака реалните endpoints (Фаза 2, след одобрение)</label>
-      <p class="hint">Фронтендът НИКОГА не говори директно с Google Sheets/Gmail и не съдържа ключове — само контролирани endpoints.</p>
+      <label style="display:block;margin:6px 0"><input type="radio" name="crmmode" value="n8n"${mode === "n8n" ? " checked" : ""} /> <b>Production (n8n)</b> — ЖИВ CRM, само четене (Фаза 2A); пайплайните чакат Фаза 2B</label>
+      <p class="hint">Фронтендът НИКОГА не говори директно с Google Sheets/Gmail и не съдържа ключове — само Edge функцията crm-bridge. Production никога не пада тихо към Mock: ако мостът не работи, виждаш грешка, не фалшиви данни.</p>
+      <p><button class="btn" id="crm-ping">🔌 Тест на връзката</button> <span class="erp-muted" id="crm-pingst"></span></p>
     </div>
     <div class="crm-card" style="max-width:640px">
       <h4>Бекендът (n8n) — какво е свързано</h4>
@@ -446,8 +457,23 @@ async function crmSettings(v) {
     </div>`;
   v.querySelectorAll("input[name=crmmode]").forEach(r => r.addEventListener("change", () => {
     crmSetApiMode(r.value);
+    if (typeof crmProdBust === "function") crmProdBust();
     crmRender();
   }));
+  const ping = v.querySelector("#crm-ping");
+  if (ping) ping.addEventListener("click", async () => {
+    const st = v.querySelector("#crm-pingst");
+    st.textContent = "проверявам…"; ping.disabled = true;
+    try {
+      const p = await crmBridge("ping");
+      if (!p.data.configured) { st.textContent = "⚠ Мостът работи, но N8N_READ_URL не е настроен в секретите."; return; }
+      if (typeof crmProdBust === "function") crmProdBust();
+      const list = await crmProdProvider._companies();
+      const m = crmProdProvider.meta() || {};
+      st.textContent = `✓ на живо: ${list.length} компании · домейни: ${m.unique_domains}${(m.duplicate_domains || []).length ? ` · ДУБЛИ: ${m.duplicate_domains.join(", ")}` : " · без дубли"}${(m.missing_fields || []).length ? ` · ⚠ липсващи колони: ${m.missing_fields.join(", ")}` : ""} · ${new Date(m.fetched_at).toLocaleTimeString("bg-BG")}`;
+    } catch (e) { st.textContent = "✕ " + (e.message || e); }
+    finally { ping.disabled = false; }
+  });
 }
 
 /* ---------- достъп + инициализация ---------- */

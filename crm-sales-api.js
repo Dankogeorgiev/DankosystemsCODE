@@ -92,6 +92,24 @@ function crmJobCompanies() {
   return out;
 }
 
+/* Общите филтри — ползват ги И mock, И production (клиентско филтриране:
+   47 компании не заслужават сървърна пагинация; договорът обаче я търпи). */
+function crmApplyFilters(list, filters) {
+  const f = filters || {};
+  const q = String(f.q || "").toLowerCase();
+  if (q) list = list.filter(c => [c.company, c.website, c.country, c.industry, c.contactPerson].join(" ").toLowerCase().includes(q));
+  if (f.country) list = list.filter(c => c.country === f.country);
+  if (f.industry) list = list.filter(c => c.industry === f.industry);
+  if (f.status) list = list.filter(c => c.status === f.status);
+  if (f.fitMin) list = list.filter(c => (c.fitScore || 0) >= Number(f.fitMin));
+  if (f.stage2 === "needed") list = list.filter(c => c.stage2Needed);
+  if (f.stage2 === "done") list = list.filter(c => !c.stage2Needed);
+  if (f.outreachEligible === "yes") list = list.filter(c => c.outreachEligible);
+  if (f.outreachEligible === "no") list = list.filter(c => !c.outreachEligible);
+  if (f.outreachStatus) list = list.filter(c => (c.outreachStatus || "") === f.outreachStatus);
+  return list.sort((a, b) => String(b.dateAdded).localeCompare(String(a.dateAdded)) || (b.fitScore || 0) - (a.fitScore || 0));
+}
+
 /* ================= MOCK ДОСТАВЧИК ================= */
 const crmMockProvider = {
   async getDashboard() {
@@ -119,19 +137,7 @@ const crmMockProvider = {
       if (seen.has(key)) return;
       seen.add(key); list.push(c);
     });
-    const f = filters || {};
-    const q = String(f.q || "").toLowerCase();
-    if (q) list = list.filter(c => [c.company, c.website, c.country, c.industry, c.contactPerson].join(" ").toLowerCase().includes(q));
-    if (f.country) list = list.filter(c => c.country === f.country);
-    if (f.industry) list = list.filter(c => c.industry === f.industry);
-    if (f.status) list = list.filter(c => c.status === f.status);
-    if (f.fitMin) list = list.filter(c => (c.fitScore || 0) >= Number(f.fitMin));
-    if (f.stage2 === "needed") list = list.filter(c => c.stage2Needed);
-    if (f.stage2 === "done") list = list.filter(c => !c.stage2Needed && c.status === "RESEARCH_COMPLETE");
-    if (f.outreachEligible === "yes") list = list.filter(c => c.outreachEligible);
-    if (f.outreachEligible === "no") list = list.filter(c => !c.outreachEligible);
-    if (f.outreachStatus) list = list.filter(c => (c.outreachStatus || "") === f.outreachStatus);
-    return list.sort((a, b) => String(b.dateAdded).localeCompare(String(a.dateAdded)) || (b.fitScore || 0) - (a.fitScore || 0));
+    return crmApplyFilters(list, filters);
   },
   async getCompany(website) {
     const all = await this.getCompanies({});
@@ -189,20 +195,147 @@ const crmMockProvider = {
   }
 };
 
-/* ================= N8N ДОСТАВЧИК (бъдещ) =================
-   НЕ измисляме production адреси. Когато Данко даде контролираните
-   endpoints (n8n webhooks или Edge функция-мост), се попълват ТУК —
-   и никъде другаде. Дотогава всеки метод отказва ясно. */
-const crmN8nProvider = new Proxy({}, {
-  get: (_t, prop) => async () => {
-    throw new Error(`Режим „Production (n8n)" още не е свързан — методът ${String(prop)} чака реалните endpoints. Върни на Mock от Настройки.`);
+/* ================= PRODUCTION ДОСТАВЧИК (Фаза 2A — САМО ЧЕТЕНЕ) =================
+   Браузър → Edge функция crm-bridge (проверява Supabase JWT + allow-list)
+   → n8n READ webhook → Google Sheet „DANKO Sales Leads". Никакви ключове тук.
+   Договор от моста: { ok, data, meta } / { ok:false, error:{code,message} }.
+   Компаниите идват в snake_case (виж crm-bridge/index.ts) и се превеждат към
+   модела на UI-я НА ЕДНО МЯСТО (crmFromApi). Идентичност = normalized domain.
+   Пайплайните НЕ са свързани: старт в Production дава ясна грешка, БЕЗ тихо
+   връщане към mock (иначе фалшиви данни ще минат за истински). */
+
+const CRM_PROD_CACHE = { at: 0, companies: null, meta: null };
+const CRM_PROD_TTL = 60000;   // 60 сек — Sheet-ът не се чука на всяко цъкане
+function crmProdBust() { CRM_PROD_CACHE.at = 0; CRM_PROD_CACHE.companies = null; }
+
+async function crmBridge(action, payload) {
+  const cfg = window.DANKO_CONFIG || {};
+  let token = cfg.SUPABASE_ANON_KEY;
+  try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 25000);
+  let res, j;
+  try {
+    res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/crm-bridge", {
+      method: "POST", signal: ctrl.signal,
+      headers: { "Content-Type": "application/json", apikey: cfg.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+      body: JSON.stringify({ action, ...(payload || {}) }),
+    });
+  } catch (e) {
+    throw new Error(e && e.name === "AbortError" ? "CRM мостът не отговори до 25 сек (timeout)." : "Няма връзка с CRM моста (crm-bridge). Деплойната ли е функцията?");
+  } finally { clearTimeout(t); }
+  try { j = await res.json(); } catch (e) { throw new Error("CRM мостът върна невалиден отговор (не е JSON)."); }
+  if (res.status === 401 || res.status === 403 || (j && j.error && j.error.code === "FORBIDDEN")) {
+    throw new Error("Нямаш права за CRM данните (сървърна проверка). Провери allow-list-а в crm-bridge.");
   }
-});
+  if (!j || j.ok !== true) throw new Error((j && j.error && j.error.message) || `CRM мостът върна грешка (HTTP ${res.status}).`);
+  return j;
+}
+
+/* snake_case договор → моделът на UI-я (ЕДИНСТВЕНОТО място на превода). */
+function crmFromApi(r) {
+  const normSt = s => String(s || "").trim().toUpperCase().replace(/\s+/g, "_");
+  return {
+    dateAdded: r.date_added || "", company: r.company || "", country: r.country || "",
+    website: r.domain || r.website || "", websiteRaw: r.website || "", rowNumber: r.row_number,
+    industry: r.industry || "", description: r.description || "", products: r.products || "", processes: r.processes || "",
+    fitScore: Number(r.danko_fit_score) || 0, potentialOpportunity: r.potential_opportunity || "",
+    status: normSt(r.status) || (r.stage2_needed ? "STAGE1" : "RESEARCH_COMPLETE"),
+    statusRaw: r.status || "", stage2Needed: !!r.stage2_needed, outreachEligible: !!r.outreach_eligible,
+    decisionMakerRole: r.decision_maker_role || "", contactPerson: r.contact_person || "", email: r.email || "",
+    linkedin: r.linkedin || "", businessPhone: r.business_phone || "", contactSourceUrl: r.contact_source_url || "",
+    salesApproach: r.sales_approach || "", verifiedFacts: r.verified_facts || "", inferences: r.inferences || "",
+    sources: r.sources || "", notes: r.notes || "",
+    outreachStatus: normSt(r.outreach_status), outreachDate: r.outreach_date || "",
+    outreachEmail: r.outreach_email || "", outreachSubject: r.outreach_subject || "",
+  };
+}
+
+const crmProdProvider = {
+  async _companies() {
+    if (CRM_PROD_CACHE.companies && Date.now() - CRM_PROD_CACHE.at < CRM_PROD_TTL) return CRM_PROD_CACHE.companies;
+    const j = await crmBridge("companies");
+    const list = (j.data || []).map(crmFromApi);
+    CRM_PROD_CACHE.companies = list; CRM_PROD_CACHE.meta = j.meta || null; CRM_PROD_CACHE.at = Date.now();
+    return list;
+  },
+  meta() { return CRM_PROD_CACHE.meta; },
+
+  async getDashboard() {
+    const all = await this._companies();
+    // Изчислените полета от Sheet-а са авторитетни (Stage2 Needed / Outreach
+    // Eligible); Status се показва суров и НЕ се преизчислява тук.
+    const drafts = all.filter(c => c.outreachDate || ["DRAFT_CREATED", "NEEDS_REVIEW"].includes(c.outreachStatus));
+    return {
+      total: all.length,
+      stage1: all.filter(c => c.stage2Needed).length,
+      researchComplete: all.filter(c => !c.stage2Needed).length,
+      outreachReady: all.filter(c => c.outreachEligible && !drafts.includes(c)).length,
+      drafts: drafts.length,
+      activities: (CRM_PROD_CACHE.meta && CRM_PROD_CACHE.meta.fetched_at) ? [{ at: new Date(CRM_PROD_CACHE.meta.fetched_at).toLocaleString("bg-BG"), text: `CRM прочетен на живо: ${all.length} компании (DANKO Sales Leads).` }] : [],
+      pipeline: {
+        new: all.filter(c => c.stage2Needed).length, stage1: all.filter(c => c.stage2Needed).length,
+        stage2: 0, ready: all.filter(c => c.outreachEligible && !drafts.includes(c)).length, drafts: drafts.length,
+      }
+    };
+  },
+  async getCompanies(filters) { return crmApplyFilters((await this._companies()).slice(), filters); },
+  async getCompany(website) {
+    const all = await this._companies();
+    const key = String(website || "").toLowerCase();
+    return all.find(c => c.website.toLowerCase() === key || String(c.websiteRaw).toLowerCase().includes(key)) || null;
+  },
+  async getOutreachQueue() {
+    const all = await this._companies();
+    return {
+      ready: all.filter(c => c.outreachEligible && !c.outreachStatus),
+      drafts: all.filter(c => c.outreachStatus === "DRAFT_CREATED"),
+      review: all.filter(c => c.outreachStatus === "NEEDS_REVIEW"),
+      skipped: all.filter(c => c.outreachStatus === "SKIPPED"),
+      missing: all.filter(c => c.outreachStatus === "MISSING_EMAIL" || (c.outreachEligible === false && !c.stage2Needed && !c.email)),
+    };
+  },
+  async getTasks() {
+    const all = await this._companies();
+    const t = [];
+    all.forEach(c => {
+      if (!c.stage2Needed && !c.email) t.push({ type: "MISSING_EMAIL", company: c.company, website: c.website, text: "Research готов, но липсва потвърден имейл.", since: c.dateAdded });
+      if (c.outreachEligible && !c.outreachStatus && (c.fitScore || 0) >= 90) t.push({ type: "STRONG_LEAD", company: c.company, website: c.website, text: `Fit ${c.fitScore}, Outreach Eligible — чака outreach.`, since: c.dateAdded });
+      if (c.outreachStatus === "NEEDS_REVIEW") t.push({ type: "NEEDS_REVIEW", company: c.company, website: c.website, text: "Gmail Draft чака преглед.", since: c.outreachDate || c.dateAdded });
+      if (c.stage2Needed && (c.fitScore || 0) >= 90) t.push({ type: "STRONG_LEAD", company: c.company, website: c.website, text: `Fit ${c.fitScore}, а Stage 2 още не е пуснат.`, since: c.dateAdded });
+    });
+    return t.slice(0, 40);
+  },
+  async getReports() {
+    const all = await this._companies();
+    const week = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const group = key => { const m = {}; all.forEach(c => { const k = c[key] || "—"; m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+    return {
+      newThisWeek: all.filter(c => String(c.dateAdded) >= week).length,
+      qualified: all.filter(c => (c.fitScore || 0) >= 80).length,
+      avgFit: all.length ? Math.round(all.reduce((s, c) => s + (c.fitScore || 0), 0) / all.length) : 0,
+      researchComplete: all.filter(c => !c.stage2Needed).length,
+      outreachEligible: all.filter(c => c.outreachEligible).length,
+      drafts: all.filter(c => c.outreachDate || ["DRAFT_CREATED", "NEEDS_REVIEW"].includes(c.outreachStatus)).length,
+      byCountry: group("country"), byIndustry: group("industry"), total: all.length
+    };
+  },
+
+  /* Фаза 2A: изпълнението НЕ е свързано. Ясна грешка, никакъв тих mock. */
+  async _noExec() { throw new Error("Pipeline execution is not connected yet. (Фаза 2B — стартирането на Stage 1/2/Outreach още не е свързано; данните са на живо, само за четене.)"); },
+  async startFullPipeline() { return this._noExec(); },
+  async startStage1() { return this._noExec(); },
+  async startStage2() { return this._noExec(); },
+  async startOutreach() { return this._noExec(); },
+  async getPipelineRuns() { return []; },
+  async getPipelineRun() { return null; },
+  async getExecutionStatus() { return null; },
+};
 
 /* Единственият вход за UI-я. */
 const salesAgentApi = new Proxy({}, {
   get: (_t, prop) => {
-    const p = crmApiMode() === "n8n" ? crmN8nProvider : crmMockProvider;
+    const p = crmApiMode() === "n8n" ? crmProdProvider : crmMockProvider;
     const v = p[prop];
     return typeof v === "function" ? v.bind(p) : v;
   }
