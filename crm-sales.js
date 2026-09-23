@@ -244,15 +244,22 @@ async function crmPipeline(v) {
     ["Готови за Outreach", all.filter(c => c.outreachEligible && !isDraft(c))],
     ["Gmail Drafts", all.filter(isDraft)],
   ];
+  const dur = r => {
+    const end = r.finishedAt || (["RUNNING", "QUEUED"].includes(r.status) ? Date.now() : null);
+    if (!end) return "—";
+    const s = Math.max(0, Math.round((end - r.startedAt) / 1000));
+    return s < 60 ? s + " сек" : Math.round(s / 60) + " мин";
+  };
+  const runChip = s => s === "RUNNING" ? `<span class="crmb crmb-orange">Работи…</span>` : s === "QUEUED" ? `<span class="crmb crmb-grey">на опашка</span>` : s === "COMPLETED" ? `<span class="crmb crmb-green">Завършен</span>` : s === "PARTIAL" ? `<span class="crmb crmb-orange">С пропуски</span>` : `<span class="crmb crmb-red">${escapeHtml(s)}</span>`;
   const runRow = r => `<tr class="erp-clickable" data-crmrun="${escapeAttr(r.id)}">
-      <td><b>#${escapeHtml(r.id)}</b></td><td>${escapeHtml(r.mode === "full" ? "Пълен пайплайн" : r.mode)}</td>
-      <td>${r.status === "RUNNING" ? `<span class="crmb crmb-orange">Работи…</span>` : r.status === "COMPLETED" ? `<span class="crmb crmb-green">Завършен</span>` : r.status === "PARTIAL" ? `<span class="crmb crmb-orange">Частичен</span>` : `<span class="crmb crmb-red">${escapeHtml(r.status)}</span>`}</td>
-      <td class="num">${r.requested}</td><td class="num">${r.stage1Done}</td><td class="num">${r.stage2Done}</td><td class="num">${r.draftsDone}</td>
-      <td>${new Date(r.startedAt).toLocaleString("bg-BG")}</td></tr>`;
+      <td><b>#${escapeHtml(String(r.id).slice(0, 8))}</b></td><td>${escapeHtml(r.mode === "full" ? "Пълен пайплайн" : r.mode)}${r.params && r.params.country ? ` <span class="erp-muted">· ${escapeHtml(r.params.country)}</span>` : ""}</td>
+      <td>${runChip(r.status)}</td>
+      <td class="num">${r.requested || "—"}</td><td class="num">${r.stage1Done}</td><td class="num">${r.stage2Done}</td><td class="num">${r.draftsDone}</td>
+      <td>${new Date(r.startedAt).toLocaleString("bg-BG")}</td><td>${dur(r)}</td></tr>`;
   v.innerHTML = `
     ${runs.length ? `<div class="crm-card" style="margin-bottom:12px">
       <h4>Пайплайни (${runs.length})</h4>
-      <table class="report-table erp-table"><thead><tr><th>№</th><th>Режим</th><th>Статус</th><th class="num">Заявени</th><th class="num">Stage 1</th><th class="num">Stage 2</th><th class="num">Drafts</th><th>Стартиран</th></tr></thead>
+      <table class="report-table erp-table"><thead><tr><th>№</th><th>Режим</th><th>Статус</th><th class="num">Заявени</th><th class="num">Stage 1</th><th class="num">Stage 2</th><th class="num">Drafts</th><th>Стартиран</th><th>Време</th></tr></thead>
       <tbody>${runs.map(runRow).join("")}</tbody></table></div>` : `<p class="hint">Няма стартирани пайплайни. Пусни от „🔍 Ново търсене".</p>`}
     <div class="crm-kanban">
       ${cols.map(([title, list]) => `<div class="crm-kcol">
@@ -285,26 +292,57 @@ async function crmRunDialog(jobId) {
     OUTREACH_RUNNING: ["Outreach…", "crmb-orange"], DRAFT_CREATED: ["DRAFT_CREATED", "crmb-green"],
     SKIPPED: ["SKIPPED", "crmb-grey"], MISSING_EMAIL: ["MISSING_EMAIL", "crmb-red"], FAILED: ["FAILED", "crmb-red"],
   };
+  const stChip = s => {
+    const m = { PENDING: ["чака", "crmb-grey"], QUEUED: ["на опашка", "crmb-grey"], RUNNING: ["работи…", "crmb-orange"], COMPLETED: ["готов", "crmb-green"], PARTIAL: ["частично", "crmb-orange"], FAILED: ["провал", "crmb-red"], SKIPPED: ["пропуснат", "crmb-grey"] };
+    const [l, c] = m[String(s || "PENDING").toUpperCase()] || [s, "crmb-grey"];
+    return `<span class="crmb ${c}">${escapeHtml(l)}</span>`;
+  };
+  const bar = (done, total) => `<div class="crm-bar"><div style="width:${total ? Math.round(done / total * 100) : 0}%"></div></div>`;
+  // Етап на ЖИВ джоб: реалните числа от n8n, ако ги има; иначе само статусът
+  // (никакъв измислен прогрес — по-добре „работи…" от фалшиво „3/5").
+  const liveStage = (label, sg, total) => {
+    const has = sg && sg.completed != null && (sg.requested != null || total);
+    const tot = Number(sg && sg.requested) || total || 0;
+    return `<div>${label}: ${has ? `<b>${Number(sg.completed) || 0} / ${tot}</b>${bar(Number(sg.completed) || 0, tot)}` : stChip(sg && sg.status)}</div>`;
+  };
   const paint = async () => {
-    const r = await salesAgentApi.getPipelineRun(jobId);
     const box = wrap.querySelector("#crm-runbody");
-    if (!r || !box || closed) return;
-    const bar = (done, total) => `<div class="crm-bar"><div style="width:${total ? Math.round(done / total * 100) : 0}%"></div></div>`;
-    box.innerHTML = `
-      <p style="margin:4px 0 10px">Статус: ${r.status === "RUNNING" ? `<b style="color:#b45309">Работи…</b>` : r.status === "COMPLETED" ? `<b style="color:#166534">Пайплайнът е завършен.</b>` : r.status === "PARTIAL" ? `<b style="color:#b45309">Завършен частично.</b>` : `<b style="color:#991b1b">${escapeHtml(r.status)}</b>`}
-        · Заявени: <b>${r.requested}</b></p>
+    if (!box || closed) return;
+    let r;
+    try { r = await salesAgentApi.getPipelineRun(jobId); }
+    catch (e) { box.innerHTML = `<p class="erp-error">${escapeHtml(e.message || String(e))}</p>`; return; }
+    if (!r) {
+      // Току-що стартирал джоб може да се появи след миг — опитваме още малко.
+      paint._miss = (paint._miss || 0) + 1;
+      if (paint._miss <= 5 && !closed) { box.innerHTML = `<p class="erp-loading">Зареждане на джоба…</p>`; setTimeout(paint, 1500); }
+      else box.innerHTML = `<p class="erp-muted">Джобът не е намерен.</p>`;
+      return;
+    }
+    paint._miss = 0;
+    const running = r.status === "RUNNING" || r.status === "QUEUED";
+    const head = `
+      <p style="margin:4px 0 10px">Статус: ${running ? `<b style="color:#b45309">Работи…</b>${r.currentStage ? ` <span class="erp-muted">(${escapeHtml(r.currentStage)})</span>` : ""}` : r.status === "COMPLETED" ? `<b style="color:#166534">Пайплайнът е завършен.</b>` : r.status === "PARTIAL" ? `<b style="color:#b45309">Завършен с пропуски.</b>` : `<b style="color:#991b1b">Провален${r.error ? ": " + escapeHtml(String(r.error).slice(0, 160)) : ""}</b>`}
+        · Заявени: <b>${r.requested || "—"}</b> · Изпратени имейли: <b>0</b></p>`;
+    const stats = r.live ? `
+      <div class="crm-runstats">
+        ${liveStage("Stage 1", r.stages.stage1, r.requested)}
+        ${liveStage("Stage 2", r.stages.stage2, r.requested)}
+        ${liveStage("Outreach (Drafts: " + r.draftsDone + ")", r.stages.outreach, r.requested)}
+      </div>` : `
       <div class="crm-runstats">
         <div>Stage 1: <b>${r.stage1Done} / ${r.requested}</b>${bar(r.stage1Done, r.requested)}</div>
         <div>Stage 2: <b>${r.stage2Done} / ${r.requested}</b>${bar(r.stage2Done, r.requested)}</div>
         <div>Gmail Drafts: <b>${r.draftsDone} / ${r.requested}</b>${bar(r.draftsDone, r.requested)}</div>
-      </div>
-      ${r.status !== "RUNNING" ? `<p><b>Заявени:</b> ${r.requested} · <b>Намерени:</b> ${r.stage1Done} · <b>Проучени:</b> ${r.stage2Done} · <b>Gmail Drafts:</b> ${r.draftsDone} · <b>Изпратени: 0</b></p>` : `<p class="hint">Може да затвориш прозореца — пайплайнът продължава и ще го намериш в „📊 Пайплайн".</p>`}
-      <table class="report-table erp-table"><thead><tr><th>Company</th><th>Country</th><th class="num">Fit</th><th>Резултат</th></tr></thead>
+      </div>`;
+    box.innerHTML = head + stats + `
+      ${!running ? `<p><b>Заявени:</b> ${r.requested || "—"} · <b>Намерени:</b> ${r.stage1Done} · <b>Проучени:</b> ${r.stage2Done} · <b>Gmail Drafts:</b> ${r.draftsDone} · <b>Изпратени: 0</b></p>` : `<p class="hint">Може да затвориш прозореца и да излезеш от страницата — пайплайнът върви в n8n и ще го намериш в „📊 Пайплайн".</p>`}
+      ${r.companies.length ? `<table class="report-table erp-table"><thead><tr><th>Company</th><th>Country</th><th class="num">Fit</th><th>Резултат</th><th></th></tr></thead>
       <tbody>${r.companies.map(c => `<tr class="erp-clickable" data-crmco="${escapeAttr(c.website)}">
-        <td><b>${escapeHtml(c.company)}</b></td><td>${escapeHtml(c.country)}</td><td class="num">${crmFit(c.fitScore)}</td>
-        <td><span class="crmb ${(PH[c.phase] || ["", "crmb-grey"])[1]}">${escapeHtml((PH[c.phase] || [c.phase])[0])}</span></td></tr>`).join("")}</tbody></table>`;
+        <td><b>${escapeHtml(c.company)}</b></td><td>${escapeHtml(c.country)}</td><td class="num">${c.fitScore ? crmFit(c.fitScore) : "—"}</td>
+        <td><span class="crmb ${(PH[c.phase] || ["", "crmb-grey"])[1]}">${escapeHtml((PH[c.phase] || [c.phase || "—"])[0])}</span>${c.note ? `<div class="erp-muted" style="font-size:11px">${escapeHtml(c.note)}</div>` : ""}</td>
+        <td>${c.draftLink ? `<a class="btn btn-small" href="${escapeAttr(c.draftLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">✉ Draft</a>` : ""}</td></tr>`).join("")}</tbody></table>` : (running ? "" : `<p class="erp-muted">Няма записани компании по този джоб.</p>`)}`;
     box.querySelectorAll("[data-crmco]").forEach(el => el.addEventListener("click", () => crmCompanyDetail(el.dataset.crmco)));
-    if (r.status === "RUNNING" && !closed) setTimeout(paint, 2500);
+    if (running && !closed) setTimeout(paint, r.live ? 4000 : 2500);
   };
   paint();
 }
@@ -319,10 +357,10 @@ async function crmSearch(v) {
   const wsPick = (list, id) => `<div class="crm-card" style="max-height:200px;overflow:auto">
       ${list.map(c => `<label style="display:block;margin:2px 0"><input type="checkbox" class="${id}" value="${escapeAttr(c.website)}" checked /> ${escapeHtml(c.company)} <span class="erp-muted t-code">${escapeHtml(c.website)}</span></label>`).join("") || `<p class="erp-muted">Няма подходящи компании.</p>`}
     </div>`;
-  const prodLock = crmApiMode() === "n8n";
+  const prod = crmApiMode() === "n8n";
   v.innerHTML = `
     <h2 style="margin:4px 0 10px">Стартирай ново търсене</h2>
-    ${prodLock ? `<p style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:10px;max-width:640px">⏸ <b>Pipeline execution is not connected yet.</b> В Production режим данните са на живо, но стартирането на Stage 1/2/Outreach чака Фаза 2B. За проба на пайплайните мини на Mock от ⚙ Настройки.</p>` : ""}
+    ${prod ? `<p style="background:#dbeafe;color:#1d4ed8;padding:8px 12px;border-radius:10px;max-width:640px">🔴 <b>PRODUCTION:</b> стартът пуска ИСТИНСКИЯ n8n пайплайн (пише в CRM-а, прави Gmail драфтове — никога не изпраща). До 10 компании на джоб, Fit 65–100.</p>` : ""}
     <div class="crm-modes">${modes.map(([k, l]) => `<button class="crm-modebtn${mode === k ? " active" : ""}" data-crmmode="${k}">${l}</button>`).join("")}</div>
     ${mode === "full" || mode === "stage1" ? `
       <div class="crm-form">
@@ -335,7 +373,7 @@ async function crmSearch(v) {
       <p class="hint">Stage 2 обогатява СЪЩИТЕ CRM записи (по домейн). Избери кои:</p>${wsPick(s2Cands, "crm-ws2")}` : `
       <p class="hint">Outreach създава Gmail Drafts за проучените компании. Избери кои:</p>${wsPick(outCands, "crm-wso")}`}
     <div style="display:flex;align-items:center;gap:14px;margin:14px 0">
-      <button class="btn btn-primary" id="crm-start" style="font-size:15px"${prodLock ? " disabled" : ""}>🚀 ${mode === "full" ? "Стартирай пълния пайплайн" : mode === "stage1" ? "Стартирай Stage 1" : mode === "stage2" ? "Стартирай Stage 2" : "Подготви имейлите (Drafts)"}</button>
+      <button class="btn btn-primary" id="crm-start" style="font-size:15px">🚀 ${mode === "full" ? "Стартирай пълния пайплайн" : mode === "stage1" ? "Стартирай Stage 1" : mode === "stage2" ? "Стартирай Stage 2" : "Подготви имейлите (Drafts)"}</button>
       <span class="erp-muted" id="crm-startst"></span>
     </div>
     <div class="crm-card" style="max-width:420px">
@@ -347,6 +385,9 @@ async function crmSearch(v) {
   v.querySelectorAll("[data-crmmode]").forEach(b => b.addEventListener("click", () => { CRMS.searchMode = b.dataset.crmmode; crmSearch(v); }));
   v.querySelector("#crm-start").addEventListener("click", async () => {
     const st = v.querySelector("#crm-startst");
+    const btn = v.querySelector("#crm-start");
+    btn.disabled = true;   // против двойно цъкане; истинската защита е request_id в сървъра
+    st.textContent = "стартирам…";
     try {
       let res;
       if (mode === "full" || mode === "stage1") {
@@ -367,9 +408,10 @@ async function crmSearch(v) {
         if (!ws.length) { alert("Избери поне една компания."); return; }
         res = await salesAgentApi.startOutreach(ws);
       }
-      st.textContent = `✓ стартиран job ${res.job_id}`;
+      st.textContent = res.duplicate ? `↻ това стартиране вече върви (същото request_id)` : `✓ стартиран job`;
       crmRunDialog(res.job_id);
     } catch (e) { alert("Грешка: " + (e.message || e)); }
+    finally { btn.disabled = false; }
   });
 }
 
@@ -441,7 +483,7 @@ async function crmSettings(v) {
     <div class="crm-card" style="max-width:640px">
       <h4>Източник на данни</h4>
       <label style="display:block;margin:6px 0"><input type="radio" name="crmmode" value="mock"${mode === "mock" ? " checked" : ""} /> <b>Mock</b> — примерни данни в браузъра (сегашният режим; нищо не пипа реалния CRM)</label>
-      <label style="display:block;margin:6px 0"><input type="radio" name="crmmode" value="n8n"${mode === "n8n" ? " checked" : ""} /> <b>Production (n8n)</b> — ЖИВ CRM, само четене (Фаза 2A); пайплайните чакат Фаза 2B</label>
+      <label style="display:block;margin:6px 0"><input type="radio" name="crmmode" value="n8n"${mode === "n8n" ? " checked" : ""} /> <b>Production (n8n)</b> — ЖИВ CRM + ЖИВИ пайплайни (Stage 1/2/Outreach; само Gmail Drafts, нула изпратени имейли)</label>
       <p class="hint">Фронтендът НИКОГА не говори директно с Google Sheets/Gmail и не съдържа ключове — само Edge функцията crm-bridge. Production никога не пада тихо към Mock: ако мостът не работи, виждаш грешка, не фалшиви данни.</p>
       <p><button class="btn" id="crm-ping">🔌 Тест на връзката</button> <span class="erp-muted" id="crm-pingst"></span></p>
     </div>

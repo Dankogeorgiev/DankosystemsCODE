@@ -11,15 +11,28 @@
 // Stage 1/2, Outreach, Gmail драфтове, изпращане на имейли.
 //
 // Деплой: Supabase → Edge Functions → New → име: crm-bridge → този файл.
-//   Verify JWT: ON (вика се само от влезли потребители).
+//   Verify JWT: ON (вика се само от влезли потребители; n8n callback-ът
+//   праща anon ключа като Bearer + таен header x-callback-secret).
 // Тайни (Edge Functions → Secrets):
-//   N8N_READ_URL    = production URL на n8n READ webhook-а (виж
-//                     crm-bridge-n8n-setup.md за рецептата на workflow-а)
-//   N8N_READ_SECRET = дълъг случаен низ; СЪЩИЯТ се слага в n8n Header Auth
+//   N8N_READ_URL     = production URL на n8n READ webhook-а (Фаза 2A)
+//   N8N_READ_SECRET  = тайната на READ webhook-а (header x-read-key)
+//   N8N_START_URL    = production URL на n8n „DANKO Pipeline Runner" webhook-а
+//   N8N_START_SECRET = тайната му (header x-start-key)
+//   N8N_CALLBACK_SECRET = тайната, с която n8n ОБНОВЯВА джобовете тук
+//                     (header x-callback-secret) — виж crm-jobs-n8n-runner.md
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY — автоматични.
 //
-// Договор: POST {action:"companies"} | {action:"company", domain:"..."} |
-//          {action:"ping"} → {ok:true, data, meta} | {ok:false, error:{code,message}}
+// ФАЗА 2B — договор:
+//   Четене:  {action:"ping"|"companies"|"company"}         (както Фаза 2A)
+//   Старт:   {action:"start_full"|"start_stage1"|"start_stage2"|"start_outreach",
+//             request_id:"uuid", params:{...}} → {ok, data: job, duplicate_request?}
+//            Идемпотентност: същото request_id НИКОГА не пуска втори джоб —
+//            unique constraint в crm_jobs + връщане на съществуващия.
+//            Отговорът се връща ВЕДНАГА (n8n само потвърждава старта);
+//            пайплайнът тече независимо и пише прогреса си тук.
+//   Callback (само n8n): {action:"job_update", job_id, patch:{...}} +
+//            header x-callback-secret. Полетата са в бял списък;
+//            emails_sent НЕ може да се пипа (и базата има CHECK = 0).
 // ============================================================
 
 // Кой има достъп до CRM данните (сървърната истина — списъкът в браузъра
@@ -169,9 +182,146 @@ async function fetchCrm(): Promise<{ companies: Record<string, unknown>[]; meta:
   return body;
 }
 
+// ================= ДЖОБОВЕ (Фаза 2B) =================
+function sbHeaders(): Record<string, string> {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  return { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" };
+}
+async function jobsReq(path: string, init: RequestInit): Promise<Response> {
+  return fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/crm_jobs${path}`, { ...init, headers: { ...sbHeaders(), ...(init.headers || {}) } });
+}
+async function jobByRequestId(requestId: string): Promise<Record<string, unknown> | null> {
+  const r = await jobsReq(`?request_id=eq.${encodeURIComponent(requestId)}&limit=1`, { method: "GET" });
+  const arr = r.ok ? await r.json() : [];
+  return arr[0] || null;
+}
+async function jobById(id: string): Promise<Record<string, unknown> | null> {
+  const r = await jobsReq(`?id=eq.${encodeURIComponent(id)}&limit=1`, { method: "GET" });
+  const arr = r.ok ? await r.json() : [];
+  return arr[0] || null;
+}
+async function jobPatch(id: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  const r = await jobsReq(`?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", headers: { prefer: "return=representation" }, body: JSON.stringify(patch) });
+  if (!r.ok) { console.error("jobPatch:", r.status, (await r.text()).slice(0, 200)); return null; }
+  const arr = await r.json();
+  return arr[0] || null;
+}
+
+const START_MODES: Record<string, string> = {
+  start_full: "FULL_PIPELINE", start_stage1: "STAGE1", start_stage2: "STAGE2", start_outreach: "OUTREACH",
+};
+
+// Валидация: fail closed. Границите са по заданието (target ≤ 10, Fit 65-100).
+function validateStart(mode: string, p: Record<string, unknown>): string | null {
+  if (mode === "FULL_PIPELINE" || mode === "STAGE1") {
+    if (!String(p.country || "").trim()) return "Липсва държава (country).";
+    const n = Number(p.target_count);
+    if (!Number.isInteger(n) || n < 1 || n > 10) return "Брой компании: цяло число от 1 до 10.";
+    const f = Number(p.min_fit_score);
+    if (!isFinite(f) || f < 65 || f > 100) return "Минимален Fit Score: между 65 и 100.";
+  } else {
+    const ws = Array.isArray(p.requested_websites) ? p.requested_websites.filter((x) => String(x).trim()) : [];
+    if (!ws.length) return "INVALID_INPUT: празен списък компании — Stage 2/Outreach искат конкретни домейни (0 действия).";
+    if (ws.length > 10) return "Максимум 10 компании на джоб.";
+  }
+  return null;
+}
+
+async function startJob(email: string, action: string, requestId: string, rawParams: Record<string, unknown>): Promise<Response> {
+  const mode = START_MODES[action];
+  if (!requestId || requestId.length < 8) return fail("BAD_REQUEST", "Липсва request_id (идемпотентният ключ).");
+  const p = rawParams || {};
+  const verr = validateStart(mode, p);
+  if (verr) return fail("INVALID_INPUT", verr, 422);
+  // Идемпотентност (сървърна): опит за INSERT; unique(request_id) отбива дубъла.
+  const params = {
+    country: String(p.country || "").trim() || null,
+    target_count: Number(p.target_count) || (Array.isArray(p.requested_websites) ? p.requested_websites.length : null),
+    min_fit_score: Number(p.min_fit_score) || null,
+    industry_focus: String(p.industry_focus || "").trim() || null,
+    exclude_industries: String(p.exclude_industries || "").trim() || null,
+    requested_websites: Array.isArray(p.requested_websites) ? p.requested_websites.map((x) => normDomain(String(x))).filter(Boolean) : null,
+  };
+  const ins = await jobsReq("", {
+    method: "POST", headers: { prefer: "return=representation" },
+    body: JSON.stringify({ request_id: requestId, created_by_email: email, mode, status: "QUEUED", params, current_stage: "старт" }),
+  });
+  if (ins.status === 409) {
+    const existing = await jobByRequestId(requestId);
+    if (existing) return new Response(JSON.stringify({ ok: true, duplicate_request: true, data: existing }), { headers: { ...CORS, "content-type": "application/json" } });
+    return fail("CONFLICT", "Дублирано request_id, но джобът не се намери.", 409);
+  }
+  if (!ins.ok) {
+    const t = (await ins.text()).slice(0, 200);
+    console.error("job insert:", ins.status, t);
+    if (/relation .*crm_jobs.* does not exist/i.test(t)) return fail("NOT_CONFIGURED", "Таблицата crm_jobs я няма — пусни crm-jobs-setup.sql.", 500);
+    return fail("DB_ERROR", "Джобът не се записа в базата.", 500);
+  }
+  const job = (await ins.json())[0];
+
+  // Стартираме n8n Runner-а: той САМО потвърждава (Respond веднага) и
+  // продължава пайплайна сам — тази заявка НЕ чака Stage 1/2/Outreach.
+  const startUrl = Deno.env.get("N8N_START_URL") || "";
+  if (!startUrl) {
+    await jobPatch(job.id, { status: "FAILED", error: "N8N_START_URL не е настроен в секретите на crm-bridge.", finished_at: new Date().toISOString() });
+    return fail("NOT_CONFIGURED", "Стартирането още не е свързано: N8N_START_URL липсва в секретите.", 500);
+  }
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const r = await fetch(startUrl, {
+      method: "POST", signal: ctrl.signal,
+      headers: { "content-type": "application/json", "x-start-key": Deno.env.get("N8N_START_SECRET") || "" },
+      body: JSON.stringify({ job_id: job.id, request_id: requestId, mode, params }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+  } catch (e) {
+    console.error("n8n start failed:", String(e));
+    const failed = await jobPatch(job.id, { status: "FAILED", error: "n8n Runner-ът не прие старта (" + String(e).slice(0, 80) + "). Безопасно е да опиташ пак със СЪЩОТО request_id.", finished_at: new Date().toISOString() });
+    return new Response(JSON.stringify({ ok: false, error: { code: "N8N_START_FAILED", message: "n8n не прие старта — джобът е маркиран FAILED, нищо не е пуснато." }, data: failed }), { status: 502, headers: { ...CORS, "content-type": "application/json" } });
+  } finally { clearTimeout(t); }
+  await jobPatch(job.id, { status: "RUNNING", current_stage: "изпратен към n8n" });
+  return ok({ ...job, status: "RUNNING" });
+}
+
+// n8n callback: обновява джоб. Само с валиден x-callback-secret; полетата са
+// в бял списък — emails_sent умишлено ЛИПСВА (и базата има CHECK = 0).
+const PATCHABLE = new Set(["status", "current_stage", "progress_percent", "stages", "companies", "drafts_created", "result", "error", "n8n_execution_id", "finished_at"]);
+async function jobUpdate(body: Record<string, unknown>): Promise<Response> {
+  const id = String(body.job_id || "");
+  if (!id) return fail("BAD_REQUEST", "Липсва job_id.");
+  const cur = await jobById(id);
+  if (!cur) return fail("NOT_FOUND", "Няма такъв джоб.", 404);
+  const raw = (body.patch || {}) as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  for (const k of Object.keys(raw)) if (PATCHABLE.has(k)) patch[k] = raw[k];
+  // stages се слива (n8n праща само променения етап, старите не се губят)
+  if (patch.stages && typeof patch.stages === "object") {
+    patch.stages = { ...(cur.stages as Record<string, unknown> || {}), ...(patch.stages as Record<string, unknown>) };
+  }
+  if (["COMPLETED", "PARTIAL", "FAILED"].includes(String(patch.status || "")) && !patch.finished_at) {
+    patch.finished_at = new Date().toISOString();
+  }
+  const upd = await jobPatch(id, patch);
+  return upd ? ok(upd) : fail("DB_ERROR", "Джобът не се обнови.", 500);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return fail("METHOD", "Ползвай POST.", 405);
+
+  let bodyEarly: Record<string, unknown> = {};
+  try { bodyEarly = await req.clone().json(); } catch (_) { /* ок */ }
+
+  // n8n callback-ът се удостоверява със СПОДЕЛЕНАТА ТАЙНА, не с потребител.
+  if (String(bodyEarly.action || "") === "job_update") {
+    const secret = Deno.env.get("N8N_CALLBACK_SECRET") || "";
+    if (!secret || req.headers.get("x-callback-secret") !== secret) {
+      console.warn("job_update с грешен callback secret");
+      return fail("FORBIDDEN", "Невалиден callback secret.", 403);
+    }
+    return jobUpdate(bodyEarly);
+  }
 
   const email = await userEmail(req);
   if (!email) return fail("UNAUTHENTICATED", "Не си влязъл в Системата.", 401);
@@ -199,7 +349,10 @@ Deno.serve(async (req) => {
       const hit = companies.find(c => c.domain === dom) || null;
       return hit ? ok(hit, meta) : fail("NOT_FOUND", `Няма компания с домейн ${dom}.`, 404);
     }
-    return fail("BAD_REQUEST", `Непознато action „${action}". Позволени: ping, companies, company.`);
+    if (START_MODES[action]) {
+      return startJob(email, action, String(body.request_id || ""), (body.params || {}) as Record<string, unknown>);
+    }
+    return fail("BAD_REQUEST", `Непознато action „${action}". Позволени: ping, companies, company, start_full, start_stage1, start_stage2, start_outreach.`);
   } catch (e: unknown) {
     const err = e as { code?: string; message?: string };
     if (err && err.code) return fail(err.code, err.message || "Грешка.", 502);

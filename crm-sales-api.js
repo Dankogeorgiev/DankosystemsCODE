@@ -321,15 +321,54 @@ const crmProdProvider = {
     };
   },
 
-  /* Фаза 2A: изпълнението НЕ е свързано. Ясна грешка, никакъв тих mock. */
-  async _noExec() { throw new Error("Pipeline execution is not connected yet. (Фаза 2B — стартирането на Stage 1/2/Outreach още не е свързано; данните са на живо, само за четене.)"); },
-  async startFullPipeline() { return this._noExec(); },
-  async startStage1() { return this._noExec(); },
-  async startStage2() { return this._noExec(); },
-  async startOutreach() { return this._noExec(); },
-  async getPipelineRuns() { return []; },
-  async getPipelineRun() { return null; },
-  async getExecutionStatus() { return null; },
+  /* ---- Фаза 2B: живи джобове. Стартът минава през crm-bridge (идемпотентно
+     request_id), а състоянието се ЧЕТЕ от crm_jobs (RLS, само оторизираните).
+     Supabase е истината — localStorage пази само последния job id за удобство.
+     Прогресът е истинският от n8n: няма измислени проценти. ---- */
+  async _startJob(action, params) {
+    const request_id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const j = await crmBridge(action, { request_id, params });
+    try { localStorage.setItem("crm_last_job", String(j.data.id)); } catch (e) {}
+    return { job_id: j.data.id, duplicate: !!j.duplicate_request };
+  },
+  async startFullPipeline(p) { return this._startJob("start_full", p); },
+  async startStage1(p) { return this._startJob("start_stage1", p); },
+  async startStage2(websites) { return this._startJob("start_stage2", { requested_websites: websites }); },
+  async startOutreach(websites) { return this._startJob("start_outreach", { requested_websites: websites }); },
+
+  _jobFromRow(r) {
+    if (!r) return null;
+    const st = r.stages || {};
+    const s = k => st[k] || {};
+    const req = Number(r.params && r.params.target_count) || (r.params && r.params.requested_websites || []).length || 0;
+    return {
+      id: r.id, live: true, mode: r.mode === "FULL_PIPELINE" ? "full" : r.mode.toLowerCase(),
+      status: r.status, params: r.params || {}, error: r.error || "",
+      startedAt: new Date(r.created_at).getTime(), finishedAt: r.finished_at ? new Date(r.finished_at).getTime() : null,
+      currentStage: r.current_stage || "", requested: req,
+      stages: { stage1: s("stage1"), stage2: s("stage2"), outreach: s("outreach") },
+      stage1Done: Number(s("stage1").completed) || 0, stage2Done: Number(s("stage2").completed) || 0,
+      draftsDone: Number(r.drafts_created) || 0, emailsSent: Number(r.emails_sent) || 0,
+      companies: (r.companies || []).map(c => ({
+        website: c.website || "", company: c.company || c.website || "?", country: c.country || "",
+        fitScore: Number(c.fit_score) || 0, phase: c.phase || c.outcome || "", outcome: c.outcome || "", note: c.note || "", draftLink: c.draft_link || "",
+      })),
+    };
+  },
+  async getPipelineRuns() {
+    const { data, error } = await sb.from("crm_jobs").select("*").order("created_at", { ascending: false }).limit(25);
+    if (error) {
+      if (/relation .*crm_jobs/i.test(error.message || "")) return [];   // таблицата още не е пусната
+      throw new Error("Джобовете не се четат: " + error.message);
+    }
+    return (data || []).map(r => this._jobFromRow(r));
+  },
+  async getPipelineRun(jobId) {
+    const { data, error } = await sb.from("crm_jobs").select("*").eq("id", jobId).maybeSingle();
+    if (error) throw new Error("Джобът не се чете: " + error.message);
+    return this._jobFromRow(data);
+  },
+  async getExecutionStatus(jobId) { return this.getPipelineRun(jobId); },
 };
 
 /* Единственият вход за UI-я. */
