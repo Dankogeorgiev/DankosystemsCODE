@@ -134,6 +134,8 @@ function applyAccess() {
   if (pulse) pulse.style.display = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com" ? "" : "none";
   const pulseErp = document.getElementById("erp-pulse-btn");
   if (pulseErp) pulseErp.style.display = pulseAllowed() ? "" : "none";
+  // CRM Sales agent — по списъка CRM_EMAILS (crm-sales.js).
+  if (typeof crmApplyAccess === "function") crmApplyAccess();
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
   const lvBtn = document.getElementById("btn-leaves-main");
   if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";

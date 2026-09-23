@@ -6,6 +6,7 @@
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=326" />
   <link rel="stylesheet" href="erp.css?v=313" />
+  <link rel="stylesheet" href="crm.css?v=1" />
 </head>
 <body>
   <!-- Грешка в настройките (липсват Supabase данни) -->
@@ -29,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 728</p>
+      <p class="login-version">версия 729</p>
     </form>
   </div>
 
@@ -50,6 +51,7 @@
         <button id="btn-leaves-main" class="btn btn-finance" style="display:none" title="Молби за отпуск, одобряване, календар и оставащи дни">🏖 Отпуски</button>
         <button id="btn-finance" class="btn btn-finance" style="display:none">💰 Финанси</button>
         <button id="btn-pulse" class="btn btn-finance" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
+        <button id="btn-crm" class="btn btn-finance" style="display:none" title="DANKO Sales Agent — намиране на нови клиенти, проучване и outreach (n8n агентът)">🤝 CRM Sales agent</button>
       </div>
     </div>
 
@@ -554,6 +556,20 @@
   </div>
 
   <!-- Модал: Склад · Рецепти · Себестойност (ЕРП) -->
+  <!-- Модал: DANKO Sales Agent (CRM — интерфейс над n8n агента) -->
+  <div id="crm-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>🤝 DANKO Sales Agent</h2>
+        <div class="tasks-head-actions">
+          <button id="crm-close" class="btn">← DANKO SYSTEMS</button>
+        </div>
+      </div>
+      <div class="crm-nav" id="crm-nav"></div>
+      <div id="crm-view"></div>
+    </div>
+  </div>
+
   <!-- Модал: Пулс (табло на собственика) -->
   <div id="pulse-modal" class="overlay tasks-overlay" hidden>
     <div class="tasks-box">
@@ -688,5 +704,8 @@
   <script src="ui-guards.js?v=1"></script>
   <script src="assistant.js?v=179"></script>
   <script src="pulse.js?v=222"></script>
+  <script src="crm-sales-data.js?v=1"></script>
+  <script src="crm-sales-api.js?v=1"></script>
+  <script src="crm-sales.js?v=1"></script>
 </body>
 </html>
