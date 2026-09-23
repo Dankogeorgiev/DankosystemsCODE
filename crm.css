@@ -11,7 +11,13 @@
 .crm-tab.active { background: #2563eb; color: #fff; font-weight: 600; }
 .crm-mode { margin-left: auto; font-size: 11px; letter-spacing: 1px; color: #fbbf24; border: 1px solid #fbbf24; border-radius: 6px; padding: 2px 8px; }
 
-#crm-view { padding: 14px 16px 22px; }
+/* Рамката на модала е overflow:hidden → съдържанието скролва ТУК. */
+#crm-view { padding: 14px 16px 22px; flex: 1; overflow-y: auto; min-height: 0; }
+
+/* Глобалният стил прави всички select/input 100% широки — тук ги връщаме
+   на естествената им ширина, за да стои тулбарът на един ред. */
+.crm-toolbar select, .crm-toolbar input[type="search"] { width: auto; }
+.crm-form input { width: 100%; }
 
 .crm-hero h2 { margin: 2px 0 2px; font-size: 24px; color: #0f2440; }
 .crm-hero p { margin: 0 0 14px; color: #475569; }
