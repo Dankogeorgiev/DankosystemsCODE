@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 740</p>
+      <p class="login-version">версия 741</p>
     </form>
   </div>
 
@@ -62,6 +62,10 @@
         <button id="btn-loading" class="btn btn-plan" style="display:none" title="Какво се стремим да произведем и експедираме тази седмица">🚚 План за седмицата</button>
         <button id="btn-matreq" class="btn btn-plan" title="Регистърът на запитванията/заявките за материали към доставчици — същият като в Склад/ЕРП">📨 Заявки за материали</button>
       </div>
+      <div class="hz-plans">
+        <button id="btn-calendar" class="btn btn-plan" style="display:none" title="Офис календарът: какво се прави по числа в месеца — преводи, осигуровки, кредити. Пиши свободно, той сам подрежда.">📅 Календар</button>
+      </div>
+      <div id="cal-next-strip" hidden></div>
     </div>
 
     <div class="header-zone header-right">
@@ -570,6 +574,19 @@
     </div>
   </div>
 
+  <!-- Модал: 📅 Офис календар (Кристина) -->
+  <div id="cal-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box">
+      <div class="tasks-head">
+        <h2>📅 Календар — какво се прави и кога</h2>
+        <div class="tasks-head-actions">
+          <button id="cal-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div id="cal-view" style="padding:12px 16px;flex:1;overflow-y:auto"></div>
+    </div>
+  </div>
+
   <!-- Модал: Пулс (табло на собственика) -->
   <div id="pulse-modal" class="overlay tasks-overlay" hidden>
     <div class="tasks-box">
@@ -704,6 +721,7 @@
   <script src="ui-guards.js?v=1"></script>
   <script src="assistant.js?v=179"></script>
   <script src="pulse.js?v=222"></script>
+  <script src="office-calendar.js?v=1"></script>
   <script src="crm-sales-data.js?v=1"></script>
   <script src="crm-sales-api.js?v=3"></script>
   <script src="crm-sales.js?v=5"></script>

@@ -136,6 +136,8 @@ function applyAccess() {
   if (pulseErp) pulseErp.style.display = pulseAllowed() ? "" : "none";
   // CRM Sales agent — по списъка CRM_EMAILS (crm-sales.js).
   if (typeof crmApplyAccess === "function") crmApplyAccess();
+  // 📅 Офис календарът — бутон + лентата „⏰ Следва" (office-calendar.js).
+  if (typeof calApplyAccess === "function") calApplyAccess();
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
   const lvBtn = document.getElementById("btn-leaves-main");
   if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
