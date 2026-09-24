@@ -259,7 +259,9 @@ async function erpRenderSupplierProfiles() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} доставчика · попълнени <b>${done}</b> от ${active.length}</span>
-      <input type="search" id="supp-q" placeholder="🔎 материал / артикул / доставчик… (напр. винтове, боя 9005)" value="${escapeAttr(suppQuery)}" style="min-width:250px" autocomplete="off" title="Търси по думи навсякъде: имена, паспорти И купуваните артикули от Покупки — показва откъде сме купували търсеното" />
+      <input type="search" id="supp-q" placeholder="🔎 материал / артикул… (винт м6, боя 9005)" value="${escapeAttr(suppQuery)}" style="width:260px;flex:0 0 auto" autocomplete="off" title="Търси по думи навсякъде: имена, паспорти И купуваните артикули от Покупки — показва откъде сме купували търсеното" />
+      <input type="text" id="supp-pick" list="supp-names" placeholder="📇 избери доставчик…" style="width:220px;flex:0 0 auto" autocomplete="off" title="Падащ списък с всички доставчици — изборът отваря паспорта" />
+      <datalist id="supp-names">${everyone.slice().sort((a, b) => a.name.localeCompare(b.name, "bg")).map(r => `<option value="${escapeAttr(r.name)}"></option>`).join("")}</datalist>
       <label class="erp-inline" title="Показват се доставчиците с покупка в този период">Период
         <select id="supp-months">
           ${[[3, "последните 3 месеца"], [6, "последните 6 месеца"], [12, "последните 12 месеца"], [24, "последните 2 години"], [0, "всички (архив)"]]
@@ -276,12 +278,8 @@ async function erpRenderSupplierProfiles() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="supp-xls" title="Сваля паспортите за счетоводството">⬇ Excel</button>
     </div>
-    ${missing.length ? `<div class="supp-newbar">
-      <span>🆕 <b>${missing.length}</b> ${missing.length === 1 ? "доставчик чака" : "доставчика чакат"} паспорт (има покупки в периода, но няма попълнен картон):
-        ${missing.slice(0, 5).map(r => `<b>${escapeHtml(r.name)}</b>`).join(" · ")}${missing.length > 5 ? " …" : ""}</span>
-      <span class="spacer" style="flex:1"></span>
-      <button class="btn btn-small btn-primary" id="supp-fill-next">✎ Попълни следващия</button>
-    </div>` : ""}
+    <!-- Банерът „Попълни следващия" е махнат (24.09, Данко): „какво купуваме"
+         вече се пълни само от Покупки; данъчните полета се попълват в движение. -->
     <p class="hint">Картон на всеки доставчик за счетоводството: <b>какво купуваме, къде се ползва, данъчен режим, сметка, условия</b>. Оборотът е по въведените фактури за последните 12 месеца (без стоковите разписки — техните пари идват с покриващата фактура).
       ${totTurn > 0 ? `<br>💡 Първите <b>${top90}</b> доставчика правят 90% от оборота — започни от тях, останалите се попълват в движение.` : ""}</p>
     <table class="report-table erp-table">
@@ -325,16 +323,22 @@ async function erpRenderSupplierProfiles() {
       </tbody>
     </table>`;
 
+  // Търсенето е с дебаунс — прерисуването на 209 доставчика на всяка буква
+  // „запецваше"; сега чака 300 мс тишина и връща фокуса.
   const qEl = document.getElementById("supp-q");
-  if (qEl) qEl.addEventListener("input", e => {
+  if (qEl) qEl.addEventListener("input", uiDebounce(e => {
     suppQuery = e.target.value; erpRenderSupplierProfiles();
     const el = document.getElementById("supp-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 300));
+  // Падащият списък с всички доставчици — изборът отваря паспорта направо.
+  const pEl = document.getElementById("supp-pick");
+  if (pEl) pEl.addEventListener("change", () => {
+    const nm = pEl.value.trim();
+    if (nm && everyone.some(r => r.name === nm)) { pEl.value = ""; suppForm(nm); }
   });
   suppSetBadge(missing.length);
   const mEl = document.getElementById("supp-months");
   if (mEl) mEl.addEventListener("change", e => { suppMonths = Number(e.target.value) || 0; erpRenderSupplierProfiles(); });
-  const nEl = document.getElementById("supp-fill-next");
-  if (nEl) nEl.addEventListener("click", () => { const m = suppMissing()[0]; if (m) suppForm(m.name); });
   const sEl = document.getElementById("supp-sort");
   if (sEl) sEl.addEventListener("change", e => { suppSort = e.target.value; erpRenderSupplierProfiles(); });
   const eEl = document.getElementById("supp-empty");
