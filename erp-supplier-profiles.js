@@ -419,15 +419,26 @@ function suppForm(name) {
       const bought = suppBoughtFor(name);
       if (!bought.length) return `<p class="erp-muted" style="font-size:12px">🧾 Няма редове от Покупки за този доставчик (или фактурите му са без разбити редове).</p>`;
       return `<div class="supp-bought">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap">
           <b>🧾 Купувано от Покупки (автоматично)</b>
           <button type="button" class="btn btn-small" id="sp-autofill" title="Попълва „Какво купуваме" с най-честите артикули">⤵ Попълни „Какво купуваме"</button>
+          <span class="spacer" style="flex:1"></span>
+          <button type="button" class="btn btn-small btn-primary" id="sp-order-sel" title="Отваря Заявка за материали към този доставчик с отметнатите артикули — в писмото отиват тяхното наименование И нашият код">🛒 Поръчай избраните (<span id="sp-ordcnt">0</span>)</button>
         </div>
+        <p class="hint" style="margin:0 0 4px">Отметни артикулите, сложи бройки и „🛒 Поръчай избраните" — заявката към доставчика се пише сама (с неговото наименование и нашия код).</p>
+        <div style="max-height:300px;overflow:auto">
         <table class="report-table erp-table" style="font-size:12px">
-          <thead><tr><th>Артикул</th><th>Код</th><th>Група</th><th class="num">Пъти</th><th>Последно</th><th class="num">Посл. цена</th></tr></thead>
-          <tbody>${bought.slice(0, 12).map(i => `<tr><td>${escapeHtml(i.article)}</td><td class="t-code">${escapeHtml(i.code || "")}</td><td>${escapeHtml(i.group || "")}</td><td class="num">${i.n}</td><td>${escapeHtml(erpDMY(i.last) || "")}</td><td class="num">${i.lastPrice ? i.lastPrice + " " + escapeHtml(i.cur || "") : ""}</td></tr>`).join("")}</tbody>
+          <thead><tr><th></th><th>Артикул</th><th>Код</th><th class="num">Пъти</th><th>Последно</th><th class="num">Посл. цена</th><th class="num">Поръчай бр.</th></tr></thead>
+          <tbody>${bought.slice(0, 40).map((i, bi) => `<tr>
+            <td><input type="checkbox" class="sp-buy" data-bi="${bi}" /></td>
+            <td>${escapeHtml(i.article)}</td><td class="t-code">${escapeHtml(i.code || "")}</td>
+            <td class="num">${i.n}</td><td>${escapeHtml(erpDMY(i.last) || "")}</td>
+            <td class="num">${i.lastPrice ? i.lastPrice + " " + escapeHtml(i.cur || "") : ""}</td>
+            <td class="num"><input type="number" class="sp-buyqty" data-bi="${bi}" min="0" step="any" style="width:78px" placeholder="брой" /></td>
+          </tr>`).join("")}</tbody>
         </table>
-        ${bought.length > 12 ? `<p class="erp-muted" style="font-size:11px">…и още ${bought.length - 12} артикула.</p>` : ""}
+        </div>
+        ${bought.length > 40 ? `<p class="erp-muted" style="font-size:11px">…и още ${bought.length - 40} артикула.</p>` : ""}
       </div>`;
     })()}
     <div class="erp-co-grid">
@@ -504,6 +515,36 @@ function suppForm(name) {
     if (!top) return;
     el.value = el.value.trim() ? el.value.trim().replace(/,\s*$/, "") + ", " + top : top;
   });
+  // 🛒 Поръчка на избраните артикули: отметка (+ бройка) → Заявка за материали
+  // към ТОЗИ доставчик; в писмото влизат неговото наименование И нашият код.
+  const ordBtn = wrap.querySelector("#sp-order-sel");
+  if (ordBtn) {
+    const boughtAll = suppBoughtFor(name);
+    const cnt = () => { const c = wrap.querySelectorAll(".sp-buy:checked").length; const el = wrap.querySelector("#sp-ordcnt"); if (el) el.textContent = c; };
+    wrap.querySelectorAll(".sp-buy").forEach(cb => cb.addEventListener("change", () => {
+      // отметка без бройка → слагаме 1, да не се мисли
+      const q = wrap.querySelector(`.sp-buyqty[data-bi="${cb.dataset.bi}"]`);
+      if (cb.checked && q && !q.value) q.value = 1;
+      cnt();
+    }));
+    wrap.querySelectorAll(".sp-buyqty").forEach(inp => inp.addEventListener("input", () => {
+      const cb = wrap.querySelector(`.sp-buy[data-bi="${inp.dataset.bi}"]`);
+      if (cb && Number(inp.value) > 0) { cb.checked = true; cnt(); }
+    }));
+    ordBtn.addEventListener("click", () => {
+      const items = [...wrap.querySelectorAll(".sp-buy:checked")].map(cb => {
+        const bi = Number(cb.dataset.bi);
+        const it = boughtAll[bi]; if (!it) return null;
+        const qEl = wrap.querySelector(`.sp-buyqty[data-bi="${bi}"]`);
+        const qty = Number(qEl && qEl.value) || 1;
+        return { code: it.code || "", name: it.article, qty, unit: it.unit || "бр." };
+      }).filter(Boolean);
+      if (!items.length) { alert("Отметни поне един артикул (и бройка)."); return; }
+      if (typeof erpMatReqCompose !== "function") { alert("Модулът Заявки за материали не е зареден."); return; }
+      close();
+      erpMatReqCompose(items, null, name);
+    });
+  }
   const del = wrap.querySelector("#sp-del");
   if (del) del.addEventListener("click", async () => {
     if (!confirm(`Да изтрия ли паспорта на „${name}"?`)) return;
