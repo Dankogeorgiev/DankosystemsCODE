@@ -16,6 +16,23 @@ let suppSort = "type";         // type | turnover | name | filled
 let suppMonths = 6;            // период: показваме доставчици с покупки в последните N месеца (0 = всички)
 
 function suppKey(name) { return String(name || "").trim().replace(/\s+/g, " ").toLowerCase(); }
+
+/* ---------- 🔗 Обединяване на доставчици (преименувани фирми) ----------
+   Една фирма, две изписвания/имена в фактурите → всичко (оборот, документи,
+   купувани артикули, паспорт) се брои под КАНОНИЧНОТО (новото) име, БЕЗ да
+   пипаме историческите документи. Алиасите се пазят в app_config
+   (supplier_profiles.aliases: старКлюч → "Новото Име") + началните тук. */
+const SUPP_SEED_ALIASES = {
+  // Тисенкруп Матириалс България ООД → преименувана (същото ЕИК 131474168)
+  "тисенкруп матириалс българия оод": "ТК Акселис Матириалс България ООД",
+};
+function suppAliases() {
+  return { ...SUPP_SEED_ALIASES, ...((SUPP_PROFILES || {}).aliases || {}) };
+}
+function suppCanon(name) {
+  const a = suppAliases()[suppKey(name)];
+  return a || String(name || "").trim();
+}
 function suppNum(v) { return (typeof erpToNum === "function") ? (erpToNum(v) || 0) : (Number(v) || 0); }
 function suppMoney(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " EUR"; }
 
@@ -61,17 +78,24 @@ async function suppLoad() {
   if (SUPP_PROFILES) return SUPP_PROFILES;
   try {
     const { data } = await sb.from("app_config").select("data").eq("id", "supplier_profiles").maybeSingle();
-    SUPP_PROFILES = { byKey: (data && data.data && data.data.byKey) || {} };
-  } catch (e) { SUPP_PROFILES = { byKey: {} }; }
+    SUPP_PROFILES = { byKey: (data && data.data && data.data.byKey) || {}, aliases: (data && data.data && data.data.aliases) || {} };
+  } catch (e) { SUPP_PROFILES = { byKey: {}, aliases: {} }; }
+  // Паспортът на старото име минава към новото (ако новото няма свой).
+  Object.entries(suppAliases()).forEach(([oldKey, canonName]) => {
+    const ck = suppKey(canonName);
+    if (SUPP_PROFILES.byKey[oldKey] && !SUPP_PROFILES.byKey[ck]) {
+      SUPP_PROFILES.byKey[ck] = { ...SUPP_PROFILES.byKey[oldKey], name: canonName };
+    }
+  });
   return SUPP_PROFILES;
 }
 async function suppSave() {
   const { error } = await sb.from("app_config")
-    .upsert({ id: "supplier_profiles", data: { byKey: (SUPP_PROFILES || {}).byKey || {} }, updated_at: new Date().toISOString() });
+    .upsert({ id: "supplier_profiles", data: { byKey: (SUPP_PROFILES || {}).byKey || {}, aliases: (SUPP_PROFILES || {}).aliases || {} }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис: " + error.message); return false; }
   return true;
 }
-function suppProfile(name) { return ((SUPP_PROFILES || {}).byKey || {})[suppKey(name)] || null; }
+function suppProfile(name) { return ((SUPP_PROFILES || {}).byKey || {})[suppKey(suppCanon(name))] || null; }
 // Попълнен ли е профилът достатъчно, за да е полезен на счетоводството.
 function suppFilled(p) {
   if (!p) return 0;
@@ -133,7 +157,7 @@ function suppCollect() {
   const from = new Date(); from.setMonth(from.getMonth() - 12);
   const fromStr = from.toISOString().slice(0, 10);
   ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
-    const rec = add(o.supplierName); if (!rec) return;
+    const rec = add(suppCanon(o.supplierName)); if (!rec) return;   // алиасите сливат старо/ново име
     rec.docs++;
     if (String(o.date || "") > rec.last) rec.last = o.date || "";
     if (String(o.date || "") >= fromStr && o.docType !== "goods") {
@@ -144,7 +168,7 @@ function suppCollect() {
   });
   ((typeof erpPartners !== "undefined" && erpPartners) || []).forEach(p => {
     if (p.kind !== "supplier") return;
-    const rec = add(p.name); if (rec) rec.partner = p;
+    const rec = add(suppCanon(p.name)); if (rec) rec.partner = p;
   });
   return [...map.values()];
 }
@@ -159,7 +183,7 @@ function suppBought() {
   if (SUPP_BOUGHT && SUPP_BOUGHT_SRC === src) return SUPP_BOUGHT;
   const bySupp = new Map();
   src.forEach(o => {
-    const sk = suppKey(o.supplierName); if (!sk) return;
+    const sk = suppKey(suppCanon(o.supplierName)); if (!sk) return;   // старо и ново име = един доставчик
     if (!bySupp.has(sk)) bySupp.set(sk, new Map());
     const arts = bySupp.get(sk);
     (o.lines || []).forEach(l => {
@@ -315,7 +339,7 @@ async function erpRenderSupplierProfiles() {
           <td class="num" data-label="Оборот 12 м.">${r.turn12 ? suppMoney(r.turn12) : ""}</td>
           <td class="num" data-label="Док.">${r.docs || ""}</td>
           <td data-label="Готов"><span class="supp-pct ${pct === 100 ? "ok" : pct >= 50 ? "half" : "no"}">${pct}%</span></td>
-          <td class="erp-row-actions"><button class="btn btn-small" data-edit="${escapeAttr(r.name)}">✎ Паспорт</button></td>
+          <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-order="${escapeAttr(r.name)}" title="Нова заявка за материали към този доставчик — намери материала тук, поръчай веднага">🛒 Заявка</button> <button class="btn btn-small" data-edit="${escapeAttr(r.name)}">✎ Паспорт</button></td>
         </tr>`;
       }).join("");
       })() || `<tr><td colspan="9" class="report-empty">Няма доставчици по този филтър.</td></tr>`}
@@ -345,6 +369,11 @@ async function erpRenderSupplierProfiles() {
   const xEl = document.getElementById("supp-xls");
   if (xEl) xEl.addEventListener("click", () => suppExportXls(rows));
   v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); suppForm(b.dataset.edit); }));
+  v.querySelectorAll("[data-order]").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    if (typeof erpMatReqCompose === "function") erpMatReqCompose([], null, b.dataset.order);
+    else alert("Модулът Заявки за материали не е зареден.");
+  }));
   v.querySelectorAll("tr[data-open]").forEach(tr => tr.addEventListener("click", () => suppForm(tr.dataset.open)));
 }
 
@@ -437,6 +466,17 @@ function suppForm(name) {
     </div>
     <label>Забележки за счетоводството <textarea id="sp-notes" rows="3" placeholder="всичко, което новото счетоводство трябва да знае за този доставчик">${escapeHtml(p.notes || "")}</textarea></label>
 
+    <h4 class="erp-group-head">🔗 Обединяване</h4>
+    ${(() => {
+      const aliasedHere = Object.entries(suppAliases()).filter(([, cn]) => suppKey(cn) === key).map(([ok]) => ok);
+      return aliasedHere.length ? `<p class="erp-muted" style="font-size:12px">Този доставчик включва и старите имена: <b>${aliasedHere.map(escapeHtml).join("</b> · <b>")}</b> (оборотът и артикулите са общи).</p>` : "";
+    })()}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="erp-muted" style="font-size:12.5px">Ако това е СТАРО име на преименувана фирма — посочи новото:</span>
+      <input type="text" id="sp-mergeto" list="supp-names" placeholder="новото име…" style="width:240px;flex:0 0 auto" autocomplete="off" />
+      <button type="button" class="btn btn-small" id="sp-merge">🔗 Обедини</button>
+    </div>
+
     ${p.updatedAt ? `<p class="erp-muted" style="font-size:12px">Последна промяна: ${escapeHtml(erpDMY(String(p.updatedAt).slice(0, 10)) || "")}${p.updatedBy ? " · " + escapeHtml(p.updatedBy) : ""}</p>` : ""}
     <div class="erp-dialog-actions">
       ${suppProfile(name) ? '<button class="btn btn-danger" id="sp-del">Изтрий паспорта</button>' : ""}
@@ -446,6 +486,17 @@ function suppForm(name) {
     </div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
   wrap.querySelector("#sp-cancel").addEventListener("click", close);
+  const mg = wrap.querySelector("#sp-merge");
+  if (mg) mg.addEventListener("click", async () => {
+    const target = wrap.querySelector("#sp-mergeto").value.trim();
+    if (!target) { alert("Напиши/избери новото име на фирмата."); return; }
+    if (suppKey(target) === key) { alert("Това е същото име."); return; }
+    if (!confirm(`„${name}" е СТАРО име на „${target}"?\nОборотът, документите и артикулите ще се броят общо под „${target}".`)) return;
+    SUPP_PROFILES.aliases = SUPP_PROFILES.aliases || {};
+    SUPP_PROFILES.aliases[key] = target;
+    SUPP_BOUGHT = null;   // агрегатите се преизчисляват
+    if (await suppSave()) { close(); erpRenderSupplierProfiles(); }
+  });
   const af = wrap.querySelector("#sp-autofill");
   if (af) af.addEventListener("click", () => {
     const el = wrap.querySelector("#sp-what");

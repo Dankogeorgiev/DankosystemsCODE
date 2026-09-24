@@ -151,7 +151,9 @@ function erpMatReqPickMaterials(onDone) {
 
 /* ---------- Прозорецът за заявка (нов запис И редакция) ----------
    rec = съществуващ запис от регистъра → режим редакция (клик върху ред). */
-async function erpMatReqCompose(startItems, rec) {
+/* presetSupplier: отваря НОВА заявка с предизбран доставчик (бутонът „🛒
+   Заявка" от Паспорти доставчици — намерил си материала, поръчваш веднага). */
+async function erpMatReqCompose(startItems, rec, presetSupplier) {
   const items = (startItems || []).slice();
   let suppliers = [];
   try { suppliers = await erpLoadSuppliers(); } catch (e) {}
@@ -198,7 +200,7 @@ ${items.map(bullet).join("\n")}
     <h3>${edit ? "✎ Заявка към доставчик — редакция" : "✉ Заявка за материали към доставчик"}</h3>
     ${edit ? `<p class="erp-muted" style="margin:-6px 0 8px">Създадена на ${matreqFmt(rec.date)}${rec.sentBy ? " от " + escapeHtml(rec.sentBy) : ""}${rec.emailSent ? " · ✉ имейлът е изпратен" : " · без изпратен имейл"}</p>` : ""}
     <div class="erp-co-grid">
-      <label>Доставчик <input type="text" id="mq-supplier" list="mq-sups" placeholder="избери от Контактите или напиши" value="${edit ? escapeAttr(rec.supplier || "") : ""}" />
+      <label>Доставчик <input type="text" id="mq-supplier" list="mq-sups" placeholder="избери от Контактите или напиши" value="${edit ? escapeAttr(rec.supplier || "") : escapeAttr(presetSupplier || "")}" />
         <datalist id="mq-sups">${supOptions.map(s => `<option value="${escapeAttr(s.name)}">${escapeAttr(s.hint)}</option>`).join("")}</datalist></label>
       <label>Имейл <input type="email" id="mq-email" list="mq-cmails" placeholder="имейл на доставчика" value="${edit ? escapeAttr(rec.supplierEmail || "") : ""}" />
         <datalist id="mq-cmails">${mailOptions.map(m => `<option value="${escapeAttr(m.email)}">${escapeAttr(m.label)}</option>`).join("")}</datalist></label>
@@ -236,6 +238,7 @@ ${items.map(bullet).join("\n")}
   };
   wrap.querySelector("#mq-supplier").addEventListener("change", e => applySupplier(e.target.value));
   if (edit && rec.supplier) applySupplier(rec.supplier, true);
+  else if (presetSupplier) applySupplier(presetSupplier, true);
   wrap.querySelector("#mq-cancel").addEventListener("click", close);
   // Добавяне на материали → и в списъка, и като редове в съобщението.
   wrap.querySelector("#mq-additems").addEventListener("click", () => {
