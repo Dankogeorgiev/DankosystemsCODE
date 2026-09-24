@@ -12,7 +12,7 @@
 let SUPP_PROFILES = null;      // { byKey: {...} }
 let suppQuery = "";
 let suppOnlyEmpty = false;
-let suppSort = "turnover";     // turnover | name | filled
+let suppSort = "type";         // type | turnover | name | filled
 let suppMonths = 6;            // период: показваме доставчици с покупки в последните N месеца (0 = всички)
 
 function suppKey(name) { return String(name || "").trim().replace(/\s+/g, " ").toLowerCase(); }
@@ -149,6 +149,63 @@ function suppCollect() {
   return [...map.values()];
 }
 
+/* ---------- 🧾 Какво е купувано от всеки доставчик (АВТОМАТИЧНО от Покупки) ----------
+   Агрегира редовете на всички покупни документи по доставчик: артикул, код,
+   група, колко пъти, кога за последно и на каква цена. Това е „паметта" на
+   паспорта — не се пише на ръка и винаги е актуална. */
+let SUPP_BOUGHT = null, SUPP_BOUGHT_SRC = null;
+function suppBought() {
+  const src = (typeof erpPurchases !== "undefined" && erpPurchases) || [];
+  if (SUPP_BOUGHT && SUPP_BOUGHT_SRC === src) return SUPP_BOUGHT;
+  const bySupp = new Map();
+  src.forEach(o => {
+    const sk = suppKey(o.supplierName); if (!sk) return;
+    if (!bySupp.has(sk)) bySupp.set(sk, new Map());
+    const arts = bySupp.get(sk);
+    (o.lines || []).forEach(l => {
+      const nm = String(l.article || l.name || "").trim(); if (!nm) return;
+      const ak = nm.toLowerCase();
+      const it = arts.get(ak) || { article: nm, code: "", group: l.groupName || "", unit: l.unit || "", n: 0, last: "", lastPrice: 0, cur: "", isMat: false };
+      it.n++;
+      if (l.materialId) it.isMat = true;
+      if (String(o.date || "") >= String(it.last || "")) {
+        it.last = o.date || "";
+        const pr = suppNum(l.unitPrice);
+        if (pr) { it.lastPrice = pr; it.cur = (typeof erpPuCur === "function") ? erpPuCur(o) : ""; }
+        if (l.code) it.code = l.code;
+        if (l.groupName) it.group = l.groupName;
+      }
+      arts.set(ak, it);
+    });
+  });
+  const out = new Map();
+  bySupp.forEach((arts, sk) => out.set(sk, [...arts.values()].sort((a, b) => b.n - a.n || String(b.last).localeCompare(String(a.last)))));
+  SUPP_BOUGHT = out; SUPP_BOUGHT_SRC = src;
+  return out;
+}
+function suppBoughtFor(name) { return suppBought().get(suppKey(name)) || []; }
+
+/* Тип доставчик: 🧱 Материали за производство или 🛠 Услуги/други.
+   Ръчният избор в паспорта (supType) е с предимство; иначе — авто:
+   купувал ли ни е складови материали или материално звучащи артикули. */
+const SUPP_MAT_RE = /ламарин|тръб|профил|болт|винт|гайк|шайб|нит|крепеж|бо[яи]|прах|кашон|опаков|стомана|метал|лист|шина|пръчк|електрод|тел |тел$|газ|материал|консуматив|стреч|фолио|палет|лепило|грунд|разредител|диск|абразив/i;
+function suppType(name) {
+  const p = suppProfile(name) || {};
+  if (p.supType === "materials" || p.supType === "services") return p.supType;
+  const items = suppBoughtFor(name);
+  if (items.some(i => i.isMat)) return "materials";
+  if (items.some(i => SUPP_MAT_RE.test(i.article + " " + i.group))) return "materials";
+  if (p.kind === "stock") return "materials";
+  return "services";
+}
+
+/* Нормализация за търсенето по артикули (ползва puMatNorm от Покупки, ако е
+   зареден — думи, х/x, без словоред). */
+function suppNorm(s) {
+  if (typeof puMatNorm === "function") return puMatNorm(String(s || ""));
+  return String(s || "").toLowerCase().replace(/х/g, "x").replace(/\s+/g, " ").trim();
+}
+
 /* ---------- Списък ---------- */
 async function erpRenderSupplierProfiles() {
   const v = erpView();
@@ -162,10 +219,27 @@ async function erpRenderSupplierProfiles() {
   // назад) не се показват, за да не тежат — виждат се с „всички".
   const since = suppSinceStr();
   let rows = everyone.filter(r => !since || (r.last && r.last >= since));
-  const q = suppQuery.trim().toLowerCase();
-  if (q) rows = (q ? everyone : rows).filter(r => r.name.toLowerCase().includes(q));   // търсенето рови във ВСИЧКИ
+  // Търсенето рови във ВСИЧКИ доставчици и във ВСИЧКО: име, паспорт (какво
+  // купуваме, бележки, къде) и КУПУВАНИТЕ АРТИКУЛИ от Покупки — по думи,
+  // без словоред. „винтове" → Крепежи България; „боя 9005" → Гиргинови.
+  const words = suppNorm(suppQuery).split(" ").filter(Boolean);
+  const matchedArts = new Map();   // key → съвпадналите артикули (за показване)
+  if (words.length) {
+    rows = everyone.filter(r => {
+      const p = suppProfile(r.name) || {};
+      const items = suppBoughtFor(r.name);
+      const hay = suppNorm([r.name, p.eik, p.vat, p.whatWeBuy, p.usedFor, p.notes, p.taxnote,
+        (p.where || []).join(" "), items.map(i => i.article + " " + i.code + " " + i.group).join(" ")].join(" "));
+      if (!words.every(w => hay.includes(w))) return false;
+      const hits = items.filter(i => { const h = suppNorm(i.article + " " + i.code + " " + i.group); return words.some(w => h.includes(w)); });
+      if (hits.length) matchedArts.set(r.key, hits.slice(0, 4));
+      return true;
+    });
+  }
   if (suppOnlyEmpty) rows = rows.filter(r => suppFilled(suppProfile(r.name)) < 100);
   const cmp = {
+    // Тип: първо 🧱 Материали за производство, после 🛠 Услуги; вътре по оборот.
+    type: (a, b) => (suppType(a.name) === suppType(b.name) ? 0 : suppType(a.name) === "materials" ? -1 : 1) || b.turn12 - a.turn12 || a.name.localeCompare(b.name, "bg"),
     turnover: (a, b) => b.turn12 - a.turn12 || a.name.localeCompare(b.name, "bg"),
     name: (a, b) => a.name.localeCompare(b.name, "bg"),
     filled: (a, b) => suppFilled(suppProfile(a.name)) - suppFilled(suppProfile(b.name)) || b.turn12 - a.turn12,
@@ -185,7 +259,7 @@ async function erpRenderSupplierProfiles() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} доставчика · попълнени <b>${done}</b> от ${active.length}</span>
-      <input type="search" id="supp-q" placeholder="🔎 доставчик (търси във всички)…" value="${escapeAttr(suppQuery)}" style="min-width:190px" autocomplete="off" />
+      <input type="search" id="supp-q" placeholder="🔎 материал / артикул / доставчик… (напр. винтове, боя 9005)" value="${escapeAttr(suppQuery)}" style="min-width:250px" autocomplete="off" title="Търси по думи навсякъде: имена, паспорти И купуваните артикули от Покупки — показва откъде сме купували търсеното" />
       <label class="erp-inline" title="Показват се доставчиците с покупка в този период">Период
         <select id="supp-months">
           ${[[3, "последните 3 месеца"], [6, "последните 6 месеца"], [12, "последните 12 месеца"], [24, "последните 2 години"], [0, "всички (архив)"]]
@@ -193,6 +267,7 @@ async function erpRenderSupplierProfiles() {
         </select></label>
       <label class="erp-inline">Подреди по
         <select id="supp-sort">
+          <option value="type" ${suppSort === "type" ? "selected" : ""}>Тип: Материали → Услуги</option>
           <option value="turnover" ${suppSort === "turnover" ? "selected" : ""}>Оборот 12 м. (голям отгоре)</option>
           <option value="name" ${suppSort === "name" ? "selected" : ""}>Име (А→Я)</option>
           <option value="filled" ${suppSort === "filled" ? "selected" : ""}>Непопълнени първо</option>
@@ -215,22 +290,38 @@ async function erpRenderSupplierProfiles() {
         <th>Какво купуваме</th><th>Къде се ползва</th>
         <th class="num">Оборот 12 м.</th><th class="num">Док.</th><th>Готов</th><th></th>
       </tr></thead>
-      <tbody>${rows.map(r => {
+      <tbody>${(() => {
+        let lastType = null;
+        return rows.map(r => {
         const p = suppProfile(r.name) || {};
         const pct = suppFilled(p);
-        return `<tr class="erp-clickable" data-open="${escapeAttr(r.name)}">
+        const t = suppType(r.name);
+        // Заглавен ред при групиране по тип
+        let head = "";
+        if (suppSort === "type" && t !== lastType) {
+          lastType = t;
+          const cnt = rows.filter(x => suppType(x.name) === t).length;
+          head = `<tr class="supp-typehead"><td colspan="10">${t === "materials" ? "🧱 Материали за производство" : "🛠 Услуги и други"} — ${cnt} доставчика</td></tr>`;
+        }
+        const bought = suppBoughtFor(r.name);
+        const hits = matchedArts.get(r.key);
+        const autoLine = hits
+          ? `<div class="supp-hit">🎯 ${hits.map(i => `<b>${escapeHtml(i.article)}</b>${i.lastPrice ? ` (${i.lastPrice} ${escapeHtml(i.cur || "")}${i.last ? ", " + escapeHtml(erpDMY(i.last) || "") : ""})` : ""}`).join(" · ")}</div>`
+          : (bought.length ? `<div class="erp-muted" style="font-size:11px">🧾 ${bought.slice(0, 3).map(i => escapeHtml(i.article)).join(" · ")}${bought.length > 3 ? ` +${bought.length - 3}` : ""}</div>` : "");
+        return head + `<tr class="erp-clickable" data-open="${escapeAttr(r.name)}">
           <td data-label="Доставчик"><b>${escapeHtml(r.name)}</b>${r.last ? `<div class="erp-muted" style="font-size:11px">последен документ ${escapeHtml(erpDMY(r.last) || "")}</div>` : ""}</td>
           <td data-label="ЕИК / ДДС №">${escapeHtml(p.eik || "")}${p.vat ? `<div class="erp-muted" style="font-size:11px">${escapeHtml(p.vat)}</div>` : ""}</td>
           <td data-label="Режим">${p.regime ? escapeHtml(suppLabel(SUPP_REGIMES, p.regime)) : `<span class="erp-muted">—</span>`}</td>
           <td data-label="Сметка">${escapeHtml(p.account || "")}</td>
-          <td data-label="Какво купуваме">${escapeHtml(p.whatWeBuy || "")}</td>
+          <td data-label="Какво купуваме">${escapeHtml(p.whatWeBuy || "")}${autoLine}</td>
           <td data-label="Къде се ползва">${(p.where || []).map(w => `<span class="supp-tag">${escapeHtml(w)}</span>`).join(" ")}</td>
           <td class="num" data-label="Оборот 12 м.">${r.turn12 ? suppMoney(r.turn12) : ""}</td>
           <td class="num" data-label="Док.">${r.docs || ""}</td>
           <td data-label="Готов"><span class="supp-pct ${pct === 100 ? "ok" : pct >= 50 ? "half" : "no"}">${pct}%</span></td>
           <td class="erp-row-actions"><button class="btn btn-small" data-edit="${escapeAttr(r.name)}">✎ Паспорт</button></td>
         </tr>`;
-      }).join("") || `<tr><td colspan="10" class="report-empty">Няма доставчици по този филтър.</td></tr>`}
+      }).join("");
+      })() || `<tr><td colspan="10" class="report-empty">Няма доставчици по този филтър.</td></tr>`}
       </tbody>
     </table>`;
 
@@ -292,6 +383,29 @@ function suppForm(name) {
       <input type="text" id="sp-taxnote" value="${g("taxnote")}" placeholder="напр. леки автомобили — без данъчен кредит; чл. 163а — обратно начисляване" /></label>
 
     <h4 class="erp-group-head">Какво купуваме и къде отива</h4>
+    ${(() => {
+      const bought = suppBoughtFor(name);
+      if (!bought.length) return `<p class="erp-muted" style="font-size:12px">🧾 Няма редове от Покупки за този доставчик (или фактурите му са без разбити редове).</p>`;
+      return `<div class="supp-bought">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <b>🧾 Купувано от Покупки (автоматично)</b>
+          <button type="button" class="btn btn-small" id="sp-autofill" title="Попълва „Какво купуваме" с най-честите артикули">⤵ Попълни „Какво купуваме"</button>
+        </div>
+        <table class="report-table erp-table" style="font-size:12px">
+          <thead><tr><th>Артикул</th><th>Код</th><th>Група</th><th class="num">Пъти</th><th>Последно</th><th class="num">Посл. цена</th></tr></thead>
+          <tbody>${bought.slice(0, 12).map(i => `<tr><td>${escapeHtml(i.article)}</td><td class="t-code">${escapeHtml(i.code || "")}</td><td>${escapeHtml(i.group || "")}</td><td class="num">${i.n}</td><td>${escapeHtml(erpDMY(i.last) || "")}</td><td class="num">${i.lastPrice ? i.lastPrice + " " + escapeHtml(i.cur || "") : ""}</td></tr>`).join("")}</tbody>
+        </table>
+        ${bought.length > 12 ? `<p class="erp-muted" style="font-size:11px">…и още ${bought.length - 12} артикула.</p>` : ""}
+      </div>`;
+    })()}
+    <div class="erp-co-grid">
+      <label>Тип доставчик
+        <select id="sp-suptype">
+          <option value="">Авто: ${suppType(name) === "materials" ? "🧱 Материали за производство" : "🛠 Услуги/други"}</option>
+          <option value="materials" ${p.supType === "materials" ? "selected" : ""}>🧱 Материали за производство</option>
+          <option value="services" ${p.supType === "services" ? "selected" : ""}>🛠 Услуги / други</option>
+        </select></label>
+    </div>
     <label>Какво купуваме <input type="text" id="sp-what" value="${g("whatWeBuy")}" placeholder="напр. ламарина S235 1.5–4 мм, тръби ф25" /></label>
     <label>За какво служи / защо ни трябва <input type="text" id="sp-usedfor" value="${g("usedFor")}" placeholder="напр. заготовки за механизми Дроп Ин" /></label>
     <div class="supp-where">${SUPP_WHERE.map(w => `<label class="erp-inline supp-w"><input type="checkbox" class="sp-where" value="${escapeAttr(w)}" ${where.has(w) ? "checked" : ""} /> ${escapeHtml(w)}</label>`).join("")}</div>
@@ -329,6 +443,13 @@ function suppForm(name) {
     </div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
   wrap.querySelector("#sp-cancel").addEventListener("click", close);
+  const af = wrap.querySelector("#sp-autofill");
+  if (af) af.addEventListener("click", () => {
+    const el = wrap.querySelector("#sp-what");
+    const top = suppBoughtFor(name).slice(0, 6).map(i => i.article).join(", ");
+    if (!top) return;
+    el.value = el.value.trim() ? el.value.trim().replace(/,\s*$/, "") + ", " + top : top;
+  });
   const del = wrap.querySelector("#sp-del");
   if (del) del.addEventListener("click", async () => {
     if (!confirm(`Да изтрия ли паспорта на „${name}"?`)) return;
@@ -342,7 +463,7 @@ function suppForm(name) {
       eik: val("eik"), vat: val("vat"), country: val("country"), addr: val("addr"),
       person: val("person"), email: val("email"), phone: val("phone"),
       regime: val("regime"), credit: val("credit"), rate: val("rate"), protocol: val("protocol"), taxnote: val("taxnote"),
-      whatWeBuy: val("what"), usedFor: val("usedfor"),
+      whatWeBuy: val("what"), usedFor: val("usedfor"), supType: val("suptype"),
       where: [...wrap.querySelectorAll(".sp-where:checked")].map(c => c.value),
       whereNote: val("wherenote"),
       kind: val("kind"), account: val("account"), expenseType: val("etype"), docflow: val("docflow"),
