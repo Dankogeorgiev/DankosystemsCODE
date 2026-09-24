@@ -847,3 +847,8 @@ img.ai-doc-content { max-width: none; }
 .supp-colname { min-width: 240px; }
 .supp-colwhat { max-width: 320px; width: 24%; }
 td.supp-colwhat { font-size: 12px; }
+
+/* ⚡ Проформа от заявка — отделна визия */
+.erp-tab-pfco { background: #fff7ed !important; border: 1px solid #f59e0b !important; color: #9a3412 !important; }
+.erp-tab-pfco.active { background: #f59e0b !important; color: #fff !important; }
+.pfco-banner { background: #fff7ed; border: 1px solid #f59e0b; color: #7c2d12; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; }

@@ -1617,3 +1617,77 @@ async function erpInvReport() {
   });
   draw();
 }
+
+/* ================== ⚡ ПРОФОРМА ОТ ЗАЯВКА (авансово плащане) ==================
+   За клиентите, които плащат ПРЕДИ да произведем: проформата се ражда направо
+   от заявката (без продажба, без склад — той още няма какво да изпише).
+   Отделен таб с оранжева визия, за да не се бърка със стандартната проформа
+   от Фактуриране. Проформата носи fromOrderId и бележка „авансово". */
+async function erpRenderProformaCO() {
+  const v = erpView();
+  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  try { if (typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
+  const invs = (typeof erpInvoices !== "undefined" && erpInvoices) || [];
+  const pfOf = oid => invs.find(x => x.kind === "proforma" && String(x.fromOrderId || "") === String(oid));
+  const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
+    .filter(o => (o.status || "нова") !== "завършена")
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const sum = o => (o.lines || []).reduce((s, l) => s + (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), 0);
+  v.innerHTML = `
+    <div class="pfco-banner">⚡ <b>Проформа от заявка — авансово плащане.</b> За клиенти, които плащат ПРЕДИ производство: избираш заявката → проформата се попълва от редовете ѝ → пращаш я → произвеждате след превода. Складът не се пипа; истинската фактура се пуска после по обичайния ред.</div>
+    <table class="report-table erp-table">
+      <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th class="num">Редове</th><th class="num">Стойност</th><th>Проформа</th><th></th></tr></thead>
+      <tbody>${list.map(o => {
+        const pf = pfOf(o.id);
+        const s = sum(o);
+        return `<tr>
+          <td><b>${escapeHtml(o.ourNo || "—")}</b></td>
+          <td>${escapeHtml(o.clientNo || "—")}</td>
+          <td>${escapeHtml(o.clientName || "—")}</td>
+          <td>${erpDMY(o.date) || ""}</td>
+          <td class="num">${(o.lines || []).length}</td>
+          <td class="num">${s ? erpNum(Math.round(s * 100) / 100) + " " + escapeHtml(o.currency || "EUR") : `<span class="erp-muted" title="Редовете нямат продажни цени — попълни ги в заявката или в проформата">—</span>`}</td>
+          <td>${pf ? `<span class="erp-co-status" style="background:#ffedd5;color:#9a3412">⚡ ${escapeHtml(pf.docNo || "чернова")}</span>` : `<span class="erp-muted">—</span>`}</td>
+          <td class="erp-row-actions"><button class="btn btn-small ${pf ? "" : "btn-primary"}" data-pfco="${escapeAttr(String(o.id))}">⚡ ${pf ? "Нова проформа" : "Проформа"}</button></td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="8" class="report-empty">Няма отворени заявки.</td></tr>`}</tbody>
+    </table>`;
+  v.querySelectorAll("[data-pfco]").forEach(b => b.addEventListener("click", () => erpInvProformaFromOrder(b.dataset.pfco)));
+}
+
+async function erpInvProformaFromOrder(orderId) {
+  const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(orderId));
+  if (!o) { alert("Заявката не е намерена."); return; }
+  // Клиентът от директорията (адрес, ЕИК, ДДС) — както при фактура от продажба.
+  let cl = { name: o.clientName || "", eik: "", vat: "", city: "", street: "", country: "България", person: "" };
+  try {
+    const clients = await erpLoadSaleClients();
+    const hit = clients.find(c => (o.clientId && c.id === o.clientId)
+      || (c.name || "").trim().toLowerCase() === (o.clientName || "").trim().toLowerCase());
+    if (hit) cl = { name: hit.name || cl.name, eik: hit.eik || "", vat: hit.vat || "", city: hit.city || "", street: hit.street || "", country: hit.country || "България", person: hit.mol || hit.person || "" };
+  } catch (e) {}
+  const isExport = String(cl.country || "").trim() && !/^бълг|bulgaria/i.test(cl.country);
+  const today = new Date().toISOString().slice(0, 10);
+  const inv = {
+    kind: "proforma", seriesKey: isExport ? "1" : "2",
+    issueDate: today, taxDate: today,
+    orderRef: o.clientNo || o.ourNo || "",
+    client: cl, clientId: o.clientId || null,
+    currency: o.currency || "EUR",
+    vatRate: isExport ? 0 : 20,
+    vatBasis: (isExport && typeof INV_VAT_EXEMPT_EU !== "undefined") ? INV_VAT_EXEMPT_EU : "",
+    paymentMethod: isExport ? "Bank transfer" : "по банка", termDays: 0, dueDate: "",
+    note: `Авансова проформа по заявка № ${o.ourNo || "—"}${o.clientNo ? " / " + o.clientNo : ""} — плащане ПРЕДИ производство.`,
+    refInvoice: null, refReason: "", status: "чернова", posted: false, compiledBy: "",
+    fromOrderId: o.id, fromOrderNo: o.ourNo || "",
+    __applyProfile: o.clientName || "",
+    lines: (o.lines || []).map(l => ({
+      code: l.code || "", clientCode: l.clientCode || "", name: l.name || l.ourName || "",
+      qty: l.qty, unit: l.unit || "бр.", unitPrice: l.unitPrice != null ? l.unitPrice : "",
+      orderRef: o.clientNo || o.ourNo || "",
+    })),
+  };
+  if (typeof erpSetTab === "function") erpSetTab("invoices");
+  erpInvForm(inv);
+}

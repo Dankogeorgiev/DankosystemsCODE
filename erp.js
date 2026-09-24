@@ -502,6 +502,7 @@ function erpDispatchTab(tab) {
     case "plan":         erpRenderPlan(); break;
     case "sales":        erpRenderSales(); break;
     case "invoices":     erpRenderInvoices(); break;
+    case "proformaco":   erpRenderProformaCO(); break;
     case "finance":
       if (typeof financeAllowed === "function" && !financeAllowed()) {
         erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>Модул „Финанси" е достъпен само за оторизирани потребители.</p></div>`;

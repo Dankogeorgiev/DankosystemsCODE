@@ -651,15 +651,16 @@ async function erpPuRemoveFile(o, i) {
    стокови) — записът продължава направо със заприходяването; иначе само пише. */
 function erpPuNeedsPost(o) {
   if (o.posted) return false;
-  if (o.docType === "credit") return false;   // кредитното е само пари — складът се коригира ръчно при върната стока
-  if (o.docType !== "goods" && (o.coversIds || []).length) return true;   // покриваща фактура (само парите)
+  // Кредитно известие С материални редове = върната стока → ИЗПИСВА се от склада.
+  if (o.docType !== "goods" && o.docType !== "credit" && (o.coversIds || []).length) return true;   // покриваща фактура (само парите)
   return (o.lines || []).some(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
 }
-function erpPuSaveLabel(o) { return erpPuNeedsPost(o) ? "💾 Запази и заприходи" : "💾 Запази"; }
+function erpPuSaveLabel(o) { return erpPuNeedsPost(o) ? (o.docType === "credit" ? "💾 Запази и изпиши от склада" : "💾 Запази и заприходи") : "💾 Запази"; }
 /* Ясно на един поглед докъде е документът: нов / записан / заприходен. */
 function erpPuStateBadge(o) {
   if (o.posted) {
     const d = o.postedAt ? " · " + erpDMY(String(o.postedAt).slice(0, 10)) : "";
+    if (o.docType === "credit") return `<span class="pu-state ok" title="Върнатата стока е ИЗПИСАНА от Склад материали">✅ ИЗПИСАНА от склада (върната стока)${d}</span>`;
     return `<span class="pu-state ok" title="Материалните редове са вдигнати в Склад материали и средните цени са обновени">✅ ЗАПРИХОДЕНА в склада${d}</span>`;
   }
   if (!o.id) return `<span class="pu-state new">🆕 нова — още не е записана</span>`;
@@ -1188,9 +1189,12 @@ async function erpPostPurchase(o, opts) {
   // Фактура, ПОКРИВАЩА стокови разписки: складът е вдигнат от стоковите —
   // тук се осчетоводяват само парите (сумата отива в разходите/плащането).
   if (o.docType !== "goods" && (o.coversIds || []).length) { await erpPostCoveringInvoice(o); return; }
+  const isCredit = o.docType === "credit";   // КИ = върната стока → изписване (минус)
   const matLines = (o.lines || []).filter(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
   if (!matLines.length) { alert("Няма материални редове за заприходяване. Само редове, добавени с бутона Материал (склад), влизат в склада."); return; }
-  if (!confirm(`Да заприходя ли ${matLines.length} материала в склада? Наличностите се вдигат и средните цени се обновяват (веднъж).`)) return;
+  if (!confirm(isCredit
+    ? `КРЕДИТНО ИЗВЕСТИЕ: да ИЗПИША ли ${matLines.length} материала ОТ склада (върната стока към доставчика)? Наличностите намаляват; средните цени не се пипат.`
+    : `Да заприходя ли ${matLines.length} материала в склада? Наличностите се вдигат и средните цени се обновяват (веднъж).`)) return;
   // Предпазители срещу ДВОЙНО заприходяване: бутонът се заключва веднага
   // (бърз двоен клик), а по-долу проверяваме и базата (втора отворена сесия).
   const postBtn = document.getElementById("pu-save");
@@ -1218,7 +1222,7 @@ async function erpPostPurchase(o, opts) {
     if (dups.length && !confirm(`⚠ Вече има ЗАПРИХОДЕНА фактура № ${o.invoiceNo} (доставчик: ${dups[0].supplierName || "?"}, ${erpDMY(dups[0].date) || "?"}).\nАко е СЪЩАТА фактура с другояче изписан доставчик — спри!\nПродължавам само ако е СЛУЧАЙНО съвпадение на номера при друг доставчик. Да продължа ли?`)) { fail(); return; }
     // Складови движения по същия № (хваща и различно изписан доставчик в ref-а).
     try {
-      const { data: mv } = await sb.from("stock_movements").select("ref").like("ref", `Фактура ${o.invoiceNo} ·%`).limit(200);
+      const { data: mv } = await sb.from("stock_movements").select("ref").like("ref", `${isCredit ? "КИ" : "Фактура"} ${o.invoiceNo} ·%`).limit(200);
       const refs = [...new Set((mv || []).map(x => x.ref))];
       if (refs.length && !confirm(`⚠ По фактура № ${o.invoiceNo} ВЕЧЕ има складови движения:\n${refs.slice(0, 3).join("\n")}\nТова обикновено значи ДВОЙНО заприходяване. Наистина ли да продължа?`)) { fail(); return; }
     } catch (e) {}
@@ -1231,11 +1235,17 @@ async function erpPostPurchase(o, opts) {
   (mat.data || []).forEach(r => avgById[r.id] = Number(r.avg_cost) || 0);
   const rate = erpPuCur(o) === "BGN" ? PU_EUR_BGN : 1;   // средните цени са в EUR
 
-  const ref = `Фактура ${o.invoiceNo || "—"} · ${o.supplierName || ""}`.trim();
+  const ref = `${isCredit ? "КИ" : "Фактура"} ${o.invoiceNo || "—"} · ${o.supplierName || ""}`.trim();
   const moves = [], avgUpdates = [];
   for (const l of matLines) {
     const qty = erpToNum(l.qty) || 0;
     const priceEur = (erpToNum(l.unitPrice) || 0) / rate;
+    if (isCredit) {
+      // Върната стока: излиза от склада по текущата средна — средната НЕ се пипа.
+      moves.push({ material_id: l.materialId, kind: "изписване", quantity: -qty, ref, created_by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || null });
+      stockById[l.materialId] = (stockById[l.materialId] || 0) - qty;
+      continue;
+    }
     moves.push({ material_id: l.materialId, kind: "входящ", quantity: qty, ref, created_by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || null });
     if (priceEur > 0) {
       const base = Math.max(0, stockById[l.materialId] || 0), avg = avgById[l.materialId] || 0;
@@ -1251,7 +1261,9 @@ async function erpPostPurchase(o, opts) {
   o.posted = true; o.postedAt = new Date().toISOString();
   try { await erpSavePurchase(o); } catch {}
   await erpLoadAll(); await erpLoadPurchases();
-  if (!(opts && opts.silent)) alert(`Готово! Заприходени ${moves.length} материала. Средните цени (EUR) са обновени.`);
+  if (!(opts && opts.silent)) alert(isCredit
+    ? `Готово! ${moves.length} материала са ИЗПИСАНИ от склада (върната стока по кредитното известие).`
+    : `Готово! Заприходени ${moves.length} материала. Средните цени (EUR) са обновени.`);
   erpRenderPurchaseForm(o);
 }
 
@@ -1276,7 +1288,20 @@ async function erpUnpostPurchase(o) {
   // Обръщането ползва ЗАПИСАНАТА версия (точно каквото е било заприходено),
   // не евентуално току-що променените стойности на екрана.
   const saved = (erpPurchases || []).find(x => String(x.id) === String(o.id)) || o;
+  const isCredit = saved.docType === "credit";
   const matLines = (saved.lines || []).filter(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
+  if (isCredit) {
+    // КИ: махаме изписванията → складът се вдига обратно; средните не са пипани.
+    if (!confirm(`Да върна ли кредитното известие за редакция?\nИзписаните ${matLines.length} материала се ВРЪЩАТ в склада. След поправката го изпиши наново.`)) return;
+    const refKi = `КИ ${saved.invoiceNo || "—"} · ${saved.supplierName || ""}`.trim();
+    const delKi = await sb.from("stock_movements").delete().eq("ref", refKi).eq("kind", "изписване");
+    if (delKi.error) { alert("Грешка при движенията: " + delKi.error.message); return; }
+    o.posted = false; delete o.postedAt;
+    try { await erpSavePurchase(o); } catch (e) { alert("Грешка при запис: " + (e.message || e)); return; }
+    await erpLoadAll(); await erpLoadPurchases();
+    erpRenderPurchaseForm(o);
+    return;
+  }
   if (!confirm(`Да върна ли фактурата за редакция?\nСкладът ще се намали с ${matLines.length} заприходени материала и средните цени ще се върнат. След поправката я заприходи наново.`)) return;
   const ref = `Фактура ${saved.invoiceNo || "—"} · ${saved.supplierName || ""}`.trim();
   const [stk, mat] = await Promise.all([sb.from("v_material_stock").select("id,stock"), sb.from("materials").select("id,avg_cost")]);
