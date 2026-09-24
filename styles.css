@@ -1684,3 +1684,9 @@ tr.times-click:hover td { background: #ecfdf5; }
 .cal-ev-once { background: #fef9c3; color: #713f12; }
 .cal-del { position: absolute; right: 3px; top: 0; cursor: pointer; font-weight: 700; opacity: .45; }
 .cal-del:hover { opacity: 1; color: #dc2626; }
+.cal-typebar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.cal-type-chip { display: inline-flex; gap: 4px; align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; }
+.cal-type-chip:has(input:checked) { border-color: #2563eb; background: #dbeafe; font-weight: 600; }
+#cal-type-extra { display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; }
+#cal-type-extra input, #cal-type-extra select { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; width: auto; }
+.cal-ev-yearly { background: #ede9fe; color: #4c1d95; }

@@ -46,6 +46,12 @@ function calParseLine(line) {
     const wd = CAL_WEEKDAYS.indexOf((m[1] || m[2]).toLowerCase());
     if (wd >= 0) return { type: "weekly", weekday: wd, text: t };
   }
+  // „всяка година на 15.10" → годишно
+  m = t.match(/(?:всяка\s+година|годишно).*?(\d{1,2})[.](\d{1,2})/i) || t.match(/(\d{1,2})[.](\d{1,2}).*?(?:всяка\s+година|годишно)/i);
+  if (m) {
+    const d = Number(m[1]), mo = Number(m[2]);
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) return { type: "yearly", day: d, month: mo, text: t };
+  }
   // „на 15.10" / „на 15.10.2026" → еднократно (дата, не сума)
   m = t.match(/на\s+(\d{1,2})[.](\d{1,2})(?:[.](\d{2,4}))?(?!\d*\s*(?:евро|лв|eur|bgn|%))/i);
   if (m) {
@@ -63,6 +69,7 @@ function calParseLine(line) {
 function calEventLabel(e) {
   if (e.type === "monthly") return `всеки месец на ${e.day}-о число`;
   if (e.type === "weekly") return `всеки ${CAL_WEEKDAYS[e.weekday]}`;
+  if (e.type === "yearly") return `всяка година на ${e.day}.${String(e.month).padStart(2, "0")}`;
   if (e.type === "once") return `еднократно на ${erpDMY(e.date) || e.date}`;
   return "";
 }
@@ -75,6 +82,7 @@ function calOccursOn(e, dateStr) {
     return d.getDate() === Math.min(e.day, last);   // 31-во в къс месец = последния ден
   }
   if (e.type === "weekly") return d.getDay() === e.weekday;
+  if (e.type === "yearly") return d.getDate() === e.day && (d.getMonth() + 1) === e.month;
   if (e.type === "once") return e.date === dateStr;
   return false;
 }
@@ -130,6 +138,12 @@ async function calRender() {
 
   v.innerHTML = `
     <div class="cal-nextbar">⏰ <b>Следва:</b> ${up.length ? up.map(u => `<span class="cal-next-chip cal-ev-${u.type}${u.inDays === 0 ? " cal-next-today" : ""}"><b>${calWhenLabel(u.inDays, u.when)}</b> — ${escapeHtml(u.text.length > 60 ? u.text.slice(0, 58) + "…" : u.text)}</span>`).join(" ") : `<span class="erp-muted">няма нищо в следващите 14 дни</span>`}</div>
+    <div class="cal-typebar">
+      <span class="erp-muted" style="font-size:12px">Кога:</span>
+      ${[["auto", "✨ Авто (разбира от текста)"], ["monthly", "🟦 Месечно"], ["weekly", "🟩 Седмично"], ["yearly", "🟪 Годишно"], ["once", "🟨 Еднократно"]]
+        .map(([k, l]) => `<label class="cal-type-chip"><input type="radio" name="cal-type" value="${k}" ${k === "auto" ? "checked" : ""} /> ${l}</label>`).join("")}
+      <span id="cal-type-extra"></span>
+    </div>
     <div class="cal-addbox">
       <textarea id="cal-input" rows="2" placeholder="Пиши свободно, по едно нещо на ред:&#10;На всяко 4то число от месеца се превеждат 1000 евро на Данко&#10;На 24то число се плащат осигуровки · Всеки петък — каса · На 15.10 идва одиторът"></textarea>
       <button class="btn btn-primary" id="cal-add">➕ Запиши в календара</button>
@@ -139,7 +153,7 @@ async function calRender() {
       <b style="min-width:190px;text-align:center;text-transform:capitalize">${escapeHtml(monthName)}</b>
       <button class="btn btn-small" id="cal-next">→</button>
       <button class="btn btn-small" id="cal-today">Днес</button>
-      <span class="erp-muted" style="margin-left:auto">🟦 месечно · 🟩 седмично · 🟨 еднократно — × трие (повтарящите се: завинаги)</span>
+      <span class="erp-muted" style="margin-left:auto">цветове: 🟦 месечно · 🟩 седмично · 🟪 годишно · 🟨 еднократно — × трие (повтарящите се: завинаги)</span>
     </div>
     <div class="cal-grid">
       ${["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map(d => `<div class="cal-head">${d}</div>`).join("")}
@@ -150,6 +164,17 @@ async function calRender() {
   v.querySelector("#cal-next").addEventListener("click", () => { calMonth = calShift(1); calRender(); });
   v.querySelector("#cal-today").addEventListener("click", () => { calMonth = calYmd(new Date()).slice(0, 7); calRender(); });
   v.querySelector("#cal-add").addEventListener("click", calAddFromInput);
+  // При избран тип се показват само нужните полета (ден / ден от седмицата / дата).
+  const extra = v.querySelector("#cal-type-extra");
+  const paintExtra = () => {
+    const t = (v.querySelector('input[name="cal-type"]:checked') || {}).value || "auto";
+    extra.innerHTML = t === "monthly" ? `число: <input type="number" id="cal-x-day" min="1" max="31" style="width:64px" placeholder="напр. 4" />`
+      : t === "weekly" ? `<select id="cal-x-wd">${CAL_WEEKDAYS.map((w, i) => `<option value="${i}" ${i === 1 ? "selected" : ""}>${w}</option>`).filter((_, i) => true).join("")}</select>`
+      : t === "yearly" ? `дата: <input type="text" id="cal-x-dm" placeholder="дд.мм" style="width:74px" />`
+      : t === "once" ? `дата: <input type="date" id="cal-x-date" />` : "";
+  };
+  v.querySelectorAll('input[name="cal-type"]').forEach(r => r.addEventListener("change", paintExtra));
+  paintExtra();
   v.querySelectorAll("[data-caldel]").forEach(x => x.addEventListener("click", async () => {
     const ev = (CAL_EVENTS || []).find(e => String(e.id) === x.dataset.caldel);
     if (!ev) return;
@@ -168,6 +193,36 @@ async function calAddFromInput() {
   const ta = document.getElementById("cal-input");
   const lines = String(ta.value || "").split(/\n|·/).map(s => s.trim()).filter(Boolean);
   if (!lines.length) { alert("Напиши какво да запиша — по едно нещо на ред."); return; }
+  // Ръчно избран тип → важи за всички редове; „Авто" → интуитивното разбиране.
+  const mode = (document.querySelector('input[name="cal-type"]:checked') || {}).value || "auto";
+  if (mode !== "auto") {
+    const g = id => document.getElementById(id);
+    let make = null;
+    if (mode === "monthly") {
+      const day = Number(g("cal-x-day") && g("cal-x-day").value);
+      if (!(day >= 1 && day <= 31)) { alert("Напиши числото от месеца (1–31)."); return; }
+      make = t => ({ type: "monthly", day, text: t });
+    } else if (mode === "weekly") {
+      const wd = Number(g("cal-x-wd") && g("cal-x-wd").value);
+      make = t => ({ type: "weekly", weekday: wd, text: t });
+    } else if (mode === "yearly") {
+      const m = String(g("cal-x-dm") && g("cal-x-dm").value || "").match(/^(\d{1,2})[.](\d{1,2})$/);
+      if (!m) { alert("Напиши датата като дд.мм (напр. 15.10)."); return; }
+      make = t => ({ type: "yearly", day: Number(m[1]), month: Number(m[2]), text: t });
+    } else {
+      const d = g("cal-x-date") && g("cal-x-date").value;
+      if (!d) { alert("Избери датата."); return; }
+      make = t => ({ type: "once", date: d, text: t });
+    }
+    const good = lines.map(make);
+    const summary = good.map(p => `• ${p.text}\n   → ${calEventLabel(p)}`).join("\n");
+    if (!confirm(`Записвам:\n\n${summary}\n\nПотвърждаваш ли?`)) return;
+    await calLoad();
+    const who = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
+    good.forEach(p => CAL_EVENTS.push({ id: calNextId(), ...p, createdBy: who, createdAt: new Date().toISOString() }));
+    if (await calSave()) { ta.value = ""; calRender(); calStrip(); }
+    return;
+  }
   const parsed = lines.map(calParseLine).filter(Boolean);
   const bad = parsed.filter(p => p.type === "unknown");
   const good = parsed.filter(p => p.type !== "unknown");
