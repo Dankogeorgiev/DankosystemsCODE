@@ -284,8 +284,8 @@ async function erpRenderSupplierProfiles() {
       ${totTurn > 0 ? `<br>💡 Първите <b>${top90}</b> доставчика правят 90% от оборота — започни от тях, останалите се попълват в движение.` : ""}</p>
     <table class="report-table erp-table">
       <thead><tr>
-        <th>Доставчик</th><th>ЕИК / ДДС №</th><th>Режим</th><th>Сметка</th>
-        <th>Какво купуваме</th><th>Къде се ползва</th>
+        <th class="supp-colname">Доставчик</th><th>ЕИК</th><th>Сметка</th>
+        <th class="supp-colwhat">Какво купуваме</th><th>Къде се ползва</th>
         <th class="num">Оборот 12 м.</th><th class="num">Док.</th><th>Готов</th><th></th>
       </tr></thead>
       <tbody>${(() => {
@@ -299,7 +299,7 @@ async function erpRenderSupplierProfiles() {
         if (suppSort === "type" && t !== lastType) {
           lastType = t;
           const cnt = rows.filter(x => suppType(x.name) === t).length;
-          head = `<tr class="supp-typehead"><td colspan="10">${t === "materials" ? "🧱 Материали за производство" : "🛠 Услуги и други"} — ${cnt} доставчика</td></tr>`;
+          head = `<tr class="supp-typehead"><td colspan="9">${t === "materials" ? "🧱 Материали за производство" : "🛠 Услуги и други"} — ${cnt} доставчика</td></tr>`;
         }
         const bought = suppBoughtFor(r.name);
         const hits = matchedArts.get(r.key);
@@ -308,10 +308,9 @@ async function erpRenderSupplierProfiles() {
           : (bought.length ? `<div class="erp-muted" style="font-size:11px">🧾 ${bought.slice(0, 3).map(i => escapeHtml(i.article)).join(" · ")}${bought.length > 3 ? ` +${bought.length - 3}` : ""}</div>` : "");
         return head + `<tr class="erp-clickable" data-open="${escapeAttr(r.name)}">
           <td data-label="Доставчик"><b>${escapeHtml(r.name)}</b>${r.last ? `<div class="erp-muted" style="font-size:11px">последен документ ${escapeHtml(erpDMY(r.last) || "")}</div>` : ""}</td>
-          <td data-label="ЕИК / ДДС №">${escapeHtml(p.eik || "")}${p.vat ? `<div class="erp-muted" style="font-size:11px">${escapeHtml(p.vat)}</div>` : ""}</td>
-          <td data-label="Режим">${p.regime ? escapeHtml(suppLabel(SUPP_REGIMES, p.regime)) : `<span class="erp-muted">—</span>`}</td>
+          <td data-label="ЕИК">${escapeHtml(p.eik || "")}</td>
           <td data-label="Сметка">${escapeHtml(p.account || "")}</td>
-          <td data-label="Какво купуваме">${escapeHtml(p.whatWeBuy || "")}${autoLine}</td>
+          <td data-label="Какво купуваме" class="supp-colwhat">${escapeHtml(p.whatWeBuy || "")}${autoLine}</td>
           <td data-label="Къде се ползва">${(p.where || []).map(w => `<span class="supp-tag">${escapeHtml(w)}</span>`).join(" ")}</td>
           <td class="num" data-label="Оборот 12 м.">${r.turn12 ? suppMoney(r.turn12) : ""}</td>
           <td class="num" data-label="Док.">${r.docs || ""}</td>
@@ -319,7 +318,7 @@ async function erpRenderSupplierProfiles() {
           <td class="erp-row-actions"><button class="btn btn-small" data-edit="${escapeAttr(r.name)}">✎ Паспорт</button></td>
         </tr>`;
       }).join("");
-      })() || `<tr><td colspan="10" class="report-empty">Няма доставчици по този филтър.</td></tr>`}
+      })() || `<tr><td colspan="9" class="report-empty">Няма доставчици по този филтър.</td></tr>`}
       </tbody>
     </table>`;
 
