@@ -126,15 +126,15 @@ function suppHasProfile(name) { return !!suppProfile(name); }
 /* ---------- Индикатор на таба (като непрочетено съобщение) ----------
    Показва колко активни доставчика чакат паспорт. Свети, докато не се
    попълнят — така напомнянето не се губи между другите задачи. */
-function suppSetBadge(n) {
+function suppSetBadge(_n) {
+  // Броячът е ИЗКЛЮЧЕН (24.09, Данко): „какво купуваме" се пълни автоматично
+  // от Покупки, паспортите не се гонят ръчно. Функцията остава (виканата от
+  // Покупки/erp.js), но само чисти евентуален стар бадж.
   const btn = document.querySelector('.erp-tab[data-tab="supprofiles"]');
   if (!btn) return;
-  btn.classList.toggle("erp-tab-alert", n > 0);
-  let badge = btn.querySelector(".erp-tab-badge");
-  if (n > 0) {
-    if (!badge) { badge = document.createElement("span"); badge.className = "erp-tab-badge"; btn.appendChild(badge); }
-    badge.textContent = n;
-  } else if (badge) { badge.remove(); }
+  btn.classList.remove("erp-tab-alert");
+  const badge = btn.querySelector(".erp-tab-badge");
+  if (badge) badge.remove();
 }
 async function suppUpdateBadge() {
   try {
