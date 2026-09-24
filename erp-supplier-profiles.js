@@ -283,7 +283,8 @@ async function erpRenderSupplierProfiles() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} доставчика · попълнени <b>${done}</b> от ${active.length}</span>
-      <input type="search" id="supp-q" placeholder="🔎 материал / артикул… (винт м6, боя 9005)" value="${escapeAttr(suppQuery)}" style="width:260px;flex:0 0 auto" autocomplete="off" title="Търси по думи навсякъде: имена, паспорти И купуваните артикули от Покупки — показва откъде сме купували търсеното" />
+      <input type="search" id="supp-q" placeholder="🔎 материал / артикул… после Enter" value="${escapeAttr(suppQuery)}" style="width:250px;flex:0 0 auto" autocomplete="off" title="Търси по думи навсякъде: имена, паспорти И купуваните артикули от Покупки. Пишеш и натискаш Enter (или лупата)." />
+      <button class="btn btn-small" id="supp-go" title="Търси (или Enter в полето)">🔎</button>
       <input type="text" id="supp-pick" list="supp-names" placeholder="📇 избери доставчик…" style="width:220px;flex:0 0 auto" autocomplete="off" title="Падащ списък с всички доставчици — изборът отваря паспорта" />
       <datalist id="supp-names">${everyone.slice().sort((a, b) => a.name.localeCompare(b.name, "bg")).map(r => `<option value="${escapeAttr(r.name)}"></option>`).join("")}</datalist>
       <label class="erp-inline" title="Показват се доставчиците с покупка в този период">Период
@@ -346,13 +347,20 @@ async function erpRenderSupplierProfiles() {
       </tbody>
     </table>`;
 
-  // Търсенето е с дебаунс — прерисуването на 209 доставчика на всяка буква
-  // „запецваше"; сега чака 300 мс тишина и връща фокуса.
+  // БЕЗ „търси докато пишеш" (запецваше при 209 доставчика): пишеш на
+  // спокойствие, търси се при Enter / лупата / изчистване на полето.
   const qEl = document.getElementById("supp-q");
-  if (qEl) qEl.addEventListener("input", uiDebounce(e => {
-    suppQuery = e.target.value; erpRenderSupplierProfiles();
+  const doSearch = () => {
+    suppQuery = qEl ? qEl.value : "";
+    erpRenderSupplierProfiles();
     const el = document.getElementById("supp-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  }, 300));
+  };
+  if (qEl) {
+    qEl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } });
+    qEl.addEventListener("search", () => { if (!qEl.value) doSearch(); });   // X-чето на полето
+  }
+  const goEl = document.getElementById("supp-go");
+  if (goEl) goEl.addEventListener("click", doSearch);
   // Падащият списък с всички доставчици — изборът отваря паспорта направо.
   const pEl = document.getElementById("supp-pick");
   if (pEl) pEl.addEventListener("change", () => {

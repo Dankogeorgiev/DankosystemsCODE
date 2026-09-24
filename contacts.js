@@ -652,7 +652,10 @@ function cInit() {
   document.getElementById("contacts-close").addEventListener("click", () => {
     document.getElementById("contacts-modal").hidden = true;
   });
-  document.getElementById("contact-search").addEventListener("input", uiDebounce(renderContacts, 200));
+  // Търсене при Enter / изчистване — не на всяка буква (Данко, 24.09).
+  const cse = document.getElementById("contact-search");
+  cse.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); renderContacts(); } });
+  cse.addEventListener("search", () => { if (!cse.value) renderContacts(); });
   document.getElementById("btn-add-contact").addEventListener("click", () => renderContactForm(null));
   document.getElementById("btn-inquiry").addEventListener("click", renderInquiryForm);
   document.getElementById("btn-inquiry-reg").addEventListener("click", renderInquiryRegistry);

@@ -164,7 +164,10 @@ async function crmCompanies(v) {
   const rf = () => { crmCompanies(v); };
   const bind = (id, key) => { const el = v.querySelector("#" + id); if (el) el.addEventListener("change", () => { CRMS.filters[key] = el.value || undefined; rf(); }); };
   const q = v.querySelector("#crmq");
-  if (q) q.addEventListener("input", uiDebounce(() => { CRMS.filters.q = q.value || undefined; rf(); }, 250));
+  if (q) {
+    q.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); CRMS.filters.q = q.value || undefined; rf(); } });
+    q.addEventListener("search", () => { if (!q.value) { CRMS.filters.q = undefined; rf(); } });
+  }
   bind("crmf-country", "country"); bind("crmf-industry", "industry"); bind("crmf-status", "status");
   bind("crmf-fit", "fitMin"); bind("crmf-s2", "stage2"); bind("crmf-oe", "outreachEligible"); bind("crmf-os", "outreachStatus");
   const rfBtn = v.querySelector("#crm-refresh");
