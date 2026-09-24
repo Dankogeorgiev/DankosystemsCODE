@@ -135,9 +135,20 @@ function renderContacts() {
   const term = (document.getElementById("contact-search").value || "").trim().toLowerCase();
   tbody.innerHTML = "";
 
+  // Търсене ПО ДУМИ, без значение на словореда („боя 9006" намира „Прахова
+  // боя 9006"), с изравнени кирилско/латинско х-x и е-e; чете ВСИЧКО —
+  // фирма, лице, телефон, имейл, категория и цялата Бележка. При въведена
+  // дума търсенето е ГЛОБАЛНО (не гледа избраната категория) — иначе
+  // „търси отвсякъде" не би било вярно.
+  const cNorm = s => String(s || "").toLowerCase()
+    .replace(/х/g, "x").replace(/е/g, "e").replace(/а/g, "a").replace(/о/g, "o").replace(/с/g, "c").replace(/р/g, "p");
+  const words = cNorm(term).split(/\s+/).filter(Boolean);
   const rows = CONTACTS.filter(c => {
-    if (cat && c.category !== cat) return false;
-    if (term && !(`${c.company} ${c.contact_person} ${c.phone} ${c.email} ${c.scope} ${c.notes}`.toLowerCase().includes(term))) return false;
+    if (!words.length && cat && c.category !== cat) return false;
+    if (words.length) {
+      const hay = cNorm(`${c.company} ${c.contact_person} ${c.phone} ${c.email} ${c.scope} ${c.notes} ${c.category}`);
+      if (!words.every(w => hay.includes(w))) return false;
+    }
     return true;
   }).sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
 
