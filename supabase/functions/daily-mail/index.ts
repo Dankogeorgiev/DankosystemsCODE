@@ -102,7 +102,30 @@ Deno.serve(async (req) => {
     }
   } catch (e) { /* планът е бонус — не спира писмото */ }
 
-  if (!recvOver.length && !paySoon.length && !prodRows.length && !planRows.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
+  // 📅 ОФИС КАЛЕНДАРЪТ на Кристина (app_config office_calendar): какво има
+  // ДНЕС и УТРЕ — месечни (по число, 31-во = последния ден на къс месец),
+  // седмични, годишни и еднократни. Пише го и в темата на писмото.
+  let calRows: { when: string; label: string; text: string }[] = [];
+  try {
+    const cr = await fetch(`${url}/rest/v1/app_config?id=eq.office_calendar&select=data`, {
+      headers: { apikey: key, authorization: "Bearer " + key },
+    });
+    const events: any[] = cr.ok ? (((await cr.json())[0] || {}).data || {}).events || [] : [];
+    const occurs = (e: any, ds: string) => {
+      const d = new Date(ds + "T00:00:00");
+      if (e.type === "monthly") { const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); return d.getDate() === Math.min(Number(e.day), last); }
+      if (e.type === "weekly") return d.getDay() === Number(e.weekday);
+      if (e.type === "yearly") return d.getDate() === Number(e.day) && (d.getMonth() + 1) === Number(e.month);
+      if (e.type === "once") return e.date === ds;
+      return false;
+    };
+    const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    [[today, "ДНЕС"], [tomorrow, "утре"]].forEach(([ds, label]) => {
+      events.forEach(e => { if (occurs(e, ds as string)) calRows.push({ when: ds as string, label: label as string, text: String(e.text || "") }); });
+    });
+  } catch (e) { /* календарът е бонус — не спира писмото */ }
+
+  if (!recvOver.length && !paySoon.length && !prodRows.length && !planRows.length && !calRows.length) return Response.json({ ok: true, skipped: "нищо за докладване" });
 
   const sum = (arr: any[], f: string) => arr.reduce((s, p) => s + (Number(String(p[f]).replace(",", ".")) || 0), 0);
   const tbl = (head: string, rws: string) => `<table style="border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:13px">
@@ -112,6 +135,11 @@ Deno.serve(async (req) => {
 
   let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">
     <h2 style="color:#0f766e">Сутрешен отчет — ${fmt(today)}</h2>`;
+  if (calRows.length) {
+    html += `<h3 style="color:#0f2440">📅 По календара</h3>`
+      + tbl(th("Кога") + th("Какво"),
+        calRows.map(c => `<tr>${td(c.label === "ДНЕС" ? "<b style=\"color:#dc2626\">☀ ДНЕС</b>" : "утре · " + fmt(c.when))}${td(esc(c.text))}</tr>`).join(""));
+  }
   if (recvOver.length) {
     html += `<h3 style="color:#991b1b">⚠ Просрочени вземания от клиенти: ${recvOver.length} бр. · ${money(sum(recvOver, "amount"))} EUR</h3>`
       + tbl(th("Клиент") + th("Фактура") + th("Падеж") + th("Сума EUR"),
@@ -146,7 +174,7 @@ Deno.serve(async (req) => {
     body: JSON.stringify({
       sender: { email: fromEmail, name: fromName },
       to: office.split(",").map(e => ({ email: e.trim() })).filter(x => x.email.includes("@")),
-      subject: `Сутрешен отчет ${fmt(today)}: произведени ${Math.round(prodTotal)} бр. · ${recvOver.length} просрочени вземания · ${paySoon.length} задължения`,
+      subject: `Сутрешен отчет ${fmt(today)}: ${calRows.filter(c => c.label === "ДНЕС").length ? "📅 " + calRows.filter(c => c.label === "ДНЕС").length + " по календара · " : ""}произведени ${Math.round(prodTotal)} бр. · ${recvOver.length} просрочени вземания · ${paySoon.length} задължения`,
       htmlContent: html,
     }),
   });
