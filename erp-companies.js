@@ -120,10 +120,13 @@ async function erpRenderCompanies() {
         <option value="supplier" ${compKindF === "supplier" ? "selected" : ""}>Доставчици</option>
       </select>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
+      <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
+      <button class="btn btn-small" id="comp-oldc" title="Старият указател Контакти — пълният списък с категории и бележки">📇 Стар указател</button>
       <button class="btn btn-small" id="comp-old" title="Старият изглед (директориите поотделно)">⚙ Стар изглед</button>
       <button class="btn btn-small btn-primary" id="comp-add">+ Нова фирма</button>
     </div>
-    <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки).${orphanCompanies.length ? ` · <span class="erp-muted">${orphanCompanies.length} фирми са само в Контакти (без реквизити) — виж ги в стария изглед на Контакти.</span>` : ""}</p>
+    <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки).${orphanCompanies.length ? ` · <span class="erp-muted">${orphanCompanies.length} фирми са само в стария указател (без реквизити) — виж ги през 📇 Стар указател.</span>` : ""}</p>
     <table class="report-table erp-table">
       <thead><tr><th>Фирма</th><th>Тип</th><th>ЕИК</th><th>🧾 Фактури на</th><th>Хора</th><th>Търгуваме (авто)</th><th></th></tr></thead>
       <tbody>${list.map(p => {
@@ -150,6 +153,9 @@ async function erpRenderCompanies() {
   }
   v.querySelector("#comp-go").addEventListener("click", doSearch);
   v.querySelector("#comp-kind").addEventListener("change", e => { compKindF = e.target.value; erpRenderCompanies(); });
+  v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
+  v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
+  v.querySelector("#comp-oldc").addEventListener("click", () => { if (typeof openContacts === "function") openContacts(); });
   v.querySelector("#comp-old").addEventListener("click", () => erpRenderPartners());
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null));
   v.querySelectorAll("[data-compopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCard(Number(b.dataset.compopen)); }));

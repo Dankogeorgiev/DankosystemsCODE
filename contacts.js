@@ -76,6 +76,13 @@ async function openContacts() {
   if (!contactsLoaded) { await cLoad(); await cSeedIfNeeded(); contactsLoaded = true; cSubscribe(); }
   renderContacts();
 }
+// Директен вход към запитванията от обединения изглед Клиенти/Доставчици (erp-companies.js).
+async function openContactsInquiry(which) {
+  if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
+  document.getElementById("contacts-modal").hidden = false;
+  if (!contactsLoaded) { await cLoad(); await cSeedIfNeeded(); contactsLoaded = true; cSubscribe(); }
+  if (which === "registry") renderInquiryRegistry(); else renderInquiryForm();
+}
 function showContactsSub(which) {
   document.getElementById("contacts-view").hidden = which !== "list";
   document.getElementById("contact-form").hidden = which !== "form";
@@ -648,7 +655,12 @@ function cSubscribe() {
 function cInit() {
   const btn = document.getElementById("btn-contacts");
   if (!btn) return;
-  btn.addEventListener("click", openContacts);
+  // Бутонът на основния екран вече отваря обединения картон Клиенти/Доставчици
+  // (ЕРП → таб partners). Старият указател остава достъпен отвътре (📇 Стар указател).
+  btn.addEventListener("click", () => {
+    if (typeof openErp === "function" && typeof ERP !== "undefined") { ERP.tab = "partners"; openErp(); }
+    else openContacts();
+  });
   document.getElementById("contacts-close").addEventListener("click", () => {
     document.getElementById("contacts-modal").hidden = true;
   });
