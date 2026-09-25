@@ -14,6 +14,7 @@ let CUT_SHOWDONE = false;
 let CUT_TAB = "cut";            // "cut" (разкрой) | "report" (отчет на производство)
 let CUT_REP_DONE = false;       // в отчета: показвай и завършените задачи
 let CUT_REP_ALL = false;        // в отчета: всички задачи на цеха (не само от последния печат)
+let CUT_Q = "";                 // търсене в списъка със заявки (Enter)
 const CUT_WS_RE = /разкрой|рязане|лентоотрезна/i;   // цехът/операцията на Бинков
 
 /* ---------- Събиране на тръбите ---------- */
@@ -158,8 +159,10 @@ async function erpCutlistOpen() {
   try { await erpEnsureLoaded(); } catch (e) {}
   try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
   if (CUT_TAB === "report") { await erpCutReport(v); return; }
+  const cutQn = String(CUT_Q || "").toLowerCase().trim();
   const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
     .filter(o => CUT_SHOWDONE || (o.status || "нова") !== "завършена")
+    .filter(o => !cutQn || `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""} ${o.status || ""} ${(o.lines || []).map(l => `${l.code || ""} ${l.name || ""}`).join(" ")}`.toLowerCase().includes(cutQn))
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -167,6 +170,7 @@ async function erpCutlistOpen() {
       <span class="erp-count">🪚 Подготовка за производство</span>
       <button class="btn btn-small btn-primary" id="cut-tab-cut">🪚 Разкрой</button>
       <button class="btn btn-small" id="cut-tab-rep" title="Бърз отчет на нарязаното — влиза в СЪЩАТА верига като отчитането в Цехове (задача, дневник, поточност), без дублиране">✅ Отчет на производство</button>
+      <input type="search" id="cut-q" placeholder="🔎 № / клиент / код… после Enter" value="${escapeAttr(CUT_Q)}" style="width:220px;flex:0 0 auto" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="cut-showdone" ${CUT_SHOWDONE ? "checked" : ""} /> покажи и завършените</label>
       <span class="spacer"></span>
       <button class="btn btn-primary" id="cut-gen">🪚 Генерирай разкрой (<span id="cut-cnt">${CUT_SEL.size}</span>)</button>
@@ -187,6 +191,11 @@ async function erpCutlistOpen() {
     </table>`;
   v.querySelector("#cut-back").addEventListener("click", () => erpRenderCustomerOrders());
   v.querySelector("#cut-tab-rep").addEventListener("click", () => { CUT_TAB = "report"; erpCutlistOpen(); });
+  const cq = v.querySelector("#cut-q");
+  if (cq) {
+    cq.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); CUT_Q = cq.value; erpCutlistOpen(); } });
+    cq.addEventListener("search", () => { if (!cq.value) { CUT_Q = ""; erpCutlistOpen(); } });
+  }
   v.querySelector("#cut-showdone").addEventListener("change", e => { CUT_SHOWDONE = e.target.checked; erpCutlistOpen(); });
   const syncCnt = () => { const c = v.querySelector("#cut-cnt"); if (c) c.textContent = CUT_SEL.size; };
   v.querySelectorAll(".cut-sel").forEach(cb => cb.addEventListener("change", () => {
