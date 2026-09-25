@@ -351,11 +351,6 @@ async function compCard(pid) {
   const roleChips = c => COMP_ROLES.map(([k, l]) =>
     `<label class="erp-inline" style="font-size:12px"><input type="checkbox" class="comp-role" data-cid="${c.id}" data-role="${k}" ${compRolesOf(c.id).includes(k) ? "checked" : ""} /> ${l}</label>`).join(" ");
   const freeContacts = ((typeof CONTACTS !== "undefined" && CONTACTS) || []).filter(c => !cts.includes(c));
-  // Предложения: свободни контакти, чието име на фирма споделя дума с тази фирма.
-  const ptoks = compLoose(p.name).filter(w => w.length >= 3);
-  const sugg = freeContacts
-    .map(c => ({ c, n: compLoose(c.company).filter(w => w.length >= 3 && ptoks.includes(w)).length }))
-    .filter(x => x.n > 0).sort((a, b) => b.n - a.n).slice(0, 5);
   const { wrap, close } = erpDialog(`
     <h3>📇 ${escapeHtml(p.name || "—")} ${p.kind === "supplier" ? `<span class="crmb crmb-orange">доставчик</span>` : `<span class="crmb crmb-blue">клиент</span>`}</h3>
 
@@ -396,13 +391,6 @@ async function compCard(pid) {
       ${(spP.eik || spP.vat) ? `<div style="font-size:12px"><span class="erp-muted">ЕИК / ДДС №:</span> ${escapeHtml([spP.eik, spP.vat].filter(Boolean).join(" · "))}</div>` : ""}
       ${spP.addr ? `<div style="font-size:12px"><span class="erp-muted">Адрес:</span> ${escapeHtml([spP.addr, spP.country].filter(Boolean).join(", "))}</div>` : ""}
       ${spP.whatWeBuy ? `<div style="font-size:12px"><span class="erp-muted">Какво купуваме:</span> ${escapeHtml(spP.whatWeBuy)}</div>` : ""}
-    </div>` : ""}
-    ${sugg.length ? `<div style="border:1px dashed #94a3b8;border-radius:10px;padding:8px 10px;margin-bottom:6px">
-      <div class="erp-muted" style="font-size:12px;margin-bottom:4px">Може би са на тази фирма (от указателя Контакти):</div>
-      ${sugg.map(x => `<div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;font-size:12.5px">
-        <button class="btn btn-small comp-sugg" data-cid="${x.c.id}">🔗 Закачи</button>
-        <span><b>${escapeHtml(x.c.company || "")}</b> · ${escapeHtml(x.c.contact_person || "—")}${x.c.phone ? " · 📞 " + escapeHtml(x.c.phone) : ""}${x.c.email ? ` · <span class="t-code">${escapeHtml(x.c.email)}</span>` : ""}</span>
-      </div>`).join("")}
     </div>` : ""}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input type="text" id="comp-linkpick" list="comp-freec" placeholder="🔗 закачи съществуващ контакт…" style="width:250px;flex:0 0 auto" autocomplete="off" />
@@ -461,11 +449,6 @@ async function compCard(pid) {
     close();
     document.getElementById("contacts-modal").hidden = false;
     renderContactForm(c);
-  }));
-  // Предложените контакти — закачане с едно цъкане.
-  wrap.querySelectorAll(".comp-sugg").forEach(b => b.addEventListener("click", async () => {
-    COMP_DIR.links[String(b.dataset.cid)] = p.id;
-    if (await compDirSave()) { close(); compCard(p.id); }
   }));
   // Закачане на съществуващ контакт към фирмата.
   wrap.querySelector("#comp-linkgo").addEventListener("click", async () => {
