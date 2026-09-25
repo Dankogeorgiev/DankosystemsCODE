@@ -137,6 +137,9 @@ function suppSetBadge(_n) {
   if (badge) badge.remove();
 }
 async function suppUpdateBadge() {
+  // Табът „Паспорти доставчици" е махнат (v762) — без бутон няма бадж, а
+  // сметката му теглеше ЦЕЛИТЕ покупки при всяко отваряне на ЕРП.
+  if (!document.querySelector('.erp-tab[data-tab="supprofiles"]')) return;
   try {
     await suppLoad();
     if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases();

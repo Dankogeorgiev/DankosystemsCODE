@@ -123,6 +123,9 @@ function cliSetBadge(n) {
   } else if (badge) { badge.remove(); }
 }
 async function cliUpdateBadge() {
+  // Табът „Паспорти клиенти" е махнат (v762) — без бутон няма къде да свети
+  // бадж, а сметката му теглеше ЦЕЛИТЕ продажби при всяко отваряне на ЕРП.
+  if (!document.querySelector('.erp-tab[data-tab="cliprofiles"]')) return;
   try {
     await cliLoad();
     if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales();

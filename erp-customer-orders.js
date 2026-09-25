@@ -34,11 +34,13 @@ function erpCOSortRows(rows) {
 let erpClientsCache = null; // клиенти от Контакти (за избор)
 
 async function erpLoadCustomerOrders() {
+  // Ценовите листи се четат УСПОРЕДНО със заявките (не една след друга).
+  const plP = (typeof erpPLEnsureCache === "function") ? erpPLEnsureCache().catch(() => {}) : null;
   const { data, error } = await erpSelectAll("customer_orders", "*");
   if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) throw error;
   erpCOList = (data || []).map(r => ({ id: r.id, ...(r.data || {}) }));
-  if (typeof erpPLEnsureCache === "function") { try { await erpPLEnsureCache(); } catch (e) {} }   // клиентски ценови листи
+  if (plP) { try { await plP; } catch (e) {} }   // клиентски ценови листи
 }
 
 // Ако цялото производство на заявката е готово → статус „готова за продажба".
@@ -415,20 +417,24 @@ async function erpCORemoveFile(o, i) {
 async function erpRenderCustomerOrders() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
-  try { if (typeof quickLoad === "function") await quickLoad(); } catch (e) {}   // за значките 📦
+  // Трите независими зареждания вървят УСПОРЕДНО (преди бяха едно след друго).
+  const quickP = (typeof quickLoad === "function") ? quickLoad().catch(() => {}) : null;   // за значките 📦
+  const stockTasksP = erpSelectAll("tasks", "id,done,data", "data->source->>stock", "true").catch(() => ({ data: [] }));
   try { await erpLoadCustomerOrders(); }
   catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя заявките</h3><p>${escapeHtml(e.message || String(e))}</p>` +
       `<p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица customer_orders) в Supabase.</p></div>`;
     return;
   }
+  if (quickP) { try { await quickP; } catch (e) {} }
   // Текущи производства ЗА СКЛАД (пуснати от Продукти/Склад детайли, без заявка) —
   // показват се тук, за да се виждат наравно със заявките. Четат се от задачите.
   let stockGroups = [];
   try {
     // Филтър В БАЗАТА: само задачите „за склад" (преди се теглеха ВСИЧКИ
-    // задачи с целите им данни — все по-бавно с растежа им).
-    const { data } = await erpSelectAll("tasks", "id,done,data", "data->source->>stock", "true");
+    // задачи с целите им данни — все по-бавно с растежа им). Заявката е
+    // пусната успоредно още в началото (stockTasksP).
+    const { data } = await stockTasksP;
     const st = (data || []).map(r => ({ tid: r.id, tdone: r.done, ...(r.data || {}) }))
       .filter(t => t.source && t.source.stock);
     const bySid = {};

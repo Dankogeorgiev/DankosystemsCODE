@@ -164,10 +164,14 @@ async function openErp() {
     ERP.loaded = true;
   }
   erpSetTab(ERP.tab || "materials");
-  if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяване на таба при липса
-  if (typeof suppUpdateBadge === "function") suppUpdateBadge();               // доставчици, които чакат паспорт
-  if (typeof cliUpdateBadge === "function") cliUpdateBadge();                 // клиенти, които чакат паспорт
-  if (typeof erpETAutoRow === "function") erpETAutoRow().catch(() => {});     // понеделнишкият ред на Таблица ЕРП
+  // Фоновите проверки тръгват С ИЗЧАКВАНЕ, за да не се борят за мрежата с
+  // видимия таб (те теглят свои таблици) — отварянето става осезаемо по-бързо.
+  setTimeout(() => {
+    if (typeof erpUpdateMissingBadge === "function") erpUpdateMissingBadge();   // осветяване на таба при липса
+    if (typeof suppUpdateBadge === "function") suppUpdateBadge();               // доставчици, които чакат паспорт (спира рано без таб)
+    if (typeof cliUpdateBadge === "function") cliUpdateBadge();                 // клиенти, които чакат паспорт (спира рано без таб)
+    if (typeof erpETAutoRow === "function") erpETAutoRow().catch(() => {});     // понеделнишкият ред на Таблица ЕРП
+  }, 1500);
 }
 
 function closeErp() { document.getElementById("erp-modal").hidden = true; }
@@ -253,6 +257,8 @@ async function erpLoadAll() {
   try {
     // Без PostgREST „embed" — резолвваме материал/операция/дете от заредените карти
     // (recipe_lines има две връзки към products, така избягваме двусмислието).
+    // Опаковките тръгват УСПОРЕДНО с основното зареждане (едно app_config четене).
+    const packP = (typeof erpPackLoad === "function") ? erpPackLoad().catch(() => {}) : null;
     const [matsRaw, stock, prods, ops, lines, routing, detailRoute, matKg, psRaw, mcRaw, lcRaw] = await Promise.all([
       erpSelectAll("materials", "id,code,name,group_name,unit,avg_cost,min_stock,is_purchased"),
       erpSelectAll("v_material_stock", "id,stock,below_min"),
@@ -322,9 +328,9 @@ async function erpLoadAll() {
     ERP.lineCost = (lcRaw && lcRaw.data && lcRaw.data.data) || {};
     erpRecalcCosts();
 
-    // Опаковки — зареждат се тук, за да са налични за придружаващите документи
-    // (Packing List/Стокова разписка/Палет опис), дори табът „Опаковки" да не е отварян.
-    try { if (typeof erpPackLoad === "function") await erpPackLoad(); } catch (e) { /* тихо */ }
+    // Опаковки — изчакваме паралелното четене (нужни са за придружаващите
+    // документи, дори табът „Опаковки" да не е отварян).
+    try { if (packP) await packP; } catch (e) { /* тихо */ }
 
     // Клиент-собственик: дозарежда се НА ЗАДЕН ФОН (не бави отварянето), за да
     // е налично за таб Продукти и за разпознаването на артикули по клиент.
