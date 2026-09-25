@@ -266,30 +266,43 @@ async function erpRenderClientProfiles() {
 function cliLbl(list, k) { const x = (list || []).find(i => i[0] === k); return x ? x[1] : ""; }
 
 /* ---------- Паспортът (форма) ---------- */
-async function cliForm(name) {
+/* Паспортът е разделен на три части, за да се ползва и като самостоятелен
+   диалог (табът Паспорти клиенти), и ВГРАДЕН в картона Клиенти/Доставчици:
+   cliFormPrep (данните) → cliFormHtml (тялото) → cliFormWire (кабелите). */
+async function cliFormPrep(name) {
   const key = cliKey(name);
   const p = JSON.parse(JSON.stringify(cliProfile(name) || {}));
   p.contacts = p.contacts || CLI_ROLES.map(([role]) => ({ role, name: "", phone: "", email: "", note: "" }));
   p.quality = p.quality || {}; p.pack = p.pack || {}; p.transport = p.transport || {};
   p.claims = p.claims || {}; p.trade = p.trade || {}; p.lessons = p.lessons || [];
   p.files = p.files || [];
-  const g = f => escapeAttr(f == null ? "" : f);
-
   const claims = await cliClaimsFor(name);
   const packs = cliPackFor(name);
   const items = cliItemsFor(name, 12);
   const layout = (typeof PACK_LAYOUTS !== "undefined" && PACK_LAYOUTS && typeof packNorm === "function")
     ? PACK_LAYOUTS[packNorm(name)] : null;
+  return { key, p, claims, packs, items, layout };
+}
 
-  const { wrap, close } = erpDialog(`
-    <h3>🧭 Паспорт на клиента — ${escapeHtml(name)}</h3>
+async function cliForm(name) {
+  const prep = await cliFormPrep(name);
+  const { wrap, close } = erpDialog(cliFormHtml(name, prep, false));
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
+  cliFormWire(wrap, name, prep, close, {});
+}
+
+function cliFormHtml(name, prep, embed) {
+  const { p, claims, packs, items, layout } = prep;
+  const g = f => escapeAttr(f == null ? "" : f);
+  return `
+    ${embed ? "" : `<h3>🧭 Паспорт на клиента — ${escapeHtml(name)}</h3>`}
 
     <div class="cli-auto">
       <b>Каквото системата вече знае</b>
       <div class="cli-auto-grid">
-        <div><span class="erp-muted">Изделия (12 м.)</span><br>${items.length
+        ${embed ? "" : `<div><span class="erp-muted">Изделия (12 м.)</span><br>${items.length
           ? items.slice(0, 6).map(i => `${escapeHtml(i.code || i.name)} — ${erpNum(i.qty)} бр.`).join("<br>") + (items.length > 6 ? `<br><span class="erp-muted">…и още ${items.length - 6}</span>` : "")
-          : `<span class="erp-muted">няма продажби</span>`}</div>
+          : `<span class="erp-muted">няма продажби</span>`}</div>`}
         <div><span class="erp-muted">Опаковка (спецификации)</span><br>${packs.length
           ? packs.slice(0, 6).map(x => `${escapeHtml(x.code || "")} — ${x.piecesPerBox ? x.piecesPerBox + " бр./кашон" : ""}${x.boxesPerPallet ? " · " + x.boxesPerPallet + " каш./палет" : ""}`).join("<br>") + (packs.length > 6 ? `<br><span class="erp-muted">…и още ${packs.length - 6}</span>` : "")
           : `<span class="erp-muted">няма попълнени</span>`}
@@ -398,11 +411,16 @@ async function cliForm(name) {
     <div class="erp-dialog-actions">
       ${cliProfile(name) ? '<button class="btn" id="cp-print">🖨 Печат (А4)</button>' : ""}
       <span class="spacer" style="flex:1"></span>
-      <button class="btn" id="cp-cancel">Отказ</button>
-      <button class="btn btn-primary" id="cp-save">💾 Запази</button>
-    </div>`);
-  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
-  wrap.querySelector("#cp-cancel").addEventListener("click", close);
+      ${embed ? "" : '<button class="btn" id="cp-cancel">Отказ</button>'}
+      <button class="btn btn-primary" id="cp-save">💾 Запази${embed ? " паспорта" : ""}</button>
+    </div>`;
+}
+
+function cliFormWire(wrap, name, prep, close, opts) {
+  const { key, p, claims, packs, items } = prep;
+  const embed = !!(opts && opts.embed);
+  const cancel = wrap.querySelector("#cp-cancel");
+  if (cancel) cancel.addEventListener("click", close);
   const lessonsBox = wrap.querySelector("#cp-lessons");
   wrap.querySelector("#cp-add-lesson").addEventListener("click", () => {
     const hint = lessonsBox.querySelector(".hint"); if (hint) hint.remove();
@@ -503,7 +521,11 @@ async function cliForm(name) {
   wrap.querySelector("#cp-save").addEventListener("click", async () => {
     CLI_PROFILES.byKey = CLI_PROFILES.byKey || {};
     CLI_PROFILES.byKey[key] = collect();
-    if (await cliSave()) { close(); cliUpdateBadge(); erpRenderClientProfiles(); }
+    if (await cliSave()) {
+      close(); cliUpdateBadge();
+      // Вграден в картона (Клиенти/Доставчици) — не превключваме към таба Паспорти.
+      if (!embed) erpRenderClientProfiles();
+    }
   });
 }
 function cliFilesHtml(p) {

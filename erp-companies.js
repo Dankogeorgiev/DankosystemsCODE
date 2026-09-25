@@ -341,10 +341,9 @@ async function compCard(pid) {
   const rq = compReq(p);
   const cts = compContactsFor(p);
   const trade = compTradeFor(p);
-  // Контактите по роли от 🧭 Паспорта на клиента (Поръчки, Качество, Счетоводство…)
-  const cliP = (p.kind === "customer" && typeof cliProfile === "function") ? cliProfile(p.name) : null;
-  const cliCts = ((cliP && cliP.contacts) || []).filter(c => c && (c.name || c.phone || c.email));
-  const cliRoleLbl = r => (typeof CLI_ROLES !== "undefined" && (CLI_ROLES.find(x => x[0] === r) || [])[1]) || r;
+  // 🧭 Паспортът на клиента се вгражда ЦЕЛИЯТ (редактируем) в картона — един
+  // екран за клиента, без отделен бутон и без дублирана информация.
+  const cliPrep = (p.kind === "customer" && typeof cliFormPrep === "function") ? await cliFormPrep(p.name) : null;
   // Паспортът на доставчика — показва се ЦЕЛИЯТ наличен (не само като резерва).
   const spRaw = (p.kind === "supplier" && typeof suppProfile === "function") ? suppProfile(p.name) : null;
   const spP = (spRaw && (spRaw.person || spRaw.phone || spRaw.email || spRaw.eik || spRaw.vat || spRaw.addr || spRaw.whatWeBuy)) ? spRaw : null;
@@ -402,12 +401,6 @@ async function compCard(pid) {
         ${c.delivery_address ? `<div style="font-size:12px;margin-top:2px"><span class="erp-muted">Адрес за доставка:</span> ${escapeHtml(c.delivery_address)}</div>` : ""}
         ${c.notes ? `<div style="font-size:12px;margin-top:2px"><span class="erp-muted">Бележка:</span> ${escapeHtml(c.notes)}</div>` : ""}
       </div>`).join("") : `<p class="erp-muted">Няма закачени контакти — закачи от указателя или добави нов.</p>`}
-    ${(cliP && (cliCts.length || cliP.addr || cliP.orderChannel)) ? `<div style="border:1px solid #bae6fd;background:#f0f9ff;border-radius:10px;padding:8px 10px;margin-bottom:6px">
-      <div style="font-size:12px;font-weight:600;margin-bottom:4px">🧭 От Паспорта на клиента:</div>
-      ${cliCts.map(c => `<div style="font-size:12.5px;margin-bottom:3px"><span class="erp-muted">${escapeHtml(cliRoleLbl(c.role))}:</span> <b>${escapeHtml(c.name || "—")}</b>${c.phone ? " · 📞 " + escapeHtml(c.phone) : ""}${c.email ? ` · <span class="t-code">${escapeHtml(c.email)}</span>` : ""}${c.note ? ` <span class="erp-muted">· ${escapeHtml(c.note)}</span>` : ""}</div>`).join("")}
-      ${cliP.addr ? `<div style="font-size:12px"><span class="erp-muted">Адрес(и) за доставка:</span> ${escapeHtml(cliP.addr)}</div>` : ""}
-      ${cliP.orderChannel ? `<div style="font-size:12px"><span class="erp-muted">Как приемат поръчки:</span> ${escapeHtml(cliP.orderChannel)}</div>` : ""}
-    </div>` : ""}
     ${spP ? `<div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;padding:8px 10px;margin-bottom:6px">
       <div style="font-size:12px;font-weight:600;margin-bottom:4px">🏷 От Паспорта на доставчика:</div>
       ${(spP.person || spP.phone || spP.email) ? `<div style="font-size:12.5px;margin-bottom:3px"><b>${escapeHtml(spP.person || "—")}</b>${spP.phone ? " · 📞 " + escapeHtml(spP.phone) : ""}${spP.email ? ` · <span class="t-code">${escapeHtml(spP.email)}</span> <span class="erp-muted">(имейл за фактури)</span>` : ""}</div>` : ""}
@@ -428,10 +421,11 @@ async function compCard(pid) {
       <tbody>${trade.slice(0, 15).map(t => `<tr><td class="t-code">${escapeHtml(t.code || "")}</td><td>${escapeHtml(t.name)}</td><td class="num">${p.kind === "supplier" ? t.n : erpNum(Math.round(t.qty || 0))}</td><td>${escapeHtml(erpDMY(t.last) || "")}</td><td class="num">${t.lastPrice ? t.lastPrice + " " + escapeHtml(t.cur || "") : ""}</td></tr>`).join("")}</tbody>
     </table></div>${trade.length > 15 ? `<p class="erp-muted" style="font-size:11px">…и още ${trade.length - 15}.</p>` : ""}` : `<p class="erp-muted">Още няма документи с тази фирма.</p>`}
 
+    ${cliPrep ? `<h4 class="erp-group-head">4 · 🧭 Паспорт на клиента — доставка, качество, опаковка, транспорт</h4>` + cliFormHtml(p.name, cliPrep, true) : ""}
+
     <div class="erp-dialog-actions">
       ${p.kind === "supplier" && typeof erpMatReqCompose === "function" ? `<button class="btn" id="comp-order">🛒 Заявка за материали</button>` : ""}
       ${p.kind === "supplier" && typeof suppForm === "function" ? `<button class="btn" id="comp-passport">🏷 Паспорт (счетоводен)</button>` : ""}
-      ${p.kind === "customer" && typeof cliForm === "function" ? `<button class="btn" id="comp-clipass">🧭 Паспорт на клиента</button>` : ""}
       <span class="spacer"></span>
       <button class="btn" id="comp-close">Затвори</button>
     </div>`);
@@ -457,8 +451,7 @@ async function compCard(pid) {
   if (ord) ord.addEventListener("click", () => { close(); erpMatReqCompose([], null, p.name); });
   const pass = wrap.querySelector("#comp-passport");
   if (pass) pass.addEventListener("click", () => { close(); suppForm(p.name); });
-  const clip = wrap.querySelector("#comp-clipass");
-  if (clip) clip.addEventListener("click", () => { close(); cliForm(p.name); });
+  if (cliPrep) cliFormWire(wrap, p.name, cliPrep, close, { embed: true });
   // Ролите: пишат се веднага (един източник за пращането на фактури — Фаза Б).
   wrap.querySelectorAll(".comp-role").forEach(cb => cb.addEventListener("change", async () => {
     const cid = String(cb.dataset.cid), role = cb.dataset.role;
