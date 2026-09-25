@@ -212,6 +212,10 @@ function erpMailInvoiceHtml(o) {
 }
 async function erpMailInvoice(o) {
   const rec = (typeof erpPartnerEmail === "function") ? await erpPartnerEmail("customer", o.clientId, o.client && o.client.name) : null;
+  // 🧾 Ролята „получава фактури" от картона на фирмата е С ПРЕДИМСТВО —
+  // заявката идва от един човек, фактурата отива при друг (Данко, 25.09).
+  const invc = (typeof compInvoiceEmail === "function") ? await compInvoiceEmail(o.clientId, o.client && o.client.name) : null;
+  if (invc && rec) { rec.email = invc.email; if (invc.person) rec.person = invc.person; }
   const k = INV_KINDS[o.kind] || {};
   const en = erpMailInvoiceExport(o);
   const fmtD = d => (typeof erpDMY === "function") ? erpDMY(d) : (d || "");
@@ -226,7 +230,7 @@ async function erpMailInvoice(o) {
   erpMailComposeDialog({
     clientKey, extra, attachments,
     title: "✉ " + (k.label || "Фактура") + (o.docNo ? " № " + o.docNo : "") + " → клиента" + (en ? " (EN)" : ""),
-    to: (rec && rec.email) || "",
+    to: (invc && invc.email) || (rec && rec.email) || "",
     subject: en
       ? `${(k.en || "Invoice").charAt(0) + (k.en || "Invoice").slice(1).toLowerCase()} No ${o.docNo || ""} — DANKO SYSTEMS Ltd.`
       : `${k.bg || "Фактура"} № ${o.docNo || ""} — ${(ERP_SELLER && ERP_SELLER.name) || "Данко Системс"}`,
@@ -330,7 +334,7 @@ ${items}
 Данко Системс`;
   erpMailComposeDialog({
     title: "✉ Заявка за материали → " + (o.supplierName || "доставчик"),
-    to: (rec && rec.email) || "", subject: "Заявка за доставка на материали — Данко Системс",
+    to: (invc && invc.email) || (rec && rec.email) || "", subject: "Заявка за доставка на материали — Данко Системс",
     text, datalist: "mc-contacts",
   });
 }

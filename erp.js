@@ -518,7 +518,7 @@ function erpDispatchTab(tab) {
     case "cliprofiles": erpRenderClientProfiles(); break;
     case "payables":     erpRenderPayables(); break;
     case "receivables":  erpRenderReceivables(); break;
-    case "partners":     erpRenderPartners(); break;
+    case "partners":     (typeof erpRenderCompanies === "function" ? erpRenderCompanies() : erpRenderPartners()); break;
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
   }
