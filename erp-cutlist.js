@@ -21,12 +21,38 @@ function cutLenFromName(name) {
   const m = String(name || "").match(/L\s*=?\s*(\d{3,5})(?!\d)/i);
   return m ? Number(m[1]) : 0;
 }
-// Рекурсивно през рецептата (и полуфабрикатите): тръбите за 1 бр. изделие.
+// Рекурсивно през ЦЯЛАТА рецепта (и полуфабрикатите): тръбите за 1 бр. изделие.
 // pids събира ВСИЧКИ посетени продукти — за чертежите към изделието и децата му.
+//
+// ДВАТА реални шаблона (сверени с рецептите на Данко, 25.09):
+//  1) ТРЪБЕН ВЪЗЕЛ: дете-изделие с „Тръба … L=685" в ИМЕТО, а в собствената
+//     му рецепта — материалът (напр. „Тръба СВ 30 x 20 x 0.9", воден в КГ)
+//     + операцията „Рязане лентоотрезна". Дължината се чете от ИМЕТО на
+//     възела, спецификацията — от материала вътре, бройката = колко пъти
+//     възелът влиза в изделието. Надолу не се слиза (тръбата му е хваната).
+//  2) Изделието В ЗАЯВКАТА само е тръба („Тръба L = 1340", код 101619):
+//     същото правило, приложено на корена — дължина от името на изделието,
+//     спецификация от материала в рецептата му.
+//  Резервен път: директен тръбен материален ред (L= в името на материала,
+//  или ред в метри → мм), както досега.
 function cutTubesForProduct(pid, mult, out, depth, pids) {
   if (!pid || depth > 6) return;
   if (pids) pids.add(pid);
-  ((typeof ERP !== "undefined" && ERP.linesByProduct && ERP.linesByProduct[pid]) || []).forEach(l => {
+  const prod = (typeof ERP !== "undefined" && ERP.prodById && ERP.prodById[pid]) || null;
+  const lines = ((typeof ERP !== "undefined" && ERP.linesByProduct && ERP.linesByProduct[pid]) || []);
+  // Шаблон 1/2: „тръбен възел" — името носи L=, рецептата му носи тръбата.
+  const nameLen = prod ? cutLenFromName(prod.name) : 0;
+  const isTubeNode = prod && /тръб/i.test(prod.name || "");
+  if (nameLen && isTubeNode) {
+    const tubeMat = lines.map(l => l.material_id ? ERP.matById[l.material_id] : null).find(m => m && cutIsTube(m)) || null;
+    out.push({
+      mat: tubeMat || { id: "node-" + pid, code: (prod.code || ""), name: prod.name, group_name: "Тръби" },
+      fixedLen: nameLen, perCuts: mult,
+      viaNode: `${prod.code || ""} ${prod.name || ""}`.trim(),
+    });
+    return;
+  }
+  lines.forEach(l => {
     if (l.material_id) {
       const m = ERP.matById[l.material_id];
       if (m && cutIsTube(m)) out.push({ mat: m, perQty: (Number(l.quantity) || 0) * mult, unit: String(l.unit || m.unit || "").toLowerCase() });
@@ -49,18 +75,25 @@ function cutCollect(orders) {
     cutTubesForProduct(li.productId, 1, tubes, 0, prodIds);
     if (!tubes.length) return;
     tubes.forEach(t => {
-      let lenMm = cutLenFromName(t.mat.name);
-      let cuts = 0, note = "";
-      if (lenMm) {
-        cuts = Math.ceil(t.perQty * qty);              // бр. тръби на изделие × бройка
-      } else if (/^м|^m\b|метра/.test(t.unit)) {
-        lenMm = Math.round(t.perQty * 1000);           // метри на изделие → мм за 1 рязане
-        cuts = qty;
-        note = `${t.perQty} м на изделие`;
+      let lenMm = 0, cuts = 0, note = "";
+      if (t.fixedLen) {
+        // Тръбен възел: L от името на възела/изделието, брой = възли × бройка.
+        lenMm = t.fixedLen;
+        cuts = Math.ceil((t.perCuts || 1) * qty);
+        note = t.viaNode ? `възел ${t.viaNode}` : "";
       } else {
-        cuts = Math.ceil(t.perQty * qty);
-        note = "⚠ дължината не се чете от рецептата — провери";
-        problems.push(`${t.mat.name} (${o.ourNo || "—"} · ${li.name || li.code || ""})`);
+        lenMm = cutLenFromName(t.mat.name);
+        if (lenMm) {
+          cuts = Math.ceil(t.perQty * qty);              // бр. тръби на изделие × бройка
+        } else if (/^м|^m\b|метра/.test(t.unit)) {
+          lenMm = Math.round(t.perQty * 1000);           // метри на изделие → мм за 1 рязане
+          cuts = qty;
+          note = `${t.perQty} м на изделие`;
+        } else {
+          cuts = Math.ceil(t.perQty * qty);
+          note = "⚠ дължината не се чете от рецептата — провери";
+          problems.push(`${t.mat.name} (${o.ourNo || "—"} · ${li.name || li.code || ""})`);
+        }
       }
       const key = `${t.mat.id}|${lenMm}`;
       const r = rows.get(key) || { matId: t.mat.id, code: t.mat.code || "", name: t.mat.name || "", lenMm, cuts: 0, note, srcs: [] };
