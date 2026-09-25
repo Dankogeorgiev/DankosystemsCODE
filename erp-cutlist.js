@@ -11,6 +11,9 @@
 
 let CUT_SEL = new Set();        // избраните заявки (id-та)
 let CUT_SHOWDONE = false;
+let CUT_TAB = "cut";            // "cut" (разкрой) | "report" (отчет на производство)
+let CUT_REP_DONE = false;       // в отчета: показвай и завършените задачи
+const CUT_WS_RE = /разкрой|рязане|лентоотрезна/i;   // цехът/операцията на Бинков
 
 /* ---------- Събиране на тръбите ---------- */
 function cutIsTube(m) { return /тръб/i.test(`${m.name || ""} ${m.group_name || ""}`); }
@@ -62,7 +65,7 @@ function cutCollect(orders) {
       const key = `${t.mat.id}|${lenMm}`;
       const r = rows.get(key) || { matId: t.mat.id, code: t.mat.code || "", name: t.mat.name || "", lenMm, cuts: 0, note, srcs: [] };
       r.cuts += cuts;
-      r.srcs.push({ client: o.clientName || "?", no: o.ourNo || "—", clientNo: o.clientNo || "", prod: li.name || li.code || "?", prodQty: qty, cuts });
+      r.srcs.push({ client: o.clientName || "?", no: o.ourNo || "—", clientNo: o.clientNo || "", prodCode: li.code || "", prod: li.name || li.code || "?", prodQty: qty, cuts });
       if (note && !r.note) r.note = note;
       rows.set(key, r);
     });
@@ -117,13 +120,16 @@ async function erpCutlistOpen() {
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   try { await erpEnsureLoaded(); } catch (e) {}
   try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  if (CUT_TAB === "report") { await erpCutReport(v); return; }
   const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
     .filter(o => CUT_SHOWDONE || (o.status || "нова") !== "завършена")
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="cut-back">← Назад към заявките</button>
-      <span class="erp-count">🪚 Подготовка за производство — разкрой на тръби</span>
+      <span class="erp-count">🪚 Подготовка за производство</span>
+      <button class="btn btn-small btn-primary" id="cut-tab-cut">🪚 Разкрой</button>
+      <button class="btn btn-small" id="cut-tab-rep" title="Бърз отчет на нарязаното — влиза в СЪЩАТА верига като отчитането в Цехове (задача, дневник, поточност), без дублиране">✅ Отчет на производство</button>
       <label class="erp-inline"><input type="checkbox" id="cut-showdone" ${CUT_SHOWDONE ? "checked" : ""} /> покажи и завършените</label>
       <span class="spacer"></span>
       <button class="btn btn-primary" id="cut-gen">🪚 Генерирай разкрой (<span id="cut-cnt">${CUT_SEL.size}</span>)</button>
@@ -143,6 +149,7 @@ async function erpCutlistOpen() {
       </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Няма заявки.</td></tr>`}</tbody>
     </table>`;
   v.querySelector("#cut-back").addEventListener("click", () => erpRenderCustomerOrders());
+  v.querySelector("#cut-tab-rep").addEventListener("click", () => { CUT_TAB = "report"; erpCutlistOpen(); });
   v.querySelector("#cut-showdone").addEventListener("change", e => { CUT_SHOWDONE = e.target.checked; erpCutlistOpen(); });
   const syncCnt = () => { const c = v.querySelector("#cut-cnt"); if (c) c.textContent = CUT_SEL.size; };
   v.querySelectorAll(".cut-sel").forEach(cb => cb.addEventListener("change", () => {
@@ -188,7 +195,7 @@ async function erpCutlistGenerate() {
         <td class="num"><input type="number" class="cut-len" data-ci="${i}" value="${r.lenMm || ""}" style="width:86px;font-weight:700" />${r.note ? `<div class="erp-muted" style="font-size:10.5px">${escapeHtml(r.note)}</div>` : ""}</td>
         <td class="num"><input type="number" class="cut-cnt" data-ci="${i}" value="${r.cuts}" style="width:76px;font-weight:700" /></td>
         <td style="text-align:center"><input type="checkbox" class="cut-lbl" data-ci="${i}" checked /></td>
-        <td style="font-size:11.5px">${r.srcs.map(s => escapeHtml(`${s.client} №${s.no} · ${s.prod} — ${erpNum(s.cuts)} разреза`)).join("<br>")}</td>
+        <td style="font-size:11.5px">${r.srcs.map(s => `${escapeHtml(`${s.client} №${s.no} · `)}${s.prodCode ? `<b class="t-code">${escapeHtml(s.prodCode)}</b> · ` : ""}${escapeHtml(`${s.prod} — ${erpNum(s.cuts)} разреза`)}`).join("<br>")}</td>
         <td><button type="button" class="btn btn-small" data-cutrm="${i}" title="Махни реда">×</button></td>
       </tr>`).join("")}</tbody>
     </table></div>
@@ -234,7 +241,7 @@ async function erpCutlistGenerate() {
   wrap.querySelector("#cut-xls").addEventListener("click", () => {
     const rws = live();
     const headers = ["Тръба", "Код", "Вид/дебелина (AI)", "L за рязане (мм)", "Бройка", "За какво е"];
-    const body = rws.map(r => [r.name, r.code, aiBits(r.name), r.lenMm || "", r.cuts, r.srcs.map(s => `${s.client} №${s.no} · ${s.prod} — ${s.cuts}`).join(" | ")]);
+    const body = rws.map(r => [r.name, r.code, aiBits(r.name), r.lenMm || "", r.cuts, r.srcs.map(s => `${s.client} №${s.no} · ${s.prodCode ? s.prodCode + " " : ""}${s.prod} — ${s.cuts}`).join(" | ")]);
     reportExportXls(`razkroy-trabi-${new Date().toISOString().slice(0, 10)}`, `Разкрой тръби · ${hdr}`, [{ headers, rows: body }]);
   });
 
@@ -264,7 +271,7 @@ async function erpCutlistGenerate() {
           <div class="lbl-cl">КЛИЕНТ: <b>${escapeHtml(s.client)}</b></div>
           <div class="lbl-tube">${escapeHtml(r.name)}</div>
           <div class="lbl-len">${r.lenMm ? "L = " + erpNum(r.lenMm) + " мм" : ""} — ${erpNum(many ? s.cuts : r.cuts)} БРОЯ</div>
-          <div class="lbl-for">за: ${escapeHtml(s.prod)} × ${erpNum(s.prodQty)}</div>
+          <div class="lbl-for">за: ${s.prodCode ? "<b>" + escapeHtml(s.prodCode) + "</b> · " : ""}${escapeHtml(s.prod)} × ${erpNum(s.prodQty)}</div>
           <div class="lbl-date">рязано на ${escapeHtml(new Date().toLocaleDateString("bg-BG"))} · след рязане → следваща операция</div>
         </div>`));
     });
@@ -286,4 +293,72 @@ async function erpCutlistGenerate() {
     w.document.close();
     setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
   });
+}
+
+/* ================== ✅ ОТЧЕТ НА ПРОИЗВОДСТВО (рязането) ==================
+   Григор отчита ВМЕСТО операторите, които не работят със Системата (Бинков).
+   ЕДНА верига, нула дублиране: тук се виждат ЖИВИТЕ задачи на цеха
+   РАЗКРОЙ ТРЪБИ / Рязане / Лентоотрезна (същите, които виждат Цехове), а
+   бутонът „✅ Отчети" вика logProduction() — СЪЩАТА функция като в Цехове:
+   поточният гейт, предупреждението за материал, produced, дневникът
+   production_log (worker = Бинков) и пускането на следващата операция си
+   работят. Отчетеното тук се вижда веднага в Цехове и обратно. */
+async function erpCutReport(v) {
+  try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) {}
+  const all = (typeof TASKS !== "undefined" && Array.isArray(TASKS) ? TASKS : []);
+  const mine = all.filter(t => CUT_WS_RE.test(`${t.workshop || ""} ${t.operation || ""}`));
+  const rows = mine
+    .filter(t => CUT_REP_DONE || (typeof taskStatus === "function" ? taskStatus(t) !== "done" : true))
+    .sort((a, b) => String((taskOrderNos(b)[0]) || "").localeCompare(String((taskOrderNos(a)[0]) || ""), "bg", { numeric: true })
+      || String(a.code || "").localeCompare(String(b.code || ""), "bg"));
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <button class="btn btn-small" id="cut-back">← Назад към заявките</button>
+      <span class="erp-count">🪚 Подготовка за производство</span>
+      <button class="btn btn-small" id="cut-tab-cut">🪚 Разкрой</button>
+      <button class="btn btn-small btn-primary" id="cut-tab-rep">✅ Отчет на производство</button>
+      <label class="erp-inline">Оператор: <input type="text" id="cut-rep-worker" value="Бинков" style="width:110px" title="От чие име се пише отчетът в дневника" /></label>
+      <label class="erp-inline"><input type="checkbox" id="cut-rep-done" ${CUT_REP_DONE ? "checked" : ""} /> и завършените</label>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="cut-rep-refresh">↻ Опресни</button>
+    </div>
+    <p class="hint">Живите задачи на цеха <b>РАЗКРОЙ ТРЪБИ / Рязане / Лентоотрезна</b> — същите като в Цехове. „✅ Отчети" минава по СЪЩАТА верига (дневник, поточност, следваща операция) — без дублиране: каквото се отчете тук, го вижда цялата Система.</p>
+    <table class="report-table erp-table">
+      <thead><tr><th>Заявка</th><th>Код</th><th>Изделие / детайл</th><th>Операция</th><th>Цех</th><th class="num">План</th><th class="num">Отчетено</th><th class="num">Остава</th><th class="num">Днес бр.</th><th></th></tr></thead>
+      <tbody>${rows.map(t => {
+        const q = Number(t.qty) || 0, pr = Number(t.produced) || 0, left = Math.max(0, q - pr);
+        const done = typeof taskStatus === "function" && taskStatus(t) === "done";
+        return `<tr${done ? ' style="opacity:.55"' : ""}>
+          <td>${taskOrderNos(t).map(escapeHtml).join(", ") || "—"}<div class="erp-muted" style="font-size:11px">${escapeHtml(t.client || "")}</div></td>
+          <td class="t-code"><b>${escapeHtml(t.code || "—")}</b></td>
+          <td>${escapeHtml(t.product || "")}</td>
+          <td>${escapeHtml(t.operation || "")}</td>
+          <td>${escapeHtml(t.workshop || "")}</td>
+          <td class="num">${erpNum(q)}</td>
+          <td class="num"><b>${erpNum(pr)}</b></td>
+          <td class="num" style="font-weight:700;${left ? "color:#b45309" : "color:#166534"}">${erpNum(left)}</td>
+          <td class="num">${done ? "" : `<input type="number" class="cut-rep-qty" data-tid="${escapeAttr(String(t.id))}" min="0" step="1" placeholder="${left || ""}" style="width:80px;font-weight:700" />`}</td>
+          <td class="erp-row-actions">${done ? `<span class="erp-co-status" style="background:#dcfce7;color:#166534">✓ готово</span>` : `<button class="btn btn-small btn-primary" data-repgo="${escapeAttr(String(t.id))}">✅ Отчети</button>`}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="10" class="report-empty">Няма задачи за рязане${CUT_REP_DONE ? "" : " (пробвай отметката за завършените)"}. Задачите се раждат при пускане на заявка в производство.</td></tr>`}</tbody>
+    </table>`;
+  v.querySelector("#cut-back").addEventListener("click", () => erpRenderCustomerOrders());
+  v.querySelector("#cut-tab-cut").addEventListener("click", () => { CUT_TAB = "cut"; erpCutlistOpen(); });
+  v.querySelector("#cut-rep-refresh").addEventListener("click", () => erpCutlistOpen());
+  v.querySelector("#cut-rep-done").addEventListener("change", e => { CUT_REP_DONE = e.target.checked; erpCutlistOpen(); });
+  v.querySelectorAll("[data-repgo]").forEach(b => b.addEventListener("click", async () => {
+    const t = all.find(x => String(x.id) === b.dataset.repgo);
+    if (!t) return;
+    const inp = v.querySelector(`.cut-rep-qty[data-tid="${b.dataset.repgo}"]`);
+    const qty = Number(inp && inp.value);
+    if (!(qty > 0)) { alert("Напиши колко броя са нарязани днес."); return; }
+    const worker = (v.querySelector("#cut-rep-worker").value || "Бинков").trim();
+    const before = Number(t.produced) || 0;
+    b.disabled = true; b.textContent = "записвам…";
+    try {
+      await logProduction(t, qty, { origin: "Подготовка за производство" }, { worker });
+    } catch (e) { alert("Грешка при отчитане: " + (e.message || e)); }
+    b.disabled = false; b.textContent = "✅ Отчети";
+    if ((Number(t.produced) || 0) > before) erpCutlistOpen();   // успех → свежи числа
+  }));
 }

@@ -2327,6 +2327,10 @@ async function logProduction(t, qtyVal, extra, opts) {
   let worker;
   if (silent) {
     worker = (opts && opts.worker) || t.assignee || "Мастер";
+  } else if (opts && opts.worker) {
+    // Отчет ОТ ИМЕТО на оператор, който не отчита сам (напр. Бинков, през
+    // „Подготовка за производство") — диалозите/гейтовете си работят.
+    worker = opts.worker;
   } else if (amWorker()) {
     worker = MY_WORKER;
     if (!taskHasWorker(t, MY_WORKER)) taskSetAssignees(t, [...taskAssignees(t), MY_WORKER]);   // поемаме незаета задача
