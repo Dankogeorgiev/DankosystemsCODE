@@ -424,20 +424,6 @@ function suppFormHtml(name, prep, embed) {
       <label>Телефон <input type="text" id="sp-phone" value="${g("phone", pt.phone)}" /></label>
     </div>`}
 
-    <h4 class="erp-group-head">Данъчно третиране</h4>
-    <div class="erp-co-grid">
-      <label>Режим на доставката
-        <select id="sp-regime"><option value="">— избери —</option>${SUPP_REGIMES.map(([k, l]) => `<option value="${k}" ${p.regime === k ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
-      <label>Данъчен кредит
-        <select id="sp-credit"><option value="">— избери —</option>${SUPP_CREDIT.map(([k, l]) => `<option value="${k}" ${p.credit === k ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
-      <label>Обичайна ДДС ставка
-        <select id="sp-rate">${["", "20", "9", "0"].map(r => `<option value="${r}" ${String(p.rate || "") === r ? "selected" : ""}>${r === "" ? "— избери —" : r + "%"}</option>`).join("")}</select></label>
-      <label>Издаваме ли протокол (чл. 117)
-        <select id="sp-protocol">${[["", "— избери —"], ["no", "Не"], ["yes", "Да — при всяка доставка"]].map(([k, l]) => `<option value="${k}" ${String(p.protocol || "") === k ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>
-    </div>
-    <label>Данъчна бележка (ограничения, основания, особености)
-      <input type="text" id="sp-taxnote" value="${g("taxnote")}" placeholder="напр. леки автомобили — без данъчен кредит; чл. 163а — обратно начисляване" /></label>
-
     <h4 class="erp-group-head">Какво купуваме и къде отива</h4>
     ${(() => {
       const bought = suppBoughtFor(name);
@@ -588,7 +574,9 @@ function suppFormWire(wrap, name, prep, close, opts) {
       name: String(name).trim(),
       eik: val("eik", p.eik), vat: val("vat", p.vat), country: val("country", p.country), addr: val("addr", p.addr),
       person: val("person", p.person), email: val("email", p.email), phone: val("phone", p.phone),
-      regime: val("regime"), credit: val("credit"), rate: val("rate"), protocol: val("protocol"), taxnote: val("taxnote"),
+      // Данъчното третиране е махнато от формата (28.09, Данко) — старите
+      // стойности се пазят, за да не губи счетоводството каквото е попълнено.
+      regime: val("regime", p.regime), credit: val("credit", p.credit), rate: val("rate", p.rate), protocol: val("protocol", p.protocol), taxnote: val("taxnote", p.taxnote),
       whatWeBuy: val("what"), usedFor: val("usedfor"), supType: val("suptype"),
       where: [...wrap.querySelectorAll(".sp-where:checked")].map(c => c.value),
       whereNote: val("wherenote"),

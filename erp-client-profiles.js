@@ -291,6 +291,27 @@ async function cliForm(name) {
   cliFormWire(wrap, name, prep, close, {});
 }
 
+/* Таблицата „Контакти по роли" — отделен блок, за да може картонът
+   Клиенти/Доставчици да я показва като своя точка 2 (вместо в паспорта).
+   Записва се заедно с паспорта (cp-save чете .cli-crow[data-role] от диалога). */
+function cliRolesHtml(prep) {
+  const p = prep.p;
+  const g = f => escapeAttr(f == null ? "" : f);
+  return `<div class="cli-contacts">
+      <div class="cli-crow cli-chead"><span>Роля</span><span>Име</span><span>Телефон</span><span>Имейл</span><span>Как се работи с него</span></div>
+      ${CLI_ROLES.map(([role, label]) => {
+        const c = (p.contacts || []).find(x => x && x.role === role) || {};
+        return `<div class="cli-crow" data-role="${role}">
+          <span class="cli-role">${escapeHtml(label)}</span>
+          <input type="text" class="cp-c-name" value="${g(c.name)}" />
+          <input type="text" class="cp-c-phone" value="${g(c.phone)}" />
+          <input type="text" class="cp-c-email" value="${g(c.email)}" />
+          <input type="text" class="cp-c-note" value="${g(c.note)}" placeholder="напр. пише само мейли" />
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
 function cliFormHtml(name, prep, embed) {
   const { p, claims, packs, items, layout } = prep;
   const g = f => escapeAttr(f == null ? "" : f);
@@ -324,20 +345,7 @@ function cliFormHtml(name, prep, embed) {
       <label>Наш номер при тях (доставчик №) <input type="text" id="cp-ourno" value="${g(p.ourNoAtClient)}" /></label>
     </div>
 
-    <h4 class="erp-group-head">Контакти по роли</h4>
-    <div class="cli-contacts">
-      <div class="cli-crow cli-chead"><span>Роля</span><span>Име</span><span>Телефон</span><span>Имейл</span><span>Как се работи с него</span></div>
-      ${CLI_ROLES.map(([role, label], i) => {
-        const c = (p.contacts || []).find(x => x && x.role === role) || {};
-        return `<div class="cli-crow" data-role="${role}">
-          <span class="cli-role">${escapeHtml(label)}</span>
-          <input type="text" class="cp-c-name" value="${g(c.name)}" />
-          <input type="text" class="cp-c-phone" value="${g(c.phone)}" />
-          <input type="text" class="cp-c-email" value="${g(c.email)}" />
-          <input type="text" class="cp-c-note" value="${g(c.note)}" placeholder="напр. пише само мейли" />
-        </div>`;
-      }).join("")}
-    </div>
+    ${embed ? "" : `<h4 class="erp-group-head">Контакти по роли</h4>` + cliRolesHtml(prep)}
 
     <h4 class="erp-group-head">Качество</h4>
     <label>⚠ Често допускани грешки (по една на ред — това чете новият човек)<textarea id="cp-mistakes" rows="4" placeholder="напр. бърка се дясна с лява планка&#10;забравя се защитното фолио&#10;етикетът се лепи на грешната страна">${escapeHtml(p.quality.mistakes || "")}</textarea></label>

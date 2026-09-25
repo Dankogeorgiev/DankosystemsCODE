@@ -211,7 +211,13 @@ async function erpRenderCompanies() {
   list.forEach(p => {
     const cts = compContactsFor(p);
     const inv = cts.find(c => compRolesOf(c.id).includes("invoice"));
-    const invAlt = !inv ? (cts.find(c => (c.invoice_email || "").includes("@")) || null) : null;
+    let invAlt = !inv ? (cts.find(c => (c.invoice_email || "").includes("@")) || null) : null;
+    let invSrc = "имейл за фактури (указателя)";
+    if (!inv && !invAlt && p.kind === "customer" && typeof cliProfile === "function") {
+      const cp0 = cliProfile(p.name);
+      const fc = ((cp0 && cp0.contacts) || []).find(x => x && x.role === "finance" && (x.email || "").includes("@"));
+      if (fc) { invAlt = { invoice_email: fc.email, contact_person: fc.name || "" }; invSrc = "Счетоводство (паспорта)"; }
+    }
     const trade = hits.get(p.id) || compTradeFor(p).slice(0, 3);
     const isHit = hits.has(p.id);
     const rq = compReq(p);
@@ -225,7 +231,7 @@ async function erpRenderCompanies() {
       <td><b>${escapeHtml(p.name || "—")}</b></td>
       <td>${kindBadge(p.kind)}</td>
       <td>${escapeHtml(rq.eik || "")}</td>
-      <td>${inv ? `<span class="t-code">${escapeHtml(inv.email || "")}</span><div class="erp-muted" style="font-size:11px">${escapeHtml(inv.contact_person || "")}</div>` : invAlt ? `<span class="t-code">${escapeHtml(invAlt.invoice_email)}</span><div class="erp-muted" style="font-size:11px">имейл за фактури (указателя)</div>` : `<span class="erp-muted" title="Отвори картона и отметни роля 🧾 на контакта, който получава фактурите">—</span>`}</td>
+      <td>${inv ? `<span class="t-code">${escapeHtml(inv.email || "")}</span><div class="erp-muted" style="font-size:11px">${escapeHtml(inv.contact_person || "")}</div>` : invAlt ? `<span class="t-code">${escapeHtml(invAlt.invoice_email)}</span><div class="erp-muted" style="font-size:11px">${invSrc}</div>` : `<span class="erp-muted" title="Отвори картона и попълни имейл на „Счетоводство / плащания" в Контакти по роли">—</span>`}</td>
       <td style="max-width:190px">${peopleCell(cts, fb)}</td>
       <td style="max-width:330px;font-size:12px">${isHit ? `<span class="supp-hit">🎯 ${trade.map(t => `<b>${escapeHtml(t.name)}</b>${t.lastPrice ? ` (${t.lastPrice} ${escapeHtml(t.cur || "")})` : ""}`).join(" · ")}</span>` : `<span class="erp-muted">${trade.map(t => escapeHtml(t.name)).join(" · ") || "—"}</span>`}</td>
       <td class="erp-row-actions"><button class="btn btn-small" data-compopen="${p.id}">📇 Картон</button></td>
@@ -387,7 +393,9 @@ async function compCard(pid) {
     ${rq.fromPassport ? `<p class="erp-muted" style="font-size:11.5px;margin:2px 0">част от данните идват от 🏷 Паспорта на доставчика</p>` : ""}
     <p style="margin:4px 0"><button class="btn btn-small" id="comp-editreq">✎ Редактирай реквизитите</button> <span class="hint">фактурите/заявките четат точно тези данни</span></p>
 
-    <h4 class="erp-group-head">2 · Хора и роли (за комуникацията)</h4>
+    ${cliPrep ? `<h4 class="erp-group-head">2 · Контакти по роли (за комуникацията)</h4>
+    <p class="hint" style="margin:0 0 4px">Кой приема поръчки, кой гони качеството, кой плаща. Фактурите по имейл отиват при „Счетоводство / плащания". Записва се със 💾 Запази паспорта (долу).</p>
+    ${cliRolesHtml(cliPrep)}` : `<h4 class="erp-group-head">2 · Хора и роли (за комуникацията)</h4>
     ${cts.length ? cts.map(c => `
       <div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-bottom:6px">
         <span style="float:right;white-space:nowrap">
@@ -408,7 +416,7 @@ async function compCard(pid) {
       <datalist id="comp-freec">${freeContacts.slice(0, 400).map(c => `<option value="${escapeAttr(`${c.company || "?"} · ${c.contact_person || c.email || c.phone || c.id}`)}"></option>`).join("")}</datalist>
       <button class="btn btn-small" id="comp-linkgo">🔗 Закачи</button>
       <button class="btn btn-small" id="comp-newc">➕ Нов контакт</button>
-    </div>
+    </div>`}
 
     ${supPrep ? "" : `<h4 class="erp-group-head">3 · Търгуваме (пълни се само̀ — ${p.kind === "supplier" ? "от Покупки" : "от Заявки"})</h4>
     ${trade.length ? `<div style="max-height:240px;overflow:auto"><table class="report-table erp-table" style="font-size:12px">
@@ -475,8 +483,10 @@ async function compCard(pid) {
     document.getElementById("contacts-modal").hidden = false;
     renderContactForm(c);
   }));
-  // Закачане на съществуващ контакт към фирмата.
-  wrap.querySelector("#comp-linkgo").addEventListener("click", async () => {
+  // Закачане на съществуващ контакт към фирмата (само при доставчици —
+  // при клиентите точка 2 е „Контакти по роли" от паспорта).
+  const linkGo = wrap.querySelector("#comp-linkgo");
+  if (linkGo) linkGo.addEventListener("click", async () => {
     const val = wrap.querySelector("#comp-linkpick").value.trim();
     if (!val) return;
     const c = freeContacts.find(x => `${x.company || "?"} · ${x.contact_person || x.email || x.phone || x.id}` === val);
@@ -485,7 +495,8 @@ async function compCard(pid) {
     if (await compDirSave()) { close(); compCard(p.id); }
   });
   // Нов контакт направо от картона — влиза в СЪЩАТА таблица contacts.
-  wrap.querySelector("#comp-newc").addEventListener("click", async () => {
+  const newC = wrap.querySelector("#comp-newc");
+  if (newC) newC.addEventListener("click", async () => {
     const person = prompt("Име на човека (или отдел):", ""); if (person == null) return;
     const email = prompt("Имейл:", "") || "";
     const phone = prompt("Телефон:", "") || "";
