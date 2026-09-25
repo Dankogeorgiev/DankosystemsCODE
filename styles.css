@@ -1695,11 +1695,12 @@ tr.times-click:hover td { background: #ecfdf5; }
    редакция на контакт от картона) — затова стои по-високо от него. */
 #contacts-modal { z-index: 600; }
 
-/* ℹ️ ИНФО — плаващ бутон долу вляво + списъкът с новини */
+/* ℹ️ ИНФО — плаващ кръгъл бутон долу вляво, огледален на 🤖 асистента (.asst-fab) */
 .btn-info-fab {
-  position: fixed; left: 14px; bottom: 14px; z-index: 60;
-  background: #0e7490; color: #fff; border-color: #0e7490;
-  border-radius: 999px; padding: 8px 14px; box-shadow: 0 2px 10px rgba(15, 23, 42, .25);
+  position: fixed; left: 18px; bottom: 18px; z-index: 400;
+  width: 54px; height: 54px; border-radius: 50%; border: none;
+  background: #0e7490; color: #fff; font-size: 24px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .28);
 }
 .btn-info-fab:hover { background: #155e75; }
 .info-list { overflow: auto; padding: 12px 18px 18px; }
