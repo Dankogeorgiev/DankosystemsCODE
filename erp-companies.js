@@ -15,8 +15,47 @@
 let COMP_DIR = null;           // { links, roles }
 let compQuery = "";
 let compKindF = "";            // "" | customer | supplier
+let COMP_ACTIVE = false;       // кой изглед е на екрана: обединеният или старият
 
 function compNorm(s) { return String(s || "").toLowerCase().replace(/х/g, "x").replace(/["'„“”.,\-–—()]/g, " ").replace(/\s+/g, " ").trim(); }
+
+/* „Разхлабено" име за съпоставка: махаме правната форма (ООД/ЕООД/GmbH…) и
+   уеднаквяваме буквите, които се пишат еднакво на кирилица и латиница.
+   Така „Мултивак" от Контакти се закача за „Мултивак България ЕООД" от реквизитите. */
+const COMP_LEGAL = new Set(["ood", "eood", "ad", "ead", "et", "cd", "kd", "gmbh", "ltd", "llc", "jsc", "plc", "srl", "sro", "kft", "bv", "ag", "sa", "spa", "inc", "co", "kg", "doo", "gbr", "ohg"]);
+function compLoose(s) {
+  return String(s || "").toLowerCase()
+    .replace(/х/g, "x").replace(/а/g, "a").replace(/е/g, "e").replace(/о/g, "o").replace(/с/g, "c").replace(/р/g, "p")
+    .replace(/["'„“”.,\-–—()&\/]/g, " ").replace(/\s+/g, " ").trim()
+    .split(" ").filter(w => w && !COMP_LEGAL.has(w));
+}
+
+/* Авто-връзки контакт → фирма: точно „разхлабено" име, или единствената фирма,
+   чиито думи включват думите на контакта (или обратно). При две възможни — не
+   гадаем (закача се ръчно с 🔗 от картона). */
+let COMP_AUTO = null, COMP_AUTO_P = null, COMP_AUTO_C = null;
+function compAutoLinks() {
+  const parts = (typeof erpPartners !== "undefined" && erpPartners) || [];
+  const cts = (typeof CONTACTS !== "undefined" && CONTACTS) || [];
+  if (COMP_AUTO && COMP_AUTO_P === parts && COMP_AUTO_C === cts) return COMP_AUTO;
+  const pt = parts.map(p => ({ id: p.id, toks: compLoose(p.name) }));
+  const byKey = new Map();
+  pt.forEach(x => { const k = x.toks.join(" "); if (k && !byKey.has(k)) byKey.set(k, x.id); });
+  const subset = (a, b) => a.length && a.every(w => b.includes(w));
+  const meaty = t => t.some(w => w.length >= 4);
+  const map = new Map();
+  cts.forEach(c => {
+    const toks = compLoose(c.company);
+    if (!toks.length) return;
+    const key = toks.join(" ");
+    if (byKey.has(key)) { map.set(String(c.id), byKey.get(key)); return; }
+    if (!meaty(toks)) return;
+    const cand = pt.filter(x => x.toks.length && (subset(toks, x.toks) || subset(x.toks, toks)));
+    if (cand.length === 1) map.set(String(c.id), cand[0].id);
+  });
+  COMP_AUTO = map; COMP_AUTO_P = parts; COMP_AUTO_C = cts;
+  return map;
+}
 
 async function compDirLoad() {
   if (COMP_DIR) return COMP_DIR;
@@ -34,13 +73,13 @@ async function compDirSave() {
 const COMP_ROLES = [["invoice", "🧾 получава ФАКТУРИ"], ["orders", "📨 получава поръчки/запитвания"], ["inbound", "📥 праща ни заявки"]];
 function compRolesOf(cid) { return (COMP_DIR && COMP_DIR.roles[String(cid)]) || []; }
 
-/* Контактите на фирмата: ръчно закачените + авто-мач по име на фирмата. */
+/* Контактите на фирмата: ръчно закачените + авто-мач по „разхлабено" име. */
 function compContactsFor(p) {
-  const n = compNorm(p.name);
+  const auto = compAutoLinks();
   return ((typeof CONTACTS !== "undefined" && CONTACTS) || []).filter(c => {
     const manual = COMP_DIR && COMP_DIR.links[String(c.id)];
     if (manual != null) return String(manual) === String(p.id);
-    return compNorm(c.company) === n;
+    return auto.get(String(c.id)) === p.id;
   });
 }
 
@@ -75,6 +114,7 @@ function compTradeFor(p) {
 
 /* ---------- Списъкът ---------- */
 async function erpRenderCompanies() {
+  COMP_ACTIVE = true;
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   try { if (typeof erpPartners === "undefined" || !erpPartners) await erpLoadPartners(); } catch (e) { try { await erpLoadPartners(); } catch (e2) {} }
@@ -93,7 +133,7 @@ async function erpRenderCompanies() {
       const cts = compContactsFor(p);
       const trade = compTradeFor(p);
       const hay = compNorm([p.name, p.eik, p.vat, p.mol, p.city, p.street,
-        cts.map(c => `${c.contact_person} ${c.email} ${c.phone} ${c.notes}`).join(" "),
+        cts.map(c => `${c.contact_person} ${c.email} ${c.phone} ${c.scope} ${c.notes}`).join(" "),
         trade.map(t => `${t.code} ${t.name}`).join(" ")].join(" "));
       if (!words.every(w => hay.includes(w))) return false;
       const th = trade.filter(t => { const h = compNorm(t.code + " " + t.name); return words.some(w => h.includes(w)); });
@@ -101,17 +141,69 @@ async function erpRenderCompanies() {
       return true;
     });
   }
-  list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "bg"));
 
-  // Контакти-фирми, които ги НЯМА в partners (само указател) — броим ги за инфо.
-  const partnerNames = new Set((erpPartners || []).map(p => compNorm(p.name)));
-  const orphanCompanies = [...new Set(((typeof CONTACTS !== "undefined" && CONTACTS) || [])
-    .filter(c => (c.company || "").trim() && !partnerNames.has(compNorm(c.company)) && !(COMP_DIR.links[String(c.id)] != null))
-    .map(c => c.company.trim()))];
+  // Фирми, които са САМО в указателя Контакти (без реквизити) — показваме ги
+  // като редове в сиво, с хората и телефоните им, за да не „изчезва" нищо.
+  const auto = compAutoLinks();
+  const orphMap = new Map();   // normName -> { name, kind, cts: [] }
+  (((typeof CONTACTS !== "undefined" && CONTACTS) || [])).forEach(c => {
+    if (!(c.company || "").trim()) return;
+    if (COMP_DIR.links[String(c.id)] != null || auto.has(String(c.id))) return;
+    const k = compNorm(c.company);
+    if (!orphMap.has(k)) orphMap.set(k, { key: k, name: c.company.trim(), kind: "", cts: [] });
+    const o = orphMap.get(k);
+    o.cts.push(c);
+    if (/^Доставчик/.test(c.category || "")) o.kind = o.kind || "supplier";
+    if (/^Клиент/.test(c.category || "")) o.kind = o.kind || "customer";
+  });
+  let orphans = [...orphMap.values()];
+  if (compKindF) orphans = orphans.filter(o => o.kind === compKindF);
+  if (words.length) {
+    orphans = orphans.filter(o => {
+      const hay = compNorm([o.name, o.cts.map(c => `${c.contact_person} ${c.email} ${c.phone} ${c.scope} ${c.notes} ${c.category}`).join(" ")].join(" "));
+      return words.every(w => hay.includes(w));
+    });
+  }
+  window.COMP_ORPH = orphMap;   // за картона на фирма от указателя
+
+  const peopleCell = cts => {
+    if (!cts.length) return `<span class="erp-muted">—</span>`;
+    const c0 = cts[0];
+    return `${escapeHtml(c0.contact_person || c0.email || "—")}${c0.phone ? `<div class="erp-muted" style="font-size:11px">📞 ${escapeHtml(c0.phone)}</div>` : ""}${cts.length > 1 ? `<div class="erp-muted" style="font-size:11px">+ още ${cts.length - 1}</div>` : ""}`;
+  };
+  const kindBadge = k => k === "supplier" ? `<span class="crmb crmb-orange">доставчик</span>` : (k === "customer" ? `<span class="crmb crmb-blue">клиент</span>` : `<span class="erp-muted">указател</span>`);
+  const rowsData = [];
+  list.forEach(p => {
+    const cts = compContactsFor(p);
+    const inv = cts.find(c => compRolesOf(c.id).includes("invoice"));
+    const trade = hits.get(p.id) || compTradeFor(p).slice(0, 3);
+    const isHit = hits.has(p.id);
+    rowsData.push({ name: String(p.name || ""), html: `<tr class="erp-clickable" data-comp="${p.id}">
+      <td><b>${escapeHtml(p.name || "—")}</b></td>
+      <td>${kindBadge(p.kind)}</td>
+      <td>${escapeHtml(p.eik || "")}</td>
+      <td>${inv ? `<span class="t-code">${escapeHtml(inv.email || "")}</span><div class="erp-muted" style="font-size:11px">${escapeHtml(inv.contact_person || "")}</div>` : `<span class="erp-muted" title="Отвори картона и отметни роля 🧾 на контакта, който получава фактурите">—</span>`}</td>
+      <td style="max-width:190px">${peopleCell(cts)}</td>
+      <td style="max-width:330px;font-size:12px">${isHit ? `<span class="supp-hit">🎯 ${trade.map(t => `<b>${escapeHtml(t.name)}</b>${t.lastPrice ? ` (${t.lastPrice} ${escapeHtml(t.cur || "")})` : ""}`).join(" · ")}</span>` : `<span class="erp-muted">${trade.map(t => escapeHtml(t.name)).join(" · ") || "—"}</span>`}</td>
+      <td class="erp-row-actions"><button class="btn btn-small" data-compopen="${p.id}">📇 Картон</button></td>
+    </tr>` });
+  });
+  orphans.forEach(o => {
+    rowsData.push({ name: o.name, html: `<tr class="erp-clickable" data-orph="${escapeAttr(o.key)}" style="opacity:.78">
+      <td><b>${escapeHtml(o.name)}</b><div class="erp-muted" style="font-size:11px">само в указателя — без реквизити</div></td>
+      <td>${kindBadge(o.kind)}</td>
+      <td><span class="erp-muted">—</span></td>
+      <td><span class="erp-muted">—</span></td>
+      <td style="max-width:190px">${peopleCell(o.cts)}</td>
+      <td style="max-width:330px;font-size:12px"><span class="erp-muted">—</span></td>
+      <td class="erp-row-actions"><button class="btn btn-small" data-orphopen="${escapeAttr(o.key)}">📇 Картон</button></td>
+    </tr>` });
+  });
+  rowsData.sort((a, b) => a.name.localeCompare(b.name, "bg"));
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">${list.length} фирми</span>
+      <span class="erp-count">${list.length + orphans.length} фирми${orphans.length ? ` (${orphans.length} само от указателя)` : ""}</span>
       <input type="search" id="comp-q" placeholder="🔎 фирма / продукт / контакт… после Enter" value="${escapeAttr(compQuery)}" style="width:270px;flex:0 0 auto" autocomplete="off" title="Търси и в търгуваното: „шайба" → доставчикът; „механизъм" → клиентите, които го купуват" />
       <button class="btn btn-small" id="comp-go">🔎</button>
       <select id="comp-kind" style="width:auto">
@@ -126,24 +218,10 @@ async function erpRenderCompanies() {
       <button class="btn btn-small" id="comp-old" title="Старият изглед (директориите поотделно)">⚙ Стар изглед</button>
       <button class="btn btn-small btn-primary" id="comp-add">+ Нова фирма</button>
     </div>
-    <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки).${orphanCompanies.length ? ` · <span class="erp-muted">${orphanCompanies.length} фирми са само в стария указател (без реквизити) — виж ги през 📇 Стар указател.</span>` : ""}</p>
+    <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити.</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Фирма</th><th>Тип</th><th>ЕИК</th><th>🧾 Фактури на</th><th>Хора</th><th>Търгуваме (авто)</th><th></th></tr></thead>
-      <tbody>${list.map(p => {
-        const cts = compContactsFor(p);
-        const inv = cts.find(c => compRolesOf(c.id).includes("invoice"));
-        const trade = hits.get(p.id) || compTradeFor(p).slice(0, 3);
-        const isHit = hits.has(p.id);
-        return `<tr class="erp-clickable" data-comp="${p.id}">
-          <td><b>${escapeHtml(p.name || "—")}</b></td>
-          <td>${p.kind === "supplier" ? `<span class="crmb crmb-orange">доставчик</span>` : `<span class="crmb crmb-blue">клиент</span>`}</td>
-          <td>${escapeHtml(p.eik || "")}</td>
-          <td>${inv ? `<span class="t-code">${escapeHtml(inv.email || "")}</span><div class="erp-muted" style="font-size:11px">${escapeHtml(inv.contact_person || "")}</div>` : `<span class="erp-muted" title="Отвори картона и отметни роля 🧾 на контакта, който получава фактурите">—</span>`}</td>
-          <td class="num">${cts.length || `<span class="erp-muted">0</span>`}</td>
-          <td style="max-width:330px;font-size:12px">${isHit ? `<span class="supp-hit">🎯 ${trade.map(t => `<b>${escapeHtml(t.name)}</b>${t.lastPrice ? ` (${t.lastPrice} ${escapeHtml(t.cur || "")})` : ""}`).join(" · ")}</span>` : `<span class="erp-muted">${trade.map(t => escapeHtml(t.name)).join(" · ") || "—"}</span>`}</td>
-          <td class="erp-row-actions"><button class="btn btn-small" data-compopen="${p.id}">📇 Картон</button></td>
-        </tr>`;
-      }).join("") || `<tr><td colspan="7" class="report-empty">Няма фирми по този филтър.</td></tr>`}</tbody>
+      <thead><tr><th>Фирма</th><th>Тип</th><th>ЕИК</th><th>🧾 Фактури на</th><th>Хора (лице · тел.)</th><th>Търгуваме (авто)</th><th></th></tr></thead>
+      <tbody>${rowsData.map(r => r.html).join("") || `<tr><td colspan="7" class="report-empty">Няма фирми по този филтър.</td></tr>`}</tbody>
     </table>`;
   const doSearch = () => { compQuery = (v.querySelector("#comp-q") || {}).value || ""; erpRenderCompanies(); };
   const qEl = v.querySelector("#comp-q");
@@ -160,6 +238,36 @@ async function erpRenderCompanies() {
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null));
   v.querySelectorAll("[data-compopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCard(Number(b.dataset.compopen)); }));
   v.querySelectorAll("tr[data-comp]").forEach(tr => tr.addEventListener("click", () => compCard(Number(tr.dataset.comp))));
+  v.querySelectorAll("[data-orphopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCardOrphan(b.dataset.orphopen); }));
+  v.querySelectorAll("tr[data-orph]").forEach(tr => tr.addEventListener("click", () => compCardOrphan(tr.dataset.orph)));
+}
+
+/* Картон на фирма, която е САМО в указателя (без ред в реквизитите):
+   показва хората ѝ и предлага да ѝ се създадат реквизити с едно цъкане. */
+function compCardOrphan(key) {
+  const o = (window.COMP_ORPH && window.COMP_ORPH.get(key)) || null;
+  if (!o) { alert("Фирмата не е намерена."); return; }
+  const c0 = o.cts[0] || {};
+  const { wrap, close } = erpDialog(`
+    <h3>📇 ${escapeHtml(o.name)} <span class="erp-muted" style="font-size:13px">само в указателя</span></h3>
+    <p class="hint">Тази фирма още няма реквизити (ЕИК, ДДС, адрес) — има само хора в указателя Контакти. За фактури/заявки ѝ трябват реквизити.</p>
+    ${o.cts.map(c => `
+      <div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-bottom:6px">
+        <b>${escapeHtml(c.contact_person || "—")}</b> · <span class="t-code">${escapeHtml(c.email || "без имейл")}</span>${c.phone ? " · 📞 " + escapeHtml(c.phone) : ""}
+        ${c.category ? `<span class="erp-muted" style="font-size:11px"> · ${escapeHtml(c.category)}</span>` : ""}
+        ${c.scope ? `<div class="erp-muted" style="font-size:11.5px;margin-top:2px">${escapeHtml(c.scope)}</div>` : ""}
+        ${c.notes ? `<div class="erp-muted" style="font-size:11.5px;margin-top:2px">${escapeHtml(String(c.notes).slice(0, 200))}</div>` : ""}
+      </div>`).join("")}
+    <div class="erp-dialog-actions">
+      <button class="btn btn-primary" id="orph-create">➕ Създай реквизити (нова фирма)</button>
+      <span class="spacer"></span>
+      <button class="btn" id="orph-close">Затвори</button>
+    </div>`);
+  wrap.querySelector("#orph-close").addEventListener("click", close);
+  wrap.querySelector("#orph-create").addEventListener("click", () => {
+    close();
+    erpEditPartner(null, { kind: o.kind || "customer", name: o.name, person: c0.contact_person || "", phone: c0.phone || "", email: c0.email || "" });
+  });
 }
 
 /* ---------- Картонът ---------- */
@@ -183,10 +291,11 @@ async function compCard(pid) {
     <h4 class="erp-group-head">2 · Хора и роли (за комуникацията)</h4>
     ${cts.length ? cts.map(c => `
       <div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-bottom:6px">
-        <b>${escapeHtml(c.contact_person || "—")}</b> · <span class="t-code">${escapeHtml(c.email || "без имейл")}</span>${c.phone ? " · " + escapeHtml(c.phone) : ""}
+        <b>${escapeHtml(c.contact_person || "—")}</b> · <span class="t-code">${escapeHtml(c.email || "без имейл")}</span>${c.phone ? " · 📞 " + escapeHtml(c.phone) : ""}
         ${c.category ? `<span class="erp-muted" style="font-size:11px"> · ${escapeHtml(c.category)}</span>` : ""}
         <div style="margin-top:4px;display:flex;gap:12px;flex-wrap:wrap">${roleChips(c)}</div>
-        ${c.notes ? `<div class="erp-muted" style="font-size:11.5px;margin-top:2px">${escapeHtml(String(c.notes).slice(0, 140))}</div>` : ""}
+        ${c.scope ? `<div class="erp-muted" style="font-size:11.5px;margin-top:2px">${escapeHtml(c.scope)}</div>` : ""}
+        ${c.notes ? `<div class="erp-muted" style="font-size:11.5px;margin-top:2px">${escapeHtml(String(c.notes).slice(0, 200))}</div>` : ""}
       </div>`).join("") : `<p class="erp-muted">Няма закачени контакти — закачи от указателя или добави нов.</p>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input type="text" id="comp-linkpick" list="comp-freec" placeholder="🔗 закачи съществуващ контакт…" style="width:250px;flex:0 0 auto" autocomplete="off" />

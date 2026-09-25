@@ -73,6 +73,7 @@ async function erpLoadPartners() {
 }
 
 async function erpRenderPartners() {
+  if (typeof COMP_ACTIVE !== "undefined") COMP_ACTIVE = false;
   const v = erpView();
   if (!erpPartners) {
     v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
@@ -131,11 +132,19 @@ async function erpRenderPartners() {
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpEditPartner(Number(tr.dataset.id))));
 }
 
-function erpEditPartner(id) {
+/* След запис/изтриване се връщаме в изгледа, от който е дошъл човекът:
+   обединения (Клиенти/Доставчици) или стария списък с реквизити. */
+function erpPartnersBack() {
+  if (typeof COMP_ACTIVE !== "undefined" && COMP_ACTIVE && typeof erpRenderCompanies === "function") erpRenderCompanies();
+  else erpRenderPartners();
+}
+
+function erpEditPartner(id, preset) {
   const p = id ? (erpPartners || []).find(x => x.id === id) : null;
-  const kind = p ? p.kind : erpPartnerKind;
+  const kind = p ? p.kind : (preset && preset.kind) || erpPartnerKind;
   const lbl = kind === "customer" ? "клиент" : "доставчик";
-  const g = (k) => p ? escapeAttr(p[k] || "") : "";
+  const src = p || preset || null;
+  const g = (k) => src ? escapeAttr(src[k] || "") : "";
   const { wrap, close } = erpDialog(`
     <h3>${p ? "Редакция на " + lbl : "Нов " + lbl}${p ? ` <span class="erp-muted">№${p.id}</span>` : ""}</h3>
     <label>Име / Фирма<input type="text" id="pt-name" value="${g("name")}" /></label>
@@ -146,7 +155,7 @@ function erpEditPartner(id) {
     <label>Имейл<input type="text" id="pt-email" value="${g("email")}" /></label>
     <label>Град<input type="text" id="pt-city" value="${g("city")}" /></label>
     <label>Улица / адрес<input type="text" id="pt-street" value="${g("street")}" /></label>
-    <label>Държава<input type="text" id="pt-country" value="${p ? escapeAttr(p.country || "") : "BG"}" /></label>
+    <label>Държава<input type="text" id="pt-country" value="${p ? escapeAttr(p.country || "") : escapeAttr((preset && preset.country) || "BG")}" /></label>
     <label>ДДС №<input type="text" id="pt-vat" value="${g("vat")}" /></label>
     <label>Забележка<input type="text" id="pt-note" value="${g("note")}" /></label>
     <div class="erp-dialog-actions">
@@ -165,13 +174,13 @@ function erpEditPartner(id) {
     wrap.querySelector("#pt-status").textContent = "Записва…";
     const { error } = await erpPartnerSaveSafe(p, payload);
     if (error) { wrap.querySelector("#pt-status").textContent = "⚠ " + error.message; return; }
-    close(); erpPartners = null; erpRenderPartners();
+    close(); erpPartners = null; erpPartnersBack();
   });
   const del = wrap.querySelector("#pt-del");
   if (del) del.addEventListener("click", async () => {
     if (!confirm("Да изтрия ли този запис?")) return;
     const { error } = await sb.from("partners").delete().eq("id", p.id);
     if (error) { alert("Грешка: " + error.message); return; }
-    close(); erpPartners = null; erpRenderPartners();
+    close(); erpPartners = null; erpPartnersBack();
   });
 }
