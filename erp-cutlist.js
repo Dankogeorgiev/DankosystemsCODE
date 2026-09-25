@@ -111,6 +111,75 @@ function cutCollect(orders) {
   return { rows: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "bg") || a.lenMm - b.lenMm), problems, prodIds: [...prodIds] };
 }
 
+/* ---------- 📂 Запазени разкрои (app_config "cut_saved") ----------
+   Всеки „🖨 Печат за Бинков" се запазва тук. От списъка се отмятат няколко
+   листа и „Общ печат" ги обединява: групирано ПО ТРЪБА (първо всичко от
+   една тръба, после от следващата), вътре по дължина. */
+let CUT_SAVED = null;
+async function cutSavedLoad() {
+  if (CUT_SAVED) return CUT_SAVED;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "cut_saved").maybeSingle();
+    CUT_SAVED = (data && data.data && data.data.list) || [];
+  } catch (e) { CUT_SAVED = []; }
+  return CUT_SAVED;
+}
+async function cutSavedSave() {
+  try {
+    await sb.from("app_config").upsert({ id: "cut_saved", data: { list: CUT_SAVED || [] }, updated_at: new Date().toISOString() });
+  } catch (e) { /* тихо — печатът не бива да пада заради записа */ }
+}
+async function cutSavedAdd(sheet) {
+  await cutSavedLoad();
+  CUT_SAVED.unshift(sheet);
+  CUT_SAVED = CUT_SAVED.slice(0, 30);   // пазим последните 30
+  await cutSavedSave();
+}
+// Ключ за групиране по тръба: малки букви, х→x, запетая→точка, без излишни интервали.
+function cutTubeKey(name) {
+  return String(name || "").toLowerCase().replace(/х/g, "x").replace(/,/g, ".").replace(/\s+/g, " ").trim();
+}
+/* Общ печат на 1..N запазени листа: слива еднаквите (тръба+дължина), групира по тръба. */
+function cutMergedPrint(sheets) {
+  const merged = new Map();
+  sheets.forEach(s => (s.rows || []).forEach(r => {
+    const k = `${cutTubeKey(r.name)}|${Number(r.lenMm) || 0}`;
+    const m = merged.get(k) || { name: r.name, lenMm: Number(r.lenMm) || 0, cuts: 0, srcs: [], nodeCodes: [] };
+    m.cuts += Number(r.cuts) || 0;
+    (r.srcs || []).forEach(x => m.srcs.push(x));
+    (r.nodeCodes || []).forEach(c => { if (c && !m.nodeCodes.includes(c)) m.nodeCodes.push(c); });
+    merged.set(k, m);
+  }));
+  const groups = new Map();
+  [...merged.values()].forEach(r => {
+    const g = cutTubeKey(r.name);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  });
+  const ordered = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], "bg"));
+  ordered.forEach(([, rows]) => rows.sort((a, b) => a.lenMm - b.lenMm));
+  // „✅ Отчет на производство" гледа кодовете от ПОСЛЕДНИЯ пуснат печат.
+  try {
+    const codes = [...new Set([...merged.values()].flatMap(r => r.nodeCodes.concat((r.srcs || []).map(s => s.prodCode))).filter(Boolean))];
+    const hdr = sheets.map(s => s.hdr).join(" + ");
+    localStorage.setItem("cut_last_codes", JSON.stringify({ at: new Date().toISOString(), hdr, codes }));
+  } catch (e) {}
+  const hdrTxt = sheets.map(s => s.hdr).join("  +  ");
+  const totCuts = [...merged.values()].reduce((s, r) => s + r.cuts, 0);
+  const body = `<style>.cutp td,.cutp th{font-size:17px;padding:8px 10px}.cutp .len{font-size:22px;font-weight:800}.cutp .cnt{font-size:22px;font-weight:800}.cutp .kod{font-size:13px;color:#333}.cutp .grp td{background:#e2e8f0;font-size:19px;font-weight:800;border-top:3px solid #000}</style>
+    <div class="head"><div><h1>РАЗКРОЙ ТРЪБИ — ОБЩ (${sheets.length} ${sheets.length === 1 ? "лист" : "листа"})</h1><div>${escapeHtml(hdrTxt)}</div></div>
+    <div style="text-align:right">Дата: <b>${escapeHtml(new Date().toLocaleDateString("bg-BG"))}</b><br>Изготвил: ${escapeHtml((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "")}<br>Общо разрези: <b>${erpNum(totCuts)}</b></div></div>
+    <table class="cutp"><thead><tr><th>Тръба</th><th>Код / за какво е</th><th>L за рязане</th><th>Бройка</th><th>Готово ✓</th></tr></thead>
+    <tbody>${ordered.map(([, rows]) => `
+      <tr class="grp"><td colspan="5">▶ ${escapeHtml(rows[0].name)}</td></tr>
+      ${rows.map(r => {
+        const kod = (r.srcs || []).map(s => `<b>${escapeHtml(s.nodeCode || s.prodCode || "")}</b> ${escapeHtml(s.prod || "")} · ${escapeHtml(s.client || "")} №${escapeHtml(String(s.no || ""))} — ${erpNum(s.cuts)}`).join("<br>")
+          || (r.nodeCodes || []).map(c => `<b>${escapeHtml(c)}</b>`).join(" ");
+        return `<tr><td></td><td class="kod">${kod}</td><td class="len">${r.lenMm ? erpNum(r.lenMm) + " мм" : "?"}</td><td class="cnt">${erpNum(r.cuts)} бр.</td><td style="width:70px"></td></tr>`;
+      }).join("")}`).join("")}</tbody></table>`;
+  if (typeof invPrintWindow === "function") invPrintWindow("Разкрой тръби — общ", body, "bg", { noLogo: false, noMade: true });
+}
+
 /* Чертежите на въвлечените изделия и полуфабрикати (products.drawings). */
 async function cutDrawings(prodIds) {
   if (!prodIds.length) return [];
@@ -158,6 +227,7 @@ async function erpCutlistOpen() {
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   try { await erpEnsureLoaded(); } catch (e) {}
   try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  try { await cutSavedLoad(); } catch (e) {}
   if (CUT_TAB === "report") { await erpCutReport(v); return; }
   const cutQn = String(CUT_Q || "").toLowerCase().trim();
   const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
@@ -188,6 +258,26 @@ async function erpCutlistOpen() {
         <td class="num">${(o.lines || []).length}</td>
         <td>${typeof erpCOStatusCell === "function" ? erpCOStatusCell(o) : escapeHtml(o.status || "нова")}</td>
       </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Няма заявки.</td></tr>`}</tbody>
+    </table>
+
+    <h4 class="erp-group-head" style="margin-top:14px">📂 Запазени разкрои — обедини няколко в един печат</h4>
+    <p class="hint">Всеки „🖨 Печат за Бинков" се запазва тук автоматично. Отметни 2-3-4 листа и цъкни „Общ печат" — редовете се обединяват и подреждат ПО ТРЪБА (първо всичко от една тръба, после от следващата), вътре по дължина; еднаквите дължини от различни заявки се събират в един ред.</p>
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <button class="btn btn-primary" id="cut-merge" disabled>🖨 Общ печат — групиран по тръба (<span id="cut-mcnt">0</span>)</button>
+    </div>
+    <table class="report-table erp-table">
+      <thead><tr><th></th><th>Кога</th><th>Заявки (лист)</th><th class="num">Редове</th><th class="num">Разрези</th><th></th></tr></thead>
+      <tbody>${(CUT_SAVED || []).map(s => `<tr>
+        <td><input type="checkbox" class="cut-msel" data-sid="${escapeAttr(s.id)}" /></td>
+        <td>${escapeHtml(erpDMY(String(s.at || "").slice(0, 10)) || "")} <span class="erp-muted">${escapeHtml(String(s.at || "").slice(11, 16))}</span></td>
+        <td>${escapeHtml(s.hdr || "—")}</td>
+        <td class="num">${(s.rows || []).length}</td>
+        <td class="num">${erpNum((s.rows || []).reduce((x, r) => x + (Number(r.cuts) || 0), 0))}</td>
+        <td class="erp-row-actions" style="white-space:nowrap">
+          <button class="btn btn-small cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай само този лист (групиран по тръба)">🖨</button>
+          <button class="btn btn-small cut-mdel" data-sid="${escapeAttr(s.id)}" title="Изтрий листа">🗑</button>
+        </td>
+      </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Още няма запазени разкрои — пусни „🖨 Печат за Бинков" и листът ще се появи тук.</td></tr>`}</tbody>
     </table>`;
   v.querySelector("#cut-back").addEventListener("click", () => erpRenderCustomerOrders());
   v.querySelector("#cut-tab-rep").addEventListener("click", () => { CUT_TAB = "report"; erpCutlistOpen(); });
@@ -207,6 +297,32 @@ async function erpCutlistOpen() {
     const cb = tr.querySelector(".cut-sel"); cb.checked = !cb.checked; cb.dispatchEvent(new Event("change"));
   }));
   v.querySelector("#cut-gen").addEventListener("click", erpCutlistGenerate);
+
+  // 📂 Запазените разкрои: избор, общ печат, единичен печат, изтриване.
+  const mSync = () => {
+    const n = v.querySelectorAll(".cut-msel:checked").length;
+    const c = v.querySelector("#cut-mcnt"); if (c) c.textContent = n;
+    const b = v.querySelector("#cut-merge"); if (b) b.disabled = !n;
+  };
+  v.querySelectorAll(".cut-msel").forEach(cb => cb.addEventListener("change", mSync));
+  const mBtn = v.querySelector("#cut-merge");
+  if (mBtn) mBtn.addEventListener("click", () => {
+    const ids = [...v.querySelectorAll(".cut-msel:checked")].map(cb => cb.dataset.sid);
+    const sheets = (CUT_SAVED || []).filter(s => ids.includes(s.id));
+    if (!sheets.length) return;
+    cutMergedPrint(sheets);
+  });
+  v.querySelectorAll(".cut-mprint").forEach(b => b.addEventListener("click", () => {
+    const s = (CUT_SAVED || []).find(x => x.id === b.dataset.sid);
+    if (s) cutMergedPrint([s]);
+  }));
+  v.querySelectorAll(".cut-mdel").forEach(b => b.addEventListener("click", async () => {
+    const s = (CUT_SAVED || []).find(x => x.id === b.dataset.sid);
+    if (!s || !confirm(`Да изтрия ли запазения разкрой „${s.hdr || ""}“?`)) return;
+    CUT_SAVED = (CUT_SAVED || []).filter(x => x.id !== b.dataset.sid);
+    await cutSavedSave();
+    erpCutlistOpen();
+  }));
 }
 
 async function erpCutlistGenerate() {
@@ -291,8 +407,18 @@ async function erpCutlistGenerate() {
     reportExportXls(`razkroy-trabi-${new Date().toISOString().slice(0, 10)}`, `Разкрой тръби · ${hdr}`, [{ headers, rows: body }]);
   });
 
-  wrap.querySelector("#cut-print").addEventListener("click", () => {
+  wrap.querySelector("#cut-print").addEventListener("click", async () => {
     const rws = live();
+    // 📂 Листът се ЗАПАЗВА (app_config cut_saved) — после може да се обединява
+    // с други в един общ печат, групиран по тръба.
+    try {
+      await cutSavedAdd({
+        id: String(Date.now()), at: new Date().toISOString(), hdr,
+        by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
+        rows: rws.map(r => ({ code: r.code || "", name: r.name, lenMm: r.lenMm, cuts: r.cuts, note: r.note || "", srcs: r.srcs || [], nodeCodes: r.nodeCodes || [] })),
+        problems,
+      });
+    } catch (e) { /* тихо */ }
     // Запомняме кодовете, ПУСНАТИ ЗА ПЕЧАТ — „✅ Отчет на производство"
     // показва само техните задачи (нищо чуждо).
     try {

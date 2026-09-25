@@ -33,6 +33,15 @@
   };
   const showBanner = () => {
     if (document.getElementById("au-banner") || !document.body) return;
+    // Банерът излиза най-много ВЕДНЪЖ НА ДЕН на устройство (качват се по 20
+    // версии дневно — иначе ще свети постоянно). Обновяването НЕ чака банера:
+    // при скриване на екрана/смяна на таб то пак става тихо и веднага.
+    try {
+      const d = new Date();
+      const today = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      if (localStorage.getItem("au-banner-day") === today) return;
+      localStorage.setItem("au-banner-day", today);
+    } catch (e) {}
     const b = document.createElement("div");
     b.id = "au-banner";
     b.textContent = "🔄 Има нова версия на системата — натисни за обновяване";
