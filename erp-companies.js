@@ -348,6 +348,28 @@ async function compCard(pid) {
   // Паспортът на доставчика — показва се ЦЕЛИЯТ наличен (не само като резерва).
   const spRaw = (p.kind === "supplier" && typeof suppProfile === "function") ? suppProfile(p.name) : null;
   const spP = (spRaw && (spRaw.person || spRaw.phone || spRaw.email || spRaw.eik || spRaw.vat || spRaw.addr || spRaw.whatWeBuy)) ? spRaw : null;
+  // Реквизити от ПОСЛЕДНАТА фактура на клиента (вкл. импорта от GenCloud) —
+  // всяка фактура пази снимка на клиента с ЕИК, МОЛ и адрес.
+  let lastInv = null;
+  if (p.kind === "customer") {
+    try {
+      if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+      const nrm = compNorm(p.name);
+      const docs = ((typeof erpInvoices !== "undefined" && erpInvoices) || [])
+        .filter(o => o.client && (o.clientId === p.id || compNorm(o.client.name) === nrm))
+        .sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+      if (docs.length) lastInv = { cl: docs[0].client, docNo: docs[0].docNo || "", date: docs[0].issueDate || "" };
+    } catch (e) {}
+  }
+  const li = (lastInv && lastInv.cl) || {};
+  const liFix = {};
+  if (!p.mol && li.person) liFix.mol = li.person;
+  if (!p.eik && li.eik) liFix.eik = li.eik;
+  if (!p.vat && li.vat) liFix.vat = li.vat;
+  if (!p.city && li.city) liFix.city = li.city;
+  if (!p.street && li.street) liFix.street = li.street;
+  if (!p.country && li.country) liFix.country = li.country;
+  const liHas = Object.keys(liFix).length > 0;
   const roleChips = c => COMP_ROLES.map(([k, l]) =>
     `<label class="erp-inline" style="font-size:12px"><input type="checkbox" class="comp-role" data-cid="${c.id}" data-role="${k}" ${compRolesOf(c.id).includes(k) ? "checked" : ""} /> ${l}</label>`).join(" ");
   const freeContacts = ((typeof CONTACTS !== "undefined" && CONTACTS) || []).filter(c => !cts.includes(c));
@@ -355,9 +377,10 @@ async function compCard(pid) {
     <h3>📇 ${escapeHtml(p.name || "—")} ${p.kind === "supplier" ? `<span class="crmb crmb-orange">доставчик</span>` : `<span class="crmb crmb-blue">клиент</span>`}</h3>
 
     <h4 class="erp-group-head">1 · Реквизити (за документите)</h4>
-    <div class="crm-kv"><span>ЕИК / ДДС №</span><b>${escapeHtml(rq.eik || "—")}${!p.eik && rq.eik ? ` <span class="erp-muted" style="font-size:11px">(от ДДС/паспорта)</span>` : ""}${rq.vat ? " · " + escapeHtml(rq.vat) : ""}</b></div>
-    <div class="crm-kv"><span>МОЛ</span><b>${escapeHtml(p.mol || "—")}</b></div>
-    <div class="crm-kv"><span>Адрес</span><b>${escapeHtml(rq.addr || "—")}</b></div>
+    <div class="crm-kv"><span>ЕИК / ДДС №</span><b>${escapeHtml(p.eik || liFix.eik || rq.eik || "—")}${!p.eik && (liFix.eik || rq.eik) ? ` <span class="erp-muted" style="font-size:11px">(${liFix.eik ? "от фактура" : "от ДДС/паспорта"})</span>` : ""}${rq.vat || liFix.vat ? " · " + escapeHtml(rq.vat || liFix.vat) : ""}</b></div>
+    <div class="crm-kv"><span>МОЛ</span><b>${escapeHtml(p.mol || liFix.mol || "—")}${!p.mol && liFix.mol ? ` <span class="erp-muted" style="font-size:11px">(от фактура)</span>` : ""}</b></div>
+    <div class="crm-kv"><span>Адрес</span><b>${escapeHtml(rq.addr || [liFix.city, liFix.street, liFix.country].filter(Boolean).join(", ") || "—")}</b></div>
+    ${liHas ? `<p style="margin:4px 0"><button class="btn btn-small btn-primary" id="comp-lifix">⤵ Запиши реквизитите от последната фактура${lastInv.docNo ? " (№ " + escapeHtml(String(lastInv.docNo)) + ")" : ""}</button> <span class="hint">попълва само празните полета — МОЛ, ЕИК, адрес</span></p>` : ""}
     ${(rq.person || rq.phone || rq.email) ? `<div class="crm-kv"><span>Лице / тел. / имейл</span><b>${escapeHtml([rq.person, rq.phone, rq.email].filter(Boolean).join(" · "))}</b></div>` : ""}
     ${p.note ? `<div class="crm-kv"><span>Забележка</span><b>${escapeHtml(p.note)}</b></div>` : ""}
     ${rq.fromPassport ? `<p class="erp-muted" style="font-size:11.5px;margin:2px 0">част от данните идват от 🏷 Паспорта на доставчика</p>` : ""}
@@ -415,6 +438,21 @@ async function compCard(pid) {
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
   wrap.querySelector("#comp-close").addEventListener("click", close);
   wrap.querySelector("#comp-editreq").addEventListener("click", () => { close(); erpEditPartner(p.id); });
+  // ⤵ Реквизитите от последната фактура → записват се в partners (само празните).
+  const lifix = wrap.querySelector("#comp-lifix");
+  if (lifix) lifix.addEventListener("click", async () => {
+    lifix.disabled = true; lifix.textContent = "Записва…";
+    // Включваме и текущите ЕИК/МОЛ (може да идват от резервния запис), за да
+    // не се затрият при базата без тези колони (erpPartnerSaveSafe ги праща там).
+    const pay = { name: p.name, ...liFix };
+    if (!pay.eik && p.eik) pay.eik = p.eik;
+    if (!pay.mol && p.mol) pay.mol = p.mol;
+    const { error } = await erpPartnerSaveSafe(p, pay);
+    if (error) { alert("Грешка при запис: " + error.message); lifix.disabled = false; return; }
+    erpPartners = null;
+    try { await erpLoadPartners(); } catch (e) {}
+    close(); compCard(pid);
+  });
   const ord = wrap.querySelector("#comp-order");
   if (ord) ord.addEventListener("click", () => { close(); erpMatReqCompose([], null, p.name); });
   const pass = wrap.querySelector("#comp-passport");
