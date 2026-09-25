@@ -26,8 +26,7 @@ async function todoSave() {
   } catch (e) { alert("Грешка при запис на To do: " + (e.message || e)); }
 }
 
-function todoRender() {
-  const box = document.getElementById("todo-list");
+function todoRenderInto(box) {
   if (!box) return;
   const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s));
   const items = (TODO_ITEMS || []).slice()
@@ -37,7 +36,7 @@ function todoRender() {
       <input type="checkbox" class="todo-chk" ${i.done ? "checked" : ""} title="Свършено" />
       <span class="todo-text">${esc(i.t)}</span>
       <button class="todo-del" title="Изтрий">×</button>
-    </div>`).join("") || `<p class="todo-empty">Списъкът е празен — запиши си първата задача.</p>`;
+    </div>`).join("") || `<p class="todo-empty">Списъкът е празен — запиши си първата задача през 📝.</p>`;
   box.querySelectorAll(".todo-chk").forEach(cb => cb.addEventListener("change", async () => {
     const it = (TODO_ITEMS || []).find(x => String(x.id) === cb.closest(".todo-row").dataset.id);
     if (it) { it.done = cb.checked ? 1 : 0; await todoSave(); todoRender(); }
@@ -47,6 +46,11 @@ function todoRender() {
     TODO_ITEMS = (TODO_ITEMS || []).filter(x => String(x.id) !== id);
     await todoSave(); todoRender();
   }));
+}
+/* Рисува списъка НАВСЯКЪДЕ, където го има: в прозореца 📝 и под „матрицата". */
+function todoRender() {
+  todoRenderInto(document.getElementById("todo-list"));
+  todoRenderInto(document.getElementById("todo-welcome-list"));
 }
 
 async function todoAdd() {
@@ -65,9 +69,13 @@ async function todoAdd() {
 async function todoApplyAccess() {
   const fab = document.getElementById("btn-todo");
   const modal = document.getElementById("todo-modal");
+  const wcard = document.getElementById("todo-welcome");
   if (!fab || !modal) return;
-  if (!todoAllowed()) { fab.hidden = true; modal.hidden = true; return; }
+  if (!todoAllowed()) { fab.hidden = true; modal.hidden = true; if (wcard) wcard.hidden = true; return; }
   fab.hidden = false;
+  if (wcard) wcard.hidden = false;
+  // Списъкът под „матрицата" се пълни веднага след входа.
+  todoLoad().then(todoRender).catch(() => {});
   if (!fab.dataset.wired) {
     fab.dataset.wired = "1";
     fab.addEventListener("click", async () => {

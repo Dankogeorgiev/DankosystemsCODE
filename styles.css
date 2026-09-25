@@ -1729,3 +1729,24 @@ tr.times-click:hover td { background: #ecfdf5; }
 .info-date { font-weight: 700; color: #0e7490; margin: 14px 0 4px; font-size: 14px; }
 .info-date:first-child { margin-top: 0; }
 .info-item { padding: 6px 10px; margin-bottom: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 13.5px; line-height: 1.45; }
+
+/* --- Телефон: СГЪСТЕН изглед (Данко, 25.09) — да се вижда повече на екран.
+   Бутоните в хедъра не се разпъват на цял ред, шрифтовете са по-ситни,
+   лентите „⏰ Следва" са по един ред с многоточие, логото е малко. --- */
+@media (max-width: 760px) {
+  .app-header { gap: 6px; padding: 6px 8px; }
+  .header-left, .header-right { align-items: flex-start; }
+  .hz-row { gap: 5px; row-gap: 5px; flex-wrap: wrap; }
+  .app-header .btn, .app-header .tab, .app-header label.btn {
+    font-size: 11px; padding: 5px 8px; border-radius: 8px; flex: 0 1 auto; width: auto;
+  }
+  .header-center .user-box { gap: 6px; font-size: 12px; }
+  .header-center .user-box .btn { font-size: 11px; padding: 5px 8px; }
+  #cal-next-strip { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+  .cal-next-chip { font-size: 11.5px; padding: 3px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
+  .welcome { margin: 12px auto; }
+  .welcome-img { max-width: 200px; margin-bottom: 8px; border-radius: 10px; box-shadow: 0 3px 10px rgba(0,0,0,.15); }
+  .welcome h2 { font-size: 17px; margin: 4px 0; }
+  .welcome p { font-size: 12px; margin: 2px 0; }
+  .sidebar { max-height: 180px; }
+}
