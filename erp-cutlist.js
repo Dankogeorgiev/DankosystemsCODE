@@ -227,7 +227,9 @@ async function erpCutlistOpen() {
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   try { await erpEnsureLoaded(); } catch (e) {}
   try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
-  try { await cutSavedLoad(); } catch (e) {}
+  // Запазените разкрои се четат ВИНАГИ свежо (едно малко четене) — за да се
+  // виждат веднага и листове, пуснати от друг компютър (Григор/Данко).
+  try { CUT_SAVED = null; await cutSavedLoad(); } catch (e) {}
   if (CUT_TAB === "report") { await erpCutReport(v); return; }
   const cutQn = String(CUT_Q || "").toLowerCase().trim();
   const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
@@ -252,6 +254,7 @@ async function erpCutlistOpen() {
         <b>📂 Запазени разкрои</b>
         <span class="erp-muted" style="font-size:12px">всеки „🖨 Печат за Бинков" се запазва тук в момента на печата</span>
         <span class="spacer"></span>
+        <button class="btn btn-small" id="cut-mrefresh" title="Презареди списъка от облака">↻</button>
         <button class="btn btn-small btn-primary" id="cut-merge" disabled>🖨 Общ печат — групиран по тръба (<span id="cut-mcnt">0</span>)</button>
       </div>
       <p class="hint" style="margin:0 0 6px">Отметни 2-3-4 листа → „Общ печат": заявките се обединяват и подреждат ПО ТРЪБА (първо всичко от една тръба, после от следващата), вътре по дължина; еднаквите дължини от различни заявки се събират в един ред.</p>
@@ -311,6 +314,8 @@ async function erpCutlistOpen() {
     const b = v.querySelector("#cut-merge"); if (b) b.disabled = !n;
   };
   v.querySelectorAll(".cut-msel").forEach(cb => cb.addEventListener("change", mSync));
+  const mRef = v.querySelector("#cut-mrefresh");
+  if (mRef) mRef.addEventListener("click", () => erpCutlistOpen());
   const mBtn = v.querySelector("#cut-merge");
   if (mBtn) mBtn.addEventListener("click", () => {
     const ids = [...v.querySelectorAll(".cut-msel:checked")].map(cb => cb.dataset.sid);
@@ -413,18 +418,17 @@ async function erpCutlistGenerate() {
     reportExportXls(`razkroy-trabi-${new Date().toISOString().slice(0, 10)}`, `Разкрой тръби · ${hdr}`, [{ headers, rows: body }]);
   });
 
-  wrap.querySelector("#cut-print").addEventListener("click", async () => {
+  wrap.querySelector("#cut-print").addEventListener("click", () => {
     const rws = live();
-    // 📂 Листът се ЗАПАЗВА (app_config cut_saved) — после може да се обединява
-    // с други в един общ печат, групиран по тръба.
-    try {
-      await cutSavedAdd({
-        id: String(Date.now()), at: new Date().toISOString(), hdr,
-        by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
-        rows: rws.map(r => ({ code: r.code || "", name: r.name, lenMm: r.lenMm, cuts: r.cuts, note: r.note || "", srcs: r.srcs || [], nodeCodes: r.nodeCodes || [] })),
-        problems,
-      });
-    } catch (e) { /* тихо */ }
+    // 📂 Листът се ЗАПАЗВА (app_config cut_saved) НА ЗАДЕН ФОН — печатът не
+    // чака мрежата. Щом записът мине, екранът „Подготовка" отзад се опреснява
+    // сам и листът се вижда веднага в „Запазени разкрои".
+    cutSavedAdd({
+      id: String(Date.now()), at: new Date().toISOString(), hdr,
+      by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
+      rows: rws.map(r => ({ code: r.code || "", name: r.name, lenMm: r.lenMm, cuts: r.cuts, note: r.note || "", srcs: r.srcs || [], nodeCodes: r.nodeCodes || [] })),
+      problems,
+    }).then(() => { if (document.getElementById("cut-merge")) erpCutlistOpen(); }).catch(() => {});
     // Запомняме кодовете, ПУСНАТИ ЗА ПЕЧАТ — „✅ Отчет на производство"
     // показва само техните задачи (нищо чуждо).
     try {
