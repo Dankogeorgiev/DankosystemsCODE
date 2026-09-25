@@ -146,7 +146,12 @@ function erpEditPartner(id, preset) {
   const src = p || preset || null;
   const g = (k) => src ? escapeAttr(src[k] || "") : "";
   const { wrap, close } = erpDialog(`
-    <h3>${p ? "Редакция на " + lbl : "Нов " + lbl}${p ? ` <span class="erp-muted">№${p.id}</span>` : ""}</h3>
+    <h3>${p ? "Редакция на " + lbl : "Нов клиент/доставчик"}${p ? ` <span class="erp-muted">№${p.id}</span>` : ""}</h3>
+    ${p ? "" : `<label>Тип
+      <select id="pt-kind">
+        <option value="customer" ${kind === "customer" ? "selected" : ""}>👤 Клиент</option>
+        <option value="supplier" ${kind === "supplier" ? "selected" : ""}>🏭 Доставчик</option>
+      </select></label>`}
     <label>Име / Фирма<input type="text" id="pt-name" value="${g("name")}" /></label>
     <label>ЕИК / Булстат<input type="text" id="pt-eik" value="${g("eik")}" /></label>
     <label>МОЛ<input type="text" id="pt-mol" value="${g("mol")}" /></label>
@@ -170,11 +175,22 @@ function erpEditPartner(id, preset) {
   wrap.querySelector("#pt-save").addEventListener("click", async () => {
     const name = wrap.querySelector("#pt-name").value.trim();
     if (!name) { wrap.querySelector("#pt-status").textContent = "Въведи име."; return; }
-    const payload = { kind, name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), street: val("street"), country: val("country"), vat: val("vat"), eik: val("eik"), mol: val("mol"), note: val("note") };
+    const kindSel = wrap.querySelector("#pt-kind");
+    const kindV = kindSel ? kindSel.value : kind;
+    const payload = { kind: kindV, name, person: val("person"), phone: val("phone"), email: val("email"), city: val("city"), street: val("street"), country: val("country"), vat: val("vat"), eik: val("eik"), mol: val("mol"), note: val("note") };
     wrap.querySelector("#pt-status").textContent = "Записва…";
-    const { error } = await erpPartnerSaveSafe(p, payload);
+    const { id, error } = await erpPartnerSaveSafe(p, payload);
     if (error) { wrap.querySelector("#pt-status").textContent = "⚠ " + error.message; return; }
-    close(); erpPartners = null; erpPartnersBack();
+    close(); erpPartners = null;
+    // НОВА фирма от обединения изглед → отваряме направо картона ѝ, за да се
+    // попълнят паспортът, контактите и ролите на едно място (всички връзки).
+    if (!p && id && typeof COMP_ACTIVE !== "undefined" && COMP_ACTIVE && typeof compCard === "function") {
+      try { await erpLoadPartners(); } catch (e) {}
+      erpRenderCompanies();
+      compCard(id);
+      return;
+    }
+    erpPartnersBack();
   });
   const del = wrap.querySelector("#pt-del");
   if (del) del.addEventListener("click", async () => {

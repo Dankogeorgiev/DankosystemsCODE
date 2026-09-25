@@ -257,7 +257,7 @@ async function erpRenderCompanies() {
       <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
       <button class="btn btn-small" id="comp-oldc" title="Старият указател Контакти — пълният списък с категории и бележки">📇 Стар указател</button>
       <button class="btn btn-small" id="comp-old" title="Старият изглед (директориите поотделно)">⚙ Стар изглед</button>
-      <button class="btn btn-small btn-primary" id="comp-add">+ Нова фирма</button>
+      <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
     </div>
     <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити.</p>
     <table class="report-table erp-table">
