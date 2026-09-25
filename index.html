@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=328" />
+  <link rel="stylesheet" href="styles.css?v=329" />
   <link rel="stylesheet" href="erp.css?v=316" />
   <link rel="stylesheet" href="crm.css?v=2" />
 </head>
@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 765</p>
+      <p class="login-version">версия 766</p>
     </form>
   </div>
 
@@ -380,7 +380,23 @@
         <p class="save-status" id="claim-save-status"></p>
       </form>
     </section>
+
+    <!-- ℹ️ ИНФО — какво ново в Системата (долу вляво; крие се заедно с екрана) -->
+    <button id="btn-info" class="btn btn-info-fab" title="Какво ново в Системата — последните промени с 1-2 изречения">ℹ️ ИНФО</button>
   </main>
+
+  <!-- Модал: ℹ️ ИНФО -->
+  <div id="info-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box" style="max-width:820px;margin:24px auto;border-radius:14px">
+      <div class="tasks-head">
+        <h2>ℹ️ Какво ново в Системата</h2>
+        <div class="tasks-head-actions">
+          <button id="info-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div id="info-list" class="info-list"></div>
+    </div>
+  </div>
 
   <!-- Модал: Производство по цехове -->
   <div id="tasks-modal" class="overlay tasks-overlay" hidden>
@@ -723,6 +739,7 @@
   <script src="assistant.js?v=179"></script>
   <script src="pulse.js?v=222"></script>
   <script src="office-calendar.js?v=2"></script>
+  <script src="info-news.js?v=1"></script>
   <script src="crm-sales-data.js?v=1"></script>
   <script src="crm-sales-api.js?v=3"></script>
   <script src="crm-sales.js?v=6"></script>
