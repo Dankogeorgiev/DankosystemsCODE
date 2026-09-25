@@ -138,6 +138,8 @@ function applyAccess() {
   if (typeof crmApplyAccess === "function") crmApplyAccess();
   // 📅 Офис календарът — бутон + лентата „⏰ Следва" (office-calendar.js).
   if (typeof calApplyAccess === "function") calApplyAccess();
+  // 📝 To do списъкът на Данко (danko-todo.js).
+  if (typeof todoApplyAccess === "function") todoApplyAccess();
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
   const lvBtn = document.getElementById("btn-leaves-main");
   if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
