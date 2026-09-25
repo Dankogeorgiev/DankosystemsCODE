@@ -31,12 +31,21 @@ function todoRenderInto(box) {
   const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s));
   const items = (TODO_ITEMS || []).slice()
     .sort((a, b) => (a.done - b.done) || String(b.at || "").localeCompare(String(a.at || "")));
-  box.innerHTML = items.map(i => `
-    <div class="todo-row ${i.done ? "done" : ""}" data-id="${i.id}">
+  const fmtD = iso => {
+    const s = String(iso || "").slice(0, 10).split("-");
+    return s.length === 3 ? `${s[2]}.${s[1]}.${s[0].slice(2)}` : "";
+  };
+  box.innerHTML = items.map(i => {
+    // „напомни ми" в текста → бележката мига (докато не се отметне).
+    const remind = !i.done && /напомни\s*ми/i.test(i.t || "");
+    return `
+    <div class="todo-row ${i.done ? "done" : ""}${remind ? " remind" : ""}" data-id="${i.id}">
       <input type="checkbox" class="todo-chk" ${i.done ? "checked" : ""} title="Свършено" />
-      <span class="todo-text">${esc(i.t)}</span>
+      <span class="todo-text">${remind ? "⏰ " : ""}${esc(i.t)}</span>
+      <span class="todo-date" title="Записана на">${fmtD(i.at)}</span>
       <button class="todo-del" title="Изтрий">×</button>
-    </div>`).join("") || `<p class="todo-empty">Списъкът е празен — запиши си първата задача през 📝.</p>`;
+    </div>`;
+  }).join("") || `<p class="todo-empty">Списъкът е празен — запиши си първата задача през 📝.</p>`;
   box.querySelectorAll(".todo-chk").forEach(cb => cb.addEventListener("change", async () => {
     const it = (TODO_ITEMS || []).find(x => String(x.id) === cb.closest(".todo-row").dataset.id);
     if (it) { it.done = cb.checked ? 1 : 0; await todoSave(); todoRender(); }
