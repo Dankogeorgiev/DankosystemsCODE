@@ -60,19 +60,27 @@ async function todoAdd() {
   inp.focus();
 }
 
-/* Вика се от applyAccess (app.js) след вход. */
+/* Вика се от applyAccess (app.js) след вход: показва плаващия 📝 бутон
+   (само за Данко) и закача отварянето на прозореца. */
 async function todoApplyAccess() {
-  const card = document.getElementById("todo-danko");
-  if (!card) return;
-  if (!todoAllowed()) { card.hidden = true; return; }
-  card.hidden = false;
-  if (!card.dataset.wired) {
-    card.dataset.wired = "1";
+  const fab = document.getElementById("btn-todo");
+  const modal = document.getElementById("todo-modal");
+  if (!fab || !modal) return;
+  if (!todoAllowed()) { fab.hidden = true; modal.hidden = true; return; }
+  fab.hidden = false;
+  if (!fab.dataset.wired) {
+    fab.dataset.wired = "1";
+    fab.addEventListener("click", async () => {
+      modal.hidden = false;
+      await todoLoad();
+      todoRender();
+      const inp = document.getElementById("todo-new");
+      if (inp) setTimeout(() => inp.focus(), 50);
+    });
+    document.getElementById("todo-close").addEventListener("click", () => { modal.hidden = true; });
     document.getElementById("todo-add").addEventListener("click", todoAdd);
     document.getElementById("todo-new").addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); todoAdd(); }
     });
   }
-  await todoLoad();
-  todoRender();
 }
