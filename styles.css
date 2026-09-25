@@ -1698,7 +1698,7 @@ tr.times-click:hover td { background: #ecfdf5; }
 /* ℹ️ ИНФО — плаващ кръгъл бутон долу, на ръба между списъка с мостри (300px)
    и голямото сиво поле; огледален по стил на 🤖 асистента (.asst-fab). */
 .btn-info-fab {
-  position: fixed; left: 312px; bottom: 18px; z-index: 400;
+  position: fixed; left: 312px; bottom: 18px; z-index: 90;   /* под модалите (overlay e 100+): вътре в модул кръгчето се скрива */
   width: 54px; height: 54px; border-radius: 50%; border: none;
   background: #0e7490; color: #fff; font-size: 24px; cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .28);
@@ -1708,7 +1708,7 @@ tr.times-click:hover td { background: #ecfdf5; }
 
 /* 📝 To do — Данко: плаващ бутон над ℹ️ + прозорец */
 .btn-todo-fab {
-  position: fixed; left: 312px; bottom: 80px; z-index: 400;
+  position: fixed; left: 312px; bottom: 80px; z-index: 90;   /* под модалите — вижда се само на началния екран */
   width: 54px; height: 54px; border-radius: 50%; border: none;
   background: #4338ca; color: #fff; font-size: 24px; cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .28);
