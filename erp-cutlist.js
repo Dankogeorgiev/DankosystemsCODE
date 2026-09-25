@@ -246,6 +246,32 @@ async function erpCutlistOpen() {
       <button class="btn btn-primary" id="cut-gen">🪚 Генерирай разкрой (<span id="cut-cnt">${CUT_SEL.size}</span>)</button>
     </div>
     <p class="hint">Отметни заявките (3-4 или колкото трябват) → „Генерирай разкрой". Системата минава през рецептите на изделията (и полуфабрикатите им) и вади тръбите: вид, размер за рязане и бройка = тръби на изделие × бройката от заявката. Списъкът се печата за Бинков.</p>
+
+    <div style="border:1px solid #c7d2fe;background:#eef2ff;border-radius:12px;padding:10px 12px;margin:0 0 12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+        <b>📂 Запазени разкрои</b>
+        <span class="erp-muted" style="font-size:12px">всеки „🖨 Печат за Бинков" се запазва тук в момента на печата</span>
+        <span class="spacer"></span>
+        <button class="btn btn-small btn-primary" id="cut-merge" disabled>🖨 Общ печат — групиран по тръба (<span id="cut-mcnt">0</span>)</button>
+      </div>
+      <p class="hint" style="margin:0 0 6px">Отметни 2-3-4 листа → „Общ печат": заявките се обединяват и подреждат ПО ТРЪБА (първо всичко от една тръба, после от следващата), вътре по дължина; еднаквите дължини от различни заявки се събират в един ред.</p>
+      <table class="report-table erp-table" style="background:#fff">
+        <thead><tr><th></th><th>Кога</th><th>Заявки (лист)</th><th class="num">Редове</th><th class="num">Разрези</th><th></th></tr></thead>
+        <tbody>${(CUT_SAVED || []).slice(0, 8).map(s => `<tr>
+          <td><input type="checkbox" class="cut-msel" data-sid="${escapeAttr(s.id)}" /></td>
+          <td>${escapeHtml(erpDMY(String(s.at || "").slice(0, 10)) || "")} <span class="erp-muted">${escapeHtml(String(s.at || "").slice(11, 16))}</span></td>
+          <td>${escapeHtml(s.hdr || "—")}</td>
+          <td class="num">${(s.rows || []).length}</td>
+          <td class="num">${erpNum((s.rows || []).reduce((x, r) => x + (Number(r.cuts) || 0), 0))}</td>
+          <td class="erp-row-actions" style="white-space:nowrap">
+            <button class="btn btn-small cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай само този лист (групиран по тръба)">🖨</button>
+            <button class="btn btn-small cut-mdel" data-sid="${escapeAttr(s.id)}" title="Изтрий листа">🗑</button>
+          </td>
+        </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Още няма запазени — пусни „🖨 Печат за Бинков" и листът се появява тук веднага.</td></tr>`}</tbody>
+      </table>
+      ${(CUT_SAVED || []).length > 8 ? `<p class="erp-muted" style="font-size:11.5px;margin:4px 0 0">…показани са последните 8 (пазят се 30).</p>` : ""}
+    </div>
+
     <table class="report-table erp-table">
       <thead><tr><th></th><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Редове</th><th>Статус</th></tr></thead>
       <tbody>${list.map(o => `<tr class="erp-clickable" data-cutrow="${escapeAttr(String(o.id))}">
@@ -258,26 +284,6 @@ async function erpCutlistOpen() {
         <td class="num">${(o.lines || []).length}</td>
         <td>${typeof erpCOStatusCell === "function" ? erpCOStatusCell(o) : escapeHtml(o.status || "нова")}</td>
       </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Няма заявки.</td></tr>`}</tbody>
-    </table>
-
-    <h4 class="erp-group-head" style="margin-top:14px">📂 Запазени разкрои — обедини няколко в един печат</h4>
-    <p class="hint">Всеки „🖨 Печат за Бинков" се запазва тук автоматично. Отметни 2-3-4 листа и цъкни „Общ печат" — редовете се обединяват и подреждат ПО ТРЪБА (първо всичко от една тръба, после от следващата), вътре по дължина; еднаквите дължини от различни заявки се събират в един ред.</p>
-    <div class="erp-toolbar" style="margin:0 0 6px">
-      <button class="btn btn-primary" id="cut-merge" disabled>🖨 Общ печат — групиран по тръба (<span id="cut-mcnt">0</span>)</button>
-    </div>
-    <table class="report-table erp-table">
-      <thead><tr><th></th><th>Кога</th><th>Заявки (лист)</th><th class="num">Редове</th><th class="num">Разрези</th><th></th></tr></thead>
-      <tbody>${(CUT_SAVED || []).map(s => `<tr>
-        <td><input type="checkbox" class="cut-msel" data-sid="${escapeAttr(s.id)}" /></td>
-        <td>${escapeHtml(erpDMY(String(s.at || "").slice(0, 10)) || "")} <span class="erp-muted">${escapeHtml(String(s.at || "").slice(11, 16))}</span></td>
-        <td>${escapeHtml(s.hdr || "—")}</td>
-        <td class="num">${(s.rows || []).length}</td>
-        <td class="num">${erpNum((s.rows || []).reduce((x, r) => x + (Number(r.cuts) || 0), 0))}</td>
-        <td class="erp-row-actions" style="white-space:nowrap">
-          <button class="btn btn-small cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай само този лист (групиран по тръба)">🖨</button>
-          <button class="btn btn-small cut-mdel" data-sid="${escapeAttr(s.id)}" title="Изтрий листа">🗑</button>
-        </td>
-      </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Още няма запазени разкрои — пусни „🖨 Печат за Бинков" и листът ще се появи тук.</td></tr>`}</tbody>
     </table>`;
   v.querySelector("#cut-back").addEventListener("click", () => erpRenderCustomerOrders());
   v.querySelector("#cut-tab-rep").addEventListener("click", () => { CUT_TAB = "report"; erpCutlistOpen(); });
