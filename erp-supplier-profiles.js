@@ -385,16 +385,32 @@ async function erpRenderSupplierProfiles() {
   v.querySelectorAll("tr[data-open]").forEach(tr => tr.addEventListener("click", () => suppForm(tr.dataset.open)));
 }
 
-/* ---------- Паспорт (форма) ---------- */
-function suppForm(name) {
+/* ---------- Паспорт (форма) ----------
+   Разделен на prep/html/wire, за да се ползва и самостоятелно (табът Паспорти
+   доставчици), и ВГРАДЕН в картона Клиенти/Доставчици (embed=true: без
+   Идентификацията — тя се вижда в реквизитите на картона — и без заглавието). */
+function suppFormPrep(name) {
   const key = suppKey(name);
   const p = JSON.parse(JSON.stringify(suppProfile(name) || {}));
   // Каквото го има в директорията — предлага се наготово.
   const pt = ((typeof erpPartners !== "undefined" && erpPartners) || []).find(x => x.kind === "supplier" && suppKey(x.name) === key) || {};
+  return { key, p, pt };
+}
+
+function suppForm(name) {
+  const prep = suppFormPrep(name);
+  const { wrap, close } = erpDialog(suppFormHtml(name, prep, false));
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  suppFormWire(wrap, name, prep, close, {});
+}
+
+function suppFormHtml(name, prep, embed) {
+  const { p, pt } = prep;
+  const key = prep.key;
   const g = (f, alt) => escapeAttr(p[f] != null && p[f] !== "" ? p[f] : (alt || ""));
   const where = new Set(p.where || []);
-  const { wrap, close } = erpDialog(`
-    <h3>🏷 Паспорт на доставчика</h3>
+  return `
+    ${embed ? "" : `<h3>🏷 Паспорт на доставчика</h3>
     <p class="hint" style="margin:0 0 8px"><b>${escapeHtml(name)}</b> — попълва се за счетоводството. Каквото още не знаеш, остави празно и се връщаш после.</p>
 
     <h4 class="erp-group-head">Идентификация</h4>
@@ -406,7 +422,7 @@ function suppForm(name) {
       <label>Лице за контакт <input type="text" id="sp-person" value="${g("person", pt.person)}" /></label>
       <label>Имейл за фактури <input type="text" id="sp-email" value="${g("email", pt.email)}" /></label>
       <label>Телефон <input type="text" id="sp-phone" value="${g("phone", pt.phone)}" /></label>
-    </div>
+    </div>`}
 
     <h4 class="erp-group-head">Данъчно третиране</h4>
     <div class="erp-co-grid">
@@ -500,11 +516,16 @@ function suppForm(name) {
     <div class="erp-dialog-actions">
       ${suppProfile(name) ? '<button class="btn btn-danger" id="sp-del">Изтрий паспорта</button>' : ""}
       <span class="spacer" style="flex:1"></span>
-      <button class="btn" id="sp-cancel">Отказ</button>
-      <button class="btn btn-primary" id="sp-save">💾 Запази</button>
-    </div>`);
-  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
-  wrap.querySelector("#sp-cancel").addEventListener("click", close);
+      ${embed ? "" : '<button class="btn" id="sp-cancel">Отказ</button>'}
+      <button class="btn btn-primary" id="sp-save">💾 Запази${embed ? " паспорта" : ""}</button>
+    </div>`;
+}
+
+function suppFormWire(wrap, name, prep, close, opts) {
+  const { key, p } = prep;
+  const embed = !!(opts && opts.embed);
+  const cancel = wrap.querySelector("#sp-cancel");
+  if (cancel) cancel.addEventListener("click", close);
   const mg = wrap.querySelector("#sp-merge");
   if (mg) mg.addEventListener("click", async () => {
     const target = wrap.querySelector("#sp-mergeto").value.trim();
@@ -514,7 +535,7 @@ function suppForm(name) {
     SUPP_PROFILES.aliases = SUPP_PROFILES.aliases || {};
     SUPP_PROFILES.aliases[key] = target;
     SUPP_BOUGHT = null;   // агрегатите се преизчисляват
-    if (await suppSave()) { close(); erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); if (embed && typeof erpRenderCompanies === "function") erpRenderCompanies(); else erpRenderSupplierProfiles(); }
   });
   const af = wrap.querySelector("#sp-autofill");
   if (af) af.addEventListener("click", () => {
@@ -557,14 +578,16 @@ function suppForm(name) {
   if (del) del.addEventListener("click", async () => {
     if (!confirm(`Да изтрия ли паспорта на „${name}"?`)) return;
     delete SUPP_PROFILES.byKey[key];
-    if (await suppSave()) { close(); suppUpdateBadge(); erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); suppUpdateBadge(); if (!embed) erpRenderSupplierProfiles(); }
   });
   wrap.querySelector("#sp-save").addEventListener("click", async () => {
-    const val = id => { const el = wrap.querySelector("#sp-" + id); return el ? el.value.trim() : ""; };
+    // При вграден паспорт Идентификацията не е на екрана (вижда се в реквизитите
+    // на картона) — пазим старите ѝ стойности, вместо да ги трием.
+    const val = (id, old) => { const el = wrap.querySelector("#sp-" + id); return el ? el.value.trim() : (old || ""); };
     const rec = {
       name: String(name).trim(),
-      eik: val("eik"), vat: val("vat"), country: val("country"), addr: val("addr"),
-      person: val("person"), email: val("email"), phone: val("phone"),
+      eik: val("eik", p.eik), vat: val("vat", p.vat), country: val("country", p.country), addr: val("addr", p.addr),
+      person: val("person", p.person), email: val("email", p.email), phone: val("phone", p.phone),
       regime: val("regime"), credit: val("credit"), rate: val("rate"), protocol: val("protocol"), taxnote: val("taxnote"),
       whatWeBuy: val("what"), usedFor: val("usedfor"), supType: val("suptype"),
       where: [...wrap.querySelectorAll(".sp-where:checked")].map(c => c.value),
@@ -577,7 +600,7 @@ function suppForm(name) {
     };
     SUPP_PROFILES.byKey = SUPP_PROFILES.byKey || {};
     SUPP_PROFILES.byKey[key] = rec;
-    if (await suppSave()) { close(); suppUpdateBadge(); erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); suppUpdateBadge(); if (!embed) erpRenderSupplierProfiles(); }
   });
 }
 
