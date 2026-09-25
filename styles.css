@@ -1690,3 +1690,7 @@ tr.times-click:hover td { background: #ecfdf5; }
 #cal-type-extra { display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; }
 #cal-type-extra input, #cal-type-extra select { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; width: auto; }
 .cal-ev-yearly { background: #ede9fe; color: #4c1d95; }
+
+/* Указателят Контакти се отваря и ВЪРХУ ЕРП модала (Запитване/Стар указател/
+   редакция на контакт от картона) — затова стои по-високо от него. */
+#contacts-modal { z-index: 600; }
