@@ -141,11 +141,22 @@ async function palLearn(client, orig, fin) {
 }
 
 async function palGenerate(arcClient, itemsText) {
+  // При „изхабени токени в мислене" (дълги архиви като МЕБЕЛ СТИЛ) —
+  // автоматичен втори опит с по-малко и по-къси примери.
+  try { return await palGenerateN(arcClient, itemsText, 6, 1600); }
+  catch (e) {
+    if (/max_tokens|празен/i.test(String(e && e.message || e))) {
+      return palGenerateN(arcClient, itemsText, 3, 1100);
+    }
+    throw e;
+  }
+}
+async function palGenerateN(arcClient, itemsText, exLimit, exLen) {
   const { data, error } = await sb.from("packing_archive")
     .select("doc_date, source, body")
     .eq("client", arcClient)
     .order("doc_date", { ascending: false, nullsFirst: false })
-    .limit(6);
+    .limit(exLimit);
   if (error) throw error;
   if (!data || !data.length) throw new Error(`В архива няма описи за „${arcClient}“.`);
   // 🎓 Поуките от ръчните корекции — подават се изрично.
@@ -155,7 +166,7 @@ async function palGenerate(arcClient, itemsText) {
     lessons = (ld && ld.data && ld.data.byClient && ld.data.byClient[arcClient]) || [];
   } catch (e) {}
   const examples = data.map((r, i) =>
-    `--- ПРИМЕР ${i + 1} (${r.doc_date || "без дата"}) ---\n${String(r.body || "").slice(0, 1600)}`).join("\n\n");
+    `--- ПРИМЕР ${i + 1} (${r.doc_date || "без дата"}) ---\n${String(r.body || "").slice(0, exLen)}`).join("\n\n");
   const today = new Date();
   const dmy = `${String(today.getDate()).padStart(2, "0")}.${String(today.getMonth() + 1).padStart(2, "0")}.${today.getFullYear()}`;
   const system = `Ти пишеш ПАЛЕТНИ ОПИСИ за Данко Системс (българска фирма за метални механизми и компоненти).
@@ -179,7 +190,7 @@ async function palGenerate(arcClient, itemsText) {
     ? `\n\n=== РЪЧНИ КОРЕКЦИИ, които човекът е правил по твои предишни описи за този клиент — ЗАДЪЛЖИТЕЛНО ги съобрази, не повтаряй същите грешки ===\n${lessons.slice(-5).map(l => `• (${String(l.at || "").slice(0, 10)}) ${l.note}`).join("\n")}`
     : "";
   const user = `ПОСЛЕДНИТЕ ОПИСИ НА КЛИЕНТА „${arcClient}“:\n\n${examples}${lessonTxt}\n\n=== НОВАТА ПРАТКА (дата ${dmy}) ===\n${itemsText}\n\nНапиши палетния опис за новата пратка.`;
-  return palAI(system, user, 4000);
+  return palAI(system, user, 8192);   // таванът на assistant fn — мисленето да не изяжда описа
 }
 
 /* ---------- Диалогът ---------- */
