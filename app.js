@@ -127,8 +127,10 @@ function postAllowed() {
 }
 
 function applyAccess() {
-  const fin = document.getElementById("btn-finance");
-  if (fin) fin.style.display = financeAllowed() ? "" : "none";
+  // 💰 Финанси е ТАБ в ЕРП (при другите финансови бутони) — вижда се само
+  // от финансовия достъп; за останалите изчезва.
+  const finTab = document.querySelector('.erp-tab[data-tab="finance"]');
+  if (finTab) finTab.style.display = financeAllowed() ? "" : "none";
   // Пулс на НАЧАЛНИЯ екран — само за Данко (в ЕРП остава по PULSE_EMAILS).
   const pulse = document.getElementById("btn-pulse");
   if (pulse) pulse.style.display = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com" ? "" : "none";

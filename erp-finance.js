@@ -38,6 +38,7 @@ async function erpRenderFinance() {
   const v = erpView();
   const nav = `<div class="pr-row" style="margin-bottom:8px">
     <button class="btn btn-small ${erpFinView === "margin" ? "btn-primary" : ""}" id="fin-nav-m">📊 Маржин по поръчка</button>
+    <button class="btn btn-small ${erpFinView === "invmargin" ? "btn-primary" : ""}" id="fin-nav-im" title="Маржин по ИЗДАДЕНИТЕ фактури за седмицата/месеца (кредитните известия влизат с минус)">🧾 Маржин по фактурирано</button>
     <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button>
     <button class="btn btn-small ${erpFinView === "payroll" ? "btn-primary" : ""}" id="fin-nav-p">🧾 Заплати (седмично)</button>
     <button class="btn btn-small ${erpFinView === "leaves" ? "btn-primary" : ""}" id="fin-nav-l">🏖 Отпуски</button>
@@ -45,6 +46,7 @@ async function erpRenderFinance() {
     <button class="btn btn-small ${erpFinView === "vat" ? "btn-primary" : ""}" id="fin-nav-v">💶 ДДС за възстановяване</button></div>`;
   v.innerHTML = nav + `<div id="fin-body"><p class="erp-loading">Зареждане…</p></div>`;
   v.querySelector("#fin-nav-m").addEventListener("click", () => { erpFinView = "margin"; erpRenderFinance(); });
+  v.querySelector("#fin-nav-im").addEventListener("click", () => { erpFinView = "invmargin"; erpRenderFinance(); });
   v.querySelector("#fin-nav-r").addEventListener("click", () => { erpFinView = "rates"; erpRenderFinance(); });
   v.querySelector("#fin-nav-p").addEventListener("click", () => { erpFinView = "payroll"; erpRenderFinance(); });
   v.querySelector("#fin-nav-l").addEventListener("click", () => { erpFinView = "leaves"; erpRenderFinance(); });
@@ -55,6 +57,10 @@ async function erpRenderFinance() {
   if (erpFinView === "leaves") {
     if (typeof erpRenderLeaves === "function") await erpRenderLeaves(body);
     else body.innerHTML = `<p class="erp-error">Модул „Отпуски" не е зареден.</p>`;
+    return;
+  }
+  if (erpFinView === "invmargin") {
+    await erpRenderInvMargin(body);
     return;
   }
   if (erpFinView === "rates") {
@@ -73,6 +79,80 @@ async function erpRenderFinance() {
     return;
   }
   await erpRenderMargin(body);
+}
+
+/* ---------- 🧾 Маржин по фактурирано (седмица / месец) ----------
+   Смята се от ИЗДАДЕНИТЕ фактури (erpInvoices): приходи = редовете × цените
+   (BGN → EUR по фиксинга), себестойност = реалната на изделията, кредитните
+   известия влизат с МИНУС. Период: текуща седмица (пон→днес) или текущ месец. */
+let erpFinInvPeriod = "week";
+function erpFinPeriodRange(p) {
+  const d = new Date();
+  const ymd = x => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  if (p === "month") return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(d) };
+  const from = new Date(d); from.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // понеделник
+  return { from: ymd(from), to: ymd(d) };
+}
+async function erpRenderInvMargin(v) {
+  try {
+    await erpEnsureLoaded();
+    if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+    if (typeof erpLoadCostCfg === "function") await erpLoadCostCfg();
+  } catch (e) {
+    v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя фактурите</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+  const R = (typeof erpCostRates === "function") ? erpCostRates() : null;
+  const opCost = (typeof erpOpUnitCost === "function") ? erpOpUnitCost(R) : {};
+  const cache = {};
+  const costOf = pid => { if (!cache[pid]) cache[pid] = (typeof erpRealCost === "function") ? erpRealCost(pid, opCost) : { cost: Number(ERP.costById[pid]) || 0, opsCovered: 0, opsTotal: 0 }; return cache[pid]; };
+  const { from, to } = erpFinPeriodRange(erpFinInvPeriod);
+  const toEur = (n, cur) => cur === "BGN" ? n / 1.95583 : n;
+  const list = ((typeof erpInvoices !== "undefined" && erpInvoices) || [])
+    .filter(o => (o.kind === "invoice" || o.kind === "credit" || o.kind === "debit" || !o.kind))
+    .filter(o => { const d = String(o.issueDate || "").slice(0, 10); return d >= from && d <= to; })
+    .filter(o => (o.lines || []).length)
+    .sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+  const rows = list.map(o => {
+    const c = erpFinOrderCalc(o, costOf);
+    const sign = o.kind === "credit" ? -1 : 1;
+    const rev = sign * toEur(c.rev, o.currency);
+    const cost = sign * c.cost;   // себестойността е винаги в EUR
+    const noCostRows = (o.lines || []).filter(l => !l.productId).length;
+    return { o, rev, cost, margin: rev - cost, pct: rev > 0 ? (rev - cost) / rev * 100 : 0, noCostRows };
+  });
+  const T = rows.reduce((a, r) => { a.rev += r.rev; a.cost += r.cost; a.margin += r.margin; return a; }, { rev: 0, cost: 0, margin: 0 });
+  const Tpct = T.rev > 0 ? T.margin / T.rev * 100 : 0;
+  const dmy = s => (typeof erpDMY === "function" ? erpDMY(s) : s);
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">Маржин по фактурирано</span>
+      <button class="btn btn-small ${erpFinInvPeriod === "week" ? "btn-primary" : ""}" id="fim-week">Тази седмица</button>
+      <button class="btn btn-small ${erpFinInvPeriod === "month" ? "btn-primary" : ""}" id="fim-month">Този месец</button>
+      <span class="erp-muted">${dmy(from)} — ${dmy(to)}</span>
+    </div>
+    <div class="fin-cards">
+      <div class="fin-card"><div class="fin-card-l">Фактурирано (без ДДС)</div><div class="fin-card-v">${erpEur(T.rev)}</div></div>
+      <div class="fin-card"><div class="fin-card-l">Себестойност</div><div class="fin-card-v">${erpEur(T.cost)}</div></div>
+      <div class="fin-card"><div class="fin-card-l">Маржин</div><div class="fin-card-v ${erpFinPctCls(Tpct, T.rev)}">${erpEur(T.margin)}</div></div>
+      <div class="fin-card"><div class="fin-card-l">Маржин %</div><div class="fin-card-v ${erpFinPctCls(Tpct, T.rev)}">${T.rev > 0 ? erpNum(Tpct) + " %" : "—"}</div></div>
+    </div>
+    <table class="report-table erp-table fin-table">
+      <thead><tr><th>Документ</th><th>Клиент</th><th>Дата</th><th class="num">Стойност</th><th class="num">Себестойност</th><th class="num">Маржин</th><th class="num">Маржин %</th></tr></thead>
+      <tbody>${rows.map(r => `
+        <tr>
+          <td><b>${escapeHtml(String(r.o.docNo || "—"))}</b>${r.o.kind === "credit" ? ` <span class="crmb crmb-orange">КИ</span>` : ""}</td>
+          <td>${escapeHtml((r.o.client && r.o.client.name) || "")}</td>
+          <td>${dmy(String(r.o.issueDate || "").slice(0, 10))}</td>
+          <td class="num">${erpEur(r.rev)}</td>
+          <td class="num">${erpEur(r.cost)}${r.noCostRows ? ` <span class="fin-warn" title="${r.noCostRows} реда без изделие от каталога — без себестойност">⚠</span>` : ""}</td>
+          <td class="num ${erpFinPctCls(r.pct, r.rev)}">${erpEur(r.margin)}</td>
+          <td class="num ${erpFinPctCls(r.pct, r.rev)}">${r.rev > 0 ? erpNum(r.pct) + " %" : "—"}</td>
+        </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма издадени фактури за периода.</td></tr>`}</tbody>
+    </table>
+    <p class="hint">Смята се от <b>издадените фактури</b> (вкл. проформите НЕ влизат; кредитните известия са с минус). Себестойността е реалната (материали + време × ставка); редове без изделие от каталога (⚠) влизат в стойността, но без себестойност — маржинът там е завишен. BGN се преизчислява в EUR по фиксинга.</p>`;
+  v.querySelector("#fim-week").addEventListener("click", () => { erpFinInvPeriod = "week"; erpRenderFinance(); });
+  v.querySelector("#fim-month").addEventListener("click", () => { erpFinInvPeriod = "month"; erpRenderFinance(); });
 }
 
 async function erpRenderMargin(v) {
