@@ -394,14 +394,16 @@ function csClientProducts(clientName) {
 }
 
 /* ---------- Екран ---------- */
-/* ---------- 👩 Упътването на Юлия — какво прави всяка иконка ---------- */
-function csJuliaGuide() {
+/* ---------- 👩 Упътването на Юлия — какво прави всяка иконка ----------
+   Рисува се като СОБСТВЕН РАЗДЕЛ в лентата (до Себестойности), не като прозорец. */
+function csJuliaGuideRender(v) {
+  v = v || erpView();
   const S = (t) => `<h4 class="erp-group-head" style="margin-top:16px">${t}</h4>`;
   const cap = s => String(s).replace(/^([а-яa-z])/, m => m.toUpperCase());
   const R = (icon, what) => `<div style="display:flex;gap:14px;padding:9px 10px;border-bottom:1px dashed #e2e8f0;font-size:14.5px;line-height:1.55;align-items:flex-start">
     <div style="flex:0 0 165px;font-weight:700;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:5px 9px;text-align:center;font-size:13.5px">${icon}</div>
     <div style="padding-top:4px">${cap(what)}</div></div>`;
-  const { wrap, close } = erpDialog(`
+  v.innerHTML = `<div style="max-width:1000px">
     <h3>👩 Упътване за Себестойности — за Юлия</h3>
     <p class="hint" style="font-size:14px">Нищо тук не се чупи от гледане и разглеждане — всички опасни действия питат с <b style="color:#b91c1c">червено предупреждение</b> преди да запишат. Работи спокойно.</p>
 
@@ -451,9 +453,8 @@ function csJuliaGuide() {
       • Данните са от сутринта — след нови отчети/покупки цъкни „🔄 Опресни".
     </div>
 
-    <div class="erp-dialog-actions"><span class="spacer"></span><button class="btn btn-primary" id="jg-close">Разбрах, затвори</button></div>`);
-  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-xwide");
-  wrap.querySelector("#jg-close").addEventListener("click", close);
+    <p class="hint" style="margin-top:14px">Разделът се затваря с ✕ от лентата горе — упътването винаги е на бутона „👩 Юлия" в Себестойности.</p>
+  </div>`;
 }
 
 async function erpRenderCostSheet() {
@@ -515,7 +516,7 @@ async function erpRenderCostSheet() {
   const backBtn = v.querySelector("#cs-back");
   if (backBtn) backBtn.addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
   const juliaBtn = v.querySelector("#cs-julia");
-  if (juliaBtn) juliaBtn.addEventListener("click", csJuliaGuide);
+  if (juliaBtn) juliaBtn.addEventListener("click", () => erpSetTab("juliaguide"));
   // ⏱ Отчетът Времена — също ОТДЕЛЕН РАЗДЕЛ до Себестойности.
   const timesBtn = v.querySelector("#cs-times");
   if (timesBtn) timesBtn.addEventListener("click", () => erpSetTab("timesrep"));
