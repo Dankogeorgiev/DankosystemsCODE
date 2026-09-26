@@ -396,8 +396,11 @@ function csClientProducts(clientName) {
 /* ---------- Екран ---------- */
 /* ---------- 👩 Упътването на Юлия — какво прави всяка иконка ---------- */
 function csJuliaGuide() {
-  const S = (t) => `<h4 class="erp-group-head" style="margin-top:14px">${t}</h4>`;
-  const R = (icon, what) => `<div style="display:flex;gap:10px;margin:6px 0;font-size:14.5px;line-height:1.5"><div style="flex:0 0 150px;font-weight:700">${icon}</div><div>${what}</div></div>`;
+  const S = (t) => `<h4 class="erp-group-head" style="margin-top:16px">${t}</h4>`;
+  const cap = s => String(s).replace(/^([а-яa-z])/, m => m.toUpperCase());
+  const R = (icon, what) => `<div style="display:flex;gap:14px;padding:9px 10px;border-bottom:1px dashed #e2e8f0;font-size:14.5px;line-height:1.55;align-items:flex-start">
+    <div style="flex:0 0 165px;font-weight:700;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:5px 9px;text-align:center;font-size:13.5px">${icon}</div>
+    <div style="padding-top:4px">${cap(what)}</div></div>`;
   const { wrap, close } = erpDialog(`
     <h3>👩 Упътване за Себестойности — за Юлия</h3>
     <p class="hint" style="font-size:14px">Нищо тук не се чупи от гледане и разглеждане — всички опасни действия питат с <b style="color:#b91c1c">червено предупреждение</b> преди да запишат. Работи спокойно.</p>
