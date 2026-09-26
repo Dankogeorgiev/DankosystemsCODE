@@ -423,7 +423,10 @@ async function erpRenderCostSheet() {
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
       <button class="btn btn-small" id="cs-print">🖨 Печат</button>
     </div>
-    <p class="hint" style="margin:4px 0 8px">📌 <b>„✎ Задай реална цена“</b> — цената, която зададеш, се счита за себестойност на изделието вместо изчислената от рецептата (важи навсякъде, вкл. когато изделието се влага в друго). · ⚠ <b>„✎€“ върху операция</b> сменя ставката на операцията (unit_cost) за <b>ВСИЧКИ</b> рецепти, не само за тази.</p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 14px;margin:4px 0 10px;font-size:15px;line-height:1.55">
+      <div>📌 <b>„✎ Задай реална цена“</b> — цената, която зададеш, се счита за себестойност на изделието вместо изчислената от рецептата (важи навсякъде, вкл. когато изделието се влага в друго).</div>
+      <div style="margin-top:4px">⚠ <b>„✎€“ върху операция</b> сменя ставката на операцията (unit_cost) за <b>ВСИЧКИ</b> рецепти, не само за тази.</div>
+    </div>
     <div id="cs-body"></div>`;
 
   const body = v.querySelector("#cs-body");
