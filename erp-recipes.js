@@ -220,7 +220,10 @@ function erpEditComponentCost(type, id) {
     <p>Сегашна цена: <b>${erpEur(cur)}</b> за 1 ${escapeHtml(unit)}</p>
     <label>Нова цена (EUR за 1 ${escapeHtml(unit)})
       <input type="number" id="cc-val" min="0" step="any" value="${cur ? escapeAttr(String(cur)) : ""}" /></label>
-    <p class="hint">⚠ Промяната важи <b>навсякъде</b> — ${isMat ? "във всички рецепти с този материал и като средна цена в склада" : "във всички рецепти с тази операция"}. Себестойностите се преизчисляват веднага.</p>
+    <div style="background:#fef2f2;border:2px solid #dc2626;color:#991b1b;border-radius:10px;padding:10px 14px;margin:8px 0;font-weight:700;font-size:15px;line-height:1.5">
+      ⚠ ВНИМАНИЕ: промяната важи <u>НАВСЯКЪДЕ</u> — ${isMat ? "във ВСИЧКИ рецепти с този материал и като средна цена в склада" : "във ВСИЧКИ рецепти с тази операция"}! Себестойностите на всички засегнати изделия се преизчисляват веднага.
+      <div style="font-weight:600;font-size:13.5px;margin-top:4px">Цена САМО за тази рецепта се задава от 💶 Себестойности → Калкулация → ✎ Редакция.</div>
+    </div>
     <div class="erp-dialog-actions">
       <button class="btn" id="cc-cancel">Отказ</button>
       <button class="btn btn-primary" id="cc-save">Запази</button>
@@ -231,6 +234,8 @@ function erpEditComponentCost(type, id) {
     const status = wrap.querySelector("#cc-status");
     const val = erpToNum(wrap.querySelector("#cc-val").value);
     if (!(val >= 0)) { status.textContent = "Въведи цена."; return; }
+    // Последна спирачка — промяната пипа ВСИЧКИ рецепти.
+    if (!confirm(`⚠ ВНИМАНИЕ!\n\nТова ще смени ${isMat ? `цената на материала „${x.name || ""}" ВЪВ ВСИЧКИ рецепти (и средната цена в склада)` : `ставката на операцията „${x.name || ""}" ВЪВ ВСИЧКИ рецепти`} на ${val} EUR.\n\nСигурен ли си?`)) { status.textContent = ""; return; }
     status.textContent = "Записва…";
     const { error } = isMat
       ? await sb.from("materials").update({ avg_cost: val }).eq("id", id)
