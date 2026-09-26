@@ -113,12 +113,18 @@ async function erpRenderInvMargin(v) {
     .filter(o => { const d = String(o.issueDate || "").slice(0, 10); return d >= from && d <= to; })
     .filter(o => (o.lines || []).length)
     .sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+  // Фактурният ред носи изделието като productId ИЛИ refId (фактура от заявка),
+  // а старите импортирани — само кода. Търсим и по трите.
+  const codeMap = new Map();
+  (ERP.products || []).forEach(p => { const c = String(p.code || "").trim(); if (c && !codeMap.has(c)) codeMap.set(c, p.id); });
+  const pidOf = l => l.productId || l.refId || codeMap.get(String(l.code || "").trim()) || null;
   const rows = list.map(o => {
-    const c = erpFinOrderCalc(o, costOf);
+    const oc = { lines: (o.lines || []).map(l => ({ ...l, productId: pidOf(l) })) };
+    const c = erpFinOrderCalc(oc, costOf);
     const sign = o.kind === "credit" ? -1 : 1;
     const rev = sign * toEur(c.rev, o.currency);
-    const cost = sign * c.cost;   // себестойността е винаги в EUR
-    const noCostRows = (o.lines || []).filter(l => !l.productId).length;
+    const cost = sign * toEur(c.cost, "EUR");   // себестойността е винаги в EUR
+    const noCostRows = oc.lines.filter(l => !l.productId).length;
     return { o, rev, cost, margin: rev - cost, pct: rev > 0 ? (rev - cost) / rev * 100 : 0, noCostRows };
   });
   const T = rows.reduce((a, r) => { a.rev += r.rev; a.cost += r.cost; a.margin += r.margin; return a; }, { rev: 0, cost: 0, margin: 0 });
