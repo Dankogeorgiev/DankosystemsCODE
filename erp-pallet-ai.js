@@ -179,6 +179,7 @@ async function erpPalletAI(opts) {
     </div>
     <label style="display:block">Какво пращаме (изделие — бройка, по ред на изделие):
       <textarea id="pali" rows="7" style="width:100%;font-family:inherit" placeholder="напр.&#10;Потапящ малък с крак 61 см — 120 к-та&#10;Тръби L=1240 — 60 бр.&#10;Болтове, спирачки — 400 бр.">${escapeHtml(opts.itemsText || "")}</textarea>
+      <p class="hint" id="palw" style="margin:2px 0 0"></p>
     </label>
     <div style="margin:8px 0">
       <button class="btn btn-primary" id="palgen">🤖 Напиши описа</button>
@@ -202,12 +203,27 @@ async function erpPalletAI(opts) {
   const pb = wrap.querySelector("#palprint"), cb = wrap.querySelector("#palcopy");
   // Избор на заявка → редовете, клиентът от архива, фирмата и № се попълват сами.
   const coSel = wrap.querySelector("#palco");
+  // ⚖ Тегло на пратката: кг/брой от Опаковки (ако е попълнено), иначе от рецептата.
+  const shipKg = o => (o.lines || []).reduce((s, l) => {
+    const qty = (typeof erpToNum === "function" ? erpToNum(l.qty) : Number(l.qty)) || 0;
+    if (!qty) return s;
+    let per = 0;
+    if (l.code && typeof erpPackFind === "function") {
+      const sp = erpPackFind(l.code, o.clientName);
+      if (sp && Number(sp.kgPerPiece) > 0) per = Number(sp.kgPerPiece);
+    }
+    if (!per && l.productId && typeof erpProductWeightKg === "function") per = erpProductWeightKg(l.productId);
+    return s + qty * per;
+  }, 0);
   coSel.addEventListener("change", async () => {
     const o = coOpen.find(x => String(x.id) === coSel.value);
     if (!o) return;
     wrap.querySelector("#pali").value = await palItemsFromOrder(o);
     wrap.querySelector("#palo").value = o.clientNo || o.ourNo || "";
     wrap.querySelector("#palfirm").value = o.clientName || "";
+    const kg = shipKg(o);
+    const pw = wrap.querySelector("#palw");
+    if (pw) pw.textContent = kg > 0 ? `⚖ Тегло на пратката (по рецептите/Опаковки): ${(Math.round(kg * 10) / 10).toLocaleString("bg-BG")} кг нето — печатът го разписва по палети.` : "";
     const m = palArcMatch(o.clientName, arc);
     if (m) wrap.querySelector("#palc").value = m;
   });
@@ -226,11 +242,15 @@ async function erpPalletAI(opts) {
     } catch (e) { st.textContent = ""; alert("Грешка: " + (e.message || e)); }
     finally { gen.disabled = false; }
   });
-  pb.addEventListener("click", () => palPrint(wrap.querySelector("#palc").value, ta.value, {
-    date: wrap.querySelector("#pald").value,
-    orderNo: wrap.querySelector("#palo").value.trim(),
-    firm: wrap.querySelector("#palfirm").value.trim(),
-  }));
+  pb.addEventListener("click", () => {
+    const o = coOpen.find(x => String(x.id) === coSel.value);
+    palPrint(wrap.querySelector("#palc").value, ta.value, {
+      date: wrap.querySelector("#pald").value,
+      orderNo: wrap.querySelector("#palo").value.trim(),
+      firm: wrap.querySelector("#palfirm").value.trim(),
+      kgTotal: o ? shipKg(o) : 0,   // резерва за „Общо нето", ако редовете не се разпознаят
+    });
+  });
   cb.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(ta.value); cb.textContent = "✓ копирано"; setTimeout(() => { cb.textContent = "📋 Копирай"; }, 1500); }
     catch (e) { alert("Копирането не мина — селектирай текста и Ctrl+C."); }
@@ -275,6 +295,30 @@ function palParsePallets(text) {
   }
   return pallets.filter(p => p.items.length);
 }
+/* ⚖ Тегло на ред от описа (кг): 1) кг/брой от Опаковки (код+клиент);
+   2) от РЕЦЕПТАТА — продукт по код, иначе по точно име. 0 = не се знае. */
+function palItemKg(x, client) {
+  const qty = (typeof erpToNum === "function" ? erpToNum(String(x.qty).replace(",", ".")) : Number(x.qty)) || 0;
+  if (!qty) return 0;
+  if (x.code && typeof erpPackFind === "function") {
+    const sp = erpPackFind(x.code, client);
+    if (sp && Number(sp.kgPerPiece) > 0) return qty * Number(sp.kgPerPiece);
+  }
+  let p = null;
+  if (typeof ERP !== "undefined" && ERP.products) {
+    if (x.code) p = ERP.products.find(q => String(q.code || "") === String(x.code));
+    if (!p && x.name) {
+      const nn = String(x.name).trim().toLowerCase();
+      p = ERP.products.find(q => String(q.name || "").trim().toLowerCase() === nn);
+    }
+  }
+  if (p && typeof erpProductWeightKg === "function") {
+    const w = erpProductWeightKg(p.id);
+    if (w > 0) return qty * w;
+  }
+  return 0;
+}
+
 function palPrint(client, text, meta) {
   meta = meta || {};
   if (!String(text || "").trim()) { alert("Няма опис за печат."); return; }
@@ -300,6 +344,14 @@ function palPrint(client, text, meta) {
     .palpage .kv{font-size:18px;margin:8px 0}
     .palpage .made{margin-top:30px;font-size:12px;color:#666;text-align:center}
   </style>`;
+  // ⚖ Нето по палети — от Опаковки/рецептите. Пише се само каквото се знае;
+  // редове без разпознат продукт не влизат в сумата (Бруто остава на ръка).
+  const kg1 = n => (Math.round(n * 10) / 10).toLocaleString("bg-BG");
+  const palKg = pallets.map(p => p.items.reduce((s, x) => s + palItemKg(x, client), 0));
+  let totKg = palKg.reduce((s, k) => s + k, 0);
+  // Резерва: редовете не се разпознават (клиентски имена без кодове) →
+  // общото нето идва от самата заявка (подадено от диалога).
+  if (!(totKg > 0) && Number(meta.kgTotal) > 0) totKg = Number(meta.kgTotal);
   const body = pageCss + pallets.map((p, idx) => `
     <div class="palpage" style="${idx < pallets.length - 1 ? "page-break-after:always" : ""}">
       <div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>
@@ -308,8 +360,8 @@ function palPrint(client, text, meta) {
       ${meta.orderNo ? `<div class="kv" style="font-size:22px"><b>Order No:</b> ${escapeHtml(meta.orderNo)}</div>` : ""}
       <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.qty}</th></tr></thead>
       <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${escapeHtml(x.qty)}${x.unit ? " " + escapeHtml(x.unit) : ""}</td></tr>`).join("")}</tbody></table>
-      <div class="kv"><b>${L.net}:</b> ${blank} ${kgU} · <b>${L.gr}:</b> ${blank} ${kgU}</div>
-      ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>` : ""}
+      <div class="kv"><b>${L.net}:</b> ${palKg[idx] > 0 ? `<b>${kg1(palKg[idx])}</b> ${kgU}` : `${blank} ${kgU}`} · <b>${L.gr}:</b> ${blank} ${kgU}</div>
+      ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}${totKg > 0 ? ` · <b>${en ? "Total net" : "Общо нето"}:</b> ${kg1(totKg)} ${kgU}` : ""}</div>` : ""}
       <div class="made">The Systems</div>
     </div>`).join("");
   if (typeof invPrintWindow === "function") {
