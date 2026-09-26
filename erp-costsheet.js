@@ -24,18 +24,25 @@ const CS_DEFAULT_CODE = "103839";              // Механизъм 3 Дроп 
 
 /* ---------- Зареждане на източниците ---------- */
 async function csEnsureData() {
+  // Тежките данни (дневникът, покупките, заявките) се извличат ВЕДНЪЖ НА ДЕН —
+  // първото отваряне за деня тегли всичко, после табът се отваря мигновено.
+  // „🔄 Опресни" нулира печата (CS_DATA_AT = 0) и извлича наново.
+  if (CS_DATA_AT && new Date(CS_DATA_AT).toDateString() === new Date().toDateString()) return;
   await erpEnsureLoaded();
   try { if (typeof erpEnsureOwnerClients === "function") await erpEnsureOwnerClients(); } catch (e) {}
   try { if (typeof erpLoadCostCfg === "function") await erpLoadCostCfg(); } catch (e) {}
+  try { if (typeof PL_CACHE !== "undefined") PL_CACHE = null; } catch (e) {}
   try { if (typeof erpPLEnsureCache === "function") await erpPLEnsureCache(); } catch (e) {}
-  try { if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders(); } catch (e) {}
-  try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
+  try { if (typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
+  try { if (typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}
   // Времената: вечният дневник + живите задачи (както в „Отчети").
-  try { if (typeof loadProdLog === "function" && (typeof PROD_LOG === "undefined" || !PROD_LOG || !PROD_LOG.length)) await loadProdLog(); } catch (e) {}
-  try { if (typeof tLoadTasks === "function" && (typeof TASKS === "undefined" || !TASKS || !TASKS.length)) await tLoadTasks(); } catch (e) {}
+  try { if (typeof loadProdLog === "function") await loadProdLog(); } catch (e) {}
+  try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) {}
   await csLoadExtras();
   await csLoadNorms();
+  CS_DATA_AT = Date.now();
 }
+let CS_DATA_AT = 0;   // кога са извлечени тежките данни (0 = още не / поискано наново)
 
 /* ---------- ✎ Норми (ръчно зададени време/машина за детайл+операция) ----------
    Когато измереното време е сгрешено/липсва, тук се задава нормовреме и/или
@@ -421,10 +428,11 @@ async function erpRenderCostSheet() {
       <button class="btn btn-small" id="cs-ops" title="Операциите с общите им ставки (€/бр.) и кой цех ги изпълнява — смяната на ставка там важи за ВСИЧКИ рецепти">🏭 Операции → Цех</button>
       <button class="btn btn-small" id="cs-pl" title="Продажните цени по клиенти — оттам Калкулацията взима цената за маржина">💲 Ценови листи</button>
       <button class="btn btn-small" id="cs-rates" title="Машини, заплати, режийни → ставки €/час по цех (същият екран като във Финанси)">⚙️ Разходи и ставки</button>
-      <button class="btn btn-small" id="cs-refresh" title="Презарежда времената и цените">🔄 Опресни</button>
+      <button class="btn btn-small" id="cs-refresh" title="Извлича наново всичко (времена, покупки, заявки, цени). Иначе данните се теглят веднъж на ден — затова табът се отваря бързо.">🔄 Опресни</button>
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
       <button class="btn btn-small" id="cs-print">🖨 Печат</button>
     </div>
+    <p class="erp-muted" style="margin:2px 0 6px;font-size:13px">⏱ Данните (времена, покупки, заявки, цени) са извлечени днес в <b>${new Date(CS_DATA_AT || Date.now()).toLocaleTimeString("bg-BG", { hour: "2-digit", minute: "2-digit" })}</b> — теглят се веднъж на ден, затова табът се отваря бързо. За ново извличане → „🔄 Опресни".</p>
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 14px;margin:4px 0 10px;font-size:15px;line-height:1.55">
       <div>📌 <b>„✎ Задай реална цена“</b> — цената, която зададеш, се счита за себестойност на изделието вместо изчислената от рецептата (важи навсякъде, вкл. когато изделието се влага в друго).</div>
       <div style="margin-top:4px">⚠ <b>Общата ставка на операция</b> се сменя от „🏭 Операции → Цех“ (бутонът тук горе) и важи за <b>ВСИЧКИ</b> рецепти. Същото важи и за <b>„✎€“ върху материал</b> в Рецептата — сменя цената му във всички рецепти и в склада. И двете питат с червено предупреждение.</div>
@@ -460,7 +468,9 @@ async function erpRenderCostSheet() {
   // (лентата с отворените раздели), за да се работи с двете едновременно.
   v.querySelector("#cs-rates").addEventListener("click", () => erpSetTab("costrates"));
   v.querySelector("#cs-refresh").addEventListener("click", async () => {
-    try { if (typeof loadProdLog === "function") await loadProdLog(); if (typeof tLoadTasks === "function") await tLoadTasks(); if (typeof erpLoadAll === "function") await erpLoadAll(); if (typeof PL_CACHE !== "undefined") PL_CACHE = null; } catch (e) {}
+    // Ръчно извличане: нулираме дневния печат и csEnsureData тегли всичко наново.
+    CS_DATA_AT = 0;
+    try { if (typeof erpLoadAll === "function") { await erpLoadAll(); ERP.loaded = true; } } catch (e) {}
     erpRenderCostSheet();
   });
 
