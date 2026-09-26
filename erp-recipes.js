@@ -44,7 +44,7 @@ function erpRenderRecipe(productId) {
       <span class="erp-count erp-total-cost">Обща себестойност:
         <strong>${erpManualCostOf(productId) !== null ? erpEur(ERP.costById[productId]) : (p.needs_recipe ? "чака рецепта" : erpEur(ERP.costById[productId]))}</strong>
         ${erpManualCostOf(productId) !== null ? '<span class="erp-tag erp-tag-manual" title="Ръчно зададена цена — не се смята от рецептата">✋ ръчна</span>' : ""}
-        <button class="btn btn-small" id="erp-cost-edit" title="Задай реалната себестойност ръчно (за изделия със стари/нереални цени)">✎ Цена</button>
+        <button class="btn btn-small" id="erp-cost-edit" title="Цената, която зададеш, се счита за себестойност на изделието вместо изчислената от рецептата">✎ Задай реална цена</button>
       </span>
     </div>
     <div class="erp-recipe">
@@ -174,7 +174,7 @@ function erpEditManualCost(productId) {
   const man = erpManualCostOf(productId);
   const computed = erpComputedCost(productId);
   const { wrap, close } = erpDialog(`
-    <h3>Себестойност — ръчна корекция</h3>
+    <h3>✎ Задай реална цена</h3>
     <p class="erp-muted" style="margin:-6px 0 10px"><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")}</p>
     <p>Изчислена от рецептата: <b>${erpEur(computed)}</b>${p.needs_recipe ? ' <span class="erp-warn">(чака рецепта — вероятно непълна)</span>' : ""}</p>
     ${man !== null ? `<p>Сега важи ръчната цена: <b>${erpEur(man)}</b></p>` : ""}
@@ -350,7 +350,7 @@ function erpRecipeChildren(productId, depth, ancestors) {
         <span class="erp-node erp-node-semi">
           <span class="erp-node-main"><span class="erp-tag erp-tag-semi">възел</span> ${escapeHtml(c.code || "")} ${escapeHtml(c.name || "")}${cycle ? ' <span class="erp-warn">(цикъл)</span>' : ""}${c.needs_recipe ? ' <span class="erp-warn">(чака рецепта)</span>' : ""}${erpManualCostOf(l.child_product_id) !== null ? ' <span class="erp-tag erp-tag-manual" title="Възелът е с ръчно зададена цена">✋ ръчна цена</span>' : ""}</span>
           <span class="erp-node-qty">${erpNum(qty)} ${escapeHtml(unit)}</span>
-          <span class="erp-node-cost">${erpEur(cost)}</span><button class="erp-cost-edit" data-ct="node" data-cid="${l.child_product_id}" title="Ръчна цена на възела (замества изчислената навсякъде)">✎€</button>${drawBtn}${rmBtn}
+          <span class="erp-node-cost">${erpEur(cost)}</span><button class="erp-cost-edit" data-ct="node" data-cid="${l.child_product_id}" title="Задай реална цена на възела — замества изчислената от рецептата навсякъде">✎€</button>${drawBtn}${rmBtn}
         </span>
         ${sub ? `<ul class="erp-tree">${sub}</ul>` : ""}
       </li>`;

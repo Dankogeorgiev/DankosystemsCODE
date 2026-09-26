@@ -416,10 +416,12 @@ async function erpRenderCostSheet() {
       <button class="btn btn-small ${CS.view === "sheet" ? "btn-primary" : ""}" id="cs-view-sheet" title="Пълна калкулация на избраното изделие">🧾 Калкулация</button>
       ${CS.view === "sheet" ? `<button class="btn btn-small ${CS.edit ? "btn-primary" : ""}" id="cs-edit" title="Коригирай направо тук: нормовреме и машина на операция, цена на операцията в рецептата, средна цена и количество на материал, продажна цена, ръчна себестойност">✎ Редакция</button>` : ""}
       <span class="spacer"></span>
+      <button class="btn btn-small" id="cs-rates" title="Машини, заплати, режийни → ставки €/час по цех (същият екран като във Финанси)">⚙️ Разходи и ставки</button>
       <button class="btn btn-small" id="cs-refresh" title="Презарежда времената и цените">🔄 Опресни</button>
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
       <button class="btn btn-small" id="cs-print">🖨 Печат</button>
     </div>
+    <p class="hint" style="margin:4px 0 8px">📌 <b>„✎ Задай реална цена“</b> — цената, която зададеш, се счита за себестойност на изделието вместо изчислената от рецептата (важи навсякъде, вкл. когато изделието се влага в друго). · ⚠ <b>„✎€“ върху операция</b> сменя ставката на операцията (unit_cost) за <b>ВСИЧКИ</b> рецепти, не само за тази.</p>
     <div id="cs-body"></div>`;
 
   const body = v.querySelector("#cs-body");
@@ -435,6 +437,19 @@ async function erpRenderCostSheet() {
   v.querySelector("#cs-view-sheet").addEventListener("click", () => { CS.view = "sheet"; erpRenderCostSheet(); });
   const edBtn = v.querySelector("#cs-edit");
   if (edBtn) edBtn.addEventListener("click", () => { CS.edit = !CS.edit; erpRenderCostSheet(); });
+  // ⚙️ Разходи и ставки — същият екран като във Финанси, отваря се тук
+  // с бутон „← Назад към Себестойности" (рамката остава при вътрешни презаписи).
+  v.querySelector("#cs-rates").addEventListener("click", async () => {
+    v.innerHTML = `
+      <div class="erp-toolbar" style="margin-bottom:6px">
+        <button class="btn btn-small" id="cs-rates-back">← Назад към Себестойности</button>
+        <b>⚙️ Разходи и ставки</b>
+      </div>
+      <div id="cs-rates-host"><p class="erp-loading">Зареждане…</p></div>`;
+    v.querySelector("#cs-rates-back").addEventListener("click", () => erpRenderCostSheet());
+    try { await erpRenderCostRates(v.querySelector("#cs-rates-host")); }
+    catch (e) { v.querySelector("#cs-rates-host").innerHTML = `<p class="erp-warn">Модулът Разходи и ставки не се зареди: ${escapeHtml(e.message || String(e))}</p>`; }
+  });
   v.querySelector("#cs-refresh").addEventListener("click", async () => {
     try { if (typeof loadProdLog === "function") await loadProdLog(); if (typeof tLoadTasks === "function") await tLoadTasks(); if (typeof erpLoadAll === "function") await erpLoadAll(); if (typeof PL_CACHE !== "undefined") PL_CACHE = null; } catch (e) {}
     erpRenderCostSheet();
@@ -515,7 +530,7 @@ function csSheetHtml(c) {
       <b>✎ Режим редакция</b> — попълни каквото искаш да промениш и натисни „Запази". Празно поле = без промяна / връщане към автоматичното.
       <div class="cs-editbar-row">
         <label>Продажна цена за ${escapeHtml(c.clientName || "клиента")} (ценова листа) <input type="number" step="any" min="0" class="cs-e" data-f="price" data-init="" value="" placeholder="${price > 0 ? erpNum(price) : "—"}" style="width:90px" /> €</label>
-        <label>Ръчна себестойност на изделието <input type="number" step="any" min="0" class="cs-e" data-f="manual" data-init="${t.manualTop != null ? t.manualTop : ""}" value="${t.manualTop != null ? t.manualTop : ""}" placeholder="няма (смята се от рецептата)" style="width:110px" /> €</label>
+        <label>„Задай реална цена" — реална себестойност на изделието <input type="number" step="any" min="0" class="cs-e" data-f="manual" data-init="${t.manualTop != null ? t.manualTop : ""}" value="${t.manualTop != null ? t.manualTop : ""}" placeholder="няма (смята се от рецептата)" style="width:110px" /> €</label>
         <span class="spacer"></span>
         <button class="btn btn-small" id="cs-e-apply" title="За всички операции с измерено време или норма: реалната цена (време × ставка) се записва като цена на операцията в рецептата на този детайл">📥 Реалните цени → рецептата</button>
         <button class="btn btn-small btn-primary" id="cs-e-save">💾 Запази промените</button>
