@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 813</p>
+      <p class="login-version">версия 814</p>
     </form>
   </div>
 
@@ -88,9 +88,8 @@
 
   <main class="layout app-chrome" hidden>
     <!-- Списък с мостри -->
-    <!-- Дръжка за показване/скриване на списъка с мострите (скрит по подразбиране) -->
-    <button id="sb-handle" class="sb-handle" title="Покажи списъка с мострите">🧪</button>
     <aside class="sidebar">
+      <button id="sb-hide" class="btn btn-small" style="display:block;margin-left:auto;margin-bottom:6px" title="Скрий списъка с мострите (пак се показва с бутона 🧪 Мостри)">✕ Скрий</button>
       <div class="search-box">
         <input type="search" id="search" placeholder="Търси по клиент, мостра, №..." />
         <select id="type-filter">
@@ -111,7 +110,6 @@
         <img src="welcome.svg?v=144" alt="DankoSystems — Metalworking Solutions" class="welcome-img"
              onerror="this.style.display='none'" />
         <h2>Добре дошли в СИСТЕМАТА 👋</h2>
-        <p>тук е като в матрицата...</p>
 
         <!-- 📝 Списъкът на Данко — под матрицата (само за четене/отмятане;
              добавянето е през плаващия бутон 📝) -->
@@ -706,7 +704,7 @@
   <script src="auto-update.js?v=2"></script>
   <script src="draw-preview.js?v=3"></script>
   <script src="report-export.js?v=1"></script>
-  <script src="app.js?v=257"></script>
+  <script src="app.js?v=258"></script>
   <script src="quality.js?v=3"></script>
   <script src="tasks.js?v=330"></script>
   <script src="laser-fill.js?v=5"></script>

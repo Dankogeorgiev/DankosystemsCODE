@@ -1122,25 +1122,15 @@ function wireHandlers() {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("btn-logout").addEventListener("click", () => sb.auth.signOut());
 
-  document.getElementById("btn-new").addEventListener("click", () => openTypeMenu("sample"));
-  // Лентата с мострите е СКРИТА по подразбиране (Данко, 26.09 — „не я ползваме
-  // никога"). Тясната дръжка 🧪 на левия ръб я показва/скрива; изборът се помни.
-  (function () {
-    const handle = document.getElementById("sb-handle");
-    if (!handle) return;
-    let visible = false;
-    try { visible = localStorage.getItem("samples-visible") === "1"; } catch (e) {}
-    const apply = () => {
-      document.body.classList.toggle("samples-hidden", !visible);
-      handle.title = visible ? "Скрий списъка с мострите" : "Покажи списъка с мострите";
-    };
-    apply();
-    handle.addEventListener("click", () => {
-      visible = !visible;
-      try { localStorage.setItem("samples-visible", visible ? "1" : "0"); } catch (e) {}
-      apply();
-    });
-  })();
+  document.getElementById("btn-new").addEventListener("click", () => {
+    document.body.classList.remove("samples-hidden");   // списъкът е изгледът на Мострите
+    openTypeMenu("sample");
+  });
+  // Лентата с мострите е СКРИТА по подразбиране (Данко, 26.09). „🧪 Мостри"
+  // я показва (списъкът е нейният изглед), ✕ в самата лента я скрива пак.
+  document.body.classList.add("samples-hidden");
+  const sbHide = document.getElementById("sb-hide");
+  if (sbHide) sbHide.addEventListener("click", () => document.body.classList.add("samples-hidden"));
   // „Нестандартни поръчки" вече живеят в ЕРП → Заявки от клиенти (бързите изделия);
   // старият бутон е махнат, старите записи се виждат при филтър „Всички".
   const oldOrderBtn = document.getElementById("btn-new-order");
