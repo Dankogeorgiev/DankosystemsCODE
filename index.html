@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 814</p>
+      <p class="login-version">версия 815</p>
     </form>
   </div>
 
@@ -63,6 +63,7 @@
       </div>
       <div class="hz-plans">
         <button id="btn-calendar" class="btn btn-plan" style="display:none" title="Офис календарът: какво се прави по числа в месеца — преводи, осигуровки, кредити. Пиши свободно, той сам подрежда.">📅 Календар</button>
+        <button id="btn-tanya" class="btn btn-plan" title="Упътване за новата колежка Таня Петкова — какво върши офис акаунтът office@dankosystems.com. Може да се свали и като PDF.">👩‍💼 Таня Петкова</button>
       </div>
       <div id="cal-next-strip" hidden></div>
     </div>
@@ -431,6 +432,20 @@
     </div>
   </div>
 
+  <!-- Модал: 👩‍💼 Упътване — Таня Петкова -->
+  <div id="tanya-modal" class="overlay tasks-overlay" hidden>
+    <div class="tasks-box" style="max-width:1050px;margin:24px auto;border-radius:14px">
+      <div class="tasks-head">
+        <h2>👩‍💼 Упътване — Таня Петкова (офисът)</h2>
+        <div class="tasks-head-actions">
+          <button id="tanya-pdf" class="btn" title="Отваря печатен изглед — в диалога избери «Запази като PDF» и я прикачи в мейл">⤓ PDF</button>
+          <button id="tanya-close" class="btn">Затвори</button>
+        </div>
+      </div>
+      <div id="tanya-body" class="info-list" style="padding:12px 18px"></div>
+    </div>
+  </div>
+
   <!-- Модал: Производство по цехове -->
   <div id="tasks-modal" class="overlay tasks-overlay" hidden>
     <div class="tasks-box">
@@ -773,8 +788,9 @@
   <script src="assistant.js?v=179"></script>
   <script src="pulse.js?v=222"></script>
   <script src="office-calendar.js?v=2"></script>
-  <script src="info-news.js?v=9"></script>
+  <script src="info-news.js?v=10"></script>
   <script src="danko-todo.js?v=9"></script>
+  <script src="tanya-guide.js?v=1"></script>
   <script src="crm-sales-data.js?v=1"></script>
   <script src="crm-sales-api.js?v=3"></script>
   <script src="crm-sales.js?v=6"></script>
