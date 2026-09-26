@@ -437,32 +437,16 @@ async function erpRenderCostSheet() {
   v.querySelector("#cs-prod").addEventListener("change", e => { const p = pickProduct(e.target.value); if (p) { CS.pid = p.id; CS.view = "sheet"; erpRenderCostSheet(); } });
   const backBtn = v.querySelector("#cs-back");
   if (backBtn) backBtn.addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
-  // ⏱ Отчетът Времена (Цехове) — източникът на времената в калкулацията.
+  // ⏱ Отчетът Времена — също ОТДЕЛЕН РАЗДЕЛ до Себестойности.
   const timesBtn = v.querySelector("#cs-times");
-  if (timesBtn) timesBtn.addEventListener("click", async () => {
-    try { if (typeof loadProdLog === "function") await loadProdLog(); } catch (e) {}
-    try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) {}
-    const m = document.getElementById("tasks-modal");
-    if (m) m.hidden = false;
-    if (typeof renderTimesReport === "function") renderTimesReport();
-  });
+  if (timesBtn) timesBtn.addEventListener("click", () => erpSetTab("timesrep"));
   v.querySelector("#cs-view-list").addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
   v.querySelector("#cs-view-sheet").addEventListener("click", () => { CS.view = "sheet"; erpRenderCostSheet(); });
   const edBtn = v.querySelector("#cs-edit");
   if (edBtn) edBtn.addEventListener("click", () => { CS.edit = !CS.edit; erpRenderCostSheet(); });
-  // ⚙️ Разходи и ставки — същият екран като във Финанси, отваря се тук
-  // с бутон „← Назад към Себестойности" (рамката остава при вътрешни презаписи).
-  v.querySelector("#cs-rates").addEventListener("click", async () => {
-    v.innerHTML = `
-      <div class="erp-toolbar" style="margin-bottom:6px">
-        <button class="btn btn-small" id="cs-rates-back">← Назад към Себестойности</button>
-        <b>⚙️ Разходи и ставки</b>
-      </div>
-      <div id="cs-rates-host"><p class="erp-loading">Зареждане…</p></div>`;
-    v.querySelector("#cs-rates-back").addEventListener("click", () => erpRenderCostSheet());
-    try { await erpRenderCostRates(v.querySelector("#cs-rates-host")); }
-    catch (e) { v.querySelector("#cs-rates-host").innerHTML = `<p class="erp-warn">Модулът Разходи и ставки не се зареди: ${escapeHtml(e.message || String(e))}</p>`; }
-  });
+  // ⚙️ Разходи и ставки — отваря се като ОТДЕЛЕН РАЗДЕЛ до Себестойности
+  // (лентата с отворените раздели), за да се работи с двете едновременно.
+  v.querySelector("#cs-rates").addEventListener("click", () => erpSetTab("costrates"));
   v.querySelector("#cs-refresh").addEventListener("click", async () => {
     try { if (typeof loadProdLog === "function") await loadProdLog(); if (typeof tLoadTasks === "function") await tLoadTasks(); if (typeof erpLoadAll === "function") await erpLoadAll(); if (typeof PL_CACHE !== "undefined") PL_CACHE = null; } catch (e) {}
     erpRenderCostSheet();

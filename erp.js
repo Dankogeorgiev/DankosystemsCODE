@@ -475,7 +475,7 @@ function erpSetTab(tab, force) {
   if (!tab) tab = "materials";
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
-      && ["sales", "pricelists", "purchases", "supprofiles", "finance", "invoices", "payables", "receivables", "costsheet"].includes(tab)) tab = "customer";
+      && ["sales", "pricelists", "purchases", "supprofiles", "finance", "invoices", "payables", "receivables", "costsheet", "costrates"].includes(tab)) tab = "customer";
   ERP.tab = tab;
   // „Отворени раздели" (като табове на документи) — добавяме отворения, ако още го няма.
   ERP.openTabs = ERP.openTabs || [];
@@ -519,6 +519,22 @@ function erpDispatchTab(tab) {
         erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>„Себестойности" е част от финансовия достъп.</p></div>`;
       } else if (typeof erpRenderCostSheet === "function") erpRenderCostSheet();
       break;
+    case "costrates":
+      if (typeof financeAllowed === "function" && !financeAllowed()) {
+        erpView().innerHTML = `<div class="erp-error"><h3>Няма достъп</h3><p>„Разходи и ставки" е част от финансовия достъп.</p></div>`;
+      } else if (typeof erpRenderCostRates === "function") erpRenderCostRates(erpView());
+      break;
+    case "timesrep":
+      (async () => {
+        const v0 = erpView();
+        v0.innerHTML = `<p class="erp-loading">Зареждане на производствените отчети…</p>`;
+        try { if (typeof loadProdLog === "function") await loadProdLog(); } catch (e) {}
+        try { if (typeof loadAsmLog === "function") await loadAsmLog(); } catch (e) {}
+        try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) {}
+        if (typeof renderTimesReport === "function") renderTimesReport(v0);
+        else v0.innerHTML = `<p class="erp-warn">Модулът Отчети (times-report.js) не е зареден.</p>`;
+      })();
+      break;
     case "purchases":    erpRenderPurchases(); break;
     case "supprofiles": erpRenderSupplierProfiles(); break;
     case "cliprofiles": erpRenderClientProfiles(); break;
@@ -533,9 +549,11 @@ function erpDispatchTab(tab) {
 /* ---------- Отворени раздели (табове като на документи) ----------
    Всеки отворен модул стои като таб горе с ✕. Клик върху таб → превключва;
    ✕ → затваря. Всичко в един прозорец, без нови прозорци на браузъра. */
+// Раздели БЕЗ собствен бутон в лентата (отварят се от Себестойности).
+const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки" };
 function erpTabLabel(tab) {
   const b = document.querySelector('.erp-tab[data-tab="' + tab + '"]');
-  return b ? b.textContent.trim() : tab;
+  return b ? b.textContent.trim() : (ERP_EXTRA_TABS[tab] || tab);
 }
 function erpRenderOpenTabs() {
   const strip = document.getElementById("erp-open-tabs"); if (!strip) return;

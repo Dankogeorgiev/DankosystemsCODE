@@ -220,9 +220,16 @@ function timesAsmRows() {
 }
 
 /* ---------- Изглед ---------- */
-function renderTimesReport() {
-  showSub("times");
-  const v = document.getElementById("times-view");
+/* Отчетът може да живее на две места: в Цехове (#times-view, по подразбиране)
+   или в СОБСТВЕН РАЗДЕЛ на ЕРП-то (Себестойности → ⏱ Отчет Времена).
+   renderTimesReport(host): host=елемент → рисува там; host=null → обратно в
+   Цехове; без аргумент → където е било последно (вътрешните презаписи). */
+let TIMES_HOST = null;
+function renderTimesReport(host) {
+  if (host !== undefined) TIMES_HOST = host;
+  if (TIMES_HOST && !TIMES_HOST.isConnected) TIMES_HOST = null;   // разделът е затворен
+  const v = TIMES_HOST || document.getElementById("times-view");
+  if (!TIMES_HOST) showSub("times");
   const all = (typeof collectTimeRows === "function") ? collectTimeRows() : [];
   const uniq = key => [...new Set(all.map(r => r[key]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "bg"));
   // Номерата на заявки идват слепени (споделена серия „1, 2") — разделяме ги.
