@@ -1,27 +1,36 @@
-/* Данко Системс — 📝 To do списъкът на Данко (под „Добре дошли").
-   Пази се в облака: app_config id="danko_todo" = { items: [{id, t, done, at}] }.
-   Вижда се само от Данко (dankog@gmail.com). */
+/* Данко Системс — 📝 Личен To do списък (под „Добре дошли" + плаващ бутон).
+   ВСЕКИ от изброените си има СВОЙ списък и вижда САМО него:
+     dankog@gmail.com                  → app_config "danko_todo"  (историческото име)
+     grigor.baykov@dankosystems.com    → app_config "todo_grigor"
+   Формат: { items: [{id, t, done, at}] }. */
 
 let TODO_ITEMS = null;
-const TODO_OWNER = "dankog@gmail.com";
-
-function todoAllowed() {
-  return typeof MY_ACCESS !== "undefined" && MY_ACCESS
-    && String(MY_ACCESS.email || "").toLowerCase() === TODO_OWNER;
+const TODO_USERS = {
+  "dankog@gmail.com": { cfg: "danko_todo", name: "Данко" },
+  "grigor.baykov@dankosystems.com": { cfg: "todo_grigor", name: "Григор" },
+};
+function todoMe() {
+  const e = String((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  return TODO_USERS[e] || null;
 }
+function todoAllowed() { return !!todoMe(); }
 
 async function todoLoad() {
+  const me = todoMe();
+  if (!me) return [];
   if (TODO_ITEMS) return TODO_ITEMS;
   try {
-    const { data } = await sb.from("app_config").select("data").eq("id", "danko_todo").maybeSingle();
+    const { data } = await sb.from("app_config").select("data").eq("id", me.cfg).maybeSingle();
     TODO_ITEMS = (data && data.data && data.data.items) || [];
   } catch (e) { TODO_ITEMS = []; }
   return TODO_ITEMS;
 }
 async function todoSave() {
+  const me = todoMe();
+  if (!me) return;
   try {
     const { error } = await sb.from("app_config")
-      .upsert({ id: "danko_todo", data: { items: TODO_ITEMS || [] }, updated_at: new Date().toISOString() });
+      .upsert({ id: me.cfg, data: { items: TODO_ITEMS || [] }, updated_at: new Date().toISOString() });
     if (error) alert("Грешка при запис на To do: " + error.message);
   } catch (e) { alert("Грешка при запис на To do: " + (e.message || e)); }
 }
@@ -62,8 +71,9 @@ function todoRender() {
   todoRenderInto(document.getElementById("todo-welcome-list"));
 }
 
-async function todoAdd() {
-  const inp = document.getElementById("todo-new");
+async function todoAdd(inputId) {
+  const inp = document.getElementById(inputId || "todo-new");
+  if (!inp) return;
   const t = (inp.value || "").trim();
   if (!t) return;
   TODO_ITEMS = TODO_ITEMS || [];
@@ -80,10 +90,14 @@ async function todoApplyAccess() {
   const modal = document.getElementById("todo-modal");
   const wcard = document.getElementById("todo-welcome");
   if (!fab || !modal) return;
-  if (!todoAllowed()) { fab.hidden = true; modal.hidden = true; if (wcard) wcard.hidden = true; return; }
+  const me = todoMe();
+  if (!me) { fab.hidden = true; modal.hidden = true; if (wcard) wcard.hidden = true; return; }
   fab.hidden = false;
   if (wcard) wcard.hidden = false;
-  // Списъкът под „матрицата" се пълни веднага след входа.
+  // Заглавията носят името на човека; списъкът се чете свежо за ТОЗИ профил.
+  const mt = document.getElementById("todo-mtitle"); if (mt) mt.textContent = `📝 To do — ${me.name}`;
+  const wt = document.getElementById("todo-wtitle"); if (wt) wt.textContent = `📝 Какво имам да правя (${me.name})`;
+  TODO_ITEMS = null;
   todoLoad().then(todoRender).catch(() => {});
   if (!fab.dataset.wired) {
     fab.dataset.wired = "1";
@@ -95,9 +109,15 @@ async function todoApplyAccess() {
       if (inp) setTimeout(() => inp.focus(), 50);
     });
     document.getElementById("todo-close").addEventListener("click", () => { modal.hidden = true; });
-    document.getElementById("todo-add").addEventListener("click", todoAdd);
+    document.getElementById("todo-add").addEventListener("click", () => todoAdd("todo-new"));
     document.getElementById("todo-new").addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); todoAdd(); }
+      if (e.key === "Enter") { e.preventDefault(); todoAdd("todo-new"); }
+    });
+    // Добавяне и ОТ ОСНОВНИЯ ЕКРАН (картата под „матрицата").
+    const wAdd = document.getElementById("todo-add-w"), wInp = document.getElementById("todo-new-w");
+    if (wAdd) wAdd.addEventListener("click", () => todoAdd("todo-new-w"));
+    if (wInp) wInp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); todoAdd("todo-new-w"); }
     });
   }
 }
