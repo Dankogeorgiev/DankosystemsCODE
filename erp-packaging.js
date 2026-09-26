@@ -80,6 +80,12 @@ async function erpRenderPackaging() {
   try { if (typeof erpLoadClients === "function") clients = await erpLoadClients(); } catch (e) {}
   const clientNames = clients.map(c => c.company).filter(Boolean);
   v.innerHTML = `
+    <div class="erp-toolbar" style="margin-bottom:6px">
+      <b>🎁 Опаковки</b>
+      <span class="erp-muted" style="font-size:12px">описи, спецификации и опаковъчната верига</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small btn-primary" id="pack-ai-opis-top" title="Claude пише палетния опис в стила на старите описи на клиента (архива 2019 → днес)">🤖 Опис с AI</button>
+    </div>
     <div id="pack-orders-box">${packOrdersListHtml()}</div>
     <div class="erp-toolbar">
       <span class="erp-count" id="pack-count"></span>
@@ -108,6 +114,8 @@ async function erpRenderPackaging() {
   if (arcBtn) arcBtn.addEventListener("click", () => { if (typeof palArcImport === "function") palArcImport(arcBtn); });
   const aiBtn = document.getElementById("pack-ai-opis");
   if (aiBtn) aiBtn.addEventListener("click", () => { if (typeof erpPalletAI === "function") erpPalletAI({}); });
+  const aiTop = document.getElementById("pack-ai-opis-top");
+  if (aiTop) aiTop.addEventListener("click", () => { if (typeof erpPalletAI === "function") erpPalletAI({}); });
   // Опаковъчната верига: папки по клиент + отваряне в опаковъчния изглед.
   packOrdersWire();
   erpPackFillRows();
