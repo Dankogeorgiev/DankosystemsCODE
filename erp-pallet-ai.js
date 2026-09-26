@@ -105,6 +105,41 @@ async function palAI(system, user, maxTokens) {
 }
 
 /* ---------- Генериране ---------- */
+/* ---------- 🎓 Самообучение от ръчните корекции ----------
+   Когато човекът поправи AI описа и го отпечата/копира:
+   1) финалният текст влиза в packing_archive като НАЙ-НОВ пример за клиента
+      (следващото писане се учи първо от него);
+   2) разликите (махнати/добавени редове) се пазят като „поуки" в
+      app_config "pal_lessons" и се подават изрично в промпта. */
+function palDiffNote(orig, fin) {
+  const A = String(orig || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const B = String(fin || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const a = new Set(A), b = new Set(B);
+  const removed = A.filter(l => !b.has(l) && !/^\/\//.test(l) && !/^(ПАЛЕТ|PALLET)/i.test(l));
+  const added = B.filter(l => !a.has(l) && !/^\/\//.test(l) && !/^(ПАЛЕТ|PALLET)/i.test(l));
+  if (!removed.length && !added.length) return "";
+  const cut = arr => arr.slice(0, 6).join(" | ");
+  const s = [];
+  if (removed.length) s.push(`МАХНА: ${cut(removed)}`);
+  if (added.length) s.push(`НАПИСА/ДОБАВИ: ${cut(added)}`);
+  return s.join(" ;; ");
+}
+async function palLearn(client, orig, fin) {
+  try {
+    if (!client || !String(fin || "").trim()) return;
+    if (String(orig || "").trim() === String(fin || "").trim()) return;   // няма корекции
+    const today = new Date().toISOString().slice(0, 10);
+    await sb.from("packing_archive").insert({ client, doc_date: today, source: "СИСТЕМАТА — коригиран от човек", body: String(fin).slice(0, 8000) });
+    const note = palDiffNote(orig, fin);
+    if (note) {
+      const { data } = await sb.from("app_config").select("data").eq("id", "pal_lessons").maybeSingle();
+      const byClient = (data && data.data && data.data.byClient) || {};
+      byClient[client] = ((byClient[client] || []).concat([{ at: new Date().toISOString(), note: note.slice(0, 600) }])).slice(-8);
+      await sb.from("app_config").upsert({ id: "pal_lessons", data: { byClient }, updated_at: new Date().toISOString() });
+    }
+  } catch (e) { /* тихо — ученето не бива да пречи на печата */ }
+}
+
 async function palGenerate(arcClient, itemsText) {
   const { data, error } = await sb.from("packing_archive")
     .select("doc_date, source, body")
@@ -113,6 +148,12 @@ async function palGenerate(arcClient, itemsText) {
     .limit(6);
   if (error) throw error;
   if (!data || !data.length) throw new Error(`В архива няма описи за „${arcClient}“.`);
+  // 🎓 Поуките от ръчните корекции — подават се изрично.
+  let lessons = [];
+  try {
+    const { data: ld } = await sb.from("app_config").select("data").eq("id", "pal_lessons").maybeSingle();
+    lessons = (ld && ld.data && ld.data.byClient && ld.data.byClient[arcClient]) || [];
+  } catch (e) {}
   const examples = data.map((r, i) =>
     `--- ПРИМЕР ${i + 1} (${r.doc_date || "без дата"}) ---\n${String(r.body || "").slice(0, 1600)}`).join("\n\n");
   const today = new Date();
@@ -134,7 +175,10 @@ async function palGenerate(arcClient, itemsText) {
 Име на изделието — количество единица      (по един ред на изделие, напр. „Потапящ с крак 61 см — 500 к-та" или „TUBES L 1370 — 100 PCS"; ако изделието има код в скоби, запази го в името)
 Без дати, градове, подписи и празни колони в редовете — те се добавят при печата.
 Върни САМО текста на описа — без обяснения, без markdown.`;
-  const user = `ПОСЛЕДНИТЕ ОПИСИ НА КЛИЕНТА „${arcClient}“:\n\n${examples}\n\n=== НОВАТА ПРАТКА (дата ${dmy}) ===\n${itemsText}\n\nНапиши палетния опис за новата пратка.`;
+  const lessonTxt = lessons.length
+    ? `\n\n=== РЪЧНИ КОРЕКЦИИ, които човекът е правил по твои предишни описи за този клиент — ЗАДЪЛЖИТЕЛНО ги съобрази, не повтаряй същите грешки ===\n${lessons.slice(-5).map(l => `• (${String(l.at || "").slice(0, 10)}) ${l.note}`).join("\n")}`
+    : "";
+  const user = `ПОСЛЕДНИТЕ ОПИСИ НА КЛИЕНТА „${arcClient}“:\n\n${examples}${lessonTxt}\n\n=== НОВАТА ПРАТКА (дата ${dmy}) ===\n${itemsText}\n\nНапиши палетния опис за новата пратка.`;
   return palAI(system, user, 4000);
 }
 
@@ -232,6 +276,7 @@ async function erpPalletAI(opts) {
     const m = palArcMatch(o.clientName, arc);
     if (m) wrap.querySelector("#palc").value = m;
   });
+  let lastAI = "";   // оригиналът от AI — за сравнение с ръчните корекции
   gen.addEventListener("click", async () => {
     const client = wrap.querySelector("#palc").value;
     const items = wrap.querySelector("#pali").value.trim();
@@ -241,13 +286,20 @@ async function erpPalletAI(opts) {
     try {
       const text = await palGenerate(client, items);
       ta.value = text;
+      lastAI = text;
       out.hidden = false; pb.hidden = false; cb.hidden = false;
       st.textContent = "✓ готово — прегледай и коригирай";
       gen.textContent = "🤖 Напиши наново";
     } catch (e) { st.textContent = ""; alert("Грешка: " + (e.message || e)); }
     finally { gen.disabled = false; }
   });
+  // 🎓 Ученето: при Печат/Копирай коригираният опис става новият пример на клиента.
+  const learnNow = () => {
+    const client = wrap.querySelector("#palc").value;
+    if (lastAI && client) { palLearn(client, lastAI, ta.value); lastAI = ta.value; }
+  };
   pb.addEventListener("click", () => {
+    learnNow();
     const o = coOpen.find(x => String(x.id) === coSel.value);
     palPrint(wrap.querySelector("#palc").value, ta.value, {
       date: wrap.querySelector("#pald").value,
@@ -257,6 +309,7 @@ async function erpPalletAI(opts) {
     });
   });
   cb.addEventListener("click", async () => {
+    learnNow();
     try { await navigator.clipboard.writeText(ta.value); cb.textContent = "✓ копирано"; setTimeout(() => { cb.textContent = "📋 Копирай"; }, 1500); }
     catch (e) { alert("Копирането не мина — селектирай текста и Ctrl+C."); }
   });
