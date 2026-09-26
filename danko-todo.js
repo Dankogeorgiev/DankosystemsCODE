@@ -64,9 +64,9 @@ async function todoPushTo(cfgId, item) {
 function todoParseAssign(text) {
   const me = todoMe();
   if (!me || !me.boss) return null;
-  // Хваща и „Кажи на Юлия да оправи…", и „Кажи на Григор: свободен текст"
-  // (с двоеточие/запетая/тире след името).
-  const m = String(text || "").match(/^\s*кажи\s+на\s+([А-Яа-яA-Za-z]+)\s*[:,\-–—]?\s+(.+)$/i);
+  // Хваща ВСЯКА форма на „кажи на <име> …": главни/малки букви, двоеточие,
+  // запетая, точки, тирета, многоточие — каквото и да стои след името.
+  const m = String(text || "").match(/^\s*кажи\s+на\s+([А-Яа-яA-Za-z]+)[\s:,.;!?\-–—…]+(.+)$/i);
   if (!m) return null;
   const who = m[1].toLowerCase();
   const target = Object.entries(TODO_PEOPLE)
