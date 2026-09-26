@@ -1799,3 +1799,11 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 /* Цеховете (вкл. отчетът Времена) се отварят и ВЪРХУ ЕРП модала
    (Себестойности → ⏱ Отчет Времена) — затова стоят по-високо от него. */
 #tasks-modal { z-index: 550; }
+
+/* --- ЕКСПЕРИМЕНТ (Данко, 26.09): +13% на всички табове/бутони-табове.
+   Ако не хареса — този блок се трие и всичко се връща. --- */
+.erp-tab { font-size: 14.7px; padding: 5.7px 11.3px; }                /* ЕРП табовете (13px → 14.7px) */
+.app-header .btn, .app-header .tab, .app-header label.btn { font-size: 15.8px; padding: 9px 15.8px; }  /* основният екран (14px → 15.8px) */
+@media (max-width: 760px) {
+  .app-header .btn, .app-header .tab, .app-header label.btn { font-size: 12.4px; padding: 5.7px 9px; } /* телефон: 11px → 12.4px */
+}
