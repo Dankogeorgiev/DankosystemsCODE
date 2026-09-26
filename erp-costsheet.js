@@ -419,6 +419,7 @@ async function erpRenderCostSheet() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="cs-times" title="Отчетът Времена от Цехове — същите производствени отчети, от които идват времената в тази калкулация">⏱ Отчет Времена</button>
       <button class="btn btn-small" id="cs-ops" title="Операциите с общите им ставки (€/бр.) и кой цех ги изпълнява — смяната на ставка там важи за ВСИЧКИ рецепти">🏭 Операции → Цех</button>
+      <button class="btn btn-small" id="cs-pl" title="Продажните цени по клиенти — оттам Калкулацията взима цената за маржина">💲 Ценови листи</button>
       <button class="btn btn-small" id="cs-rates" title="Машини, заплати, режийни → ставки €/час по цех (същият екран като във Финанси)">⚙️ Разходи и ставки</button>
       <button class="btn btn-small" id="cs-refresh" title="Презарежда времената и цените">🔄 Опресни</button>
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
@@ -448,6 +449,9 @@ async function erpRenderCostSheet() {
   // 🏭 Операции → Цех — преместен тук от главната лента (26.09, Данко).
   const opsBtn = v.querySelector("#cs-ops");
   if (opsBtn) opsBtn.addEventListener("click", () => erpSetTab("operations"));
+  // 💲 Ценови листи — продажната страна на сметката (маржинът чете оттам).
+  const plBtn = v.querySelector("#cs-pl");
+  if (plBtn) plBtn.addEventListener("click", () => erpSetTab("pricelists"));
   v.querySelector("#cs-view-list").addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
   v.querySelector("#cs-view-sheet").addEventListener("click", () => { CS.view = "sheet"; erpRenderCostSheet(); });
   const edBtn = v.querySelector("#cs-edit");
