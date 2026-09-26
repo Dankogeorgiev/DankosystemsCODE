@@ -1756,3 +1756,18 @@ tr.times-click:hover td { background: #ecfdf5; }
 .todo-row.remind .todo-text { color: #b91c1c; font-weight: 700; animation: todoBlink 1.1s step-start infinite; }
 @keyframes todoBlink { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .todo-row.remind .todo-text { animation: none; } }
+
+/* Мострите: скрити по подразбиране; 🧪 дръжка на левия ръб ги показва.
+   Дръжката е под модалите (z 80) — вижда се само на началния екран. */
+body.samples-hidden .sidebar { display: none; }
+body.samples-hidden .layout { grid-template-columns: 1fr; }
+.sb-handle {
+  position: fixed; left: 0; top: 42%; z-index: 80;
+  writing-mode: vertical-rl; padding: 12px 6px;
+  background: #e8edfb; color: #1e3a8a; border: 1px solid #c7d2fe; border-left: none;
+  border-radius: 0 10px 10px 0; cursor: pointer; font-size: 15px; opacity: .85;
+}
+.sb-handle:hover { opacity: 1; background: #dbe4fb; }
+/* ИНФО кръгчето вече не виси на ръба на скрит sidebar — прибира се вляво. */
+body.samples-hidden .btn-info-fab { left: 18px; }
+body.samples-hidden .btn-todo-fab { left: 18px; }
