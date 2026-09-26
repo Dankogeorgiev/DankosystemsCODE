@@ -214,10 +214,10 @@ async function erpRenderCostRates(host) {
       <p class="hint">Където не е свързано, се ползва средната машинна ставка на цеха. Свържи каквото знаеш — колкото повече, толкова по-точна е себестойността.</p>
     </details>
 
-    <details class="cost-details"><summary>🏭 Машини (${(COST_CFG.machines || []).length})</summary>
-      <table class="report-table erp-table"><thead><tr><th>Машина</th><th>Цех</th><th class="num">Год. аморт.</th><th class="num">Поддр./год</th><th class="num">kWh/ч</th><th class="num">€/ч</th></tr></thead>
-      <tbody>${(COST_CFG.machines || []).map(m => `<tr>
-        <td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.ws)}</td><td class="num">${money(m.deprAnnual)}</td><td class="num">${money(m.maint)}</td><td class="num">${money(m.kwh)}</td><td class="num">${money(R.machineRate[m.name])}</td></tr>`).join("")}</tbody></table>
+    <details class="cost-details"><summary>🏭 Машини (${(COST_CFG.machines || []).length}) — натисни машина за преглед/редакция</summary>
+      <table class="report-table erp-table cost-tight"><thead><tr><th>Машина</th><th>Цех</th><th class="num">Год. аморт.</th><th class="num">Поддр./год</th><th class="num">kWh/ч</th><th class="num">€/ч</th></tr></thead>
+      <tbody>${(COST_CFG.machines || []).map(m => `<tr class="erp-clickable" data-mach="${escapeAttr(m.name)}">
+        <td><b>${escapeHtml(m.name)}</b></td><td>${escapeHtml(m.ws)}</td><td class="num">${money(m.deprAnnual)}</td><td class="num">${money(m.maint)}</td><td class="num">${money(m.kwh)}</td><td class="num"><b>${money(R.machineRate[m.name])}</b></td></tr>`).join("")}</tbody></table>
     </details>
 
     <details class="cost-details"><summary>👥 Досие на служители (${(COST_CFG.employees || []).length}) — натисни за преглед/редакция</summary>
@@ -255,6 +255,53 @@ async function erpRenderCostRates(host) {
     const e = (COST_CFG.employees || []).find(x => x.name === tr.dataset.emp) || { name: tr.dataset.emp };
     erpShowDossier(e, v);
   }));
+  v.querySelectorAll("[data-mach]").forEach(tr => tr.addEventListener("click", () => erpEditMachine(tr.dataset.mach, v)));
+}
+
+/* Картон на машина: всичко в табличен вид, редактируемо. €/ч се показва
+   изчислено (амортизация + поддръжка на продуктивен час + ток). */
+function erpEditMachine(name, host) {
+  const m = (COST_CFG.machines || []).find(x => x.name === name);
+  if (!m) return;
+  const R = erpCostRates();
+  const money = n => (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const wsList = [...new Set([...(COST_CFG.prodWorkshops || []), ...(COST_CFG.machines || []).map(x => x.ws).filter(Boolean)])];
+  const { wrap, close } = erpDialog(`
+    <h3>🏭 ${escapeHtml(m.name)}</h3>
+    <table class="report-table erp-table cost-tight" style="margin-bottom:10px">
+      <tbody>
+        <tr><td>Машина (име)</td><td><input type="text" id="mch-name" value="${escapeAttr(m.name)}" style="width:260px" /></td></tr>
+        <tr><td>Цех</td><td><input type="text" id="mch-ws" list="mch-wslist" value="${escapeAttr(m.ws || "")}" style="width:200px" />
+          <datalist id="mch-wslist">${wsList.map(w => `<option value="${escapeAttr(w)}"></option>`).join("")}</datalist></td></tr>
+        <tr><td>Годишна амортизация (€)</td><td><input type="number" id="mch-depr" step="any" min="0" value="${escapeAttr(String(m.deprAnnual || 0))}" style="width:140px" /></td></tr>
+        <tr><td>Поддръжка (€/год)</td><td><input type="number" id="mch-maint" step="any" min="0" value="${escapeAttr(String(m.maint || 0))}" style="width:140px" /></td></tr>
+        <tr><td>Консумация (kWh/ч)</td><td><input type="number" id="mch-kwh" step="any" min="0" value="${escapeAttr(String(m.kwh || 0))}" style="width:140px" /></td></tr>
+        <tr><td><b>Ставка €/ч (изчислена)</b></td><td><b id="mch-rate">${money(R.machineRate[m.name])}</b> <span class="erp-muted" style="font-size:12px">= (амортизация + поддръжка) / продуктивни часове + kWh × цена на тока</span></td></tr>
+      </tbody>
+    </table>
+    <div class="erp-dialog-actions">
+      <button class="btn" id="mch-cancel">Отказ</button>
+      <button class="btn btn-primary" id="mch-save">💾 Запази</button>
+      <span class="save-status" id="mch-status"></span>
+    </div>`);
+  wrap.querySelector("#mch-cancel").addEventListener("click", close);
+  wrap.querySelector("#mch-save").addEventListener("click", async () => {
+    const st = wrap.querySelector("#mch-status");
+    const newName = wrap.querySelector("#mch-name").value.trim() || m.name;
+    // Преименуване → свързванията Времена↔машина следват новото име.
+    if (newName !== m.name && COST_CFG.machineAlias) {
+      Object.keys(COST_CFG.machineAlias).forEach(k => { if (COST_CFG.machineAlias[k] === m.name) COST_CFG.machineAlias[k] = newName; });
+    }
+    m.name = newName;
+    m.ws = wrap.querySelector("#mch-ws").value.trim();
+    m.deprAnnual = erpToNum(wrap.querySelector("#mch-depr").value) || 0;
+    m.maint = erpToNum(wrap.querySelector("#mch-maint").value) || 0;
+    m.kwh = erpToNum(wrap.querySelector("#mch-kwh").value) || 0;
+    st.textContent = "Записва…";
+    const ok = await erpSaveCostCfg();
+    st.textContent = ok ? "✓ Записано" : "";
+    setTimeout(() => { close(); if (host && typeof erpRenderCostRates === "function") erpRenderCostRates(host); }, 500);
+  });
 }
 
 // Полета на досието (редактируеми).

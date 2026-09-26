@@ -858,3 +858,7 @@ td.supp-colwhat { font-size: 12px; }
 .cut-act:hover { background: #dbe4fb; }
 .cut-act-del { background: #fef2f2; border-color: #b91c1c; color: #b91c1c; }
 .cut-act-del:hover { background: #fee2e2; }
+
+/* Разходи и ставки: стегната таблица с по-едър шрифт (без разпъване на цял екран) */
+.cost-tight { width: auto; min-width: 680px; }
+.cost-tight th, .cost-tight td { font-size: 15px; padding: 6px 14px; }
