@@ -1784,3 +1784,11 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 .todo-date { font-size: 12.5px; }
 .todo-from { color: #b91c1c; }
 .todo-del { font-size: 18px; }
+
+/* To do: всичко на 19px (Данко, 26.09) */
+.todo-addrow input { font-size: 19px; }
+.todo-row { font-size: 19px; }
+.todo-card h3, #todo-wtitle { font-size: 19px; }
+.todo-empty { font-size: 19px; }
+.todo-date { font-size: 13px; }
+.todo-del { font-size: 19px; }
