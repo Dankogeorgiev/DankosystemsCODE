@@ -418,6 +418,7 @@ async function erpRenderCostSheet() {
       ${CS.view === "sheet" ? `<button class="btn btn-small ${CS.edit ? "btn-primary" : ""}" id="cs-edit" title="Коригирай направо тук: нормовреме и машина на операция, цена на операцията в рецептата, средна цена и количество на материал, продажна цена, ръчна себестойност">✎ Редакция</button>` : ""}
       <span class="spacer"></span>
       <button class="btn btn-small" id="cs-times" title="Отчетът Времена от Цехове — същите производствени отчети, от които идват времената в тази калкулация">⏱ Отчет Времена</button>
+      <button class="btn btn-small" id="cs-ops" title="Операциите с общите им ставки (€/бр.) и кой цех ги изпълнява — смяната на ставка там важи за ВСИЧКИ рецепти">🏭 Операции → Цех</button>
       <button class="btn btn-small" id="cs-rates" title="Машини, заплати, режийни → ставки €/час по цех (същият екран като във Финанси)">⚙️ Разходи и ставки</button>
       <button class="btn btn-small" id="cs-refresh" title="Презарежда времената и цените">🔄 Опресни</button>
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
@@ -425,7 +426,8 @@ async function erpRenderCostSheet() {
     </div>
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 14px;margin:4px 0 10px;font-size:15px;line-height:1.55">
       <div>📌 <b>„✎ Задай реална цена“</b> — цената, която зададеш, се счита за себестойност на изделието вместо изчислената от рецептата (важи навсякъде, вкл. когато изделието се влага в друго).</div>
-      <div style="margin-top:4px">⚠ <b>„✎€“ върху операция</b> сменя ставката на операцията (unit_cost) за <b>ВСИЧКИ</b> рецепти, не само за тази.</div>
+      <div style="margin-top:4px">⚠ <b>Общата ставка на операция</b> се сменя от „🏭 Операции → Цех“ (бутонът тук горе) и важи за <b>ВСИЧКИ</b> рецепти. Същото важи и за <b>„✎€“ върху материал</b> в Рецептата — сменя цената му във всички рецепти и в склада. И двете питат с червено предупреждение.</div>
+      <div style="margin-top:4px">✋ <b>Цена на операция САМО за конкретно изделие</b> (същата операция струва различно в различни изделия): или в <b>Рецептата</b> му → „✎€“ на реда с операцията, или тук — <b>🧾 Калкулация → ✎ Редакция</b>: коригираш цената ред по ред или прилагаш изчислената от реалните времена × ставките. Такъв ред се познава в Рецептата по знака ✋ с цената до операцията.</div>
     </div>
     <div id="cs-body"></div>`;
 
@@ -443,6 +445,9 @@ async function erpRenderCostSheet() {
   // ⏱ Отчетът Времена — също ОТДЕЛЕН РАЗДЕЛ до Себестойности.
   const timesBtn = v.querySelector("#cs-times");
   if (timesBtn) timesBtn.addEventListener("click", () => erpSetTab("timesrep"));
+  // 🏭 Операции → Цех — преместен тук от главната лента (26.09, Данко).
+  const opsBtn = v.querySelector("#cs-ops");
+  if (opsBtn) opsBtn.addEventListener("click", () => erpSetTab("operations"));
   v.querySelector("#cs-view-list").addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
   v.querySelector("#cs-view-sheet").addEventListener("click", () => { CS.view = "sheet"; erpRenderCostSheet(); });
   const edBtn = v.querySelector("#cs-edit");

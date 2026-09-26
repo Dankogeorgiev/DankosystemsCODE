@@ -151,6 +151,9 @@ function erpEditOperation(id) {
     <h3>Редакция на операция <span class="erp-muted">${escapeHtml(op.code || "")}</span></h3>
     <label>Име<input type="text" id="eo-name" value="${escapeAttr(op.name || "")}" /></label>
     <label class="cost-cell">Себестойност €/бр.<input type="number" id="eo-cost" step="any" min="0" value="${op.unit_cost || 0}" /></label>
+    <div class="cost-cell" style="background:#fef2f2;border:2px solid #dc2626;color:#991b1b;border-radius:10px;padding:8px 12px;margin:6px 0;font-weight:700;font-size:14px">
+      ⚠ Смяната на себестойността тук важи за ВСИЧКИ рецепти с тази операция! Цена само за едно изделие → Рецептата му (✎€ на реда) или 💶 Себестойности → ✎ Редакция.
+    </div>
     <div class="erp-dialog-actions"><button class="btn" id="eo-cancel">Отказ</button><button class="btn btn-primary" id="eo-save">Запази</button></div>
     <p class="save-status" id="eo-status"></p>`);
   wrap.querySelector("#eo-cancel").addEventListener("click", close);
@@ -159,6 +162,8 @@ function erpEditOperation(id) {
     const status = wrap.querySelector("#eo-status");
     if (!name) { status.textContent = "Въведи име."; return; }
     const cost = erpToNum(wrap.querySelector("#eo-cost").value) || 0;
+    // Последна спирачка при СМЕНЕНА цена — пипа всички рецепти.
+    if (cost !== (Number(op.unit_cost) || 0) && !confirm(`⚠ ВНИМАНИЕ!\n\nСменяш себестойността на операцията „${op.name || ""}" от ${op.unit_cost || 0} на ${cost} EUR — ще важи ВЪВ ВСИЧКИ рецепти с нея.\n\nСигурен ли си?`)) { return; }
     status.textContent = "Записва…";
     const { error } = await sb.from("operations").update({ name, unit_cost: cost }).eq("id", id);
     if (error) { status.textContent = "⚠ " + error.message; return; }
