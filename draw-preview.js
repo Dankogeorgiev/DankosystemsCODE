@@ -109,9 +109,11 @@
   function lookupToken(tok, codeish) {
     const k = norm(tok);
     if (!k) return null;
+    // Чисто цифровите кодове (101837…) вече НЕ стават връзки — чертежът се
+    // отваря само от ИМЕТО на изделието (Данко, 26.09). Кодът остава чист текст.
+    if (/^\d+$/.test(k)) return null;
     const rec = DP.byCode[k];
     if (!rec) return null;
-    if (!codeish && /^\d+$/.test(k) && k.length < 5) return null;
     return rec;
   }
 
