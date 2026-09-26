@@ -1806,3 +1806,8 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 @media (max-width: 760px) {
   .app-header .btn, .app-header .tab, .app-header label.btn { font-size: 12.4px; padding: 5.7px 9px; } /* телефон: 11px → 12.4px */
 }
+
+/* --- +5% НА ВСИЧКО (Данко, 26.09): целият интерфейс се мащабира с 1.05 —
+   шрифтове, бутони, таблици. Печатните прозорци не се влияят (отделни са).
+   Ако не хареса — този ред се трие. --- */
+html { zoom: 1.05; }
