@@ -67,6 +67,30 @@ function cutTubesForProduct(pid, mult, out, depth, pids) {
 
 /* Редовете на разкроя от избраните заявки. Ключ: материал + дължина.
    srcs пази и бройките ПО заявка — от тях се раждат етикетите за палетите. */
+/* Слива дублираните източници на един ред: същият код/изделие/заявка →
+   ЕДИН запис със сборни разрези (еднакви размери от един и същ вид тръба). */
+function cutMergeSrcs(srcs) {
+  const m = new Map();
+  (srcs || []).forEach(s => {
+    const k = [s.nodeCode || "", s.prodCode || "", s.prod || "", s.client || "", s.no || ""].join("|");
+    const it = m.get(k);
+    if (it) it.cuts = (Number(it.cuts) || 0) + (Number(s.cuts) || 0);
+    else m.set(k, { ...s, cuts: Number(s.cuts) || 0 });
+  });
+  return [...m.values()];
+}
+/* За етикетите: по един запис НА КОД (изделие) — сборна бройка. */
+function cutGroupSrcsByCode(srcs) {
+  const m = new Map();
+  cutMergeSrcs(srcs).forEach(s => {
+    const k = [(s.prodCode || s.nodeCode || s.prod || ""), s.no || "", s.client || ""].join("|");
+    const it = m.get(k);
+    if (it) it.cuts = (Number(it.cuts) || 0) + (Number(s.cuts) || 0);
+    else m.set(k, { ...s, cuts: Number(s.cuts) || 0 });
+  });
+  return [...m.values()];
+}
+
 function cutCollect(orders) {
   const rows = new Map();
   const problems = [];
@@ -103,7 +127,10 @@ function cutCollect(orders) {
       r.cuts += cuts;
       const nc = t.viaCode || li.code || "";   // кодът, по който Григор ще намери задачата
       if (nc && !r.nodeCodes.includes(nc)) r.nodeCodes.push(nc);
-      r.srcs.push({ client: o.clientName || "?", no: o.ourNo || "—", clientNo: o.clientNo || "", prodCode: li.code || "", prod: li.name || li.code || "?", prodQty: qty, cuts, nodeCode: nc });
+      // Еднакъв код/изделие от същата заявка → СЛИВА се в един източник (сборни разрези).
+      const exSrc = r.srcs.find(s => s.nodeCode === nc && s.prodCode === (li.code || "") && s.prod === (li.name || li.code || "?") && s.no === (o.ourNo || "—"));
+      if (exSrc) exSrc.cuts += cuts;
+      else r.srcs.push({ client: o.clientName || "?", no: o.ourNo || "—", clientNo: o.clientNo || "", prodCode: li.code || "", prod: li.name || li.code || "?", prodQty: qty, cuts, nodeCode: nc });
       if (note && !r.note) r.note = note;
       rows.set(key, r);
     });
@@ -173,7 +200,7 @@ function cutMergedPrint(sheets) {
     <tbody>${ordered.map(([, rows]) => `
       <tr class="grp"><td colspan="5">▶ ${escapeHtml(rows[0].name)}</td></tr>
       ${rows.map(r => {
-        const kod = (r.srcs || []).map(s => `<b>${escapeHtml(s.nodeCode || s.prodCode || "")}</b> ${escapeHtml(s.prod || "")} · ${escapeHtml(s.client || "")} №${escapeHtml(String(s.no || ""))} — ${erpNum(s.cuts)}`).join("<br>")
+        const kod = cutMergeSrcs(r.srcs).map(s => `<b>${escapeHtml(s.nodeCode || s.prodCode || "")}</b> ${escapeHtml(s.prod || "")} · ${escapeHtml(s.client || "")} №${escapeHtml(String(s.no || ""))} — ${erpNum(s.cuts)}`).join("<br>")
           || (r.nodeCodes || []).map(c => `<b>${escapeHtml(c)}</b>`).join(" ");
         return `<tr><td></td><td class="kod">${kod}</td><td class="len">${r.lenMm ? erpNum(r.lenMm) + " мм" : "?"}</td><td class="cnt">${erpNum(r.cuts)} бр.</td><td style="width:70px"></td></tr>`;
       }).join("")}`).join("")}</tbody></table>`;
@@ -187,7 +214,9 @@ function cutPrintLabels(rws) {
   if (!rws.length) { alert("Няма редове с отметка 🏷 Етикет в този разкрой."); return; }
   const pages = [];
   rws.forEach(r => {
-    const srcs = (r.srcs && r.srcs.length) ? r.srcs : [{ client: "", no: "", cuts: r.cuts, prod: "", prodQty: "" }];
+    // По ЕДИН етикет на код (изделие) — еднаквите кодове са слети със сборна бройка.
+    const grouped = cutGroupSrcsByCode(r.srcs);
+    const srcs = grouped.length ? grouped : [{ client: "", no: "", cuts: r.cuts, prod: "", prodQty: "" }];
     const many = srcs.length > 1;
     srcs.forEach(s => pages.push(`
       <div class="lblpage">

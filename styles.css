@@ -1772,3 +1772,8 @@ body.samples-hidden .layout { grid-template-columns: 1fr; }
 /* ИНФО кръгчето вече не виси на ръба на скрит sidebar — прибира се вляво. */
 body.samples-hidden .btn-info-fab { left: 18px; }
 body.samples-hidden .btn-todo-fab { left: 18px; }
+
+/* To do: по-едро писане и четене (Данко, 26.09) */
+.todo-addrow input { font-size: 16.5px; padding: 10px 12px; }
+.todo-row { font-size: 16px; }
+.todo-date { font-size: 12px; }
