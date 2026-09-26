@@ -403,7 +403,7 @@ function csJuliaGuideRender(v) {
   const R = (icon, what) => `<div style="display:flex;gap:14px;padding:9px 10px;border-bottom:1px dashed #e2e8f0;font-size:14.5px;line-height:1.55;align-items:flex-start">
     <div style="flex:0 0 165px;font-weight:700;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:5px 9px;text-align:center;font-size:13.5px">${icon}</div>
     <div style="padding-top:4px">${cap(what)}</div></div>`;
-  v.innerHTML = `<div style="max-width:1000px;margin:0 auto;zoom:1.05">
+  v.innerHTML = `<div style="max-width:1000px;margin:0 auto;zoom:1.155">
     <h3>👩 Упътване за Себестойности — за Юлия</h3>
     <p class="hint" style="font-size:14px">Нищо тук не се чупи от гледане и разглеждане — всички опасни действия питат с <b style="color:#b91c1c">червено предупреждение</b> преди да запишат. Работи спокойно.</p>
 
