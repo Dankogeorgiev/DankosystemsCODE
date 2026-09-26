@@ -180,6 +180,70 @@ function cutMergedPrint(sheets) {
   if (typeof invPrintWindow === "function") invPrintWindow("Разкрой тръби — общ", body, "bg", { noLogo: false, noMade: true });
 }
 
+/* 🏷 Палетните етикети: по един ЛИСТ за всяка тръба И всяка заявка в нея.
+   Обща функция — вика се и от прегледа, и от Запазените разкрои. */
+function cutPrintLabels(rws) {
+  rws = (rws || []).filter(r => r.label !== false && (Number(r.cuts) || 0) > 0);
+  if (!rws.length) { alert("Няма редове с отметка 🏷 Етикет в този разкрой."); return; }
+  const pages = [];
+  rws.forEach(r => {
+    const srcs = (r.srcs && r.srcs.length) ? r.srcs : [{ client: "", no: "", cuts: r.cuts, prod: "", prodQty: "" }];
+    const many = srcs.length > 1;
+    srcs.forEach(s => pages.push(`
+      <div class="lblpage">
+        <div class="lbl-top">ПОРЪЧКА № <b>${escapeHtml(String(s.no || ""))}</b>${s.clientNo ? ` <span class="lbl-sub">/ клиентски № ${escapeHtml(s.clientNo)}</span>` : ""}</div>
+        <div class="lbl-cl">КЛИЕНТ: <b>${escapeHtml(s.client || "")}</b></div>
+        <div class="lbl-tube">${escapeHtml(r.name)}</div>
+        <div class="lbl-len">${r.lenMm ? "L = " + erpNum(r.lenMm) + " мм" : ""} — ${erpNum(many ? s.cuts : r.cuts)} БРОЯ</div>
+        <div class="lbl-for">за: ${s.prodCode ? "<b>" + escapeHtml(s.prodCode) + "</b> · " : ""}${escapeHtml(s.prod || "")}${s.prodQty ? " × " + erpNum(s.prodQty) : ""}</div>
+        <div class="lbl-date">рязано на ${escapeHtml(new Date().toLocaleDateString("bg-BG"))} · след рязане → следваща операция</div>
+      </div>`));
+  });
+  const w = window.open("", "_blank");
+  if (!w) { alert("Браузърът блокира прозореца за печат."); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Палетни етикети — разкрой</title><style>
+    body{font-family:Arial,sans-serif;margin:0;color:#000}
+    .lblpage{page-break-after:always;padding:40px 46px;box-sizing:border-box;min-height:96vh;display:flex;flex-direction:column;justify-content:center;gap:18px;border:4px solid #000;margin:6px}
+    .lbl-top{font-size:34px} .lbl-top b{font-size:44px}
+    .lbl-sub{font-size:22px;color:#333}
+    .lbl-cl{font-size:34px} .lbl-cl b{font-size:44px}
+    .lbl-tube{font-size:40px;font-weight:800;border-top:3px solid #000;border-bottom:3px solid #000;padding:16px 0}
+    .lbl-len{font-size:54px;font-weight:900}
+    .lbl-for{font-size:26px;color:#222}
+    .lbl-date{font-size:16px;color:#555}
+    .noprint{position:fixed;top:8px;right:8px;padding:8px 16px;font-size:15px}
+    @media print{.noprint{display:none} .lblpage{min-height:auto;height:96vh}}
+  </style></head><body>${pages.join("")}<button class="noprint" onclick="window.print()">🖨 Печат (${pages.length} листа)</button></body></html>`);
+  w.document.close();
+  setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
+}
+
+/* 📄 Чертежите към ЗАПАЗЕН лист — същият избор като в „Генерирай разкрой". */
+async function cutSavedDrawings(s) {
+  const pids = s.prodIds || [];
+  if (!pids.length) { alert("Този лист е запазен преди тази версия и не носи изделията си.\nГенерирай разкроя наново — новите листове пазят и чертежите."); return; }
+  const draws = await cutDrawings(pids);
+  if (!draws.length) { alert("Изделията от този лист нямат качени чертежи (Склад детайли → 📎)."); return; }
+  const { wrap, close } = erpDialog(`
+    <h3>📄 Чертежи — ${escapeHtml(s.hdr || "")}</h3>
+    <div style="max-height:50vh;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px">
+      ${draws.map((d, i) => `<label style="display:block;margin:2px 0"><input type="checkbox" class="sd-draw" data-di="${i}" /> <b>${escapeHtml(d.pcode)}</b> ${escapeHtml(d.pname)} — <span class="t-code">${escapeHtml(d.fname)}</span></label>`).join("")}
+    </div>
+    <div class="erp-dialog-actions">
+      <button class="btn btn-primary" id="sd-print">🖨 Принтирай избраните (<span id="sd-cnt">0</span>)</button>
+      <span class="spacer"></span>
+      <button class="btn" id="sd-close">Затвори</button>
+    </div>`);
+  wrap.querySelector("#sd-close").addEventListener("click", close);
+  const sync = () => { const c = wrap.querySelector("#sd-cnt"); if (c) c.textContent = wrap.querySelectorAll(".sd-draw:checked").length; };
+  wrap.querySelectorAll(".sd-draw").forEach(cb => cb.addEventListener("change", sync));
+  wrap.querySelector("#sd-print").addEventListener("click", async () => {
+    const sel = [...wrap.querySelectorAll(".sd-draw:checked")].map(cb => draws[Number(cb.dataset.di)]).filter(Boolean);
+    if (!sel.length) { alert("Отметни поне един чертеж."); return; }
+    for (const f of sel) { await cutPrintFile(f); await new Promise(r => setTimeout(r, 800)); }
+  });
+}
+
 /* Чертежите на въвлечените изделия и полуфабрикати (products.drawings). */
 async function cutDrawings(prodIds) {
   if (!prodIds.length) return [];
@@ -267,7 +331,9 @@ async function erpCutlistOpen() {
           <td class="num">${(s.rows || []).length}</td>
           <td class="num">${erpNum((s.rows || []).reduce((x, r) => x + (Number(r.cuts) || 0), 0))}</td>
           <td class="erp-row-actions" style="white-space:nowrap">
-            <button class="btn btn-small cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай само този лист (групиран по тръба)">🖨</button>
+            <button class="btn btn-small cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай разкроя (групиран по тръба)">🖨</button>
+            <button class="btn btn-small cut-mlbl" data-sid="${escapeAttr(s.id)}" title="Печат на палетните етикети от този лист">🏷</button>
+            <button class="btn btn-small cut-mdraw" data-sid="${escapeAttr(s.id)}" title="Чертежите към изделията от този лист — избираш кои да принтираш">📄</button>
             <button class="btn btn-small cut-mdel" data-sid="${escapeAttr(s.id)}" title="Изтрий листа">🗑</button>
           </td>
         </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Още няма запазени — пусни „🖨 Печат за Бинков" и листът се появява тук веднага.</td></tr>`}</tbody>
@@ -327,6 +393,16 @@ async function erpCutlistOpen() {
     const s = (CUT_SAVED || []).find(x => x.id === b.dataset.sid);
     if (s) cutMergedPrint([s]);
   }));
+  // 🏷 Етикетите от запазен лист (пази отметките от прегледа).
+  v.querySelectorAll(".cut-mlbl").forEach(b => b.addEventListener("click", () => {
+    const s = (CUT_SAVED || []).find(x => x.id === b.dataset.sid);
+    if (s) cutPrintLabels(s.rows || []);
+  }));
+  // 📄 Чертежите от запазен лист — избор и печат.
+  v.querySelectorAll(".cut-mdraw").forEach(b => b.addEventListener("click", () => {
+    const s = (CUT_SAVED || []).find(x => x.id === b.dataset.sid);
+    if (s) cutSavedDrawings(s);
+  }));
   v.querySelectorAll(".cut-mdel").forEach(b => b.addEventListener("click", async () => {
     const s = (CUT_SAVED || []).find(x => x.id === b.dataset.sid);
     if (!s || !confirm(`Да изтрия ли запазения разкрой „${s.hdr || ""}“?`)) return;
@@ -380,6 +456,7 @@ async function erpCutlistGenerate() {
     <div class="erp-dialog-actions">
       <button class="btn" id="cut-xls">⬇ Excel</button>
       <button class="btn" id="cut-labels">🏷 Печат етикети (<span id="cut-lblcnt">${rows.length}</span>)</button>
+      <button class="btn" id="cut-save" title="Записва листа в Запазени разкрои БЕЗ да печата — печаташ по-късно оттам (разкрой, етикети, чертежи)">💾 Запази (без печат)</button>
       <button class="btn btn-primary" id="cut-print">🖨 Печат за Бинков</button>
       <span class="spacer"></span>
       <button class="btn" id="cut-close">Затвори</button>
@@ -418,17 +495,36 @@ async function erpCutlistGenerate() {
     reportExportXls(`razkroy-trabi-${new Date().toISOString().slice(0, 10)}`, `Разкрой тръби · ${hdr}`, [{ headers, rows: body }]);
   });
 
+  // 💾 Запис на листа в Запазени разкрои. Един и същ лист НЕ се дублира:
+  // „Запази" и после „Печат" обновяват същия запис (savedSheetId).
+  let savedSheetId = null;
+  const saveSheet = async rws => {
+    const sh = {
+      id: savedSheetId || String(Date.now()), at: new Date().toISOString(), hdr,
+      by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
+      rows: rws.map(r => ({ code: r.code || "", name: r.name, lenMm: r.lenMm, cuts: r.cuts, note: r.note || "", label: !!r.label, srcs: r.srcs || [], nodeCodes: r.nodeCodes || [] })),
+      prodIds: prodIds || [],   // за печата на чертежи от запазения лист
+      problems,
+    };
+    savedSheetId = sh.id;
+    await cutSavedLoad();
+    const i = (CUT_SAVED || []).findIndex(x => x.id === sh.id);
+    if (i >= 0) CUT_SAVED[i] = sh; else { CUT_SAVED.unshift(sh); CUT_SAVED = CUT_SAVED.slice(0, 30); }
+    await cutSavedSave();
+    if (document.getElementById("cut-merge")) erpCutlistOpen();
+  };
+  wrap.querySelector("#cut-save").addEventListener("click", async () => {
+    const b = wrap.querySelector("#cut-save");
+    b.disabled = true; b.textContent = "Записва…";
+    try { await saveSheet(live()); b.textContent = "✓ Запазено в Запазени разкрои"; }
+    catch (e) { b.disabled = false; b.textContent = "💾 Запази (без печат)"; alert("Грешка при запис: " + (e.message || e)); return; }
+    setTimeout(close, 600);
+  });
+
   wrap.querySelector("#cut-print").addEventListener("click", () => {
     const rws = live();
-    // 📂 Листът се ЗАПАЗВА (app_config cut_saved) НА ЗАДЕН ФОН — печатът не
-    // чака мрежата. Щом записът мине, екранът „Подготовка" отзад се опреснява
-    // сам и листът се вижда веднага в „Запазени разкрои".
-    cutSavedAdd({
-      id: String(Date.now()), at: new Date().toISOString(), hdr,
-      by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",
-      rows: rws.map(r => ({ code: r.code || "", name: r.name, lenMm: r.lenMm, cuts: r.cuts, note: r.note || "", srcs: r.srcs || [], nodeCodes: r.nodeCodes || [] })),
-      problems,
-    }).then(() => { if (document.getElementById("cut-merge")) erpCutlistOpen(); }).catch(() => {});
+    // Записът върви НА ЗАДЕН ФОН — печатът не чака мрежата.
+    saveSheet(rws).catch(() => {});
     // Запомняме кодовете, ПУСНАТИ ЗА ПЕЧАТ — „✅ Отчет на производство"
     // показва само техните задачи (нищо чуждо).
     try {
@@ -446,41 +542,11 @@ async function erpCutlistGenerate() {
     if (typeof invPrintWindow === "function") invPrintWindow("Разкрой тръби", body, "bg", { noLogo: false, noMade: true });
   });
 
-  // 🏷 Палетните етикети: по един ЛИСТ за всяка отметната тръба И всяка заявка
-  // в нея (Бинков го слага на палета с нарязаното → тръгва към следваща операция).
+  // 🏷 Палетните етикети — общата функция (ползва се и от Запазени разкрои).
   wrap.querySelector("#cut-labels").addEventListener("click", () => {
     const rws = live().filter(r => r.label);
     if (!rws.length) { alert("Отметни поне един ред в колоната 🏷 Етикет."); return; }
-    const pages = [];
-    rws.forEach(r => {
-      const many = r.srcs.length > 1;
-      r.srcs.forEach(s => pages.push(`
-        <div class="lblpage">
-          <div class="lbl-top">ПОРЪЧКА № <b>${escapeHtml(s.no)}</b>${s.clientNo ? ` <span class="lbl-sub">/ клиентски № ${escapeHtml(s.clientNo)}</span>` : ""}</div>
-          <div class="lbl-cl">КЛИЕНТ: <b>${escapeHtml(s.client)}</b></div>
-          <div class="lbl-tube">${escapeHtml(r.name)}</div>
-          <div class="lbl-len">${r.lenMm ? "L = " + erpNum(r.lenMm) + " мм" : ""} — ${erpNum(many ? s.cuts : r.cuts)} БРОЯ</div>
-          <div class="lbl-for">за: ${s.prodCode ? "<b>" + escapeHtml(s.prodCode) + "</b> · " : ""}${escapeHtml(s.prod)} × ${erpNum(s.prodQty)}</div>
-          <div class="lbl-date">рязано на ${escapeHtml(new Date().toLocaleDateString("bg-BG"))} · след рязане → следваща операция</div>
-        </div>`));
-    });
-    const w = window.open("", "_blank");
-    if (!w) { alert("Браузърът блокира прозореца за печат."); return; }
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Палетни етикети — разкрой</title><style>
-      body{font-family:Arial,sans-serif;margin:0;color:#000}
-      .lblpage{page-break-after:always;padding:40px 46px;box-sizing:border-box;min-height:96vh;display:flex;flex-direction:column;justify-content:center;gap:18px;border:4px solid #000;margin:6px}
-      .lbl-top{font-size:34px} .lbl-top b{font-size:44px}
-      .lbl-sub{font-size:22px;color:#333}
-      .lbl-cl{font-size:34px} .lbl-cl b{font-size:44px}
-      .lbl-tube{font-size:40px;font-weight:800;border-top:3px solid #000;border-bottom:3px solid #000;padding:16px 0}
-      .lbl-len{font-size:54px;font-weight:900}
-      .lbl-for{font-size:26px;color:#222}
-      .lbl-date{font-size:16px;color:#555}
-      .noprint{position:fixed;top:8px;right:8px;padding:8px 16px;font-size:15px}
-      @media print{.noprint{display:none} .lblpage{min-height:auto;height:96vh}}
-    </style></head><body>${pages.join("")}<button class="noprint" onclick="window.print()">🖨 Печат (${pages.length} листа)</button></body></html>`);
-    w.document.close();
-    setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
+    cutPrintLabels(rws);
   });
 }
 
