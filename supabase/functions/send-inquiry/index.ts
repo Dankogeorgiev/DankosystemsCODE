@@ -32,6 +32,7 @@ Deno.serve(async (req) => {
   }
 
   const to: string[] = Array.isArray(payload.to) ? payload.to.filter((e: string) => e && e.includes("@")) : [];
+  const cc: string[] = Array.isArray(payload.cc) ? payload.cc.filter((e: string) => e && e.includes("@")) : [];
   const subject: string = (payload.subject || "").toString();
   const html: string = (payload.html || "").toString();
   const text: string = (payload.text || "").toString();
@@ -48,8 +49,15 @@ Deno.serve(async (req) => {
     return json({ error: "Сървърът не е настроен (липсва BREVO_API_KEY или FROM_EMAIL)." }, 500);
   }
 
-  // Получателите са в BCC (скрити един от друг); видим получател е самата поща.
-  const body: any = {
+  // direct=true → получателите са видими в "To" (лични писма: фактура, заявка).
+  // Иначе (масово запитване) са в BCC, скрити един от друг.
+  const direct = !!payload.direct;
+  const body: any = direct ? {
+    sender: { email: fromEmail, name: fromName },
+    to: to.map((e) => ({ email: e })),
+    subject,
+    textContent: text || "Съобщение от Данко Системс",
+  } : {
     sender: { email: fromEmail, name: fromName },
     to: [{ email: fromEmail, name: fromName }],
     bcc: to.map((e) => ({ email: e })),
@@ -58,6 +66,14 @@ Deno.serve(async (req) => {
   };
   if (html) body.htmlContent = html;
   if (replyTo) body.replyTo = { email: replyTo };
+  // Копие до личния мейл на изпращащия (профилът, с който е влязъл в Системата).
+  if (cc.length) body.cc = cc.map((e) => ({ email: e }));
+  // Прикачени файлове (напр. PDF на фактурата): [{ name, content(base64) }].
+  const atts = Array.isArray(payload.attachments)
+    ? payload.attachments.filter((a: any) => a && a.name && a.content).slice(0, 5)
+      .map((a: any) => ({ name: String(a.name).slice(0, 100), content: String(a.content) }))
+    : [];
+  if (atts.length) body.attachment = atts;
 
   try {
     const resp = await fetch("https://api.brevo.com/v3/smtp/email", {

@@ -26,7 +26,8 @@ const CONTACT_CATEGORIES = [
 
 /* ---------- Зареждане / запис ---------- */
 async function cLoad() {
-  const { data, error } = await sb.from("contacts").select("*").order("updated_at", { ascending: false });
+  const { data, error } = await erpSelectAll("contacts", "*");
+  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) { alert("Грешка при зареждане на контактите: " + error.message); return; }
   const all = (data || []).map(r => ({ ...r.data, id: r.id }));
   CONTACTS = all.filter(c => c.kind !== "inquiry");
@@ -75,6 +76,13 @@ async function openContacts() {
   if (!contactsLoaded) { await cLoad(); await cSeedIfNeeded(); contactsLoaded = true; cSubscribe(); }
   renderContacts();
 }
+// Директен вход към запитванията от обединения изглед Клиенти/Доставчици (erp-companies.js).
+async function openContactsInquiry(which) {
+  if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
+  document.getElementById("contacts-modal").hidden = false;
+  if (!contactsLoaded) { await cLoad(); await cSeedIfNeeded(); contactsLoaded = true; cSubscribe(); }
+  if (which === "registry") renderInquiryRegistry(); else renderInquiryForm();
+}
 function showContactsSub(which) {
   document.getElementById("contacts-view").hidden = which !== "list";
   document.getElementById("contact-form").hidden = which !== "form";
@@ -87,10 +95,15 @@ function allCategories() {
   CONTACTS.forEach(c => { if (c.category) set.add(c.category); });
   return [...set];
 }
+let CAT_COLOR_MAP = null, CAT_COLOR_SRC = null;   // кеш до промяна на списъка
 function catColor(cat) {
-  const list = allCategories();
-  let i = list.indexOf(cat);
-  if (i < 0) i = Math.abs([...String(cat)].reduce((a, ch) => a + ch.charCodeAt(0), 0));
+  if (!CAT_COLOR_MAP || CAT_COLOR_SRC !== CONTACTS) {
+    CAT_COLOR_MAP = new Map(); CAT_COLOR_SRC = CONTACTS;
+    allCategories().forEach((c, i) => CAT_COLOR_MAP.set(c, CAT_PALETTE[i % CAT_PALETTE.length]));
+  }
+  const hit = CAT_COLOR_MAP.get(cat);
+  if (hit) return hit;
+  const i = Math.abs([...String(cat)].reduce((a, ch) => a + ch.charCodeAt(0), 0));
   return CAT_PALETTE[i % CAT_PALETTE.length];
 }
 function catGroup(cat) {
@@ -129,9 +142,20 @@ function renderContacts() {
   const term = (document.getElementById("contact-search").value || "").trim().toLowerCase();
   tbody.innerHTML = "";
 
+  // Търсене ПО ДУМИ, без значение на словореда („боя 9006" намира „Прахова
+  // боя 9006"), с изравнени кирилско/латинско х-x и е-e; чете ВСИЧКО —
+  // фирма, лице, телефон, имейл, категория и цялата Бележка. При въведена
+  // дума търсенето е ГЛОБАЛНО (не гледа избраната категория) — иначе
+  // „търси отвсякъде" не би било вярно.
+  const cNorm = s => String(s || "").toLowerCase()
+    .replace(/х/g, "x").replace(/е/g, "e").replace(/а/g, "a").replace(/о/g, "o").replace(/с/g, "c").replace(/р/g, "p");
+  const words = cNorm(term).split(/\s+/).filter(Boolean);
   const rows = CONTACTS.filter(c => {
-    if (cat && c.category !== cat) return false;
-    if (term && !(`${c.company} ${c.contact_person} ${c.phone} ${c.email} ${c.scope} ${c.notes}`.toLowerCase().includes(term))) return false;
+    if (!words.length && cat && c.category !== cat) return false;
+    if (words.length) {
+      const hay = cNorm(`${c.company} ${c.contact_person} ${c.phone} ${c.email} ${c.scope} ${c.notes} ${c.category}`);
+      if (!words.every(w => hay.includes(w))) return false;
+    }
     return true;
   }).sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
 
@@ -631,11 +655,19 @@ function cSubscribe() {
 function cInit() {
   const btn = document.getElementById("btn-contacts");
   if (!btn) return;
-  btn.addEventListener("click", openContacts);
+  // Бутонът на основния екран вече отваря обединения картон Клиенти/Доставчици
+  // (ЕРП → таб partners). Старият указател остава достъпен отвътре (📇 Стар указател).
+  btn.addEventListener("click", () => {
+    if (typeof openErp === "function" && typeof ERP !== "undefined") { ERP.tab = "partners"; openErp(); }
+    else openContacts();
+  });
   document.getElementById("contacts-close").addEventListener("click", () => {
     document.getElementById("contacts-modal").hidden = true;
   });
-  document.getElementById("contact-search").addEventListener("input", renderContacts);
+  // Търсене при Enter / изчистване — не на всяка буква (Данко, 24.09).
+  const cse = document.getElementById("contact-search");
+  cse.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); renderContacts(); } });
+  cse.addEventListener("search", () => { if (!cse.value) renderContacts(); });
   document.getElementById("btn-add-contact").addEventListener("click", () => renderContactForm(null));
   document.getElementById("btn-inquiry").addEventListener("click", renderInquiryForm);
   document.getElementById("btn-inquiry-reg").addEventListener("click", renderInquiryRegistry);
