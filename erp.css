@@ -852,3 +852,9 @@ td.supp-colwhat { font-size: 12px; }
 .erp-tab-pfco { background: #fff7ed !important; border: 1px solid #f59e0b !important; color: #9a3412 !important; }
 .erp-tab-pfco.active { background: #f59e0b !important; color: #fff !important; }
 .pfco-banner { background: #fff7ed; border: 1px solid #f59e0b; color: #7c2d12; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; }
+
+/* 📂 Запазени разкрои: ясно видими бутони за действие на всеки лист */
+.cut-act { background: #eef2ff; border: 1px solid #4338ca; color: #1e3a8a; font-weight: 700; padding: 6px 10px; }
+.cut-act:hover { background: #dbe4fb; }
+.cut-act-del { background: #fef2f2; border-color: #b91c1c; color: #b91c1c; }
+.cut-act-del:hover { background: #fee2e2; }

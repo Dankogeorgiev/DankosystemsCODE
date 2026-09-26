@@ -331,10 +331,10 @@ async function erpCutlistOpen() {
           <td class="num">${(s.rows || []).length}</td>
           <td class="num">${erpNum((s.rows || []).reduce((x, r) => x + (Number(r.cuts) || 0), 0))}</td>
           <td class="erp-row-actions" style="white-space:nowrap">
-            <button class="btn btn-small cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай разкроя (групиран по тръба)">🖨</button>
-            <button class="btn btn-small cut-mlbl" data-sid="${escapeAttr(s.id)}" title="Печат на палетните етикети от този лист">🏷</button>
-            <button class="btn btn-small cut-mdraw" data-sid="${escapeAttr(s.id)}" title="Чертежите към изделията от този лист — избираш кои да принтираш">📄</button>
-            <button class="btn btn-small cut-mdel" data-sid="${escapeAttr(s.id)}" title="Изтрий листа">🗑</button>
+            <button class="btn btn-small cut-act cut-mprint" data-sid="${escapeAttr(s.id)}" title="Принтирай разкроя (групиран по тръба)">🖨 Разкрой</button>
+            <button class="btn btn-small cut-act cut-mlbl" data-sid="${escapeAttr(s.id)}" title="Печат на палетните етикети от този лист">🏷 Етикети</button>
+            <button class="btn btn-small cut-act cut-mdraw" data-sid="${escapeAttr(s.id)}" title="Чертежите към изделията от този лист — избираш кои да принтираш">📄 Чертежи</button>
+            <button class="btn btn-small cut-act cut-act-del cut-mdel" data-sid="${escapeAttr(s.id)}" title="Изтрий листа">🗑</button>
           </td>
         </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Още няма запазени — пусни „🖨 Печат за Бинков" и листът се появява тук веднага.</td></tr>`}</tbody>
       </table>
