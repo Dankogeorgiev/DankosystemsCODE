@@ -1792,3 +1792,6 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 .todo-empty { font-size: 19px; }
 .todo-date { font-size: 13px; }
 .todo-del { font-size: 19px; }
+
+/* To do: пратените към другите („→ Юлия: …") — в синьо */
+.todo-row.sent .todo-text { color: #1d4ed8; }

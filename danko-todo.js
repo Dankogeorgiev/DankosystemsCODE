@@ -94,7 +94,7 @@ function todoRenderInto(box) {
   box.innerHTML = items.map(i => {
     const remind = !i.done && /напомни\s*ми/i.test(i.t || "");
     return `
-    <div class="todo-row ${i.done ? "done" : ""}${remind ? " remind" : ""}" data-id="${i.id}">
+    <div class="todo-row ${i.done ? "done" : ""}${remind ? " remind" : ""}${i.sent ? " sent" : ""}" data-id="${i.id}">
       <input type="checkbox" class="todo-chk" ${i.done ? "checked" : ""} title="Свършено" />
       <span class="todo-text">${i.from ? `<b class="todo-from">от ${esc(i.from)}:</b> ` : ""}${remind ? "⏰ " : ""}${esc(i.t)}</span>
       <span class="todo-date" title="Записана на">${fmtD(i.at)}</span>
@@ -143,6 +143,10 @@ async function todoAdd(inputId) {
       at: new Date().toISOString(), from: me.name, byCfg: me.cfg,
     });
     if (ok) {
+      // Копие и при изпращача: „→ Юлия: …" — да се вижда какво е възложено.
+      TODO_ITEMS = TODO_ITEMS || [];
+      TODO_ITEMS.unshift({ id: "s" + Date.now(), t: `→ ${asg.target.name}: ${asg.orig}`, done: 0, at: new Date().toISOString(), sent: 1 });
+      await todoSave(); todoRender();
       inp.value = "";
       inp.placeholder = `✓ изпратено в To do на ${asg.target.name}`;
       setTimeout(() => { inp.placeholder = todoPlaceholder(); }, 2500);
