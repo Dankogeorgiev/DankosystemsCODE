@@ -64,15 +64,20 @@ async function todoPushTo(cfgId, item) {
 function todoParseAssign(text) {
   const me = todoMe();
   if (!me || !me.boss) return null;
-  const m = String(text || "").match(/^\s*кажи\s+на\s+([А-Яа-яA-Za-z]+)\s+(.+)$/i);
+  // Хваща и „Кажи на Юлия да оправи…", и „Кажи на Григор: свободен текст"
+  // (с двоеточие/запетая/тире след името).
+  const m = String(text || "").match(/^\s*кажи\s+на\s+([А-Яа-яA-Za-z]+)\s*[:,\-–—]?\s+(.+)$/i);
   if (!m) return null;
   const who = m[1].toLowerCase();
   const target = Object.entries(TODO_PEOPLE)
     .map(([email, p]) => ({ email, ...p }))
     .find(p => p.name.toLowerCase() === who || p.email.split("@")[0].toLowerCase() === who);
   if (!target || target.email === me.email) return null;
-  let rest = m[2].trim().replace(/^да\s+/i, "");
-  return { target, text: `${target.name}, моля те ${rest}`, orig: rest };
+  const rest = m[2].trim();
+  // „да оправи…" → задача („моля те оправи…"); свободен текст → предава се дословно.
+  const isTask = /^да\s+/i.test(rest);
+  const msg = isTask ? `${target.name}, моля те ${rest.replace(/^да\s+/i, "")}` : rest;
+  return { target, text: msg, orig: isTask ? rest.replace(/^да\s+/i, "") : rest };
 }
 
 /* ---------- Рисуване ---------- */
