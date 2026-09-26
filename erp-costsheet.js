@@ -412,10 +412,12 @@ async function erpRenderCostSheet() {
       <label class="erp-inline">Изделие
         <input type="text" id="cs-prod" list="cs-prod-list" placeholder="код или име…" value="${cur ? escapeAttr((cur.code ? cur.code + " · " : "") + (cur.name || "")) : ""}" style="min-width:320px" autocomplete="off" />
         <datalist id="cs-prod-list">${prodOpts.map(p => `<option value="${escapeAttr((p.code ? p.code + " · " : "") + (p.name || ""))}"></option>`).join("")}</datalist></label>
+      ${CS.view === "sheet" ? `<button class="btn btn-small" id="cs-back" title="Обратно към списъка с изделията">← Назад към списъка</button>` : ""}
       <button class="btn btn-small ${CS.view === "list" ? "btn-primary" : ""}" id="cs-view-list" title="Всички изделия на избрания клиент — рецептна и реална себестойност, цена, маржин">📋 Изделията на клиента</button>
       <button class="btn btn-small ${CS.view === "sheet" ? "btn-primary" : ""}" id="cs-view-sheet" title="Пълна калкулация на избраното изделие">🧾 Калкулация</button>
       ${CS.view === "sheet" ? `<button class="btn btn-small ${CS.edit ? "btn-primary" : ""}" id="cs-edit" title="Коригирай направо тук: нормовреме и машина на операция, цена на операцията в рецептата, средна цена и количество на материал, продажна цена, ръчна себестойност">✎ Редакция</button>` : ""}
       <span class="spacer"></span>
+      <button class="btn btn-small" id="cs-times" title="Отчетът Времена от Цехове — същите производствени отчети, от които идват времената в тази калкулация">⏱ Отчет Времена</button>
       <button class="btn btn-small" id="cs-rates" title="Машини, заплати, режийни → ставки €/час по цех (същият екран като във Финанси)">⚙️ Разходи и ставки</button>
       <button class="btn btn-small" id="cs-refresh" title="Презарежда времената и цените">🔄 Опресни</button>
       <button class="btn btn-small" id="cs-xls">⤓ Excel</button>
@@ -433,6 +435,17 @@ async function erpRenderCostSheet() {
   };
   v.querySelector("#cs-client").addEventListener("change", e => { CS.client = e.target.value; CS.view = "list"; erpRenderCostSheet(); });
   v.querySelector("#cs-prod").addEventListener("change", e => { const p = pickProduct(e.target.value); if (p) { CS.pid = p.id; CS.view = "sheet"; erpRenderCostSheet(); } });
+  const backBtn = v.querySelector("#cs-back");
+  if (backBtn) backBtn.addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
+  // ⏱ Отчетът Времена (Цехове) — източникът на времената в калкулацията.
+  const timesBtn = v.querySelector("#cs-times");
+  if (timesBtn) timesBtn.addEventListener("click", async () => {
+    try { if (typeof loadProdLog === "function") await loadProdLog(); } catch (e) {}
+    try { if (typeof tLoadTasks === "function") await tLoadTasks(); } catch (e) {}
+    const m = document.getElementById("tasks-modal");
+    if (m) m.hidden = false;
+    if (typeof renderTimesReport === "function") renderTimesReport();
+  });
   v.querySelector("#cs-view-list").addEventListener("click", () => { CS.view = "list"; erpRenderCostSheet(); });
   v.querySelector("#cs-view-sheet").addEventListener("click", () => { CS.view = "sheet"; erpRenderCostSheet(); });
   const edBtn = v.querySelector("#cs-edit");
