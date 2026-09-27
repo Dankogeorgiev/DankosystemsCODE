@@ -626,13 +626,16 @@ async function erpPayMonthView(v) {
     ${hasTest ? (() => {
       const tOs = Object.values(testBy).reduce((s, x) => s + (Number(x) || 0), 0);
       const tNet = Object.values(testNet).reduce((s, x) => s + (Number(x) || 0), 0);
+      const tExtra = (osigTestRec.extra || []);
+      const tExOs = tExtra.reduce((s, x) => s + (Number(x.osig) || 0), 0);
       const cmp = Object.keys(testNet).sort((a, b) => a.localeCompare(b, "bg")).map(n => {
         const cur = Number((friEntries[n] || {}).net) || 0, tv = Number(testNet[n]) || 0, d = tv - cur;
         return `<tr><td>${escapeHtml(n)}</td><td class="num">${payEur(tv)}</td><td class="num">${cur ? payEur(cur) : `<span class="erp-muted">—</span>`}</td><td class="num"><b style="color:${Math.abs(d) < 0.01 ? "#16a34a" : "#b91c1c"}">${Math.abs(d) < 0.01 ? "✓ съвпада" : (d > 0 ? "+" : "") + payEur(d)}</b></td></tr>`;
       }).join("");
       return `<div style="background:#fffbeb;border:2px solid #fcd34d;border-radius:12px;padding:12px 16px;margin:4px 0 10px;max-width:1290px">
         <div style="font-size:16px;font-weight:800">🧪 Тестова ведомост за ${escapeHtml(osigTestRec.vedMonth ? payYmLabel(osigTestRec.vedMonth) : "?")} (файл „${escapeHtml(osigTestRec.src || "")}") — нищо реално не е пипнато</div>
-        <div style="margin:6px 0">Общо: чисто <b>${payEur(tNet)}</b> · осигуровки <b>${payEur(tOs)}</b>. Тестовите осигуровки са в колоната „🧪 Тест" по-долу.</div>
+        <div style="margin:6px 0">Общо: чисто <b>${payEur(tNet)}</b> · осигуровки по цеховите служители <b>${payEur(tOs)}</b> (колоната „🧪 Тест" по-долу).</div>
+        ${tExOs ? `<div style="margin:6px 0">➕ Извън списъка на цеховете (офис/управление): <b>${payEur(tExOs)}</b> — ${tExtra.map(x => escapeHtml(x.raw)).join(", ")}.<br>💶 <b>ВСИЧКО осигуровки+данък по ведомостта: ${payEur(tOs + tExOs)}</b> — това е числото за сверка с платежните към НАП (ДОО+ЗОВ+ДЗПО+ДОД).</div>` : ""}
         ${cmp ? `<details style="margin:6px 0"><summary style="cursor:pointer;font-weight:700">🔍 Сравнение: чисто от ведомостта ↔ сегашното ПО БАНКА (${Object.keys(testNet).length} души)</summary>
           <table class="report-table erp-table" style="margin-top:6px;max-width:820px"><thead><tr><th>Служител</th><th class="num">Ведомост (чисто)</th><th class="num">Сегашно ПО БАНКА</th><th class="num">Разлика</th></tr></thead><tbody>${cmp}</tbody></table></details>` : ""}
         <div style="margin-top:8px">
@@ -667,7 +670,11 @@ async function erpPayMonthView(v) {
           <td class="num"><b>${payEur(sum)}</b></td></tr>` : ""}
       </tbody>
     </table></div>
-    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.${osigSrc ? ` <br><b>Осигуровки:</b> от ведомостта за ${escapeHtml(osigRec.vedMonth ? payYmLabel(osigRec.vedMonth) : "предходния месец")} (файл „${escapeHtml(osigSrc)}"${osigAt ? `, разчетен ${new Date(osigAt).toLocaleDateString("bg-BG")}` : ""}) — плащат се през този месец и са изцяло за сметка на фирмата; не влизат в „ОБЩО получено".` : ""}</p>`;
+    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.${osigSrc ? (() => {
+      const ex = (osigRec.extra || []); const exOs = ex.reduce((s, x) => s + (Number(x.osig) || 0), 0);
+      const fullOs = Object.values(osigBy).reduce((s, x) => s + (Number(x) || 0), 0);
+      return ` <br><b>Осигуровки:</b> от ведомостта за ${escapeHtml(osigRec.vedMonth ? payYmLabel(osigRec.vedMonth) : "предходния месец")} (файл „${escapeHtml(osigSrc)}"${osigAt ? `, разчетен ${new Date(osigAt).toLocaleDateString("bg-BG")}` : ""}) — плащат се през този месец и са изцяло за сметка на фирмата; не влизат в „ОБЩО получено".${exOs ? ` <b>➕ Извън списъка (офис/управление): ${payEur(exOs)}</b> (${ex.map(x => escapeHtml(x.raw)).join(", ")}) — всичко към НАП: <b>${payEur(fullOs + exOs)}</b>.` : ""}`;
+    })() : ""}</p>`;
 
     const shiftMonth = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayMonthView(v); };
     v.querySelector("#pay-m-prev").addEventListener("click", () => shiftMonth(-1));
@@ -685,7 +692,7 @@ async function erpPayMonthView(v) {
       if (!confirm(`Прилагам тестовата ведомост РЕАЛНО за ${payYmLabel(erpPayMonth)}?\n• Осигуровките влизат в колоната „Осигуровки"\n• Чистото попълва „ПО БАНКА" в „По петъци"\n• Тестът се маха`)) return;
       applyBtn.disabled = true; applyBtn.textContent = "Прилагам…";
       const t = osigTestRec;
-      const ok1 = await erpPaySaveOsig(erpPayMonth, { byName: t.byName || {}, netByName: t.netByName || {}, src: t.src || "", at: new Date().toISOString(), month: erpPayMonth, vedMonth: t.vedMonth || "" });
+      const ok1 = await erpPaySaveOsig(erpPayMonth, { byName: t.byName || {}, netByName: t.netByName || {}, extra: t.extra || [], src: t.src || "", at: new Date().toISOString(), month: erpPayMonth, vedMonth: t.vedMonth || "" });
       let ok2 = true;
       if (ok1 && Object.keys(t.netByName || {}).length) {
         const entries = await erpPayLoadMonth(erpPayMonth);
@@ -1057,10 +1064,12 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     const num = s => Number(String(s).replace(",", ".")) || 0;
     wrap.querySelectorAll(".po-amt").forEach(i => { const nv = num(i.value); if (nv) byName[i.dataset.name] = nv; });
     wrap.querySelectorAll(".po-net").forEach(i => { const nv = num(i.value); if (nv) netByName[i.dataset.name] = nv; });
+    const extra = []; // хора от ведомостта ИЗВЪН списъка (офис/управление) — пазим ги отделно, за да излиза сверката с НАП
     wrap.querySelectorAll(".po-un").forEach(s => {
-      if (!s.value) return;
       const u = un[Number(s.dataset.i)];
-      if (u) { if (numv(u.osig)) byName[s.value] = numv(u.osig); if (numv(u.net)) netByName[s.value] = numv(u.net); }
+      if (!u) return;
+      if (s.value) { if (numv(u.osig)) byName[s.value] = numv(u.osig); if (numv(u.net)) netByName[s.value] = numv(u.net); }
+      else if (numv(u.osig) || numv(u.net)) extra.push({ raw: u.raw, net: numv(u.net), osig: numv(u.osig) });
     });
     const nBy = Object.keys(byName).length, nNet = Object.keys(netByName).length;
     if (!nBy && !nNet) {
@@ -1070,7 +1079,7 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     }
     if (isTest) {
       // 🧪 Тест: отделен запис, нищо реално не се пипа.
-      const ok = await erpPaySaveOsigTest(payMonth, { byName, netByName, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth, test: true });
+      const ok = await erpPaySaveOsigTest(payMonth, { byName, netByName, extra, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth, test: true });
       // Сверка: прочети обратно записа — да сме СИГУРНИ, че е в базата.
       let backOk = false;
       if (ok) { try { const back = await erpPayLoadOsigTest(payMonth); backOk = Object.keys((back && back.byName) || {}).length > 0 || Object.keys((back && back.netByName) || {}).length > 0; } catch (e) {} }
@@ -1080,7 +1089,7 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
       return;
     }
     // 1) Осигуровките (+ чистото за справка) → payroll_osig_<месец на плащане>.
-    const ok1 = await erpPaySaveOsig(payMonth, { byName, netByName, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth });
+    const ok1 = await erpPaySaveOsig(payMonth, { byName, netByName, extra, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth });
     // 2) Чистото → ПО БАНКА (net) в „По петъци" на месеца на плащане (не пипа петъците).
     let ok2 = true;
     if (ok1 && Object.keys(netByName).length) {
