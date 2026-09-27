@@ -586,7 +586,7 @@ async function erpPayMonthView(v) {
       <button class="btn btn-small" id="pay-csv">⤓ Excel</button>
     </div>
     ${mOt ? `<div style="display:inline-block;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">⏱ Извънредни за ${PAY_MONTHS[M - 1]} ${Y}${mWs ? ` · ${escapeHtml(mWs)}` : ""}: <b style="font-size:18px">${payEur(otSum)}</b> при ${shown.length} служители</div>` : ""}
-    ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — банка ${payEur(one.bank)} · 005 ${payEur(one.cash)} · извънредни ${payEur(one.overtime)}${one.rz ? ` · различни ${payEur(one.rz)}` : ""}</div>` : ""}
+    ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — ${[["банка", one.bank], ["005", one.cash], ["надник", one.nadnik], ["извънредни", one.overtime], ["бонус", one.bonus], ["различни", one.rz]].filter(p => Number(p[1])).map(p => `${p[0]} ${payEur(p[1])}`).join(" · ") || "без разбивка"}</div>` : ""}
     ${weeks.length && friHasData ? `<p class="hint" style="color:#b45309"><b>⚠ Внимание:</b> този месец има данни И в седмичния изглед, И в „По петъци" — сборът по-долу ги СЪБИРА. Ако едните дублират другите, изтрий дубликата от съответния изглед.</p>` : ""}
     <div style="max-width:1180px"><table class="report-table erp-table">
       <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">Различни</th><th class="num">ОБЩО получено</th></tr></thead>
@@ -600,9 +600,9 @@ async function erpPayMonthView(v) {
               const ch = (e.nadnikLog || []).filter(l => { const d = new Date((l.date || "") + "T00:00:00"); return d.getFullYear() === Y && (d.getMonth() + 1) === M; });
               if (ch.length) { const last = ch[ch.length - 1]; extra = ` <span class="pay-raise" title="Надникът е променен през месеца">⬆ ${payEur(last.from)}→${payEur(last.to)}</span>`; }
             }
-            return `<td class="num">${payEur(r[c.k])}${extra}</td>`;
+            return `<td class="num">${Number(r[c.k]) ? payEur(r[c.k]) : `<span class="erp-muted">—</span>`}${extra}</td>`;
           }).join("")}
-          <td class="num">${payEur(r.rz)}</td>
+          <td class="num">${Number(r.rz) ? payEur(r.rz) : `<span class="erp-muted">—</span>`}</td>
           <td class="num"><b>${payEur(r.total)}</b></td></tr>`).join("") ||
           `<tr><td colspan="9" class="report-empty">${list.length ? "Нищо не отговаря на филтъра." : "Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци“."}</td></tr>`}
         ${shown.length ? `<tr class="pr-total"><td colspan="8"><b>ОБЩО${mWs || mEmp || q ? " (по филтъра)" : " за месеца"}</b></td><td class="num"><b>${payEur(sum)}</b></td></tr>` : ""}
