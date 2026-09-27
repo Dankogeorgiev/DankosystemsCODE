@@ -202,7 +202,12 @@ async function erpPayFridaysView(v) {
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <label class="erp-inline">Месец <input type="month" id="pf-month" value="${escapeAttr(erpPayMonth)}" /></label>
+      <span class="erp-inline" style="display:inline-flex;align-items:center;gap:6px">
+        <button class="btn btn-small" id="pf-m-prev" title="Предишен месец">‹</button>
+        <b style="min-width:150px;text-align:center;font-size:16px">${PAY_MONTHS[M - 1]} ${Y}</b>
+        <button class="btn btn-small" id="pf-m-next" title="Следващ месец">›</button>
+        <input type="month" id="pf-month" value="${escapeAttr(erpPayMonth)}" title="Скок към произволен месец" style="width:52px" />
+      </span>
       ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
@@ -241,7 +246,10 @@ async function erpPayFridaysView(v) {
     </table></div>
     <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> е ориентир (чистата сума за месеца) — ако „От банка" я надвиши, се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
 
-  v.querySelector("#pf-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayFridaysView(v); });
+  const pfShift = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayFridaysView(v); };
+  v.querySelector("#pf-m-prev").addEventListener("click", () => pfShift(-1));
+  v.querySelector("#pf-m-next").addEventListener("click", () => pfShift(1));
+  v.querySelector("#pf-month").addEventListener("change", e => { if (e.target.value) { erpPayMonth = e.target.value; erpPayFridaysView(v); } });
   const pfFind = v.querySelector("#pay-find"); if (pfFind) pfFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
   v.querySelectorAll(".pf-rm").forEach(b => b.addEventListener("click", () => erpPayRemoveEmployee(b.dataset.name, v)));
@@ -545,20 +553,40 @@ async function erpPayMonthView(v) {
     .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
   const grand = list.reduce((s, r) => s + r.total, 0);
 
-  v.innerHTML = `
+  // Филтри на месечния отчет: цех + конкретен служител (данните са вече заредени — само пре-рисуване).
+  let mWs = "", mEmp = "";
+  const wsList = [...new Set(list.map(r => r.ws).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+
+  const draw = () => {
+    const q = (payFilter || "").trim().toLowerCase();
+    const shown = list.filter(r =>
+      (!mWs || r.ws === mWs) &&
+      (!mEmp || r.name === mEmp) &&
+      (!q || r.name.toLowerCase().includes(q)));
+    const sum = shown.reduce((s, r) => s + r.total, 0);
+    const emps = list.filter(r => !mWs || r.ws === mWs);
+    const one = mEmp ? shown[0] : null;
+
+    v.innerHTML = `
     <div class="erp-toolbar">
-      <label class="erp-inline">Месец <input type="month" id="pay-month" value="${escapeAttr(erpPayMonth)}" /></label>
+      <span class="erp-inline" style="display:inline-flex;align-items:center;gap:6px">
+        <button class="btn btn-small" id="pay-m-prev" title="Предишен месец">‹</button>
+        <b style="min-width:150px;text-align:center;font-size:16px">${PAY_MONTHS[M - 1]} ${Y}</b>
+        <button class="btn btn-small" id="pay-m-next" title="Следващ месец">›</button>
+        <input type="month" id="pay-month" value="${escapeAttr(erpPayMonth)}" title="Скок към произволен месец" style="width:52px" />
+      </span>
+      <label class="erp-inline">Цех <select id="pay-ws-f"><option value="">— всички —</option>${wsList.map(w => `<option value="${escapeAttr(w)}" ${w === mWs ? "selected" : ""}>${escapeHtml(w)}</option>`).join("")}</select></label>
+      <label class="erp-inline">Служител <select id="pay-emp-f"><option value="">— всички —</option>${emps.map(r => `<option value="${escapeAttr(r.name)}" ${r.name === mEmp ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}</select></label>
       ${payFindBox()}
-      <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length ? weeks.length + " седмици" : ""}${weeks.length && friHasData ? " + " : ""}${friHasData ? "петъчният отчет" : ""}${!weeks.length && !friHasData ? "няма данни" : ""} · ${list.length} служители</span>
-      <span class="spacer"></span>
-      <b>${payEur(grand)}</b>
+      <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length ? weeks.length + " седмици" : ""}${weeks.length && friHasData ? " + " : ""}${friHasData ? "петъчният отчет" : ""}${!weeks.length && !friHasData ? "няма данни" : ""} · ${shown.length} служители</span>
       <button class="btn btn-small" id="pay-csv">⤓ Excel</button>
     </div>
+    ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — банка ${payEur(one.bank)} · 005 ${payEur(one.cash)} · извънредни ${payEur(one.overtime)}${one.rz ? ` · различни ${payEur(one.rz)}` : ""}</div>` : ""}
     ${weeks.length && friHasData ? `<p class="hint" style="color:#b45309"><b>⚠ Внимание:</b> този месец има данни И в седмичния изглед, И в „По петъци" — сборът по-долу ги СЪБИРА. Ако едните дублират другите, изтрий дубликата от съответния изглед.</p>` : ""}
-    <table class="report-table erp-table">
+    <div style="max-width:1180px"><table class="report-table erp-table">
       <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">Различни</th><th class="num">ОБЩО получено</th></tr></thead>
       <tbody>
-        ${list.map(r => `<tr data-row="${escapeAttr(r.name)}">
+        ${shown.map(r => `<tr data-row="${escapeAttr(r.name)}">
           <td><b>${escapeHtml(r.name)}</b></td><td>${escapeHtml(r.ws)}</td>
           ${PAY_MONEY.map(c => {
             let extra = "";
@@ -571,20 +599,27 @@ async function erpPayMonthView(v) {
           }).join("")}
           <td class="num">${payEur(r.rz)}</td>
           <td class="num"><b>${payEur(r.total)}</b></td></tr>`).join("") ||
-          `<tr><td colspan="9" class="report-empty">Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци".</td></tr>`}
-        ${list.length ? `<tr class="pr-total"><td colspan="8"><b>ОБЩО за месеца</b></td><td class="num"><b>${payEur(grand)}</b></td></tr>` : ""}
+          `<tr><td colspan="9" class="report-empty">${list.length ? "Нищо не отговаря на филтъра." : "Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци“."}</td></tr>`}
+        ${shown.length ? `<tr class="pr-total"><td colspan="8"><b>ОБЩО${mWs || mEmp || q ? " (по филтъра)" : " за месеца"}</b></td><td class="num"><b>${payEur(sum)}</b></td></tr>` : ""}
       </tbody>
-    </table>
-    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>.</p>`;
+    </table></div>
+    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.</p>`;
 
-  v.querySelector("#pay-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayMonthView(v); });
-  const pmFind = v.querySelector("#pay-find"); if (pmFind) pmFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
-  payApplyFilter(v);
-  v.querySelector("#pay-csv").addEventListener("click", () => {
-    const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "Различни", num: true }, { label: "ОБЩО получено", num: true }];
-    const rows = list.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.rz), n(r.total)]);
-    rows.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), "", n(grand)]);
-    reportExportXls(`zaplati-${erpPayMonth}`, `Заплати · ${PAY_MONTHS[M - 1]} ${Y}`, [{ headers, rows }]);
-  });
+    const shiftMonth = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayMonthView(v); };
+    v.querySelector("#pay-m-prev").addEventListener("click", () => shiftMonth(-1));
+    v.querySelector("#pay-m-next").addEventListener("click", () => shiftMonth(1));
+    v.querySelector("#pay-month").addEventListener("change", e => { if (e.target.value) { erpPayMonth = e.target.value; erpPayMonthView(v); } });
+    v.querySelector("#pay-ws-f").addEventListener("change", e => { mWs = e.target.value; if (mEmp && mWs && (wsByName[mEmp] || "") !== mWs) mEmp = ""; draw(); });
+    v.querySelector("#pay-emp-f").addEventListener("change", e => { mEmp = e.target.value; draw(); });
+    const pmFind = v.querySelector("#pay-find");
+    if (pmFind) pmFind.addEventListener("change", e => { payFilter = e.target.value; draw(); });
+    v.querySelector("#pay-csv").addEventListener("click", () => {
+      const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "Различни", num: true }, { label: "ОБЩО получено", num: true }];
+      const rows = shown.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.rz), n(r.total)]);
+      rows.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), "", n(sum)]);
+      reportExportXls(`zaplati-${erpPayMonth}${mWs ? "-" + mWs : ""}`, `Заплати · ${PAY_MONTHS[M - 1]} ${Y}${mWs ? " · " + mWs : ""}${mEmp ? " · " + mEmp : ""}`, [{ headers, rows }]);
+    });
+  };
+  draw();
 }
