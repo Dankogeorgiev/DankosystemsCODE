@@ -243,7 +243,7 @@ async function erpPayFridaysView(v) {
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> е ориентир (чистата сума за месеца) — ако „От банка" я надвиши, се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> е ориентир (чистата сума за месеца) — ако „От банка" я надвиши, се оцветява. Попълва се АВТОМАТИЧНО от „🤖 Ведомост" в Месечния отчет: ведомостта за предходния месец дава чистото, което се плаща през ТОЗИ месец (може и ръчно да се коригира). <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
 
   const pfShift = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayFridaysView(v); };
   v.querySelector("#pf-m-prev").addEventListener("click", () => pfShift(-1));
@@ -624,7 +624,7 @@ async function erpPayMonthView(v) {
           <td class="num"><b>${payEur(sum)}</b></td></tr>` : ""}
       </tbody>
     </table></div>
-    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.${osigSrc ? ` <br><b>Осигуровки:</b> от ведомост „${escapeHtml(osigSrc)}"${osigAt ? ` (разчетена ${new Date(osigAt).toLocaleDateString("bg-BG")})` : ""} — не влизат в „ОБЩО получено".` : ""}</p>`;
+    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.${osigSrc ? ` <br><b>Осигуровки:</b> от ведомостта за ${escapeHtml(osigRec.vedMonth ? payYmLabel(osigRec.vedMonth) : "предходния месец")} (файл „${escapeHtml(osigSrc)}"${osigAt ? `, разчетен ${new Date(osigAt).toLocaleDateString("bg-BG")}` : ""}) — плащат се през този месец и са изцяло за сметка на фирмата; не влизат в „ОБЩО получено".` : ""}</p>`;
 
     const shiftMonth = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayMonthView(v); };
     v.querySelector("#pay-m-prev").addEventListener("click", () => shiftMonth(-1));
@@ -650,11 +650,28 @@ async function erpPayMonthView(v) {
   draw();
 }
 
-/* ---------- 🤖 Осигуровки от Ведомост за заплати ----------
-   Данко качва ведомостта (PDF/снимка/Excel); Claude я разчита и връща
-   осигуровките на всеки служител, като съпоставя ХОРАТА ПО ТРИТЕ ИМЕНА
-   (във ведомостта имената често са в друг ред). Резултатът се преглежда
-   и чак тогава се записва в app_config (payroll_osig_<месец>). */
+/* ---------- 🤖 Ведомост за заплати → ПО БАНКА + Осигуровки ----------
+   ПРАВИЛАТА НА ДАНКО (27.09.2026):
+   1) Работникът получава по банка ЧИСТОТО ЗА ВЗЕМАНЕ от ведомостта.
+      ВСИЧКО останало (лични осигуровки, ДОД, осигуровки за сметка на
+      работодателя) е разход на ФИРМАТА, без значение че по закон част
+      се води „за сметка на служителя".
+   2) Ведомостта е винаги ЕДИН МЕСЕЦ НАЗАД: ведомост за септември →
+      сумите се изплащат през октомври. Затова записът отива в месеца
+      СЛЕД месеца на ведомостта: осигуровките → payroll_osig_<плащане>,
+      чистото → ПО БАНКА (net) в payroll_m_<плащане> („По петъци").
+   Claude съпоставя хората ПО ТРИТЕ ИМЕНА (редът на думите е без
+   значение); резултатът се преглежда и чак тогава се записва. */
+
+function payMonthAdd(ym, delta) {
+  const [y, m] = String(ym).split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function payYmLabel(ym) {
+  const [y, m] = String(ym).split("-").map(Number);
+  return (PAY_MONTHS[m - 1] || ym) + " " + y;
+}
 
 async function erpPayLoadOsig(monthStr) {
   try { const { data } = await sb.from("app_config").select("data").eq("id", "payroll_osig_" + monthStr).maybeSingle(); return (data && data.data) || {}; }
@@ -691,7 +708,7 @@ async function payOsigAI(content) {
   const cfg = window.DANKO_CONFIG || {};
   let token = cfg.SUPABASE_ANON_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
-  const system = "Ти четеш българска ВЕДОМОСТ ЗА ЗАПЛАТИ (или подобна справка от ТРЗ). Задача: за всеки служител намери ОБЩАТА сума на осигуровките му за месеца. Ако документът разделя осигуровките (лични/за сметка на работодателя, ДОО, ДЗПО, ЗО...), вземи ОБЩИЯ сбор за лицето; ако има една колона осигуровки — нея. Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (във ведомостта може да е Фамилия Име Презиме). Отговаряй САМО с JSON без нищо друго: {\"matched\":[{\"name\":\"<точното име от списъка>\",\"osig\":123.45}],\"unmatched\":[{\"raw\":\"<името както е във файла>\",\"osig\":123.45}]}. Сумите като числа с точка. Човек от файла, когото НЕ откриваш еднозначно в списъка, отива в unmatched. Не измисляй суми.";
+  const system = "Ти четеш българска ВЕДОМОСТ ЗА ЗАПЛАТИ (или подобна справка от ТРЗ). За ВСЕКИ служител извади ДВЕ числа: (1) net = ЧИСТО ЗА ВЗЕМАНЕ / сума за получаване — това, което лицето реално получава по банка; (2) osig = ВСИЧКО ОСТАНАЛО, което се плаща покрай заплатата му: личните осигурителни вноски на лицето (ДОО, ДЗПО, ЗО), данъкът (ДОД/авансов данък) И осигуровките за сметка на работодателя, СБОРЪТ ИМ. Правилото на фирмата: всичко извън чистото е разход на фирмата, без значение как ведомостта го води. Ако колона за работодателските вноски липсва във файла, събери каквото има (лични + данък) — не измисляй липсващи числа. Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (във ведомостта може да е Фамилия Име Презиме). Отговаряй САМО с JSON без нищо друго: {\"matched\":[{\"name\":\"<точното име от списъка>\",\"net\":1234.56,\"osig\":123.45}],\"unmatched\":[{\"raw\":\"<името както е във файла>\",\"net\":1234.56,\"osig\":123.45}]}. Сумите като числа с точка. Човек, когото НЕ откриваш еднозначно в списъка, отива в unmatched. Не измисляй суми.";
   let j = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
@@ -711,15 +728,29 @@ async function payOsigAI(content) {
 }
 
 function erpPayOsigDialog(monthStr, names, after) {
+  // По подразбиране: предходният календарен месец (ведомостта излиза в началото на следващия).
+  const now = new Date();
+  let vedMonth = payMonthAdd(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`, -1);
   const { wrap, close } = erpDialog(`
-    <h3>🤖 Ведомост за заплати → Осигуровки · ${escapeHtml(monthStr)}</h3>
-    <p class="hint" style="margin:0 0 8px">Качи ведомостта (PDF, снимка или Excel). Claude намира осигуровките на всеки служител по трите имена — после преглеждаш и запазваш.</p>
+    <h3>🤖 Ведомост за заплати</h3>
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 14px;margin:0 0 10px;font-size:14px;line-height:1.6">
+      <b>Правилата:</b><br>
+      1) Работникът получава по банка <b>ЧИСТОТО за вземане</b> — то попълва автоматично „ПО БАНКА" в „🏦 По петъци".<br>
+      2) <b>Всичко останало</b> (лични осигуровки + ДОД + осигуровки на работодателя) е <b>разход на фирмата</b> → колоната „Осигуровки".<br>
+      3) Ведомостта е <b>един месец назад</b>: сумите влизат в СЛЕДВАЩИЯ месец, когато реално се плащат.
+    </div>
+    <label class="erp-inline">Ведомостта е за месец <input type="month" id="po-ved" value="${escapeAttr(vedMonth)}" /></label>
+    <p id="po-flow" style="font-weight:700;margin:6px 0 10px"></p>
     <label class="btn co-attach-btn" style="display:inline-block">⬆ Избери файл<input type="file" id="po-file" accept="application/pdf,image/*,.xlsx,.xls,.csv" hidden /></label>
     <span id="po-fname" class="erp-muted"></span>
     <p class="save-status" id="po-status"></p>
     <div class="erp-dialog-actions"><button class="btn" id="po-cancel">Отказ</button><button class="btn btn-primary" id="po-go" disabled>Разчети</button></div>`);
   let chosen = null;
   const st = wrap.querySelector("#po-status"), inp = wrap.querySelector("#po-file"), go = wrap.querySelector("#po-go");
+  const flow = wrap.querySelector("#po-flow");
+  const updFlow = () => { flow.textContent = `Ведомост за ${payYmLabel(vedMonth)} → ПО БАНКА и Осигуровки за ${payYmLabel(payMonthAdd(vedMonth, 1))} (месецът на плащане)`; };
+  updFlow();
+  wrap.querySelector("#po-ved").addEventListener("change", e => { if (e.target.value) { vedMonth = e.target.value; updFlow(); } });
   inp.addEventListener("change", () => { chosen = inp.files && inp.files[0]; wrap.querySelector("#po-fname").textContent = chosen ? "  " + chosen.name : ""; go.disabled = !chosen; });
   wrap.querySelector("#po-cancel").addEventListener("click", close);
   go.addEventListener("click", async () => {
@@ -750,7 +781,7 @@ function erpPayOsigDialog(monthStr, names, after) {
       st.textContent = "Claude разчита ведомостта…";
       const out = await payOsigAI(content);
       close();
-      payOsigPreview(monthStr, chosen.name, out.matched || [], out.unmatched || [], names, after);
+      payOsigPreview(vedMonth, chosen.name, out.matched || [], out.unmatched || [], names, after);
     } catch (e) {
       st.textContent = "⚠ " + (e.message || e);
       go.disabled = false; inp.disabled = false;
@@ -758,43 +789,64 @@ function erpPayOsigDialog(monthStr, names, after) {
   });
 }
 
-// Преглед преди запис: съвпадналите с редактируеми суми; несъвпадналите — с избор на служител.
-function payOsigPreview(monthStr, srcName, matched, unmatched, names, after) {
+// Преглед преди запис: съвпадналите с редактируеми ЧИСТО и ОСИГУРОВКИ;
+// несъвпадналите — с избор на служител. Записът отива в месеца НА ПЛАЩАНЕ.
+function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after) {
+  const payMonth = payMonthAdd(vedMonth, 1);
   // Мрежа за сигурност: пре-съпоставяме и връщането на AI (ако е върнал име извън списъка).
   const fixed = [], un = [];
+  const numv = x => Number(x) || 0;
   (matched || []).forEach(m => {
     const hit = names.includes(m.name) ? m.name : payOsigMatch(m.name, names);
-    if (hit) fixed.push({ name: hit, osig: Number(m.osig) || 0 });
-    else un.push({ raw: m.name, osig: Number(m.osig) || 0 });
+    if (hit) fixed.push({ name: hit, net: numv(m.net), osig: numv(m.osig) });
+    else un.push({ raw: m.name, net: numv(m.net), osig: numv(m.osig) });
   });
   (unmatched || []).forEach(u => {
     const hit = payOsigMatch(u.raw, names);
-    if (hit) fixed.push({ name: hit, osig: Number(u.osig) || 0 });
-    else un.push({ raw: u.raw, osig: Number(u.osig) || 0 });
+    if (hit) fixed.push({ name: hit, net: numv(u.net), osig: numv(u.osig) });
+    else un.push({ raw: u.raw, net: numv(u.net), osig: numv(u.osig) });
   });
+  const netSum = fixed.reduce((s, f) => s + f.net, 0), osSum = fixed.reduce((s, f) => s + f.osig, 0);
   const opts = names.slice().sort((a, b) => a.localeCompare(b, "bg"));
   const { wrap, close } = erpDialog(`
-    <h3>Провери осигуровките · ${escapeHtml(monthStr)}</h3>
-    <p class="hint" style="margin:0 0 6px">${fixed.length} разпознати${un.length ? " · " + un.length + " за ръчно посочване" : ""} — поправи каквото трябва и запази.</p>
+    <h3>Провери: ведомост за ${escapeHtml(payYmLabel(vedMonth))}</h3>
+    <p style="font-weight:700;margin:0 0 6px">→ Записва се в <span style="color:#1d4ed8">${escapeHtml(payYmLabel(payMonth))}</span> (месецът на плащане): ЧИСТОТО → „ПО БАНКА" в По петъци · ОСИГУРОВКИТЕ → Месечния отчет.</p>
+    <p class="hint" style="margin:0 0 6px">${fixed.length} разпознати${un.length ? " · " + un.length + " за ръчно посочване" : ""} — поправи каквото трябва и запази. Общо: чисто ${payEur(netSum)} · осигуровки ${payEur(osSum)}.</p>
     <div style="max-height:52vh;overflow:auto">
-    <table class="report-table erp-table"><thead><tr><th>Служител</th><th class="num">Осигуровки (€)</th></tr></thead><tbody>
-      ${fixed.map(f => `<tr><td>${escapeHtml(f.name)}</td><td class="num"><input type="number" step="any" class="po-amt" data-name="${escapeAttr(f.name)}" value="${f.osig}" style="width:110px" /></td></tr>`).join("") || `<tr><td colspan="2" class="report-empty">Нищо не е разпознато.</td></tr>`}
+    <table class="report-table erp-table"><thead><tr><th>Служител</th><th class="num">Чисто по банка (€)</th><th class="num">Осигуровки — за фирмата (€)</th></tr></thead><tbody>
+      ${fixed.map(f => `<tr><td>${escapeHtml(f.name)}</td>
+        <td class="num"><input type="number" step="any" class="po-net" data-name="${escapeAttr(f.name)}" value="${f.net}" style="width:110px" /></td>
+        <td class="num"><input type="number" step="any" class="po-amt" data-name="${escapeAttr(f.name)}" value="${f.osig}" style="width:110px" /></td></tr>`).join("") || `<tr><td colspan="3" class="report-empty">Нищо не е разпознато.</td></tr>`}
     </tbody></table>
     ${un.length ? `<h4 class="erp-group-head">Неразпознати имена от файла</h4>
     <table class="report-table erp-table"><tbody>
-      ${un.map((u, i) => `<tr><td>${escapeHtml(u.raw)} <span class="erp-muted">(${payEur(u.osig)})</span></td>
+      ${un.map((u, i) => `<tr><td>${escapeHtml(u.raw)} <span class="erp-muted">(чисто ${payEur(u.net)} · осиг. ${payEur(u.osig)})</span></td>
         <td><select class="po-un" data-i="${i}"><option value="">— пропусни —</option>${opts.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("")}</select></td></tr>`).join("")}
     </tbody></table>` : ""}
     </div>
-    <div class="erp-dialog-actions"><button class="btn" id="po2-cancel">Отказ</button><button class="btn btn-primary" id="po2-save">💾 Запази осигуровките</button><span class="save-status" id="po2-status"></span></div>`);
+    <div class="erp-dialog-actions"><button class="btn" id="po2-cancel">Отказ</button><button class="btn btn-primary" id="po2-save">💾 Запази в ${escapeHtml(payYmLabel(payMonth))}</button><span class="save-status" id="po2-status"></span></div>`);
   wrap.querySelector("#po2-cancel").addEventListener("click", close);
   wrap.querySelector("#po2-save").addEventListener("click", async () => {
     const stt = wrap.querySelector("#po2-status"); stt.textContent = "Записва…";
-    const byName = {};
-    wrap.querySelectorAll(".po-amt").forEach(i => { const nv = Number(String(i.value).replace(",", ".")) || 0; if (nv) byName[i.dataset.name] = nv; });
-    wrap.querySelectorAll(".po-un").forEach(s => { if (s.value) { const u = un[Number(s.dataset.i)]; if (u && Number(u.osig)) byName[s.value] = Number(u.osig); } });
-    const ok = await erpPaySaveOsig(monthStr, { byName, src: srcName, at: new Date().toISOString(), month: monthStr });
-    stt.textContent = ok ? "✓ Записано" : "";
-    if (ok) setTimeout(() => { close(); if (after) after(); }, 500);
+    const byName = {}, netByName = {};
+    const num = s => Number(String(s).replace(",", ".")) || 0;
+    wrap.querySelectorAll(".po-amt").forEach(i => { const nv = num(i.value); if (nv) byName[i.dataset.name] = nv; });
+    wrap.querySelectorAll(".po-net").forEach(i => { const nv = num(i.value); if (nv) netByName[i.dataset.name] = nv; });
+    wrap.querySelectorAll(".po-un").forEach(s => {
+      if (!s.value) return;
+      const u = un[Number(s.dataset.i)];
+      if (u) { if (numv(u.osig)) byName[s.value] = numv(u.osig); if (numv(u.net)) netByName[s.value] = numv(u.net); }
+    });
+    // 1) Осигуровките (+ чистото за справка) → payroll_osig_<месец на плащане>.
+    const ok1 = await erpPaySaveOsig(payMonth, { byName, netByName, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth });
+    // 2) Чистото → ПО БАНКА (net) в „По петъци" на месеца на плащане (не пипа петъците).
+    let ok2 = true;
+    if (ok1 && Object.keys(netByName).length) {
+      const entries = await erpPayLoadMonth(payMonth);
+      Object.keys(netByName).forEach(name => { (entries[name] = entries[name] || {}).net = netByName[name]; });
+      ok2 = await erpPaySaveMonth(payMonth, entries);
+    }
+    stt.textContent = ok1 && ok2 ? "✓ Записано" : "";
+    if (ok1 && ok2) setTimeout(() => { close(); if (after) after(); alert(`Готово!\n• ПО БАНКА (чистото) е попълнено в „🏦 По петъци" за ${payYmLabel(payMonth)}.\n• Осигуровките са в Месечния отчет за ${payYmLabel(payMonth)}.`); }, 400);
   });
 }
