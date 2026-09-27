@@ -795,8 +795,8 @@ const PAY_OSIG_TOOL = {
         type: "array",
         items: { type: "object", properties: {
           name: { type: "string", description: "ТОЧНОТО име от дадения списък на служителите." },
-          net: { type: ["number", "null"], description: "Чисто за вземане (сума за получаване по банка)." },
-          osig: { type: ["number", "null"], description: "Всичко останало: лични осигуровки + ДОД + осигуровки на работодателя, сборът." },
+          net: { type: ["number", "null"], description: "„Получавана сума“ на лицето (чистото за вземане)." },
+          osig: { type: ["number", "null"], description: "Сборът ПО ФОРМУЛАТА от инструкцията: всички осигурителни вноски (осигурен + осигурител) + Данък." },
         }, required: ["name"] },
       },
       unmatched: {
@@ -807,6 +807,15 @@ const PAY_OSIG_TOOL = {
           osig: { type: ["number", "null"] },
         }, required: ["raw"] },
       },
+      totals: {
+        type: "object",
+        description: "От блока „Общо“ на ПОСЛЕДНАТА страница на ведомостта — за сверка.",
+        properties: {
+          net: { type: ["number", "null"], description: "Получавана сума — общо." },
+          tax: { type: ["number", "null"], description: "Данък — общо." },
+          osig: { type: ["number", "null"], description: "Сборът по същата формула, приложена върху блока Общо." },
+        },
+      },
     },
     required: ["matched", "unmatched"],
   },
@@ -816,7 +825,23 @@ async function payOsigAI(content) {
   const cfg = window.DANKO_CONFIG || {};
   let token = cfg.SUPABASE_ANON_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
-  const system = "Ти четеш българска ВЕДОМОСТ ЗА ЗАПЛАТИ (или подобна справка от ТРЗ), често МНОГО страници. Мини през ВСИЧКИ страници и за ВСЕКИ служител извади ДВЕ числа: (1) net = ЧИСТО ЗА ВЗЕМАНЕ / сума за получаване — това, което лицето реално получава по банка; (2) osig = ВСИЧКО ОСТАНАЛО, което се плаща покрай заплатата му: личните осигурителни вноски (ДОО, ДЗПО, ЗО), данъкът (ДОД/авансов данък) И осигуровките за сметка на работодателя — СБОРЪТ ИМ. Правилото на фирмата: всичко извън чистото е разход на фирмата, без значение как ведомостта го води. Ако колона за работодателските вноски липсва, събери каквото има (лични + данък) — НЕ измисляй липсващи числа. Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (във ведомостта може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла. Десетична запетая → точка. Извикай record_vedomost с резултата.";
+  const system = `Ти четеш българска РАЗЧЕТНО-ПЛАТЕЖНА ВЕДОМОСТ (обикновено от програмата TROX РПВ), МНОГО страници — мини през ВСИЧКИ. Всяко лице е отделен блок с много полета. За ВСЕКИ служител извади ДВЕ числа:
+
+(1) net = „Получавана сума" на лицето — чистото за вземане.
+
+(2) osig = СБОРЪТ НА ВСИЧКИ ТЕЗИ ПОЛЕТА на лицето (правилото на фирмата: всичко извън чистото е разход на фирмата, и личните, и работодателските части):
+• ДОО от осигурен + ДОО от осигурител + ДОО в/у СР от осигурен + ДОО в/у СР от осигурит
+• ЗО от осигурен + ЗО от осигурител + ЗО вр нетр (осигурен и осигурител) + ЗО непл.отп. (осигурен и осигурител)
+• ДЗПО-УПФ осигурен + ДЗПО-УПФ осигурит + ДЗПО в ППФ осигурит
+• ФондГарант вземания + За Учителски ПФ
+• Данък (ДОД)
+Полета със стойност 0,00 просто не добавят нищо. НЕ пропускай работодателските части („от осигурител"/„осигурит") — те са отделни числа в блока! НЕ измисляй липсващи числа.
+
+ВНИМАНИЕ ЗА ПОДРЕДБАТА: в този формат ЧИСЛОТО стои ПРЕДИ или ДО етикета си — гледай внимателно кое число към кой етикет принадлежи в подредбата на страницата.
+
+СВЕРКА (задължителна): на последната страница има блок „Общо". Върни в totals: net = Получавана сума общо, tax = Данък общо, osig = сборът по СЪЩАТА формула върху блока Общо. Сборът на osig по хората ТРЯБВА да е близък до totals.osig — ако не е, ПРЕГЛЕДАЙ отново кое поле си пропуснал.
+
+Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла. Десетична запетая → точка. Извикай record_vedomost с резултата.`;
   let j = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
@@ -902,7 +927,7 @@ function erpPayOsigDialog(monthStr, names, after) {
       const isTest = wrap.querySelector("#po-test").checked;
       const out = await payOsigAI(content);
       close();
-      payOsigPreview(vedMonth, chosen.name, out.matched || [], out.unmatched || [], names, after, isTest);
+      payOsigPreview(vedMonth, chosen.name, out.matched || [], out.unmatched || [], names, after, isTest, out.totals || null);
     } catch (e) {
       st.textContent = "⚠ " + (e.message || e);
       go.disabled = false; inp.disabled = false;
@@ -912,7 +937,7 @@ function erpPayOsigDialog(monthStr, names, after) {
 
 // Преглед преди запис: съвпадналите с редактируеми ЧИСТО и ОСИГУРОВКИ;
 // несъвпадналите — с избор на служител. Записът отива в месеца НА ПЛАЩАНЕ.
-function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isTest) {
+function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isTest, totals) {
   const payMonth = payMonthAdd(vedMonth, 1);
   // Мрежа за сигурност: пре-съпоставяме и връщането на AI (ако е върнал име извън списъка).
   const fixed = [], un = [];
@@ -934,7 +959,18 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     ${isTest
       ? `<p style="font-weight:700;margin:0 0 6px;color:#b45309">🧪 Тестов режим → отива САМО в колоната „Тест" на Месечния отчет за ${escapeHtml(payYmLabel(payMonth))}. Нищо реално не се пипа.</p>`
       : `<p style="font-weight:700;margin:0 0 6px">→ Записва се в <span style="color:#1d4ed8">${escapeHtml(payYmLabel(payMonth))}</span> (месецът на плащане): ЧИСТОТО → „ПО БАНКА" в По петъци · ОСИГУРОВКИТЕ → Месечния отчет.</p>`}
-    <p class="hint" style="margin:0 0 6px">${fixed.length} разпознати${un.length ? " · " + un.length + " за ръчно посочване" : ""} — поправи каквото трябва и запази. Общо: чисто ${payEur(netSum)} · осигуровки ${payEur(osSum)}.</p>
+    <p class="hint" style="margin:0 0 6px">${fixed.length} разпознати${un.length ? " · " + un.length + " за ръчно посочване" : ""} — поправи каквото трябва и запази. Общо: чисто ${payEur(netSum)} · осигуровки+данък ${payEur(osSum)}.</p>
+    ${totals ? (() => {
+      const allOs = osSum + un.reduce((s, u) => s + (Number(u.osig) || 0), 0);
+      const allNet = netSum + un.reduce((s, u) => s + (Number(u.net) || 0), 0);
+      const chk = (mine, ved) => ved == null ? `<span class="erp-muted">няма във ведомостта</span>` : (Math.abs(mine - ved) <= 1 ? `<b style="color:#16a34a">✓ съвпада (${payEur(ved)})</b>` : `<b style="color:#b91c1c">⚠ ведомостта дава ${payEur(ved)} — разлика ${payEur(mine - ved)}</b>`);
+      return `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:14px;line-height:1.6">
+        <b>🔍 Сверка с блока „Общо" на ведомостта:</b><br>
+        • Осигуровки+данък по хора: ${payEur(allOs)} ↔ ${chk(allOs, totals.osig)}<br>
+        • Чисто по хора: ${payEur(allNet)} ↔ ${chk(allNet, totals.net)}<br>
+        ${totals.tax != null ? `• Данък (ДОД) общо по ведомост: <b>${payEur(totals.tax)}</b> — свери с платежното „ДОД 10% ПЕРСОНАЛ" към НАП.` : ""}
+      </div>`;
+    })() : ""}
     <div style="max-height:52vh;overflow:auto">
     <table class="report-table erp-table"><thead><tr><th>Служител</th><th class="num">Чисто по банка (€)</th><th class="num">Осигуровки — за фирмата (€)</th></tr></thead><tbody>
       ${fixed.map(f => `<tr><td>${escapeHtml(f.name)}</td>
