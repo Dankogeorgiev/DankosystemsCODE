@@ -31,10 +31,23 @@ Deno.serve(async (req: Request) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Невалиден JSON." }, 400); }
-  const { system, messages, max_tokens, model } = body || {};
+  const { system, messages, max_tokens, model, tools, tool_choice } = body || {};
   if (!Array.isArray(messages) || !messages.length) return json({ error: "Липсват съобщения." }, 400);
 
   try {
+    const payload: any = {
+      model: ALLOWED_MODELS.has(String(model || "")) ? String(model) : MODEL,
+      max_tokens: Math.min(Number(max_tokens) || 1024, 16384),
+      system: String(system || ""),
+      messages,
+    };
+    // Структуриран отговор през tool: подателят дава схема, ние принуждаваме
+    // отговора през нея (tool_choice) — това и ИЗКЛЮЧВА разсъжденията, които
+    // при дълги документи (многостранична ведомост) изяждаха целия бюджет.
+    if (Array.isArray(tools) && tools.length) {
+      payload.tools = tools;
+      if (tool_choice) payload.tool_choice = tool_choice;
+    }
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -42,23 +55,19 @@ Deno.serve(async (req: Request) => {
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        model: ALLOWED_MODELS.has(String(model || "")) ? String(model) : MODEL,
-        max_tokens: Math.min(Number(max_tokens) || 1024, 8192),
-        system: String(system || ""),
-        messages,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await r.json();
     if (!r.ok) return json({ error: data?.error?.message || ("Claude API грешка (" + r.status + ")") }, r.status);
     const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
-    // Празен текст = нещо не е наред (напр. всичко е отишло в thinking или отговорът
-    // е отрязан) — кажи КАКВО върна Claude, за да се вижда причината в грешката.
-    if (!text) {
+    const tu = (data.content || []).find((b: any) => b.type === "tool_use");
+    // Празен отговор = нещо не е наред (напр. всичко е отишло в thinking или
+    // отговорът е отрязан) — кажи КАКВО върна Claude, за да се вижда причината.
+    if (!text && !tu) {
       const types = (data.content || []).map((b: any) => b.type).join(",") || "нищо";
       return json({ error: `Claude върна празен текст (stop_reason: ${data.stop_reason || "?"}, блокове: ${types})` }, 502);
     }
-    return json({ text, stop_reason: data.stop_reason });
+    return json({ text, parsed: tu ? tu.input : null, stop_reason: data.stop_reason });
   } catch (e) {
     return json({ error: "Грешка при връзка с Claude: " + String((e as any)?.message || e) }, 502);
   }

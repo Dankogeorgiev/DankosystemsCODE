@@ -548,15 +548,20 @@ async function erpPayMonthView(v) {
     const g = tot[name] || (tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0 });
     g.bank += b; g.cash += c; g.overtime += o; g.rz = (g.rz || 0) + rz;
   });
-  const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || "", ...tot[name], total: payRowTotal(tot[name]) + (Number(tot[name].rz) || 0) }))
-    .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
-  const grand = list.reduce((s, r) => s + r.total, 0);
-
   // Осигуровките от Ведомостта за заплати (разчетени с AI, пазени по месец).
   const osigRec = await erpPayLoadOsig(erpPayMonth);
   const osigBy = (osigRec && osigRec.byName) || {};
   const osigSrc = (osigRec && osigRec.src) || "";
   const osigAt = (osigRec && osigRec.at) || "";
+
+  // ПРАВИЛО: човек със заплати, но БЕЗ ред във ведомостта, си стои в отчета
+  // (осигуровките му са просто празни). И обратното: човек от ведомостта без
+  // попълнени заплати този месец също се показва (сумите му са тирета).
+  Object.keys(osigBy).forEach(name => { if (!tot[name]) tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0 }; });
+
+  const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || "", ...tot[name], total: payRowTotal(tot[name]) + (Number(tot[name].rz) || 0) }))
+    .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
+  const grand = list.reduce((s, r) => s + r.total, 0);
   // 🧪 Тестова ведомост (ако има) — отделна колона + сравнение, до „Приложи реално".
   const osigTestRec = await erpPayLoadOsigTest(erpPayMonth);
   const testBy = (osigTestRec && osigTestRec.byName) || {};
@@ -763,23 +768,62 @@ function payOsigMatch(raw, names) {
   return cands.length === 1 ? cands[0] : "";
 }
 
+// Схемата на отговора — насилваме я през tool (tool_choice). Това ИЗКЛЮЧВА
+// разсъжденията на модела, които при многостранична ведомост изяждаха целия
+// бюджет („празен текст, stop_reason: max_tokens, блокове: thinking").
+const PAY_OSIG_TOOL = {
+  name: "record_vedomost",
+  description: "Записва извлечените от ведомостта суми по служители.",
+  input_schema: {
+    type: "object",
+    properties: {
+      matched: {
+        type: "array",
+        items: { type: "object", properties: {
+          name: { type: "string", description: "ТОЧНОТО име от дадения списък на служителите." },
+          net: { type: ["number", "null"], description: "Чисто за вземане (сума за получаване по банка)." },
+          osig: { type: ["number", "null"], description: "Всичко останало: лични осигуровки + ДОД + осигуровки на работодателя, сборът." },
+        }, required: ["name"] },
+      },
+      unmatched: {
+        type: "array",
+        items: { type: "object", properties: {
+          raw: { type: "string", description: "Името, както е изписано във файла." },
+          net: { type: ["number", "null"] },
+          osig: { type: ["number", "null"] },
+        }, required: ["raw"] },
+      },
+    },
+    required: ["matched", "unmatched"],
+  },
+};
+
 async function payOsigAI(content) {
   const cfg = window.DANKO_CONFIG || {};
   let token = cfg.SUPABASE_ANON_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
-  const system = "Ти четеш българска ВЕДОМОСТ ЗА ЗАПЛАТИ (или подобна справка от ТРЗ). За ВСЕКИ служител извади ДВЕ числа: (1) net = ЧИСТО ЗА ВЗЕМАНЕ / сума за получаване — това, което лицето реално получава по банка; (2) osig = ВСИЧКО ОСТАНАЛО, което се плаща покрай заплатата му: личните осигурителни вноски на лицето (ДОО, ДЗПО, ЗО), данъкът (ДОД/авансов данък) И осигуровките за сметка на работодателя, СБОРЪТ ИМ. Правилото на фирмата: всичко извън чистото е разход на фирмата, без значение как ведомостта го води. Ако колона за работодателските вноски липсва във файла, събери каквото има (лични + данък) — не измисляй липсващи числа. Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (във ведомостта може да е Фамилия Име Презиме). Отговаряй САМО с JSON без нищо друго: {\"matched\":[{\"name\":\"<точното име от списъка>\",\"net\":1234.56,\"osig\":123.45}],\"unmatched\":[{\"raw\":\"<името както е във файла>\",\"net\":1234.56,\"osig\":123.45}]}. Сумите като числа с точка. Човек, когото НЕ откриваш еднозначно в списъка, отива в unmatched. Не измисляй суми.";
+  const system = "Ти четеш българска ВЕДОМОСТ ЗА ЗАПЛАТИ (или подобна справка от ТРЗ), често МНОГО страници. Мини през ВСИЧКИ страници и за ВСЕКИ служител извади ДВЕ числа: (1) net = ЧИСТО ЗА ВЗЕМАНЕ / сума за получаване — това, което лицето реално получава по банка; (2) osig = ВСИЧКО ОСТАНАЛО, което се плаща покрай заплатата му: личните осигурителни вноски (ДОО, ДЗПО, ЗО), данъкът (ДОД/авансов данък) И осигуровките за сметка на работодателя — СБОРЪТ ИМ. Правилото на фирмата: всичко извън чистото е разход на фирмата, без значение как ведомостта го води. Ако колона за работодателските вноски липсва, събери каквото има (лични + данък) — НЕ измисляй липсващи числа. Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (във ведомостта може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла. Десетична запетая → точка. Извикай record_vedomost с резултата.";
   let j = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
       method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
-      body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 8192, system, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({
+        model: "claude-sonnet-5", max_tokens: 16000, system,
+        tools: [PAY_OSIG_TOOL], tool_choice: { type: "tool", name: "record_vedomost" },
+        messages: [{ role: "user", content }],
+      }),
     });
     j = await res.json().catch(() => ({}));
     const err = j.error ? String(j.error) : (res.ok ? "" : "HTTP " + res.status);
     if (!err) break;
-    if (attempt < 3 && /overloaded|529|rate.?limit|too many|timeout|празен текст/i.test(err)) { await new Promise(r => setTimeout(r, attempt * 5000)); continue; }
+    if (/празен текст/i.test(err) && /thinking/i.test(err)) {
+      // Старата версия на функцията не подава tools → мисленето пак изяжда бюджета.
+      throw new Error(`Edge функцията „assistant" е стара версия. Данко: Supabase → Edge Functions → assistant → замени кода с новия от GitHub (supabase/functions/assistant/index.ts) → Deploy. После пробвай пак.`);
+    }
+    if (attempt < 3 && /overloaded|529|rate.?limit|too many|timeout/i.test(err)) { await new Promise(r => setTimeout(r, attempt * 5000)); continue; }
     throw new Error(/overloaded|529/i.test(err) ? "Claude е претоварен — изчакай минута и опитай пак." : err);
   }
+  if (j.parsed && (j.parsed.matched || j.parsed.unmatched)) return j.parsed;
   const txt = String(j.text || "").replace(/```json|```/g, "").trim();
   const m = txt.match(/\{[\s\S]*\}/);
   if (!m) throw new Error("Claude не върна валиден JSON: " + txt.slice(0, 200));
