@@ -862,11 +862,24 @@ async function payOsigAI(content) {
     if (attempt < 3 && /overloaded|529|rate.?limit|too many|timeout/i.test(err)) { await new Promise(r => setTimeout(r, attempt * 5000)); continue; }
     throw new Error(/overloaded|529/i.test(err) ? "Claude е претоварен — изчакай минута и опитай пак." : err);
   }
-  if (j.parsed && (j.parsed.matched || j.parsed.unmatched)) return j.parsed;
+  // Понякога моделът връща полетата като JSON ТЕКСТ вместо истински масиви —
+  // нормализираме всичко до масиви/обект, иначе .length брои буквите.
+  const asArr = x => {
+    if (Array.isArray(x)) return x;
+    if (typeof x === "string") { try { const v = JSON.parse(x); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+    return [];
+  };
+  const asObj = x => {
+    if (x && typeof x === "object" && !Array.isArray(x)) return x;
+    if (typeof x === "string") { try { const v = JSON.parse(x); return (v && typeof v === "object") ? v : null; } catch (e) { return null; } }
+    return null;
+  };
+  const norm = p => ({ matched: asArr(p.matched).map(asObj).filter(Boolean), unmatched: asArr(p.unmatched).map(asObj).filter(Boolean), totals: asObj(p.totals) });
+  if (j.parsed && (j.parsed.matched || j.parsed.unmatched)) return norm(j.parsed);
   const txt = String(j.text || "").replace(/```json|```/g, "").trim();
   const m = txt.match(/\{[\s\S]*\}/);
   if (!m) throw new Error("Claude не върна валиден JSON: " + txt.slice(0, 200));
-  return JSON.parse(m[0]);
+  return norm(JSON.parse(m[0]));
 }
 
 function erpPayOsigDialog(monthStr, names, after) {
