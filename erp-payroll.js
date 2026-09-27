@@ -926,8 +926,20 @@ function erpPayOsigDialog(monthStr, names, after) {
       st.textContent = "Claude разчита ведомостта…";
       const isTest = wrap.querySelector("#po-test").checked;
       const out = await payOsigAI(content);
+      try { console.log("Ведомост AI резултат:", JSON.parse(JSON.stringify(out))); } catch (e2) {}
+      const nMatched = (out.matched || []).length, nUnmatched = (out.unmatched || []).length;
+      if (!nMatched && !nUnmatched) {
+        st.textContent = "⚠ Claude не върна нито един служител от ведомостта. Прати screenshot на Данко/Клод.";
+        go.disabled = false; inp.disabled = false;
+        return;
+      }
       close();
-      payOsigPreview(vedMonth, chosen.name, out.matched || [], out.unmatched || [], names, after, isTest, out.totals || null);
+      // Прегледът е отделен прозорец — ако нещо в него гръмне, да се ВИДИ, а не да потъне.
+      try {
+        payOsigPreview(vedMonth, chosen.name, out.matched || [], out.unmatched || [], names, after, isTest, out.totals || null);
+      } catch (e3) {
+        alert("Грешка при показване на прегледа: " + (e3.message || e3) + "\n(разчетени: " + nMatched + " разпознати, " + nUnmatched + " неразпознати)");
+      }
     } catch (e) {
       st.textContent = "⚠ " + (e.message || e);
       go.disabled = false; inp.disabled = false;
@@ -996,11 +1008,21 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
       const u = un[Number(s.dataset.i)];
       if (u) { if (numv(u.osig)) byName[s.value] = numv(u.osig); if (numv(u.net)) netByName[s.value] = numv(u.net); }
     });
+    const nBy = Object.keys(byName).length, nNet = Object.keys(netByName).length;
+    if (!nBy && !nNet) {
+      stt.textContent = "";
+      alert("⚠ Няма нищо за запис: всички суми са празни/0 и никой неразпознат не е посочен. Провери числата в таблицата.");
+      return;
+    }
     if (isTest) {
       // 🧪 Тест: отделен запис, нищо реално не се пипа.
       const ok = await erpPaySaveOsigTest(payMonth, { byName, netByName, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth, test: true });
+      // Сверка: прочети обратно записа — да сме СИГУРНИ, че е в базата.
+      let backOk = false;
+      if (ok) { try { const back = await erpPayLoadOsigTest(payMonth); backOk = Object.keys((back && back.byName) || {}).length > 0 || Object.keys((back && back.netByName) || {}).length > 0; } catch (e) {} }
       stt.textContent = ok ? "✓ Записано (тест)" : "";
-      if (ok) setTimeout(() => { close(); if (after) after(); alert(`🧪 Тестът е записан.\nОтвори Месечния отчет за ${payYmLabel(payMonth)} — там са колоната „Тест" и сравнението с ПО БАНКА.\nАко всичко е наред → „✅ Приложи реално".`); }, 400);
+      if (ok && backOk) setTimeout(() => { close(); erpPayMonth = payMonth; if (after) after(); alert(`🧪 Тестът е записан (${nBy} души с осигуровки, ${nNet} с чисто).\nОтчетът те прехвърли на ${payYmLabel(payMonth)} — жълтият банер и колоната „Тест" са там.\nАко всичко е наред → „✅ Приложи реално".`); }, 400);
+      else if (ok && !backOk) alert("⚠ Записът мина, но при обратната проверка тестът излиза празен — прати screenshot на този прозорец.");
       return;
     }
     // 1) Осигуровките (+ чистото за справка) → payroll_osig_<месец на плащане>.
@@ -1013,7 +1035,7 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
       ok2 = await erpPaySaveMonth(payMonth, entries);
     }
     stt.textContent = ok1 && ok2 ? "✓ Записано" : "";
-    if (ok1 && ok2) setTimeout(() => { close(); if (after) after(); alert(`Готово!\n• ПО БАНКА (чистото) е попълнено в „🏦 По петъци" за ${payYmLabel(payMonth)}.\n• Осигуровките са в Месечния отчет за ${payYmLabel(payMonth)}.`); }, 400);
+    if (ok1 && ok2) setTimeout(() => { close(); erpPayMonth = payMonth; if (after) after(); alert(`Готово!\n• ПО БАНКА (чистото) е попълнено в „🏦 По петъци" за ${payYmLabel(payMonth)}.\n• Осигуровките са в Месечния отчет за ${payYmLabel(payMonth)} (отчетът те прехвърли там).`); }, 400);
   });
 }
 
