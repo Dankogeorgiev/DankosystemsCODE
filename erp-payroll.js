@@ -968,8 +968,7 @@ function erpPayOsigDialog(monthStr, names, after) {
       2) <b>Всичко останало</b> (лични осигуровки + ДОД + осигуровки на работодателя) е <b>разход на фирмата</b> → колоната „Осигуровки".<br>
       3) Ведомостта е <b>един месец назад</b>: сумите влизат в СЛЕДВАЩИЯ месец, когато реално се плащат.
     </div>
-    <label class="erp-inline">Ведомостта е за месец <input type="month" id="po-ved" value="${escapeAttr(vedMonth)}" /></label>
-    <p id="po-flow" style="font-weight:700;margin:6px 0 10px"></p>
+    <p style="font-weight:700;margin:6px 0 10px">📅 Месецът се разпознава сам от заглавието на ведомостта („за месец … 2026 год.") — сумите отиват в СЛЕДВАЩИЯ месец, когато се плащат. Виждаш го в прегледа преди да запазиш.</p>
     <label class="erp-inline" style="display:block;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;margin:0 0 10px">
       <input type="checkbox" id="po-test" checked /> 🧪 <b>Тестов режим</b> — резултатът отива в отделна колона „Тест" в Месечния отчет и НЕ пипа нито ПО БАНКА, нито Осигуровките. Като видиш, че всичко е наред → „✅ Приложи реално".
     </label>
@@ -979,11 +978,6 @@ function erpPayOsigDialog(monthStr, names, after) {
     <div class="erp-dialog-actions"><button class="btn" id="po-cancel">Отказ</button><button class="btn btn-primary" id="po-go" disabled>Разчети</button></div>`);
   let chosen = null;
   const st = wrap.querySelector("#po-status"), inp = wrap.querySelector("#po-file"), go = wrap.querySelector("#po-go");
-  const flow = wrap.querySelector("#po-flow");
-  const updFlow = () => { flow.textContent = `Ведомост за ${payYmLabel(vedMonth)} → ПО БАНКА и Осигуровки за ${payYmLabel(payMonthAdd(vedMonth, 1))} (месецът на плащане)`; };
-  updFlow();
-  // И „input", и „change" — при писане в month-полето някои браузъри пускат само „input".
-  ["input", "change"].forEach(ev => wrap.querySelector("#po-ved").addEventListener(ev, e => { if (/^\d{4}-\d{2}$/.test(e.target.value || "")) { vedMonth = e.target.value; updFlow(); } }));
   inp.addEventListener("change", () => { chosen = inp.files && inp.files[0]; wrap.querySelector("#po-fname").textContent = chosen ? "  " + chosen.name : ""; go.disabled = !chosen; });
   wrap.querySelector("#po-cancel").addEventListener("click", close);
   go.addEventListener("click", async () => {
@@ -1022,11 +1016,9 @@ function erpPayOsigDialog(monthStr, names, after) {
         go.disabled = false; inp.disabled = false;
         return;
       }
-      // МЕСЕЦЪТ ОТ ФАЙЛА има последната дума — заглавието на ведомостта е истината.
-      if (out.ved_month && out.ved_month !== vedMonth) {
-        alert(`ℹ Ведомостта е за ${payYmLabel(out.ved_month)} (пише го в заглавието ѝ) — ползвам него, не избраното „${payYmLabel(vedMonth)}".\nСумите отиват в ${payYmLabel(payMonthAdd(out.ved_month, 1))}.`);
-        vedMonth = out.ved_month;
-      }
+      // МЕСЕЦЪТ идва ОТ ФАЙЛА — заглавието на ведомостта е истината.
+      if (out.ved_month) vedMonth = out.ved_month;
+      else alert(`⚠ Не намерих месеца в заглавието на ведомостта — приемам, че е за ${payYmLabel(vedMonth)} (предходния месец). Провери в прегледа и откажи, ако не е така.`);
       close();
       // Прегледът е отделен прозорец — ако нещо в него гръмне, да се ВИДИ, а не да потъне.
       try {
