@@ -511,18 +511,19 @@ async function erpPayRemoveEmployee(name, v) {
   erpPayRerender();
 }
 
-async function erpPayMonthView(v) {
-  if (!erpPayMonth) { const d = new Date(); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+/* Смята Месечния отчет за даден месец (седмични записи + „По петъци" + РАЗЛИЧНИ
+   + осигуровките от ведомостта). ЕДИНСТВЕНИЯТ източник на истината за месеца —
+   ползва се и от изгледа, и от синхронизацията на заплатите в Разходи и ставки. */
+async function payComputeMonth(monthStr) {
   const rows = await erpPayAllWeeks();
-  const [Y, M] = erpPayMonth.split("-").map(Number);
+  const [Y, M] = monthStr.split("-").map(Number);
   const weeks = rows.filter(r => {
-    // Само истинските седмични записи (payroll_YYYY-MM-DD); месечните payroll_m_* се четат отделно.
-    if (/^payroll_m_/.test(String(r.id || ""))) return false;
+    // Само истинските седмични записи (payroll_YYYY-MM-DD); payroll_m_* и payroll_osig_* се четат отделно.
+    if (/^payroll_(m|osig)_/.test(String(r.id || ""))) return false;
     const mon = (r.data && r.data.monday) || String(r.id || "").replace("payroll_", "");
     const d = new Date(mon + "T00:00:00");
     return d.getFullYear() === Y && (d.getMonth() + 1) === M;
   });
-  const wsByName = {}, empByName = {}; (COST_CFG.employees || []).forEach(e => { wsByName[e.name] = e.ws; empByName[e.name] = e; });
   const tot = {};
   weeks.forEach(w => {
     const e = (w.data && w.data.entries) || {};
@@ -534,7 +535,7 @@ async function erpPayMonthView(v) {
   });
   // + Данните от „По петъци" (payroll_m_<месец>): банка → Банка, 005 → В брой, извънредни → Извънреден,
   //   РАЗЛИЧНИ → отделна колона. Двата източника се събират.
-  const friEntries = await erpPayLoadMonth(erpPayMonth);
+  const friEntries = await erpPayLoadMonth(monthStr);
   const fridays = payFridays(Y, M);
   let friHasData = false;
   Object.keys(friEntries || {}).forEach(name => {
@@ -549,15 +550,28 @@ async function erpPayMonthView(v) {
     g.bank += b; g.cash += c; g.overtime += o; g.rz = (g.rz || 0) + rz;
   });
   // Осигуровките от Ведомостта за заплати (разчетени с AI, пазени по месец).
-  const osigRec = await erpPayLoadOsig(erpPayMonth);
+  const osigRec = await erpPayLoadOsig(monthStr);
   const osigBy = (osigRec && osigRec.byName) || {};
-  const osigSrc = (osigRec && osigRec.src) || "";
-  const osigAt = (osigRec && osigRec.at) || "";
-
   // ПРАВИЛО: човек със заплати, но БЕЗ ред във ведомостта, си стои в отчета
   // (осигуровките му са просто празни). И обратното: човек от ведомостта без
   // попълнени заплати този месец също се показва (сумите му са тирета).
   Object.keys(osigBy).forEach(name => { if (!tot[name]) tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0 }; });
+  return { weeks, friEntries, friHasData, tot, osigRec, osigBy };
+}
+
+// АБСОЛЮТНИЯТ тотал на служител за месеца: банка + 005 + надник + извънреден
+// + бонус + различни + осигуровки. Това е пълният разход на фирмата за човека.
+function payAbsTotal(g, osigBy, name) {
+  return payRowTotal(g) + (Number(g.rz) || 0) + (Number((osigBy || {})[name]) || 0);
+}
+
+async function erpPayMonthView(v) {
+  if (!erpPayMonth) { const d = new Date(); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+  const [Y, M] = erpPayMonth.split("-").map(Number);
+  const { weeks, friEntries, friHasData, tot, osigRec, osigBy } = await payComputeMonth(erpPayMonth);
+  const wsByName = {}, empByName = {}; (COST_CFG.employees || []).forEach(e => { wsByName[e.name] = e.ws; empByName[e.name] = e; });
+  const osigSrc = (osigRec && osigRec.src) || "";
+  const osigAt = (osigRec && osigRec.at) || "";
 
   const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || "", ...tot[name], total: payRowTotal(tot[name]) + (Number(tot[name].rz) || 0) }))
     .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
@@ -965,4 +979,35 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     stt.textContent = ok1 && ok2 ? "✓ Записано" : "";
     if (ok1 && ok2) setTimeout(() => { close(); if (after) after(); alert(`Готово!\n• ПО БАНКА (чистото) е попълнено в „🏦 По петъци" за ${payYmLabel(payMonth)}.\n• Осигуровките са в Месечния отчет за ${payYmLabel(payMonth)}.`); }, 400);
   });
+}
+
+/* ---------- Сигурната връзка: Месечен отчет → заплатата в Разходи и ставки ----------
+   Заплатата (pay) на служителя в Разходи и ставки / досието идва САМО оттук:
+   АБСОЛЮТНИЯТ тотал (банка + 005 + надник + извънреден + бонус + различни +
+   осигуровки) за последния месец с данни. Ръчно въвеждане няма. */
+async function erpPaySyncSalaries() {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  for (let i = 1; i <= 3; i++) {
+    const m = payMonthAdd(cur, -i);
+    let data;
+    try { data = await payComputeMonth(m); } catch (e) { continue; }
+    if (!Object.keys(data.tot).length) continue;
+    let changed = 0;
+    (COST_CFG.employees || []).forEach(e => {
+      const g = data.tot[e.name];
+      if (!g) return; // няма данни за човека този месец — старата му заплата остава
+      const t = Math.round(payAbsTotal(g, data.osigBy, e.name) * 100) / 100;
+      if (t > 0 && Math.abs((Number(e.pay) || 0) - t) >= 0.01) { e.pay = t; changed++; }
+      if (t > 0) e.paySrc = m;
+    });
+    if (changed) {
+      // Тоталът ВКЛЮЧВА осигуровките → ставката не бива да ги начислява втори път.
+      COST_CFG.params = COST_CFG.params || {};
+      COST_CFG.params.salaryHasSocial = true;
+      if (typeof erpSaveCostCfg === "function") await erpSaveCostCfg();
+    }
+    return { month: m, changed };
+  }
+  return { month: "", changed: 0 };
 }

@@ -164,9 +164,16 @@ async function erpApplyOpCosts(statusEl) {
 }
 
 /* ---------- Екран „Разходи и ставки" ---------- */
+let PAY_SYNC_INFO = null; // { month, changed } — веднъж на сесия
 async function erpRenderCostRates(host) {
   const v = host || erpView();
   await erpLoadCostCfg();
+  // СИГУРНАТА ВРЪЗКА (правило на Данко, 27.09.2026): заплатите на служителите
+  // идват САМО от Месечния отчет (Заплати) — абсолютният тотал за последния
+  // месец с данни. Синхронизира се при първото отваряне в сесията.
+  if (!PAY_SYNC_INFO && typeof erpPaySyncSalaries === "function") {
+    try { PAY_SYNC_INFO = await erpPaySyncSalaries(); } catch (e) { PAY_SYNC_INFO = { month: "", changed: 0 }; }
+  }
   const p = COST_CFG.params;
   const R = erpCostRates();
   const { rate, overheadRate, prodWorkers, hpm } = R;
@@ -221,6 +228,7 @@ async function erpRenderCostRates(host) {
     </details>
 
     <details class="cost-details"><summary>👥 Досие на служители (${(COST_CFG.employees || []).length}) — натисни за преглед/редакция</summary>
+      <p class="hint" style="margin:6px 0">🔗 Заплатите се пълнят АВТОМАТИЧНО от Месечния отчет (Заплати)${PAY_SYNC_INFO && PAY_SYNC_INFO.month ? ` — абсолютният тотал за <b>${typeof payYmLabel === "function" ? payYmLabel(PAY_SYNC_INFO.month) : PAY_SYNC_INFO.month}</b> (банка + 005 + надник + извънреден + бонус + различни + осигуровки)` : ""}. Ръчна редакция няма — поправя се в Заплатите.</p>
       <table class="report-table erp-table"><thead><tr><th>Служител</th><th>Цех</th><th class="num">Заплата €/мес</th><th>Длъжност</th><th></th></tr></thead>
       <tbody>${(COST_CFG.employees || []).map(e => { const d = erpDossierMerged(e); const has = d.position || d.operations || d.phone; return `<tr class="erp-clickable" data-emp="${escapeAttr(e.name || "")}"><td><b>${escapeHtml(e.name || "")}</b></td><td>${escapeHtml(e.ws || "")}</td><td class="num">${money(e.pay)}</td><td>${escapeHtml(d.position || e.role || "")}</td><td class="erp-row-actions">${has ? "📄" : "✎"}</td></tr>`; }).join("")}</tbody></table>
     </details>
@@ -344,7 +352,7 @@ function erpShowDossier(emp, host) {
   };
   const { wrap, close } = erpDialog(`
     <h3>📄 ${escapeHtml(emp.name || "")}</h3>
-    <p class="dos-pay">Заплата (нето): <input type="number" id="dos-pay" step="any" style="width:110px;font-weight:700" value="${emp.pay != null && emp.pay !== "" ? escapeAttr(String(emp.pay)) : ""}" /> €/мес <span class="erp-muted">— участва в ставката €/час на цеха (себестойностите)</span></p>
+    <p class="dos-pay">Заплата: <b>${(emp.pay != null && emp.pay !== "") ? money(emp.pay) + " €/мес" : "—"}</b> <span class="erp-muted">🔗 автоматично от Месечния отчет${emp.paySrc && typeof payYmLabel === "function" ? ` за ${payYmLabel(emp.paySrc)}` : ""} (банка + 005 + надник + извънреден + бонус + различни + осигуровки) — поправя се само в Заплатите</span></p>
     ${DOSSIER_FIELDS.map(field).join("")}
     <div class="erp-dialog-actions">
       <button class="btn" id="dos-cancel">Отказ</button>
@@ -359,13 +367,7 @@ function erpShowDossier(emp, host) {
     if (!target) { target = { name: emp.name, ws: emp.ws || "", pay: emp.pay || 0 }; (COST_CFG.employees = COST_CFG.employees || []).push(target); }
     target.dossier = target.dossier || {};
     DOSSIER_FIELDS.forEach(f => { target.dossier[f.k] = wrap.querySelector("#dos-" + f.k).value.trim(); });
-    // Заплатата: при промяна — предупреждение, защото влиза в ставката на цеха.
-    const pv = wrap.querySelector("#dos-pay").value.trim();
-    const npay = pv === "" ? 0 : Number(String(pv).replace(",", ".")) || 0;
-    const prevPay = Number(target.pay) || 0;
-    if (npay !== prevPay) {
-      if (confirm(`⚠ Сменяш заплатата на ${emp.name}:\n${money(prevPay)} → ${money(npay)} €/мес.\n\nТова променя ставката €/час на цеха и себестойностите занапред. Продължавам?`)) target.pay = npay;
-    }
+    // Заплатата НЕ се пипа тук — идва автоматично от Месечния отчет (Заплати).
     const ok = await erpSaveCostCfg();
     st.textContent = ok ? "✓ Записано" : "";
     setTimeout(() => { close(); if (host && typeof erpRenderCostRates === "function") erpRenderCostRates(host); }, 700);
