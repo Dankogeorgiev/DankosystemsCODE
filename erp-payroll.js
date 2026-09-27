@@ -841,7 +841,9 @@ async function payOsigAI(content) {
 
 СВЕРКА (задължителна): на последната страница има блок „Общо". Върни в totals: net = Получавана сума общо, tax = Данък общо, osig = сборът по СЪЩАТА формула върху блока Общо. Сборът на osig по хората ТРЯБВА да е близък до totals.osig — ако не е, ПРЕГЛЕДАЙ отново кое поле си пропуснал.
 
-Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла. Десетична запетая → точка. Извикай record_vedomost с резултата.`;
+Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла.
+
+ФОРМАТ (важно): matched и unmatched са ИСТИНСКИ JSON МАСИВИ ОТ ОБЕКТИ, НЕ низове/текст. Всички суми са JSON ЧИСЛА с десетична ТОЧКА (1234.56), никога запетая. Извикай record_vedomost с резултата.`;
   let j = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
@@ -863,23 +865,44 @@ async function payOsigAI(content) {
     throw new Error(/overloaded|529/i.test(err) ? "Claude е претоварен — изчакай минута и опитай пак." : err);
   }
   // Понякога моделът връща полетата като JSON ТЕКСТ вместо истински масиви —
-  // нормализираме всичко до масиви/обект, иначе .length брои буквите.
+  // при това с ДЕСЕТИЧНИ ЗАПЕТАИ в числата (123,45), което чупи JSON.parse.
+  // Нормализираме всичко до масиви/обекти с няколко резервни опита.
+  const tryParse = s => { try { return JSON.parse(s); } catch (e) { return undefined; } };
+  const fixCommas = s => String(s).replace(/(\d),(\d)/g, "$1.$2");
   const asArr = x => {
     if (Array.isArray(x)) return x;
-    if (typeof x === "string") { try { const v = JSON.parse(x); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
-    return [];
+    if (typeof x !== "string") return [];
+    const s = x.replace(/```json|```/g, "").trim();
+    for (const cand of [s, fixCommas(s)]) {
+      let v = tryParse(cand);
+      if (Array.isArray(v)) return v;
+      if (v && typeof v === "object") return [v];
+      const m2 = cand.match(/\[[\s\S]*\]/);
+      if (m2) { v = tryParse(m2[0]); if (Array.isArray(v)) return v; }
+    }
+    // Последен опит: обект по обект.
+    const objs = fixCommas(s).match(/\{[^{}]*\}/g) || [];
+    const out = []; objs.forEach(o => { const v = tryParse(o); if (v) out.push(v); });
+    return out;
   };
   const asObj = x => {
     if (x && typeof x === "object" && !Array.isArray(x)) return x;
-    if (typeof x === "string") { try { const v = JSON.parse(x); return (v && typeof v === "object") ? v : null; } catch (e) { return null; } }
+    if (typeof x === "string") { const v = tryParse(x) ?? tryParse(fixCommas(x)); return (v && typeof v === "object" && !Array.isArray(v)) ? v : null; }
     return null;
   };
   const norm = p => ({ matched: asArr(p.matched).map(asObj).filter(Boolean), unmatched: asArr(p.unmatched).map(asObj).filter(Boolean), totals: asObj(p.totals) });
-  if (j.parsed && (j.parsed.matched || j.parsed.unmatched)) return norm(j.parsed);
+  const snippet = p => { try { const s = typeof p === "string" ? p : JSON.stringify(p); return String(s).slice(0, 500); } catch (e) { return ""; } };
+  if (j.parsed && (j.parsed.matched || j.parsed.unmatched)) {
+    const out = norm(j.parsed);
+    out.__raw = snippet(j.parsed.matched);
+    return out;
+  }
   const txt = String(j.text || "").replace(/```json|```/g, "").trim();
   const m = txt.match(/\{[\s\S]*\}/);
   if (!m) throw new Error("Claude не върна валиден JSON: " + txt.slice(0, 200));
-  return norm(JSON.parse(m[0]));
+  const out = norm(tryParse(m[0]) || tryParse(fixCommas(m[0])) || {});
+  out.__raw = txt.slice(0, 500);
+  return out;
 }
 
 function erpPayOsigDialog(monthStr, names, after) {
@@ -942,7 +965,8 @@ function erpPayOsigDialog(monthStr, names, after) {
       try { console.log("Ведомост AI резултат:", JSON.parse(JSON.stringify(out))); } catch (e2) {}
       const nMatched = (out.matched || []).length, nUnmatched = (out.unmatched || []).length;
       if (!nMatched && !nUnmatched) {
-        st.textContent = "⚠ Claude не върна нито един служител от ведомостта. Прати screenshot на Данко/Клод.";
+        st.textContent = "⚠ Claude върна данни в неочакван формат — виж прозореца и прати screenshot.";
+        alert("Неочакван формат от Claude. Началото на суровия отговор:\n\n" + (out.__raw || "(празно)"));
         go.disabled = false; inp.disabled = false;
         return;
       }
@@ -966,7 +990,7 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
   const payMonth = payMonthAdd(vedMonth, 1);
   // Мрежа за сигурност: пре-съпоставяме и връщането на AI (ако е върнал име извън списъка).
   const fixed = [], un = [];
-  const numv = x => Number(x) || 0;
+  const numv = x => Number(typeof x === "string" ? x.replace(",", ".") : x) || 0;
   (matched || []).forEach(m => {
     const hit = names.includes(m.name) ? m.name : payOsigMatch(m.name, names);
     if (hit) fixed.push({ name: hit, net: numv(m.net), osig: numv(m.osig) });
