@@ -72,15 +72,14 @@ async function erpRenderPayroll(v) {
   await erpLoadCostCfg();
   const nav = `<div class="pr-row" style="margin-bottom:8px">
     <button class="btn btn-small ${erpPayView === "fri" ? "btn-primary" : ""}" id="pay-nav-f">🏦 По петъци (банка + CODE 005)</button>
-    <button class="btn btn-small ${erpPayView === "week" ? "btn-primary" : ""}" id="pay-nav-w">🗓 Седмица (стар изглед)</button>
     <button class="btn btn-small ${erpPayView === "month" ? "btn-primary" : ""}" id="pay-nav-m">📅 Месечен отчет</button></div>`;
   v.innerHTML = nav + `<div id="pay-body"><p class="erp-loading">Зареждане…</p></div>`;
   v.querySelector("#pay-nav-f").addEventListener("click", () => { erpPayView = "fri"; erpRenderPayroll(v); });
-  v.querySelector("#pay-nav-w").addEventListener("click", () => { erpPayView = "week"; erpRenderPayroll(v); });
   v.querySelector("#pay-nav-m").addEventListener("click", () => { erpPayView = "month"; erpRenderPayroll(v); });
   const body = v.querySelector("#pay-body");
+  // „Седмица (стар изглед)" е махнат (не се ползва от юли) — старите му
+  // записи обаче продължават да се четат в Месечния отчет.
   if (erpPayView === "month") await erpPayMonthView(body);
-  else if (erpPayView === "week") await erpPayWeekView(body);
   else await erpPayFridaysView(body);
 }
 
@@ -553,6 +552,12 @@ async function erpPayMonthView(v) {
     .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
   const grand = list.reduce((s, r) => s + r.total, 0);
 
+  // Осигуровките от Ведомостта за заплати (разчетени с AI, пазени по месец).
+  const osigRec = await erpPayLoadOsig(erpPayMonth);
+  const osigBy = (osigRec && osigRec.byName) || {};
+  const osigSrc = (osigRec && osigRec.src) || "";
+  const osigAt = (osigRec && osigRec.at) || "";
+
   // Филтри на месечния отчет: цех + конкретен служител + само с извънредни (данните са вече заредени — само пре-рисуване).
   let mWs = "", mEmp = "", mOt = false;
   const wsList = [...new Set(list.map(r => r.ws).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
@@ -567,8 +572,13 @@ async function erpPayMonthView(v) {
     if (mOt) shown.sort((a, b) => (Number(b.overtime) || 0) - (Number(a.overtime) || 0));
     const sum = shown.reduce((s, r) => s + r.total, 0);
     const otSum = shown.reduce((s, r) => s + (Number(r.overtime) || 0), 0);
-    const emps = list.filter(r => !mWs || r.ws === mWs);
+    const colSum = k => shown.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+    const osigOf = name => Number((osigBy || {})[name]) || 0;
+    const osigSum = shown.reduce((s, r) => s + osigOf(r.name), 0);
+    // Само в падащото меню „Служител" — по азбучен ред (таблицата остава по цехове).
+    const emps = list.filter(r => !mWs || r.ws === mWs).slice().sort((a, b) => a.name.localeCompare(b.name, "bg"));
     const one = mEmp ? shown[0] : null;
+    const dash = n => Number(n) ? payEur(n) : `<span class="erp-muted">—</span>`;
 
     v.innerHTML = `
     <div class="erp-toolbar">
@@ -583,13 +593,14 @@ async function erpPayMonthView(v) {
       <label class="erp-inline" title="Показва само служителите с извънредни за месеца, подредени от най-много надолу"><input type="checkbox" id="pay-ot-f" ${mOt ? "checked" : ""} /> ⏱ Само с извънредни</label>
       ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length ? weeks.length + " седмици" : ""}${weeks.length && friHasData ? " + " : ""}${friHasData ? "петъчният отчет" : ""}${!weeks.length && !friHasData ? "няма данни" : ""} · ${shown.length} служители</span>
+      <button class="btn btn-small" id="pay-osig" title="Качи Ведомостта за заплати (PDF/снимка/Excel) — Claude разчита осигуровките на всеки и ги попълва в колоната">🤖 Ведомост (осигуровки)</button>
       <button class="btn btn-small" id="pay-csv">⤓ Excel</button>
     </div>
     ${mOt ? `<div style="display:inline-block;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">⏱ Извънредни за ${PAY_MONTHS[M - 1]} ${Y}${mWs ? ` · ${escapeHtml(mWs)}` : ""}: <b style="font-size:18px">${payEur(otSum)}</b> при ${shown.length} служители</div>` : ""}
     ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — ${[["банка", one.bank], ["005", one.cash], ["надник", one.nadnik], ["извънредни", one.overtime], ["бонус", one.bonus], ["различни", one.rz]].filter(p => Number(p[1])).map(p => `${p[0]} ${payEur(p[1])}`).join(" · ") || "без разбивка"}</div>` : ""}
     ${weeks.length && friHasData ? `<p class="hint" style="color:#b45309"><b>⚠ Внимание:</b> този месец има данни И в седмичния изглед, И в „По петъци" — сборът по-долу ги СЪБИРА. Ако едните дублират другите, изтрий дубликата от съответния изглед.</p>` : ""}
-    <div style="max-width:1180px"><table class="report-table erp-table">
-      <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">Различни</th><th class="num">ОБЩО получено</th></tr></thead>
+    <div style="max-width:1290px"><table class="report-table erp-table">
+      <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">Различни</th><th class="num" title="От Ведомостта за заплати (🤖 бутонът горе)">Осигуровки</th><th class="num">ОБЩО получено</th></tr></thead>
       <tbody>
         ${shown.map(r => `<tr data-row="${escapeAttr(r.name)}">
           <td><b>${escapeHtml(r.name)}</b></td><td>${escapeHtml(r.ws)}</td>
@@ -600,15 +611,20 @@ async function erpPayMonthView(v) {
               const ch = (e.nadnikLog || []).filter(l => { const d = new Date((l.date || "") + "T00:00:00"); return d.getFullYear() === Y && (d.getMonth() + 1) === M; });
               if (ch.length) { const last = ch[ch.length - 1]; extra = ` <span class="pay-raise" title="Надникът е променен през месеца">⬆ ${payEur(last.from)}→${payEur(last.to)}</span>`; }
             }
-            return `<td class="num">${Number(r[c.k]) ? payEur(r[c.k]) : `<span class="erp-muted">—</span>`}${extra}</td>`;
+            return `<td class="num">${dash(r[c.k])}${extra}</td>`;
           }).join("")}
-          <td class="num">${Number(r.rz) ? payEur(r.rz) : `<span class="erp-muted">—</span>`}</td>
+          <td class="num">${dash(r.rz)}</td>
+          <td class="num">${dash(osigOf(r.name))}</td>
           <td class="num"><b>${payEur(r.total)}</b></td></tr>`).join("") ||
-          `<tr><td colspan="9" class="report-empty">${list.length ? "Нищо не отговаря на филтъра." : "Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци“."}</td></tr>`}
-        ${shown.length ? `<tr class="pr-total"><td colspan="8"><b>ОБЩО${mWs || mEmp || q ? " (по филтъра)" : " за месеца"}</b></td><td class="num"><b>${payEur(sum)}</b></td></tr>` : ""}
+          `<tr><td colspan="10" class="report-empty">${list.length ? "Нищо не отговаря на филтъра." : "Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци“."}</td></tr>`}
+        ${shown.length ? `<tr class="pr-total"><td colspan="2"><b>ОБЩО${mWs || mEmp || q || mOt ? " (по филтъра)" : " за месеца"}</b></td>
+          ${PAY_MONEY.map(c => `<td class="num"><b>${dash(colSum(c.k))}</b></td>`).join("")}
+          <td class="num"><b>${dash(colSum("rz"))}</b></td>
+          <td class="num"><b>${dash(osigSum)}</b></td>
+          <td class="num"><b>${payEur(sum)}</b></td></tr>` : ""}
       </tbody>
     </table></div>
-    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.</p>`;
+    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>. Филтрите по цех/служител смятат и „ОБЩО" само за показаното; Excel-ът сваля същото.${osigSrc ? ` <br><b>Осигуровки:</b> от ведомост „${escapeHtml(osigSrc)}"${osigAt ? ` (разчетена ${new Date(osigAt).toLocaleDateString("bg-BG")})` : ""} — не влизат в „ОБЩО получено".` : ""}</p>`;
 
     const shiftMonth = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayMonthView(v); };
     v.querySelector("#pay-m-prev").addEventListener("click", () => shiftMonth(-1));
@@ -617,15 +633,168 @@ async function erpPayMonthView(v) {
     v.querySelector("#pay-ws-f").addEventListener("change", e => { mWs = e.target.value; if (mEmp && mWs && (wsByName[mEmp] || "") !== mWs) mEmp = ""; draw(); });
     v.querySelector("#pay-emp-f").addEventListener("change", e => { mEmp = e.target.value; draw(); });
     v.querySelector("#pay-ot-f").addEventListener("change", e => { mOt = e.target.checked; draw(); });
+    v.querySelector("#pay-osig").addEventListener("click", () => {
+      const allNames = [...new Set([...(COST_CFG.employees || []).map(e => e.name), ...list.map(r => r.name)])].filter(Boolean);
+      erpPayOsigDialog(erpPayMonth, allNames, () => erpPayMonthView(v));
+    });
     const pmFind = v.querySelector("#pay-find");
     if (pmFind) pmFind.addEventListener("change", e => { payFilter = e.target.value; draw(); });
     v.querySelector("#pay-csv").addEventListener("click", () => {
       const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "Различни", num: true }, { label: "ОБЩО получено", num: true }];
-      const rows = shown.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.rz), n(r.total)]);
-      rows.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), "", n(sum)]);
+      const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "Различни", num: true }, { label: "Осигуровки", num: true }, { label: "ОБЩО получено", num: true }];
+      const rows = shown.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.rz), n(osigOf(r.name)), n(r.total)]);
+      rows.push(["ОБЩО", "", ...PAY_MONEY.map(c => n(colSum(c.k))), n(colSum("rz")), n(osigSum), n(sum)]);
       reportExportXls(`zaplati-${erpPayMonth}${mWs ? "-" + mWs : ""}`, `Заплати · ${PAY_MONTHS[M - 1]} ${Y}${mWs ? " · " + mWs : ""}${mEmp ? " · " + mEmp : ""}`, [{ headers, rows }]);
     });
   };
   draw();
+}
+
+/* ---------- 🤖 Осигуровки от Ведомост за заплати ----------
+   Данко качва ведомостта (PDF/снимка/Excel); Claude я разчита и връща
+   осигуровките на всеки служител, като съпоставя ХОРАТА ПО ТРИТЕ ИМЕНА
+   (във ведомостта имената често са в друг ред). Резултатът се преглежда
+   и чак тогава се записва в app_config (payroll_osig_<месец>). */
+
+async function erpPayLoadOsig(monthStr) {
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "payroll_osig_" + monthStr).maybeSingle(); return (data && data.data) || {}; }
+  catch (e) { return {}; }
+}
+async function erpPaySaveOsig(monthStr, rec) {
+  const { error } = await sb.from("app_config").upsert({ id: "payroll_osig_" + monthStr, data: rec, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис: " + error.message); return false; }
+  return true;
+}
+
+// Ключ за съпоставяне по имена: малки букви, само буквите, думите сортирани —
+// така „Иван Петров Георгиев" и „ГЕОРГИЕВ ИВАН ПЕТРОВ" дават един и същ ключ.
+function payNameKey(s) {
+  return String(s || "").toLowerCase().replace(/[^а-яёa-z\s]/gi, " ").split(/\s+/).filter(Boolean).sort().join(" ");
+}
+// Търси служител по име от ведомостта: пълно съвпадение на ключа, после
+// „всички думи от по-късото се съдържат в по-дългото" (само при ЕДИН кандидат).
+function payOsigMatch(raw, names) {
+  const k = payNameKey(raw);
+  if (!k) return "";
+  const exact = names.find(n => payNameKey(n) === k);
+  if (exact) return exact;
+  const kt = k.split(" ");
+  const cands = names.filter(n => {
+    const nt = payNameKey(n).split(" ");
+    const short = kt.length <= nt.length ? kt : nt, long = kt.length <= nt.length ? nt : kt;
+    return short.length >= 2 && short.every(t => long.includes(t));
+  });
+  return cands.length === 1 ? cands[0] : "";
+}
+
+async function payOsigAI(content) {
+  const cfg = window.DANKO_CONFIG || {};
+  let token = cfg.SUPABASE_ANON_KEY;
+  try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
+  const system = "Ти четеш българска ВЕДОМОСТ ЗА ЗАПЛАТИ (или подобна справка от ТРЗ). Задача: за всеки служител намери ОБЩАТА сума на осигуровките му за месеца. Ако документът разделя осигуровките (лични/за сметка на работодателя, ДОО, ДЗПО, ЗО...), вземи ОБЩИЯ сбор за лицето; ако има една колона осигуровки — нея. Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (във ведомостта може да е Фамилия Име Презиме). Отговаряй САМО с JSON без нищо друго: {\"matched\":[{\"name\":\"<точното име от списъка>\",\"osig\":123.45}],\"unmatched\":[{\"raw\":\"<името както е във файла>\",\"osig\":123.45}]}. Сумите като числа с точка. Човек от файла, когото НЕ откриваш еднозначно в списъка, отива в unmatched. Не измисляй суми.";
+  let j = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+      body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 8192, system, messages: [{ role: "user", content }] }),
+    });
+    j = await res.json().catch(() => ({}));
+    const err = j.error ? String(j.error) : (res.ok ? "" : "HTTP " + res.status);
+    if (!err) break;
+    if (attempt < 3 && /overloaded|529|rate.?limit|too many|timeout|празен текст/i.test(err)) { await new Promise(r => setTimeout(r, attempt * 5000)); continue; }
+    throw new Error(/overloaded|529/i.test(err) ? "Claude е претоварен — изчакай минута и опитай пак." : err);
+  }
+  const txt = String(j.text || "").replace(/```json|```/g, "").trim();
+  const m = txt.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("Claude не върна валиден JSON: " + txt.slice(0, 200));
+  return JSON.parse(m[0]);
+}
+
+function erpPayOsigDialog(monthStr, names, after) {
+  const { wrap, close } = erpDialog(`
+    <h3>🤖 Ведомост за заплати → Осигуровки · ${escapeHtml(monthStr)}</h3>
+    <p class="hint" style="margin:0 0 8px">Качи ведомостта (PDF, снимка или Excel). Claude намира осигуровките на всеки служител по трите имена — после преглеждаш и запазваш.</p>
+    <label class="btn co-attach-btn" style="display:inline-block">⬆ Избери файл<input type="file" id="po-file" accept="application/pdf,image/*,.xlsx,.xls,.csv" hidden /></label>
+    <span id="po-fname" class="erp-muted"></span>
+    <p class="save-status" id="po-status"></p>
+    <div class="erp-dialog-actions"><button class="btn" id="po-cancel">Отказ</button><button class="btn btn-primary" id="po-go" disabled>Разчети</button></div>`);
+  let chosen = null;
+  const st = wrap.querySelector("#po-status"), inp = wrap.querySelector("#po-file"), go = wrap.querySelector("#po-go");
+  inp.addEventListener("change", () => { chosen = inp.files && inp.files[0]; wrap.querySelector("#po-fname").textContent = chosen ? "  " + chosen.name : ""; go.disabled = !chosen; });
+  wrap.querySelector("#po-cancel").addEventListener("click", close);
+  go.addEventListener("click", async () => {
+    if (!chosen) return;
+    go.disabled = true; inp.disabled = true;
+    try {
+      const listTxt = "СПИСЪК НА СЛУЖИТЕЛИТЕ (точните имена в системата):\n" + names.join("\n");
+      let content;
+      if (/\.(xlsx|xls|csv)$/i.test(chosen.name)) {
+        st.textContent = "Чета таблицата…";
+        const buf = await chosen.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        let txt = "";
+        wb.SheetNames.forEach(sn => { txt += "== ЛИСТ: " + sn + " ==\n" + XLSX.utils.sheet_to_csv(wb.Sheets[sn]) + "\n"; });
+        if (txt.length > 150000) txt = txt.slice(0, 150000);
+        content = listTxt + "\n\nВЕДОМОСТТА (CSV от Excel):\n" + txt;
+      } else {
+        st.textContent = "Качвам файла…";
+        const path = "payroll/osig/" + Date.now() + "-" + safeName(chosen.name);
+        const up = await sb.storage.from(BUCKET).upload(path, chosen);
+        if (up.error) throw new Error("Качване: " + up.error.message);
+        const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path);
+        const blk = chosen.type === "application/pdf"
+          ? { type: "document", source: { type: "url", url: pub.publicUrl } }
+          : { type: "image", source: { type: "url", url: pub.publicUrl } };
+        content = [blk, { type: "text", text: listTxt + "\n\nИзвлечи осигуровките от приложената ведомост и върни JSON." }];
+      }
+      st.textContent = "Claude разчита ведомостта…";
+      const out = await payOsigAI(content);
+      close();
+      payOsigPreview(monthStr, chosen.name, out.matched || [], out.unmatched || [], names, after);
+    } catch (e) {
+      st.textContent = "⚠ " + (e.message || e);
+      go.disabled = false; inp.disabled = false;
+    }
+  });
+}
+
+// Преглед преди запис: съвпадналите с редактируеми суми; несъвпадналите — с избор на служител.
+function payOsigPreview(monthStr, srcName, matched, unmatched, names, after) {
+  // Мрежа за сигурност: пре-съпоставяме и връщането на AI (ако е върнал име извън списъка).
+  const fixed = [], un = [];
+  (matched || []).forEach(m => {
+    const hit = names.includes(m.name) ? m.name : payOsigMatch(m.name, names);
+    if (hit) fixed.push({ name: hit, osig: Number(m.osig) || 0 });
+    else un.push({ raw: m.name, osig: Number(m.osig) || 0 });
+  });
+  (unmatched || []).forEach(u => {
+    const hit = payOsigMatch(u.raw, names);
+    if (hit) fixed.push({ name: hit, osig: Number(u.osig) || 0 });
+    else un.push({ raw: u.raw, osig: Number(u.osig) || 0 });
+  });
+  const opts = names.slice().sort((a, b) => a.localeCompare(b, "bg"));
+  const { wrap, close } = erpDialog(`
+    <h3>Провери осигуровките · ${escapeHtml(monthStr)}</h3>
+    <p class="hint" style="margin:0 0 6px">${fixed.length} разпознати${un.length ? " · " + un.length + " за ръчно посочване" : ""} — поправи каквото трябва и запази.</p>
+    <div style="max-height:52vh;overflow:auto">
+    <table class="report-table erp-table"><thead><tr><th>Служител</th><th class="num">Осигуровки (€)</th></tr></thead><tbody>
+      ${fixed.map(f => `<tr><td>${escapeHtml(f.name)}</td><td class="num"><input type="number" step="any" class="po-amt" data-name="${escapeAttr(f.name)}" value="${f.osig}" style="width:110px" /></td></tr>`).join("") || `<tr><td colspan="2" class="report-empty">Нищо не е разпознато.</td></tr>`}
+    </tbody></table>
+    ${un.length ? `<h4 class="erp-group-head">Неразпознати имена от файла</h4>
+    <table class="report-table erp-table"><tbody>
+      ${un.map((u, i) => `<tr><td>${escapeHtml(u.raw)} <span class="erp-muted">(${payEur(u.osig)})</span></td>
+        <td><select class="po-un" data-i="${i}"><option value="">— пропусни —</option>${opts.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("")}</select></td></tr>`).join("")}
+    </tbody></table>` : ""}
+    </div>
+    <div class="erp-dialog-actions"><button class="btn" id="po2-cancel">Отказ</button><button class="btn btn-primary" id="po2-save">💾 Запази осигуровките</button><span class="save-status" id="po2-status"></span></div>`);
+  wrap.querySelector("#po2-cancel").addEventListener("click", close);
+  wrap.querySelector("#po2-save").addEventListener("click", async () => {
+    const stt = wrap.querySelector("#po2-status"); stt.textContent = "Записва…";
+    const byName = {};
+    wrap.querySelectorAll(".po-amt").forEach(i => { const nv = Number(String(i.value).replace(",", ".")) || 0; if (nv) byName[i.dataset.name] = nv; });
+    wrap.querySelectorAll(".po-un").forEach(s => { if (s.value) { const u = un[Number(s.dataset.i)]; if (u && Number(u.osig)) byName[s.value] = Number(u.osig); } });
+    const ok = await erpPaySaveOsig(monthStr, { byName, src: srcName, at: new Date().toISOString(), month: monthStr });
+    stt.textContent = ok ? "✓ Записано" : "";
+    if (ok) setTimeout(() => { close(); if (after) after(); }, 500);
+  });
 }
