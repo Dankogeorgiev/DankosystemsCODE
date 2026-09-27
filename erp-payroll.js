@@ -574,7 +574,7 @@ async function erpPayMonthView(v) {
   const osigSrc = (osigRec && osigRec.src) || "";
   const osigAt = (osigRec && osigRec.at) || "";
 
-  const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || "", ...tot[name], total: payRowTotal(tot[name]) + (Number(tot[name].rz) || 0) }))
+  const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || ((osigRec.reportOnly || []).some(r => payNameKey(r) === payNameKey(name)) ? "— напуснал —" : ""), ...tot[name], total: payRowTotal(tot[name]) + (Number(tot[name].rz) || 0) }))
     .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
   const grand = list.reduce((s, r) => s + r.total, 0);
   // 🧪 Тестова ведомост (ако има) — отделна колона + сравнение, до „Приложи реално".
@@ -693,14 +693,14 @@ async function erpPayMonthView(v) {
       if (!confirm(`Прилагам тестовата ведомост РЕАЛНО за ${payYmLabel(erpPayMonth)}?\n• Осигуровките влизат в колоната „Осигуровки"\n• Чистото попълва „ПО БАНКА" в „По петъци"\n• Тестът се маха`)) return;
       applyBtn.disabled = true; applyBtn.textContent = "Прилагам…";
       const t = osigTestRec;
-      const rec = await payOsigMaterialize({ byName: t.byName || {}, netByName: t.netByName || {}, extra: t.extra || [], src: t.src || "", at: new Date().toISOString(), month: erpPayMonth, vedMonth: t.vedMonth || "" });
+      const rec = await payOsigMaterialize({ byName: t.byName || {}, netByName: t.netByName || {}, extra: t.extra || [], reportOnly: t.reportOnly || [], src: t.src || "", at: new Date().toISOString(), month: erpPayMonth, vedMonth: t.vedMonth || "" });
       const ok1 = await erpPaySaveOsig(erpPayMonth, rec);
       let ok2 = true;
       if (ok1 && Object.keys(rec.netByName || {}).length) {
         const entries = await erpPayLoadMonth(erpPayMonth);
-        // ПО БАНКА само за цеховите (офисните не са в петъчната таблица).
-        const officeKeys = new Set((COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)));
-        Object.keys(rec.netByName).forEach(n => { if (!officeKeys.has(payNameKey(n))) (entries[n] = entries[n] || {}).net = rec.netByName[n]; });
+        // ПО БАНКА само за цеховите (офисните и напусналите не са в петъчната таблица).
+        const skipKeys = new Set([...(COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)), ...(rec.reportOnly || []).map(payNameKey)]);
+        Object.keys(rec.netByName).forEach(n => { if (!skipKeys.has(payNameKey(n))) (entries[n] = entries[n] || {}).net = rec.netByName[n]; });
         ok2 = await erpPaySaveMonth(erpPayMonth, entries);
       }
       if (ok1 && ok2) { await erpPayDeleteOsigTest(erpPayMonth); erpPayMonthView(v); }
@@ -968,7 +968,8 @@ function erpPayOsigDialog(monthStr, names, after) {
       2) <b>Всичко останало</b> (лични осигуровки + ДОД + осигуровки на работодателя) е <b>разход на фирмата</b> → колоната „Осигуровки".<br>
       3) Ведомостта е <b>един месец назад</b>: сумите влизат в СЛЕДВАЩИЯ месец, когато реално се плащат.
     </div>
-    <p style="font-weight:700;margin:6px 0 10px">📅 Месецът се разпознава сам от заглавието на ведомостта („за месец … 2026 год.") — сумите отиват в СЛЕДВАЩИЯ месец, когато се плащат. Виждаш го в прегледа преди да запазиш.</p>
+    <label class="erp-inline">Ведомостта е за месец <input type="month" id="po-ved" value="${escapeAttr(vedMonth)}" /></label>
+    <p id="po-flow" style="font-weight:700;margin:6px 0 10px"></p>
     <label class="erp-inline" style="display:block;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;margin:0 0 10px">
       <input type="checkbox" id="po-test" checked /> 🧪 <b>Тестов режим</b> — резултатът отива в отделна колона „Тест" в Месечния отчет и НЕ пипа нито ПО БАНКА, нито Осигуровките. Като видиш, че всичко е наред → „✅ Приложи реално".
     </label>
@@ -978,6 +979,11 @@ function erpPayOsigDialog(monthStr, names, after) {
     <div class="erp-dialog-actions"><button class="btn" id="po-cancel">Отказ</button><button class="btn btn-primary" id="po-go" disabled>Разчети</button></div>`);
   let chosen = null;
   const st = wrap.querySelector("#po-status"), inp = wrap.querySelector("#po-file"), go = wrap.querySelector("#po-go");
+  const flow = wrap.querySelector("#po-flow");
+  const updFlow = () => { flow.textContent = `Ведомост за ${payYmLabel(vedMonth)} → ПО БАНКА и Осигуровки за ${payYmLabel(payMonthAdd(vedMonth, 1))} (месецът на плащане)`; };
+  updFlow();
+  // И „input", и „change" — при писане в month-полето някои браузъри пускат само „input".
+  ["input", "change"].forEach(ev => wrap.querySelector("#po-ved").addEventListener(ev, e => { if (/^\d{4}-\d{2}$/.test(e.target.value || "")) { vedMonth = e.target.value; updFlow(); } }));
   inp.addEventListener("change", () => { chosen = inp.files && inp.files[0]; wrap.querySelector("#po-fname").textContent = chosen ? "  " + chosen.name : ""; go.disabled = !chosen; });
   wrap.querySelector("#po-cancel").addEventListener("click", close);
   go.addEventListener("click", async () => {
@@ -1016,9 +1022,10 @@ function erpPayOsigDialog(monthStr, names, after) {
         go.disabled = false; inp.disabled = false;
         return;
       }
-      // МЕСЕЦЪТ идва ОТ ФАЙЛА — заглавието на ведомостта е истината.
-      if (out.ved_month) vedMonth = out.ved_month;
-      else alert(`⚠ Не намерих месеца в заглавието на ведомостта — приемам, че е за ${payYmLabel(vedMonth)} (предходния месец). Провери в прегледа и откажи, ако не е така.`);
+      // Ръчният избор е основата; ако AI прочете ДРУГ месец в заглавието — пита.
+      if (out.ved_month && out.ved_month !== vedMonth) {
+        if (confirm(`В заглавието на ведомостта пише, че е за ${payYmLabel(out.ved_month)}, а ти си избрал ${payYmLabel(vedMonth)}.\n\nOK = ползвам месеца ОТ ФАЙЛА (${payYmLabel(out.ved_month)})\nОтказ = оставям твоя избор (${payYmLabel(vedMonth)})`)) vedMonth = out.ved_month;
+      }
       close();
       // Прегледът е отделен прозорец — ако нещо в него гръмне, да се ВИДИ, а не да потъне.
       try {
@@ -1082,7 +1089,7 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     ${un.length ? `<h4 class="erp-group-head">Неразпознати имена от файла</h4>
     <table class="report-table erp-table"><tbody>
       ${un.map((u, i) => `<tr><td>${escapeHtml(u.raw)} <span class="erp-muted">(чисто ${payEur(u.net)} · осиг. ${payEur(u.osig)})</span></td>
-        <td><select class="po-un" data-i="${i}"><option value="__add__" selected>➕ Добави като служител (Офис / Управление)</option><option value="">— пропусни —</option>${opts.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("")}</select></td></tr>`).join("")}
+        <td><select class="po-un" data-i="${i}"><option value="__report__" selected>📊 Само в Месечния отчет (напуснал / без ред в заплатите)</option><option value="__add__">➕ Служител в Разходи и ставки (Офис / Управление)</option><option value="">— пропусни —</option>${opts.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("")}</select></td></tr>`).join("")}
     </tbody></table>` : ""}
     </div>
     <div class="erp-dialog-actions"><button class="btn" id="po2-cancel">Отказ</button><button class="btn btn-primary" id="po2-save">${isTest ? "🧪 Запази като ТЕСТ" : "💾 Запази в " + escapeHtml(payYmLabel(payMonth))}</button><span class="save-status" id="po2-status"></span></div>`);
@@ -1094,12 +1101,15 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     wrap.querySelectorAll(".po-amt").forEach(i => { const nv = num(i.value); if (nv) byName[i.dataset.name] = nv; });
     wrap.querySelectorAll(".po-net").forEach(i => { const nv = num(i.value); if (nv) netByName[i.dataset.name] = nv; });
     const extra = []; // хора от ведомостта ИЗВЪН списъка — с add: true се създават в Разходи и ставки при РЕАЛЕН запис
+    const reportOnly = []; // напуснали: ред в Месечния отчет, но НЕ и в петъчните/Разходи и ставки
     wrap.querySelectorAll(".po-un").forEach(s => {
       const u = un[Number(s.dataset.i)];
       if (!u) return;
-      if (s.value === "__add__") { if (numv(u.osig) || numv(u.net)) extra.push({ raw: String(u.raw || "").trim(), net: numv(u.net), osig: numv(u.osig), add: true }); }
+      const raw = String(u.raw || "").trim();
+      if (s.value === "__report__") { if (numv(u.osig)) byName[raw] = numv(u.osig); if (numv(u.net)) netByName[raw] = numv(u.net); reportOnly.push(raw); }
+      else if (s.value === "__add__") { if (numv(u.osig) || numv(u.net)) extra.push({ raw, net: numv(u.net), osig: numv(u.osig), add: true }); }
       else if (s.value) { if (numv(u.osig)) byName[s.value] = numv(u.osig); if (numv(u.net)) netByName[s.value] = numv(u.net); }
-      else if (numv(u.osig) || numv(u.net)) extra.push({ raw: String(u.raw || "").trim(), net: numv(u.net), osig: numv(u.osig) });
+      else if (numv(u.osig) || numv(u.net)) extra.push({ raw, net: numv(u.net), osig: numv(u.osig) });
     });
     const nBy = Object.keys(byName).length, nNet = Object.keys(netByName).length;
     if (!nBy && !nNet) {
@@ -1109,7 +1119,7 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     }
     if (isTest) {
       // 🧪 Тест: отделен запис, нищо реално не се пипа.
-      const ok = await erpPaySaveOsigTest(payMonth, { byName, netByName, extra, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth, test: true });
+      const ok = await erpPaySaveOsigTest(payMonth, { byName, netByName, extra, reportOnly, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth, test: true });
       // Сверка: прочети обратно записа — да сме СИГУРНИ, че е в базата.
       let backOk = false;
       if (ok) { try { const back = await erpPayLoadOsigTest(payMonth); backOk = Object.keys((back && back.byName) || {}).length > 0 || Object.keys((back && back.netByName) || {}).length > 0; } catch (e) {} }
@@ -1120,15 +1130,15 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     }
     // 1) Осигуровките (+ чистото за справка) → payroll_osig_<месец на плащане>.
     //    „➕ добави"-хората стават служители в Разходи и ставки (Офис / Управление).
-    const rec = await payOsigMaterialize({ byName, netByName, extra, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth });
+    const rec = await payOsigMaterialize({ byName, netByName, extra, reportOnly, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth });
     const ok1 = await erpPaySaveOsig(payMonth, rec);
     // 2) Чистото → ПО БАНКА (net) в „По петъци" на месеца на плащане (не пипа петъците).
-    //    Само за цеховите — офисните (office) не са в петъчната таблица.
+    //    Само за цеховите — офисните (office) и напусналите (reportOnly) не са в петъчната таблица.
     let ok2 = true;
     if (ok1 && Object.keys(rec.netByName).length) {
       const entries = await erpPayLoadMonth(payMonth);
-      const officeKeys = new Set((COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)));
-      Object.keys(rec.netByName).forEach(name => { if (!officeKeys.has(payNameKey(name))) (entries[name] = entries[name] || {}).net = rec.netByName[name]; });
+      const skipKeys = new Set([...(COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)), ...(rec.reportOnly || []).map(payNameKey)]);
+      Object.keys(rec.netByName).forEach(name => { if (!skipKeys.has(payNameKey(name))) (entries[name] = entries[name] || {}).net = rec.netByName[name]; });
       ok2 = await erpPaySaveMonth(payMonth, entries);
     }
     stt.textContent = ok1 && ok2 ? "✓ Записано" : "";
