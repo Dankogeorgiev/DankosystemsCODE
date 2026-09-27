@@ -233,6 +233,25 @@ async function erpRenderCostRates(host) {
       <tbody>${(COST_CFG.employees || []).map(e => { const d = erpDossierMerged(e); const has = d.position || d.operations || d.phone; return `<tr class="erp-clickable" data-emp="${escapeAttr(e.name || "")}"><td><b>${escapeHtml(e.name || "")}</b></td><td>${escapeHtml(e.ws || "")}</td><td class="num">${money(e.pay)}</td><td>${escapeHtml(d.position || e.role || "")}</td><td class="erp-row-actions">${has ? "📄" : "✎"}</td></tr>`; }).join("")}</tbody></table>
     </details>
 
+    <details class="cost-details" id="fc-details" ${window.FC_OPEN ? "open" : ""}><summary>🧾 Фиксирани разходи (месечни) — ${money((COST_CFG.fixedCosts || []).reduce((s, f) => s + (Number(f.monthly) || 0), 0))} €/мес</summary>
+      <p class="hint" style="margin:6px 0">Постоянните месечни разходи на фирмата: транспорт, счетоводство, интернет, телефони, охрана… Сборът може да се запише с един клик като „Режийни €/мес" (участва в ставките).</p>
+      <table class="report-table erp-table cost-tight" style="max-width:640px"><thead><tr><th>Разход</th><th class="num">€/мес</th><th></th></tr></thead>
+      <tbody>${(COST_CFG.fixedCosts || []).map((f, i) => `<tr>
+        <td><input type="text" class="fc-nm" data-i="${i}" value="${escapeAttr(f.name || "")}" style="width:96%" /></td>
+        <td class="num"><input type="number" class="fc-am" data-i="${i}" step="any" value="${f.monthly != null && f.monthly !== "" ? escapeAttr(String(f.monthly)) : ""}" style="width:110px;text-align:right" /></td>
+        <td><button class="btn btn-small fc-del" data-i="${i}" title="Махни реда">×</button></td></tr>`).join("") ||
+        `<tr><td colspan="3" class="report-empty">Още няма редове — добави първия отдолу.</td></tr>`}
+      ${(COST_CFG.fixedCosts || []).length ? `<tr class="pr-total"><td><b>ОБЩО</b></td><td class="num"><b>${money((COST_CFG.fixedCosts || []).reduce((s, f) => s + (Number(f.monthly) || 0), 0))}</b></td><td></td></tr>` : ""}
+      </tbody></table>
+      <div class="erp-co-linebar" style="margin-top:6px">
+        <input type="text" id="fc-name" placeholder="напр. Охрана" style="width:220px" />
+        <input type="number" id="fc-amt" step="any" placeholder="€/мес" style="width:110px" />
+        <button class="btn btn-small" id="fc-add">+ Добави</button>
+        <span class="spacer"></span>
+        <button class="btn btn-small" id="fc-to-oh" ${!(COST_CFG.fixedCosts || []).length ? "disabled" : ""}>📥 Запиши сбора като Режийни €/мес</button>
+      </div>
+    </details>
+
     <div class="erp-co-linebar"><button class="btn btn-small" id="cp-apply">📥 Запиши себестойностите в операциите (рецепти)</button><span class="spacer"></span><button class="btn btn-small btn-primary" id="cp-save">💾 Запази</button><span class="save-status" id="cp-status"></span></div>
     <p class="hint">„Запиши в операциите" презаписва себестойността на операциите (unit_cost) с реалната (време × ставка), за да я отразят рецептите и калкулациите. Прави се когато решиш да обновиш — не автоматично.</p>`;
 
@@ -264,6 +283,36 @@ async function erpRenderCostRates(host) {
     erpShowDossier(e, v);
   }));
   v.querySelectorAll("[data-mach]").forEach(tr => tr.addEventListener("click", () => erpEditMachine(tr.dataset.mach, v)));
+
+  // 🧾 Фиксирани разходи: добавяне/редакция/триене — пази се веднага в конфигурацията.
+  const fcDet = v.querySelector("#fc-details");
+  if (fcDet) fcDet.addEventListener("toggle", () => { window.FC_OPEN = fcDet.open; });
+  const fcSave = async rerender => { await erpSaveCostCfg(); if (rerender) { window.FC_OPEN = true; erpRenderCostRates(v); } };
+  const fcAddBtn = v.querySelector("#fc-add");
+  if (fcAddBtn) fcAddBtn.addEventListener("click", () => {
+    const nm = v.querySelector("#fc-name").value.trim();
+    const am = erpToNum(v.querySelector("#fc-amt").value) || 0;
+    if (!nm) { alert("Напиши име на разхода (напр. Охрана)."); return; }
+    (COST_CFG.fixedCosts = COST_CFG.fixedCosts || []).push({ name: nm, monthly: am });
+    fcSave(true);
+  });
+  v.querySelectorAll(".fc-del").forEach(b => b.addEventListener("click", () => {
+    const f = (COST_CFG.fixedCosts || [])[Number(b.dataset.i)];
+    if (!f || !confirm(`Махам „${f.name}" (${money(f.monthly)} €/мес)?`)) return;
+    COST_CFG.fixedCosts.splice(Number(b.dataset.i), 1);
+    fcSave(true);
+  }));
+  v.querySelectorAll(".fc-nm").forEach(i => i.addEventListener("change", () => { const f = (COST_CFG.fixedCosts || [])[Number(i.dataset.i)]; if (f) { f.name = i.value.trim(); fcSave(false); } }));
+  v.querySelectorAll(".fc-am").forEach(i => i.addEventListener("change", () => { const f = (COST_CFG.fixedCosts || [])[Number(i.dataset.i)]; if (f) { f.monthly = erpToNum(i.value) || 0; fcSave(true); } }));
+  const fcToOh = v.querySelector("#fc-to-oh");
+  if (fcToOh) fcToOh.addEventListener("click", async () => {
+    const total = (COST_CFG.fixedCosts || []).reduce((s, f) => s + (Number(f.monthly) || 0), 0);
+    if (!confirm(`⚠ Записвам Режийни €/мес = ${money(total)} (сборът на фиксираните разходи).\nСега е ${money(p.overheadMonthly)}. Това променя ставките €/ч и себестойностите занапред. Продължавам?`)) return;
+    p.overheadMonthly = Math.round(total * 100) / 100;
+    await erpSaveCostCfg();
+    window.FC_OPEN = true;
+    erpRenderCostRates(v);
+  });
 }
 
 /* Картон на машина: всичко в табличен вид, редактируемо. €/ч се показва
