@@ -344,7 +344,7 @@ function erpShowDossier(emp, host) {
   };
   const { wrap, close } = erpDialog(`
     <h3>📄 ${escapeHtml(emp.name || "")}</h3>
-    ${(emp.pay != null && emp.pay !== "") ? `<p class="dos-pay">Заплата (нето): <b>${money(emp.pay)} €/мес</b> <span class="erp-muted">(сменя се в списъка със ставки)</span></p>` : ""}
+    <p class="dos-pay">Заплата (нето): <input type="number" id="dos-pay" step="any" style="width:110px;font-weight:700" value="${emp.pay != null && emp.pay !== "" ? escapeAttr(String(emp.pay)) : ""}" /> €/мес <span class="erp-muted">— участва в ставката €/час на цеха (себестойностите)</span></p>
     ${DOSSIER_FIELDS.map(field).join("")}
     <div class="erp-dialog-actions">
       <button class="btn" id="dos-cancel">Отказ</button>
@@ -359,6 +359,13 @@ function erpShowDossier(emp, host) {
     if (!target) { target = { name: emp.name, ws: emp.ws || "", pay: emp.pay || 0 }; (COST_CFG.employees = COST_CFG.employees || []).push(target); }
     target.dossier = target.dossier || {};
     DOSSIER_FIELDS.forEach(f => { target.dossier[f.k] = wrap.querySelector("#dos-" + f.k).value.trim(); });
+    // Заплатата: при промяна — предупреждение, защото влиза в ставката на цеха.
+    const pv = wrap.querySelector("#dos-pay").value.trim();
+    const npay = pv === "" ? 0 : Number(String(pv).replace(",", ".")) || 0;
+    const prevPay = Number(target.pay) || 0;
+    if (npay !== prevPay) {
+      if (confirm(`⚠ Сменяш заплатата на ${emp.name}:\n${money(prevPay)} → ${money(npay)} €/мес.\n\nТова променя ставката €/час на цеха и себестойностите занапред. Продължавам?`)) target.pay = npay;
+    }
     const ok = await erpSaveCostCfg();
     st.textContent = ok ? "✓ Записано" : "";
     setTimeout(() => { close(); if (host && typeof erpRenderCostRates === "function") erpRenderCostRates(host); }, 700);

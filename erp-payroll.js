@@ -553,8 +553,8 @@ async function erpPayMonthView(v) {
     .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
   const grand = list.reduce((s, r) => s + r.total, 0);
 
-  // Филтри на месечния отчет: цех + конкретен служител (данните са вече заредени — само пре-рисуване).
-  let mWs = "", mEmp = "";
+  // Филтри на месечния отчет: цех + конкретен служител + само с извънредни (данните са вече заредени — само пре-рисуване).
+  let mWs = "", mEmp = "", mOt = false;
   const wsList = [...new Set(list.map(r => r.ws).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
 
   const draw = () => {
@@ -562,8 +562,11 @@ async function erpPayMonthView(v) {
     const shown = list.filter(r =>
       (!mWs || r.ws === mWs) &&
       (!mEmp || r.name === mEmp) &&
+      (!mOt || (Number(r.overtime) || 0) > 0) &&
       (!q || r.name.toLowerCase().includes(q)));
+    if (mOt) shown.sort((a, b) => (Number(b.overtime) || 0) - (Number(a.overtime) || 0));
     const sum = shown.reduce((s, r) => s + r.total, 0);
+    const otSum = shown.reduce((s, r) => s + (Number(r.overtime) || 0), 0);
     const emps = list.filter(r => !mWs || r.ws === mWs);
     const one = mEmp ? shown[0] : null;
 
@@ -577,10 +580,12 @@ async function erpPayMonthView(v) {
       </span>
       <label class="erp-inline">Цех <select id="pay-ws-f"><option value="">— всички —</option>${wsList.map(w => `<option value="${escapeAttr(w)}" ${w === mWs ? "selected" : ""}>${escapeHtml(w)}</option>`).join("")}</select></label>
       <label class="erp-inline">Служител <select id="pay-emp-f"><option value="">— всички —</option>${emps.map(r => `<option value="${escapeAttr(r.name)}" ${r.name === mEmp ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}</select></label>
+      <label class="erp-inline" title="Показва само служителите с извънредни за месеца, подредени от най-много надолу"><input type="checkbox" id="pay-ot-f" ${mOt ? "checked" : ""} /> ⏱ Само с извънредни</label>
       ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length ? weeks.length + " седмици" : ""}${weeks.length && friHasData ? " + " : ""}${friHasData ? "петъчният отчет" : ""}${!weeks.length && !friHasData ? "няма данни" : ""} · ${shown.length} служители</span>
       <button class="btn btn-small" id="pay-csv">⤓ Excel</button>
     </div>
+    ${mOt ? `<div style="display:inline-block;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">⏱ Извънредни за ${PAY_MONTHS[M - 1]} ${Y}${mWs ? ` · ${escapeHtml(mWs)}` : ""}: <b style="font-size:18px">${payEur(otSum)}</b> при ${shown.length} служители</div>` : ""}
     ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — банка ${payEur(one.bank)} · 005 ${payEur(one.cash)} · извънредни ${payEur(one.overtime)}${one.rz ? ` · различни ${payEur(one.rz)}` : ""}</div>` : ""}
     ${weeks.length && friHasData ? `<p class="hint" style="color:#b45309"><b>⚠ Внимание:</b> този месец има данни И в седмичния изглед, И в „По петъци" — сборът по-долу ги СЪБИРА. Ако едните дублират другите, изтрий дубликата от съответния изглед.</p>` : ""}
     <div style="max-width:1180px"><table class="report-table erp-table">
@@ -611,6 +616,7 @@ async function erpPayMonthView(v) {
     v.querySelector("#pay-month").addEventListener("change", e => { if (e.target.value) { erpPayMonth = e.target.value; erpPayMonthView(v); } });
     v.querySelector("#pay-ws-f").addEventListener("change", e => { mWs = e.target.value; if (mEmp && mWs && (wsByName[mEmp] || "") !== mWs) mEmp = ""; draw(); });
     v.querySelector("#pay-emp-f").addEventListener("change", e => { mEmp = e.target.value; draw(); });
+    v.querySelector("#pay-ot-f").addEventListener("change", e => { mOt = e.target.checked; draw(); });
     const pmFind = v.querySelector("#pay-find");
     if (pmFind) pmFind.addEventListener("change", e => { payFilter = e.target.value; draw(); });
     v.querySelector("#pay-csv").addEventListener("click", () => {
