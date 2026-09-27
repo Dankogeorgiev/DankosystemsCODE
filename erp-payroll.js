@@ -823,6 +823,7 @@ const PAY_OSIG_TOOL = {
           osig: { type: ["number", "string", "null"] },
         }, required: ["raw"] },
       },
+      ved_month: { type: ["string", "null"], description: "Месецът ОТ ЗАГЛАВИЕТО на ведомостта („за месец август 2026 год.“ → \"2026-08\"), формат YYYY-MM." },
       totals: {
         type: "object",
         description: "От блока „Общо“ на ПОСЛЕДНАТА страница на ведомостта — за сверка.",
@@ -862,6 +863,8 @@ async function payOsigAI(content) {
 СВЕРКА (задължителна): на последната страница има блок „Общо". Върни в totals: net = Получавана сума общо, tax = Данък общо, osig = сборът по СЪЩАТА формула върху блока Общо. Сборът на osig по хората ТРЯБВА да е близък до totals.osig — ако не е, ПРЕГЛЕДАЙ отново кое поле си пропуснал.
 
 Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла.
+
+ЗАДЪЛЖИТЕЛНО: извади и МЕСЕЦА от заглавието на ведомостта („РАЗЧЕТНО-ПЛАТЕЖНА ВЕДОМОСТ … за месец юни 2026 год." → ved_month: "2026-06").
 
 ФОРМАТ (важно): matched и unmatched са ИСТИНСКИ JSON МАСИВИ ОТ ОБЕКТИ, НЕ низове/текст. Числата са с десетична ТОЧКА (1234.56), никога запетая. За osig НЕ смятай сбора наум — дай СЪБИРАЕМИТЕ като НИЗ В КАВИЧКИ: "osig": "192.74+251.16+25.30+73.60+110.40+50.60+64.40+2414.97" — системата ги сумира сама (така няма аритметични грешки). net е просто число. Извикай record_vedomost с резултата.`;
   let j = null;
@@ -914,7 +917,7 @@ async function payOsigAI(content) {
     if (typeof x === "string") { const f = fixExpr(x); const v = tryParse(f) ?? tryParse(fixCommas(f)); return (v && typeof v === "object" && !Array.isArray(v)) ? v : null; }
     return null;
   };
-  const norm = p => ({ matched: asArr(p.matched).map(asObj).filter(Boolean), unmatched: asArr(p.unmatched).map(asObj).filter(Boolean), totals: asObj(p.totals) });
+  const norm = p => ({ matched: asArr(p.matched).map(asObj).filter(Boolean), unmatched: asArr(p.unmatched).map(asObj).filter(Boolean), totals: asObj(p.totals), ved_month: /^\d{4}-\d{2}$/.test(String(p.ved_month || "")) ? String(p.ved_month) : "" });
   const snippet = p => { try { const s = typeof p === "string" ? p : JSON.stringify(p); return String(s).slice(0, 500); } catch (e) { return ""; } };
   if (j.parsed && (j.parsed.matched || j.parsed.unmatched)) {
     const out = norm(j.parsed);
@@ -979,7 +982,8 @@ function erpPayOsigDialog(monthStr, names, after) {
   const flow = wrap.querySelector("#po-flow");
   const updFlow = () => { flow.textContent = `Ведомост за ${payYmLabel(vedMonth)} → ПО БАНКА и Осигуровки за ${payYmLabel(payMonthAdd(vedMonth, 1))} (месецът на плащане)`; };
   updFlow();
-  wrap.querySelector("#po-ved").addEventListener("change", e => { if (e.target.value) { vedMonth = e.target.value; updFlow(); } });
+  // И „input", и „change" — при писане в month-полето някои браузъри пускат само „input".
+  ["input", "change"].forEach(ev => wrap.querySelector("#po-ved").addEventListener(ev, e => { if (/^\d{4}-\d{2}$/.test(e.target.value || "")) { vedMonth = e.target.value; updFlow(); } }));
   inp.addEventListener("change", () => { chosen = inp.files && inp.files[0]; wrap.querySelector("#po-fname").textContent = chosen ? "  " + chosen.name : ""; go.disabled = !chosen; });
   wrap.querySelector("#po-cancel").addEventListener("click", close);
   go.addEventListener("click", async () => {
@@ -1017,6 +1021,11 @@ function erpPayOsigDialog(monthStr, names, after) {
         alert("Неочакван формат от Claude. Началото на суровия отговор:\n\n" + (out.__raw || "(празно)"));
         go.disabled = false; inp.disabled = false;
         return;
+      }
+      // МЕСЕЦЪТ ОТ ФАЙЛА има последната дума — заглавието на ведомостта е истината.
+      if (out.ved_month && out.ved_month !== vedMonth) {
+        alert(`ℹ Ведомостта е за ${payYmLabel(out.ved_month)} (пише го в заглавието ѝ) — ползвам него, не избраното „${payYmLabel(vedMonth)}".\nСумите отиват в ${payYmLabel(payMonthAdd(out.ved_month, 1))}.`);
+        vedMonth = out.ved_month;
       }
       close();
       // Прегледът е отделен прозорец — ако нещо в него гръмне, да се ВИДИ, а не да потъне.
