@@ -509,6 +509,8 @@ async function erpPayMonthView(v) {
   const rows = await erpPayAllWeeks();
   const [Y, M] = erpPayMonth.split("-").map(Number);
   const weeks = rows.filter(r => {
+    // Само истинските седмични записи (payroll_YYYY-MM-DD); месечните payroll_m_* се четат отделно.
+    if (/^payroll_m_/.test(String(r.id || ""))) return false;
     const mon = (r.data && r.data.monday) || String(r.id || "").replace("payroll_", "");
     const d = new Date(mon + "T00:00:00");
     return d.getFullYear() === Y && (d.getMonth() + 1) === M;
@@ -519,11 +521,27 @@ async function erpPayMonthView(v) {
     const e = (w.data && w.data.entries) || {};
     Object.keys(e).forEach(name => {
       const r = e[name];
-      const g = tot[name] || (tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0 });
+      const g = tot[name] || (tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0 });
       PAY_MONEY.forEach(c => g[c.k] += Number(r[c.k]) || 0);
     });
   });
-  const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || "", ...tot[name], total: payRowTotal(tot[name]) }))
+  // + Данните от „По петъци" (payroll_m_<месец>): банка → Банка, 005 → В брой, извънредни → Извънреден,
+  //   РАЗЛИЧНИ → отделна колона. Двата източника се събират.
+  const friEntries = await erpPayLoadMonth(erpPayMonth);
+  const fridays = payFridays(Y, M);
+  let friHasData = false;
+  Object.keys(friEntries || {}).forEach(name => {
+    const r = friEntries[name] || {};
+    const map = payFriNormalize(r, fridays);
+    let b = 0, c = 0, o = 0;
+    fridays.forEach(f => { const x = map[f.iso] || {}; b += Number(x.b) || 0; c += Number(x.c) || 0; o += Number(x.o) || 0; });
+    const rz = Number((r.rz || {}).sum) || 0;
+    if (!(b || c || o || rz)) return;
+    friHasData = true;
+    const g = tot[name] || (tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0 });
+    g.bank += b; g.cash += c; g.overtime += o; g.rz = (g.rz || 0) + rz;
+  });
+  const list = Object.keys(tot).map(name => ({ name, ws: wsByName[name] || "", ...tot[name], total: payRowTotal(tot[name]) + (Number(tot[name].rz) || 0) }))
     .sort((a, b) => (a.ws || "").localeCompare(b.ws || "", "bg") || a.name.localeCompare(b.name, "bg"));
   const grand = list.reduce((s, r) => s + r.total, 0);
 
@@ -531,13 +549,14 @@ async function erpPayMonthView(v) {
     <div class="erp-toolbar">
       <label class="erp-inline">Месец <input type="month" id="pay-month" value="${escapeAttr(erpPayMonth)}" /></label>
       ${payFindBox()}
-      <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length} седмици · ${list.length} служители</span>
+      <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${weeks.length ? weeks.length + " седмици" : ""}${weeks.length && friHasData ? " + " : ""}${friHasData ? "петъчният отчет" : ""}${!weeks.length && !friHasData ? "няма данни" : ""} · ${list.length} служители</span>
       <span class="spacer"></span>
       <b>${payEur(grand)}</b>
       <button class="btn btn-small" id="pay-csv">⤓ Excel</button>
     </div>
+    ${weeks.length && friHasData ? `<p class="hint" style="color:#b45309"><b>⚠ Внимание:</b> този месец има данни И в седмичния изглед, И в „По петъци" — сборът по-долу ги СЪБИРА. Ако едните дублират другите, изтрий дубликата от съответния изглед.</p>` : ""}
     <table class="report-table erp-table">
-      <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">ОБЩО получено</th></tr></thead>
+      <thead><tr><th>Служител</th><th>Цех</th>${PAY_MONEY.map(c => `<th class="num">${c.l}</th>`).join("")}<th class="num">Различни</th><th class="num">ОБЩО получено</th></tr></thead>
       <tbody>
         ${list.map(r => `<tr data-row="${escapeAttr(r.name)}">
           <td><b>${escapeHtml(r.name)}</b></td><td>${escapeHtml(r.ws)}</td>
@@ -550,21 +569,22 @@ async function erpPayMonthView(v) {
             }
             return `<td class="num">${payEur(r[c.k])}${extra}</td>`;
           }).join("")}
+          <td class="num">${payEur(r.rz)}</td>
           <td class="num"><b>${payEur(r.total)}</b></td></tr>`).join("") ||
-          `<tr><td colspan="8" class="report-empty">Няма попълнени седмици за този месец.</td></tr>`}
-        ${list.length ? `<tr class="pr-total"><td colspan="7"><b>ОБЩО за месеца</b></td><td class="num"><b>${payEur(grand)}</b></td></tr>` : ""}
+          `<tr><td colspan="9" class="report-empty">Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци".</td></tr>`}
+        ${list.length ? `<tr class="pr-total"><td colspan="8"><b>ОБЩО за месеца</b></td><td class="num"><b>${payEur(grand)}</b></td></tr>` : ""}
       </tbody>
     </table>
-    <p class="hint">Сумира всички попълнени седмици, чийто понеделник е в избрания месец.</p>`;
+    <p class="hint">Сумира и седмичния изглед, и „🏦 По петъци" за избрания месец: петъчната „Седм. банка" влиза в <b>Банка</b>, „Седм. 005" — във <b>В брой (С005)</b>, „Извънредни" — в <b>Извънреден</b>, а „РАЗЛИЧНИ" — в колоната <b>Различни</b>.</p>`;
 
   v.querySelector("#pay-month").addEventListener("change", e => { erpPayMonth = e.target.value; erpPayMonthView(v); });
   const pmFind = v.querySelector("#pay-find"); if (pmFind) pmFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
   payApplyFilter(v);
   v.querySelector("#pay-csv").addEventListener("click", () => {
     const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "ОБЩО получено", num: true }];
-    const rows = list.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.total)]);
-    rows.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), n(grand)]);
+    const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "Различни", num: true }, { label: "ОБЩО получено", num: true }];
+    const rows = list.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.rz), n(r.total)]);
+    rows.push(["ОБЩО", "", ...PAY_MONEY.map(() => ""), "", n(grand)]);
     reportExportXls(`zaplati-${erpPayMonth}`, `Заплати · ${PAY_MONTHS[M - 1]} ${Y}`, [{ headers, rows }]);
   });
 }
