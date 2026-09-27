@@ -761,6 +761,11 @@ async function erpPayDeleteOsigTest(monthStr) {
   try { await sb.from("app_config").delete().eq("id", "payroll_osig_test_" + monthStr); } catch (e) {}
 }
 
+// Сбор от израз „192.74+251.16+25.30" (приема и десетични запетаи).
+function payEvalSum(s) {
+  return String(s).split("+").reduce((t, p) => t + (Number(String(p).trim().replace(",", ".")) || 0), 0);
+}
+
 // Ключ за съпоставяне по имена: малки букви, само буквите, думите сортирани —
 // така „Иван Петров Георгиев" и „ГЕОРГИЕВ ИВАН ПЕТРОВ" дават един и същ ключ.
 function payNameKey(s) {
@@ -796,7 +801,7 @@ const PAY_OSIG_TOOL = {
         items: { type: "object", properties: {
           name: { type: "string", description: "ТОЧНОТО име от дадения списък на служителите." },
           net: { type: ["number", "null"], description: "„Получавана сума“ на лицето (чистото за вземане)." },
-          osig: { type: ["number", "null"], description: "Сборът ПО ФОРМУЛАТА от инструкцията: всички осигурителни вноски (осигурен + осигурител) + Данък." },
+          osig: { type: ["number", "string", "null"], description: "Сборът ПО ФОРМУЛАТА от инструкцията — като низ със събираемите: \"192.74+251.16+25.30\" (системата ги сумира)." },
         }, required: ["name"] },
       },
       unmatched: {
@@ -804,7 +809,7 @@ const PAY_OSIG_TOOL = {
         items: { type: "object", properties: {
           raw: { type: "string", description: "Името, както е изписано във файла." },
           net: { type: ["number", "null"] },
-          osig: { type: ["number", "null"] },
+          osig: { type: ["number", "string", "null"] },
         }, required: ["raw"] },
       },
       totals: {
@@ -813,7 +818,7 @@ const PAY_OSIG_TOOL = {
         properties: {
           net: { type: ["number", "null"], description: "Получавана сума — общо." },
           tax: { type: ["number", "null"], description: "Данък — общо." },
-          osig: { type: ["number", "null"], description: "Сборът по същата формула, приложена върху блока Общо." },
+          osig: { type: ["number", "string", "null"], description: "Сборът по същата формула върху блока Общо — може като низ със събираемите." },
         },
       },
     },
@@ -847,7 +852,7 @@ async function payOsigAI(content) {
 
 Съпоставяй хората с дадения СПИСЪК НА СЛУЖИТЕЛИТЕ по трите имена, БЕЗ да гледаш реда на думите (може да е Фамилия Име Презиме, с главни букви). Човек, когото не откриваш ЕДНОЗНАЧНО в списъка, отива в unmatched с името от файла.
 
-ФОРМАТ (важно): matched и unmatched са ИСТИНСКИ JSON МАСИВИ ОТ ОБЕКТИ, НЕ низове/текст. Всички суми са JSON ЧИСЛА с десетична ТОЧКА (1234.56), никога запетая. Извикай record_vedomost с резултата.`;
+ФОРМАТ (важно): matched и unmatched са ИСТИНСКИ JSON МАСИВИ ОТ ОБЕКТИ, НЕ низове/текст. Числата са с десетична ТОЧКА (1234.56), никога запетая. За osig НЕ смятай сбора наум — дай СЪБИРАЕМИТЕ като НИЗ В КАВИЧКИ: "osig": "192.74+251.16+25.30+73.60+110.40+50.60+64.40+2414.97" — системата ги сумира сама (така няма аритметични грешки). net е просто число. Извикай record_vedomost с резултата.`;
   let j = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
@@ -873,10 +878,14 @@ async function payOsigAI(content) {
   // Нормализираме всичко до масиви/обекти с няколко резервни опита.
   const tryParse = s => { try { return JSON.parse(s); } catch (e) { return undefined; } };
   const fixCommas = s => String(s).replace(/(\d),(\d)/g, "$1.$2");
+  // Моделът често пише сбора като ИЗРАЗ (192.74+251.16+25.30) — невалиден JSON.
+  // Смятаме израза предварително и го заместваме с готовото число.
+  const fixExpr = s => String(s).replace(/:\s*([0-9][0-9.,\s]*(?:\+\s*[0-9][0-9.,\s]*)+)/g, (mm, ex) => ":" + (Math.round(payEvalSum(ex) * 100) / 100));
   const asArr = x => {
     if (Array.isArray(x)) return x;
     if (typeof x !== "string") return [];
-    const s = x.replace(/```json|```/g, "").trim();
+    const s0 = x.replace(/```json|```/g, "").trim();
+    const s = fixExpr(s0);
     for (const cand of [s, fixCommas(s)]) {
       let v = tryParse(cand);
       if (Array.isArray(v)) return v;
@@ -891,7 +900,7 @@ async function payOsigAI(content) {
   };
   const asObj = x => {
     if (x && typeof x === "object" && !Array.isArray(x)) return x;
-    if (typeof x === "string") { const v = tryParse(x) ?? tryParse(fixCommas(x)); return (v && typeof v === "object" && !Array.isArray(v)) ? v : null; }
+    if (typeof x === "string") { const f = fixExpr(x); const v = tryParse(f) ?? tryParse(fixCommas(f)); return (v && typeof v === "object" && !Array.isArray(v)) ? v : null; }
     return null;
   };
   const norm = p => ({ matched: asArr(p.matched).map(asObj).filter(Boolean), unmatched: asArr(p.unmatched).map(asObj).filter(Boolean), totals: asObj(p.totals) });
@@ -994,7 +1003,11 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
   const payMonth = payMonthAdd(vedMonth, 1);
   // Мрежа за сигурност: пре-съпоставяме и връщането на AI (ако е върнал име извън списъка).
   const fixed = [], un = [];
-  const numv = x => Number(typeof x === "string" ? x.replace(",", ".") : x) || 0;
+  const numv = x => {
+    if (typeof x === "string" && x.includes("+")) return Math.round(payEvalSum(x) * 100) / 100;
+    return Number(typeof x === "string" ? x.replace(",", ".") : x) || 0;
+  };
+  if (totals) totals = { net: totals.net != null ? numv(totals.net) : null, tax: totals.tax != null ? numv(totals.tax) : null, osig: totals.osig != null ? numv(totals.osig) : null };
   (matched || []).forEach(m => {
     const hit = names.includes(m.name) ? m.name : payOsigMatch(m.name, names);
     if (hit) fixed.push({ name: hit, net: numv(m.net), osig: numv(m.osig) });
