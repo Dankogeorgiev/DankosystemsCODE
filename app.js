@@ -140,6 +140,7 @@ function applyAccess() {
   if (typeof crmApplyAccess === "function") crmApplyAccess();
   // 📅 Офис календарът — бутон + лентата „⏰ Следва" (office-calendar.js).
   if (typeof calApplyAccess === "function") calApplyAccess();
+  if (typeof juliaBtnApply === "function") juliaBtnApply();
   // 📝 To do списъкът на Данко (danko-todo.js).
   if (typeof todoApplyAccess === "function") todoApplyAccess();
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).

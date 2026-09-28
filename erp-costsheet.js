@@ -916,3 +916,22 @@ function csHideDraw(now) {
   const f = () => { const pop = document.getElementById("cs-pop"); if (pop) { pop.hidden = true; pop.innerHTML = ""; } };
   if (now) f(); else csPopTimer = setTimeout(f, 250);
 }
+
+/* ---------- 👩 Бутонът „Юлия — упътване" на основния екран ----------
+   Вижда се само за профила на Юлия (danko.orders@gmail.com) + Данко и
+   Григор (за преглед). Отваря Склад/ЕРП направо на раздела с упътването. */
+const JULIA_GUIDE_EMAILS = ["danko.orders@gmail.com", "dankog@gmail.com", "grigor.baykov@dankosystems.com"];
+function juliaBtnApply() {
+  const b = document.getElementById("btn-julia");
+  if (!b) return;
+  const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
+  b.style.display = JULIA_GUIDE_EMAILS.includes(e) ? "" : "none";
+}
+(function juliaBtnInit() {
+  const b = document.getElementById("btn-julia");
+  if (!b) return;
+  b.addEventListener("click", async () => {
+    try { if (typeof openErp === "function") await openErp(); } catch (e) {}
+    if (typeof erpSetTab === "function") erpSetTab("juliaguide");
+  });
+})();
