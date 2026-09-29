@@ -397,8 +397,8 @@ async function pulseMonthly(v) {
   const rows = months.map(m => {
     const man = manual[m] || {};
     const inv = invByMonth[m] || 0;
-    const goods = Number(man.goods) || 0, c005 = Number(man.c005) || 0;
-    const salesT = inv + goods + c005;
+    const c005 = Number(man.c005) || 0;
+    const salesT = inv + c005;
     const pur = purByMonth[m] || 0;
     const sal = salByMonth[m] || 0;
     const osigAuto = osigByMonth[m] || 0;
@@ -411,7 +411,6 @@ async function pulseMonthly(v) {
     return `<tr>
       <td><b>${mLabel(m)}</b></td>
       <td class="num">${dash(inv)}</td>
-      <td class="num">${inp(m, "goods", man.goods, "Стокови разписки (продажби без фактура) за месеца, €")}</td>
       <td class="num">${inp(m, "c005", man.c005, "Продажби по 005 за месеца, €")}</td>
       <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
       <td class="num">${dash(pur)}</td>
@@ -435,7 +434,7 @@ async function pulseMonthly(v) {
     <div style="overflow:auto"><table class="report-table erp-table">
       <thead><tr>
         <th>Месец</th><th class="num" title="Издадени фактури без ДДС (+ДИ, −КИ, без проформи)">Фактури (авто)</th>
-        <th class="num">Стокови разписки</th><th class="num">005</th>
+        <th class="num">005</th>
         <th class="num">ОБЩО продажби</th>
         <th class="num" title="Всички Покупки за месеца без ДДС (КИ с минус; стоковите разписки не са разход)">Разходи (авто)</th>
         <th class="num" title="„ОБЩО получено“ от Месечния отчет — банка+005+надник+извънреден+бонус+различни">Заплати (авто)</th>
@@ -448,7 +447,7 @@ async function pulseMonthly(v) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>Стокови разписки / 005 / Кредити / Други разходи / Бележки</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити − Други разходи ± ДДС.</b> Влизат само документите, въведени в Системата.</p>`;
+    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>005 / Кредити / Други разходи / Бележки</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити − Други разходи ± ДДС.</b> Влизат само документите, въведени в Системата.</p>`;
 
   const collect = () => {
     v.querySelectorAll(".pum-in").forEach(i => {
