@@ -14,8 +14,24 @@ async function openPulse() {
 }
 function closePulse() { const m = document.getElementById("pulse-modal"); if (m) m.hidden = true; }
 
+/* Пулсът има два под-таба: „⚡ Днес" (класическото табло) и „📅 Месечни резултати". */
+let PULSE_TAB = "today";
 async function renderPulse() {
-  const v = document.getElementById("pulse-view");
+  const view = document.getElementById("pulse-view");
+  if (!view) return;
+  view.innerHTML = `
+    <div class="pr-row" style="margin-bottom:8px">
+      <button class="btn btn-small ${PULSE_TAB === "today" ? "btn-primary" : ""}" id="pu-nav-t">⚡ Днес</button>
+      <button class="btn btn-small ${PULSE_TAB === "monthly" ? "btn-primary" : ""}" id="pu-nav-m">📅 Месечни резултати</button>
+    </div><div id="pulse-body"><p class="erp-loading">Зареждане на пулса…</p></div>`;
+  view.querySelector("#pu-nav-t").addEventListener("click", () => { PULSE_TAB = "today"; renderPulse(); });
+  view.querySelector("#pu-nav-m").addEventListener("click", () => { PULSE_TAB = "monthly"; renderPulse(); });
+  const body = view.querySelector("#pulse-body");
+  if (PULSE_TAB === "monthly") await pulseMonthly(body);
+  else await pulseRenderToday(body);
+}
+
+async function pulseRenderToday(v) {
   if (!v) return;
   v.innerHTML = `<p class="erp-loading">Зареждане на пулса…</p>`;
   const today = pulseToday();
@@ -254,3 +270,162 @@ function pulseInit() {
   const r = document.getElementById("pulse-refresh"); if (r) r.addEventListener("click", renderPulse);
 }
 document.addEventListener("DOMContentLoaded", pulseInit);
+
+/* ---------- 📅 Месечни резултати ----------
+   Ред за всеки месец (последните 12):
+   • Фактури без ДДС — АВТОМАТИЧНО от издадените фактури (+ДИ, −КИ, без проформи);
+   • Стокови разписки и 005 — РЪЧНО (продажби без фактура), влизат в Общо продажби;
+   • Заплати — АВТОМАТИЧНО: „ОБЩО получено" от Месечния отчет (Заплати седмично);
+   • Осигуровки — АВТОМАТИЧНО от Ведомостта (payroll_osig_<месец>, вкл. „извън
+     списъка"); ако за месеца няма ведомост — поле за РЪЧНО въвеждане;
+   • Кредити — РЪЧНО;
+   • Резултат = Общо продажби − Заплати − Осигуровки − Кредити.
+   Ръчните стойности се пазят в app_config „pulse_monthly". */
+
+async function pulseMonthlyLoad() {
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "pulse_monthly").maybeSingle(); return (data && data.data && data.data.months) || {}; }
+  catch (e) { return {}; }
+}
+async function pulseMonthlySave(months) {
+  const { error } = await sb.from("app_config").upsert({ id: "pulse_monthly", data: { months }, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис: " + error.message); return false; }
+  return true;
+}
+
+async function pulseMonthly(v) {
+  v.innerHTML = `<p class="erp-loading">Смятам месеците…</p>`;
+  const toEur = (n, cur) => cur === "BGN" ? n / 1.95583 : n;
+  const num = x => (typeof erpToNum === "function") ? erpToNum(x) : (Number(x) || 0);
+  const lineNet = arr => (arr || []).reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
+  const eur = n => (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+
+  // Последните 12 месеца, най-новият най-отгоре.
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }
+
+  let manual = {}, invoices = [], payRows = [];
+  try {
+    const [man, inv, pr] = await Promise.all([
+      pulseMonthlyLoad(),
+      erpSelectAll("invoices", "data,posted,kind").catch(() => ({ data: [] })),
+      sb.from("app_config").select("id,data").like("id", "payroll%").then(r => r).catch(() => ({ data: [] })),
+    ]);
+    manual = man || {};
+    invoices = ((inv && inv.data) || []).map(r => ({ posted: r.posted, kind: r.kind, ...(r.data || {}) }));
+    payRows = (pr && pr.data) || [];
+  } catch (e) {
+    v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+
+  // Фактурирано без ДДС по месеци (посочени, без проформи; КИ с минус).
+  const invByMonth = {};
+  invoices.forEach(o => {
+    if (!o.posted || o.kind === "proforma") return;
+    const m = String(o.issueDate || "").slice(0, 7);
+    if (!m) return;
+    const sign = o.kind === "credit" ? -1 : 1;
+    invByMonth[m] = (invByMonth[m] || 0) + sign * toEur(lineNet(o.lines), o.currency || "EUR");
+  });
+
+  // Заплати („ОБЩО получено" като в Месечния отчет) и осигуровки (ведомостта) по месеци.
+  const salByMonth = {}, osigByMonth = {};
+  const weekRows = payRows.filter(r => /^payroll_\d{4}-\d{2}-\d{2}$/.test(String(r.id || "")));
+  const friRows = payRows.filter(r => /^payroll_m_\d{4}-\d{2}$/.test(String(r.id || "")));
+  const osigRows = payRows.filter(r => /^payroll_osig_\d{4}-\d{2}$/.test(String(r.id || "")));
+  weekRows.forEach(r => {
+    const mon = (r.data && r.data.monday) || String(r.id).replace("payroll_", "");
+    const m = String(mon).slice(0, 7);
+    Object.values((r.data && r.data.entries) || {}).forEach(e => {
+      ["bank", "cash", "nadnik", "overtime", "bonus"].forEach(k => { salByMonth[m] = (salByMonth[m] || 0) + (Number(e[k]) || 0); });
+    });
+  });
+  friRows.forEach(r => {
+    const m = String(r.id).replace("payroll_m_", "");
+    const [fY, fM] = m.split("-").map(Number);
+    const fridays = (typeof payFridays === "function") ? payFridays(fY, fM) : [];
+    Object.values((r.data && r.data.entries) || {}).forEach(e => {
+      if (typeof payFriNormalize === "function") {
+        const map = payFriNormalize(e || {}, fridays);
+        Object.values(map).forEach(x => { salByMonth[m] = (salByMonth[m] || 0) + (Number(x.b) || 0) + (Number(x.c) || 0) + (Number(x.o) || 0); });
+      }
+      salByMonth[m] = (salByMonth[m] || 0) + (Number((e && e.rz || {}).sum) || 0);
+    });
+  });
+  osigRows.forEach(r => {
+    const m = String(r.id).replace("payroll_osig_", "");
+    const d = r.data || {};
+    let s = 0;
+    Object.values(d.byName || {}).forEach(x => { s += Number(x) || 0; });
+    (d.extra || []).forEach(x => { s += Number(x.osig) || 0; });
+    if (s) osigByMonth[m] = s;
+  });
+
+  const MONTH_BG = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+  const mLabel = m => { const [y, mm] = m.split("-").map(Number); return MONTH_BG[mm - 1] + " " + y; };
+  const dash = n => Number(n) ? `<b>${eur(n)}</b>` : `<span class="erp-muted">—</span>`;
+  const inp = (m, k, val, title) => `<input type="number" step="any" class="pum-in" data-m="${m}" data-k="${k}" value="${val ? val : ""}" placeholder="0" title="${title || ""}" style="width:96px;text-align:right" />`;
+
+  const rows = months.map(m => {
+    const man = manual[m] || {};
+    const inv = invByMonth[m] || 0;
+    const goods = Number(man.goods) || 0, c005 = Number(man.c005) || 0;
+    const salesT = inv + goods + c005;
+    const sal = salByMonth[m] || 0;
+    const osigAuto = osigByMonth[m] || 0;
+    const osig = osigAuto || Number(man.osig) || 0;
+    const credits = Number(man.credits) || 0;
+    const result = salesT - sal - osig - credits;
+    return `<tr>
+      <td><b>${mLabel(m)}</b></td>
+      <td class="num">${dash(inv)}</td>
+      <td class="num">${inp(m, "goods", man.goods, "Стокови разписки (продажби без фактура) за месеца, €")}</td>
+      <td class="num">${inp(m, "c005", man.c005, "Продажби по 005 за месеца, €")}</td>
+      <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
+      <td class="num">${dash(sal)}</td>
+      <td class="num">${osigAuto ? `${dash(osigAuto)} <span class="erp-muted" title="От Ведомостта (Месечен отчет)">🤖</span>` : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
+      <td class="num">${inp(m, "credits", man.credits, "Вноски по кредити за месеца, €")}</td>
+      <td class="num" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
+    </tr>`;
+  }).join("");
+
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">📅 Месечни резултати — всичко в EUR без ДДС</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small btn-primary" id="pum-save">💾 Запази ръчните</button>
+      <span class="save-status" id="pum-status"></span>
+    </div>
+    <div style="overflow:auto"><table class="report-table erp-table">
+      <thead><tr>
+        <th>Месец</th><th class="num" title="Издадени фактури без ДДС (+ДИ, −КИ, без проформи)">Фактури (авто)</th>
+        <th class="num">Стокови разписки</th><th class="num">005</th>
+        <th class="num">ОБЩО продажби</th>
+        <th class="num" title="„ОБЩО получено“ от Месечния отчет — банка+005+надник+извънреден+бонус+различни">Заплати (авто)</th>
+        <th class="num" title="От Ведомостта; ако липсва — ръчно">Осигуровки</th>
+        <th class="num">Кредити</th>
+        <th class="num">Резултат</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <p class="hint"><b>Фактури</b> и <b>Заплати</b> се смятат сами (фактурите: без ДДС, кредитните с минус, проформите не влизат; заплатите: „ОБЩО получено" от Месечния отчет). <b>Осигуровки</b> идват от Ведомостта (🤖) — ако за месеца още няма разчетена ведомост, полето е ръчно. <b>Стокови разписки / 005 / Кредити</b> са ръчни. Резултат = ОБЩО продажби − Заплати − Осигуровки − Кредити. Забележка: резултатът не включва материалите и другите разходи — той е бърза сметка продажби срещу труд и кредити, не пълна печалба.</p>`;
+
+  const collect = () => {
+    v.querySelectorAll(".pum-in").forEach(i => {
+      const m = i.dataset.m, k = i.dataset.k;
+      const val = Number(String(i.value).replace(",", ".")) || 0;
+      manual[m] = manual[m] || {};
+      if (val) manual[m][k] = val; else delete manual[m][k];
+    });
+  };
+  v.querySelector("#pum-save").addEventListener("click", async () => {
+    const st = v.querySelector("#pum-status"); st.textContent = "Записва…";
+    collect();
+    const ok = await pulseMonthlySave(manual);
+    st.textContent = ok ? "✓ Записано" : "";
+    if (ok) setTimeout(() => pulseMonthly(v), 600);
+  });
+  // Enter в поле = запази направо.
+  v.querySelectorAll(".pum-in").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") v.querySelector("#pum-save").click(); }));
+}
