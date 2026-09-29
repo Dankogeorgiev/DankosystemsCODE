@@ -404,9 +404,10 @@ async function pulseMonthly(v) {
     const osigAuto = osigByMonth[m] || 0;
     const osig = osigAuto || Number(man.osig) || 0;
     const credits = Number(man.credits) || 0;
+    const other = Number(man.other) || 0;
     // ДДС резултат на месеца: >0 → за внасяне (вади се), <0 → за възстановяване (добавя се).
     const vatDue = (vatOutByMonth[m] || 0) - (vatInByMonth[m] || 0);
-    const result = salesT - pur - sal - osig - credits - vatDue;
+    const result = salesT - pur - sal - osig - credits - other - vatDue;
     return `<tr>
       <td><b>${mLabel(m)}</b></td>
       <td class="num">${dash(inv)}</td>
@@ -417,8 +418,10 @@ async function pulseMonthly(v) {
       <td class="num">${dash(sal)}</td>
       <td class="num">${osigAuto ? `${dash(osigAuto)} <span class="erp-muted" title="От Ведомостта (Месечен отчет)">🤖</span>` : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
       <td class="num">${inp(m, "credits", man.credits, "Вноски по кредити за месеца, €")}</td>
+      <td class="num">${inp(m, "other", man.other, "Други разходи за месеца (извън Покупките), €")}</td>
       <td class="num" title="${vatDue >= 0 ? "ДДС за внасяне — вади се от резултата" : "ДДС за възстановяване — добавя се към резултата"}">${(vatOutByMonth[m] || vatInByMonth[m]) ? `<b style="color:${vatDue >= 0 ? "#b91c1c" : "#166534"}">${vatDue >= 0 ? "−" : "+"}${eur(Math.abs(vatDue))}</b>` : `<span class="erp-muted">—</span>`}</td>
       <td class="num" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
+      <td><input type="text" class="pum-note" data-m="${m}" value="${escapeAttr(man.note || "")}" placeholder="бележка…" style="width:200px" /></td>
     </tr>`;
   }).join("");
 
@@ -438,12 +441,14 @@ async function pulseMonthly(v) {
         <th class="num" title="„ОБЩО получено“ от Месечния отчет — банка+005+надник+извънреден+бонус+различни">Заплати (авто)</th>
         <th class="num" title="От Ведомостта; ако липсва — ръчно">Осигуровки</th>
         <th class="num">Кредити</th>
+        <th class="num" title="Разходи извън Покупките — ръчно">Други разходи</th>
         <th class="num" title="ДДС продажби − ДДС покупки: за внасяне (−) или за възстановяване (+)">ДДС ±</th>
         <th class="num">Резултат</th>
+        <th>Бележки</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>Стокови разписки / 005 / Кредити</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити ± ДДС.</b> Влизат само документите, въведени в Системата.</p>`;
+    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>Стокови разписки / 005 / Кредити / Други разходи / Бележки</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити − Други разходи ± ДДС.</b> Влизат само документите, въведени в Системата.</p>`;
 
   const collect = () => {
     v.querySelectorAll(".pum-in").forEach(i => {
@@ -451,6 +456,11 @@ async function pulseMonthly(v) {
       const val = Number(String(i.value).replace(",", ".")) || 0;
       manual[m] = manual[m] || {};
       if (val) manual[m][k] = val; else delete manual[m][k];
+    });
+    v.querySelectorAll(".pum-note").forEach(i => {
+      const m = i.dataset.m, val = i.value.trim();
+      manual[m] = manual[m] || {};
+      if (val) manual[m].note = val; else delete manual[m].note;
     });
   };
   v.querySelector("#pum-save").addEventListener("click", async () => {
@@ -461,5 +471,5 @@ async function pulseMonthly(v) {
     if (ok) setTimeout(() => pulseMonthly(v), 600);
   });
   // Enter в поле = запази направо.
-  v.querySelectorAll(".pum-in").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") v.querySelector("#pum-save").click(); }));
+  v.querySelectorAll(".pum-in, .pum-note").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") v.querySelector("#pum-save").click(); }));
 }
