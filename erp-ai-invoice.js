@@ -20,11 +20,12 @@ function erpInvAIStart() {
     <label class="btn co-attach-btn" style="display:inline-block">⬆ Избери файл<input type="file" id="iai-file" accept=".xlsx,.xls" hidden /></label>
     <span id="iai-fname" class="erp-muted"></span>
     <p class="save-status" id="iai-status"></p>
-    <div class="erp-dialog-actions"><button class="btn" id="iai-cancel">Отказ</button><button class="btn btn-primary" id="iai-go" disabled>Прочети офертата</button></div>`);
+    <div class="erp-dialog-actions"><button class="btn" id="iai-tpl" title="Сваля празен Excel по шаблона DANKO Quotation с примерни редове — попълваш и качваш обратно">⤓ Свали шаблона</button><span class="spacer"></span><button class="btn" id="iai-cancel">Отказ</button><button class="btn btn-primary" id="iai-go" disabled>Прочети офертата</button></div>`);
   let chosen = null;
   const st = wrap.querySelector("#iai-status"), inp = wrap.querySelector("#iai-file"), go = wrap.querySelector("#iai-go");
   inp.addEventListener("change", () => { chosen = inp.files && inp.files[0]; wrap.querySelector("#iai-fname").textContent = chosen ? "  " + chosen.name : ""; go.disabled = !chosen; });
   wrap.querySelector("#iai-cancel").addEventListener("click", close);
+  wrap.querySelector("#iai-tpl").addEventListener("click", erpInvAITemplate);
   go.addEventListener("click", async () => {
     if (!chosen) return;
     go.disabled = true;
@@ -257,4 +258,38 @@ async function erpInvAIPreview(parsed) {
     close();
     erpInvForm(o);
   });
+}
+
+/* ⤓ Шаблонът DANKO Quotation: празен Excel с примерни редове — точно каквото
+   erpInvAIParse очаква (TO + клиент, PURCHASE ORDER № секции, таблицата с
+   # / Article no. / Description / Stock profile / Grade / Weight / Qty /
+   Unit price / Amount, Subtotal затваря секцията). */
+function erpInvAITemplate() {
+  if (typeof XLSX === "undefined") { alert("Библиотеката за Excel още се зарежда — опитай пак след секунда."); return; }
+  const aoa = [
+    ["DANKO Quotation", "", "", "", "", "", "", "", ""],
+    [],
+    ["TO"],
+    ["ИМЕТО НА КЛИЕНТА (напр. SD Heat Exchangers B.V.)"],
+    [],
+    ["PURCHASE ORDER № 12345"],
+    ["#", "Article no.", "Description", "Stock profile / material", "Grade", "Weight, kg/pc", "Qty", "Unit price", "Amount"],
+    [1, "DRW-001-A", "Bracket left", "Flat bar 40x8", "S235JR", 1.25, 100, 2.4, 240],
+    [2, "DRW-002-B", "Support plate", "Sheet 3 mm", "1.4301", 0.8, 50, 3.1, 155],
+    ["Subtotal", "", "", "", "", "", "", "", 395],
+    [],
+    ["PURCHASE ORDER № 12346"],
+    ["#", "Article no.", "Description", "Stock profile / material", "Grade", "Weight, kg/pc", "Qty", "Unit price", "Amount"],
+    [1, "DRW-010", "Frame welded", "Tube 40x40x2", "S235JR", 4.6, 20, 12.5, 250],
+    ["Subtotal", "", "", "", "", "", "", "", 250],
+    [],
+    ["TOTAL 2 purchase orders", "", "", "", "", "", "", "", 645],
+    [],
+    ["Как се попълва: 1) срещу TO — името на клиента; 2) всяка поръчка е секция PURCHASE ORDER № <номер>; 3) под нея заглавният ред и артикулите (Article no. и Qty са задължителни; Weight = кг за 1 брой); 4) Subtotal затваря секцията. Изтрий примерните редове и този текст."],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 22 }, { wch: 16 }, { wch: 28 }, { wch: 24 }, { wch: 10 }, { wch: 13 }, { wch: 8 }, { wch: 11 }, { wch: 11 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Quotation");
+  XLSX.writeFile(wb, "DANKO-Quotation-template.xlsx");
 }
