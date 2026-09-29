@@ -299,34 +299,61 @@ async function pulseMonthly(v) {
   const lineNet = arr => (arr || []).reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
   const eur = n => (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 
-  // Последните 12 месеца, най-новият най-отгоре.
+  // Месеците от юли 2026 (началото на пълните данни) до текущия, най-новият отгоре.
+  const PULSE_M_START = "2026-07";
   const months = [];
   const now = new Date();
-  for (let i = 0; i < 12; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }
+  for (let i = 0; i < 36; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (m < PULSE_M_START) break;
+    months.push(m);
+  }
 
-  let manual = {}, invoices = [], payRows = [];
+  let manual = {}, invoices = [], purchases = [], payRows = [];
   try {
-    const [man, inv, pr] = await Promise.all([
+    const [man, inv, pu, pr] = await Promise.all([
       pulseMonthlyLoad(),
       erpSelectAll("invoices", "data,posted,kind").catch(() => ({ data: [] })),
+      erpSelectAll("purchases", "data").catch(() => ({ data: [] })),
       sb.from("app_config").select("id,data").like("id", "payroll%").then(r => r).catch(() => ({ data: [] })),
     ]);
     manual = man || {};
     invoices = ((inv && inv.data) || []).map(r => ({ posted: r.posted, kind: r.kind, ...(r.data || {}) }));
+    purchases = ((pu && pu.data) || []).map(r => r.data || {});
     payRows = (pr && pr.data) || [];
   } catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
   }
 
-  // Фактурирано без ДДС по месеци (посочени, без проформи; КИ с минус).
-  const invByMonth = {};
+  // Фактурирано без ДДС по месеци (посочени, без проформи; КИ с минус) + ДДС продажби.
+  const invByMonth = {}, vatOutByMonth = {};
   invoices.forEach(o => {
     if (!o.posted || o.kind === "proforma") return;
     const m = String(o.issueDate || "").slice(0, 7);
     if (!m) return;
     const sign = o.kind === "credit" ? -1 : 1;
-    invByMonth[m] = (invByMonth[m] || 0) + sign * toEur(lineNet(o.lines), o.currency || "EUR");
+    const net = sign * toEur(lineNet(o.lines), o.currency || "EUR");
+    invByMonth[m] = (invByMonth[m] || 0) + net;
+    const rate = Number(o.vatRate != null ? o.vatRate : 20);
+    vatOutByMonth[m] = (vatOutByMonth[m] || 0) + net * rate / 100;
+  });
+
+  // Разходи: всички Покупки за месеца без ДДС (стоковата разписка не е разход,
+  // кредитното известие е с минус) + ДДС покупки (точно, ред по ред при смесени ставки).
+  const purByMonth = {}, vatInByMonth = {};
+  purchases.forEach(o => {
+    const m = String(o.date || "").slice(0, 7);
+    if (!m) return;
+    if (o.docType === "goods") return;
+    const pSign = o.docType === "credit" ? -1 : 1;
+    purByMonth[m] = (purByMonth[m] || 0) + pSign * toEur(lineNet(o.lines), o.currency || "BGN");
+    if (typeof erpPuTotals === "function") vatInByMonth[m] = (vatInByMonth[m] || 0) + toEur(erpPuTotals(o).vat, o.currency || "BGN");
+    else {
+      const rate = Number(o.vatRate != null ? o.vatRate : 20);
+      vatInByMonth[m] = (vatInByMonth[m] || 0) + pSign * toEur(lineNet(o.lines) * rate / 100, o.currency || "BGN");
+    }
   });
 
   // Заплати („ОБЩО получено" като в Месечния отчет) и осигуровки (ведомостта) по месеци.
@@ -372,20 +399,25 @@ async function pulseMonthly(v) {
     const inv = invByMonth[m] || 0;
     const goods = Number(man.goods) || 0, c005 = Number(man.c005) || 0;
     const salesT = inv + goods + c005;
+    const pur = purByMonth[m] || 0;
     const sal = salByMonth[m] || 0;
     const osigAuto = osigByMonth[m] || 0;
     const osig = osigAuto || Number(man.osig) || 0;
     const credits = Number(man.credits) || 0;
-    const result = salesT - sal - osig - credits;
+    // ДДС резултат на месеца: >0 → за внасяне (вади се), <0 → за възстановяване (добавя се).
+    const vatDue = (vatOutByMonth[m] || 0) - (vatInByMonth[m] || 0);
+    const result = salesT - pur - sal - osig - credits - vatDue;
     return `<tr>
       <td><b>${mLabel(m)}</b></td>
       <td class="num">${dash(inv)}</td>
       <td class="num">${inp(m, "goods", man.goods, "Стокови разписки (продажби без фактура) за месеца, €")}</td>
       <td class="num">${inp(m, "c005", man.c005, "Продажби по 005 за месеца, €")}</td>
       <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
+      <td class="num">${dash(pur)}</td>
       <td class="num">${dash(sal)}</td>
       <td class="num">${osigAuto ? `${dash(osigAuto)} <span class="erp-muted" title="От Ведомостта (Месечен отчет)">🤖</span>` : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
       <td class="num">${inp(m, "credits", man.credits, "Вноски по кредити за месеца, €")}</td>
+      <td class="num" title="${vatDue >= 0 ? "ДДС за внасяне — вади се от резултата" : "ДДС за възстановяване — добавя се към резултата"}">${(vatOutByMonth[m] || vatInByMonth[m]) ? `<b style="color:${vatDue >= 0 ? "#b91c1c" : "#166534"}">${vatDue >= 0 ? "−" : "+"}${eur(Math.abs(vatDue))}</b>` : `<span class="erp-muted">—</span>`}</td>
       <td class="num" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
     </tr>`;
   }).join("");
@@ -402,14 +434,16 @@ async function pulseMonthly(v) {
         <th>Месец</th><th class="num" title="Издадени фактури без ДДС (+ДИ, −КИ, без проформи)">Фактури (авто)</th>
         <th class="num">Стокови разписки</th><th class="num">005</th>
         <th class="num">ОБЩО продажби</th>
+        <th class="num" title="Всички Покупки за месеца без ДДС (КИ с минус; стоковите разписки не са разход)">Разходи (авто)</th>
         <th class="num" title="„ОБЩО получено“ от Месечния отчет — банка+005+надник+извънреден+бонус+различни">Заплати (авто)</th>
         <th class="num" title="От Ведомостта; ако липсва — ръчно">Осигуровки</th>
         <th class="num">Кредити</th>
+        <th class="num" title="ДДС продажби − ДДС покупки: за внасяне (−) или за възстановяване (+)">ДДС ±</th>
         <th class="num">Резултат</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <p class="hint"><b>Фактури</b> и <b>Заплати</b> се смятат сами (фактурите: без ДДС, кредитните с минус, проформите не влизат; заплатите: „ОБЩО получено" от Месечния отчет). <b>Осигуровки</b> идват от Ведомостта (🤖) — ако за месеца още няма разчетена ведомост, полето е ръчно. <b>Стокови разписки / 005 / Кредити</b> са ръчни. Резултат = ОБЩО продажби − Заплати − Осигуровки − Кредити. Забележка: резултатът не включва материалите и другите разходи — той е бърза сметка продажби срещу труд и кредити, не пълна печалба.</p>`;
+    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>Стокови разписки / 005 / Кредити</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити ± ДДС.</b> Влизат само документите, въведени в Системата.</p>`;
 
   const collect = () => {
     v.querySelectorAll(".pum-in").forEach(i => {
