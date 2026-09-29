@@ -286,6 +286,18 @@ async function pulseMonthlyLoad() {
   try { const { data } = await sb.from("app_config").select("data").eq("id", "pulse_monthly").maybeSingle(); return (data && data.data && data.data.months) || {}; }
   catch (e) { return {}; }
 }
+/* Регистър „Стокови/005" (продажби без фактура): list = записите (клиент,
+   сума, неплатено), deleted = натрупаните суми на ИЗТРИТИ записи по месец —
+   така месечният сбор не пада, дори записът да се разчисти от списъка. */
+async function pulseC005Load() {
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "pulse_c005").maybeSingle(); const d = (data && data.data) || {}; return { list: d.list || [], deleted: d.deleted || {} }; }
+  catch (e) { return { list: [], deleted: {} }; }
+}
+async function pulseC005Save(store) {
+  const { error } = await sb.from("app_config").upsert({ id: "pulse_c005", data: store, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис: " + error.message); return false; }
+  return true;
+}
 async function pulseMonthlySave(months) {
   const { error } = await sb.from("app_config").upsert({ id: "pulse_monthly", data: { months }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис: " + error.message); return false; }
@@ -310,18 +322,20 @@ async function pulseMonthly(v) {
     months.push(m);
   }
 
-  let manual = {}, invoices = [], purchases = [], payRows = [];
+  let manual = {}, invoices = [], purchases = [], payRows = [], c005Store = { list: [], deleted: {} };
   try {
-    const [man, inv, pu, pr] = await Promise.all([
+    const [man, inv, pu, pr, c5] = await Promise.all([
       pulseMonthlyLoad(),
       erpSelectAll("invoices", "data,posted,kind").catch(() => ({ data: [] })),
       erpSelectAll("purchases", "data").catch(() => ({ data: [] })),
       sb.from("app_config").select("id,data").like("id", "payroll%").then(r => r).catch(() => ({ data: [] })),
+      pulseC005Load(),
     ]);
     manual = man || {};
     invoices = ((inv && inv.data) || []).map(r => ({ posted: r.posted, kind: r.kind, ...(r.data || {}) }));
     purchases = ((pu && pu.data) || []).map(r => r.data || {});
     payRows = (pr && pr.data) || [];
+    c005Store = c5 || { list: [], deleted: {} };
   } catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
@@ -389,6 +403,12 @@ async function pulseMonthly(v) {
     if (s) osigByMonth[m] = s;
   });
 
+  // 005 по месеци: активните записи + натрупаното от изтритите (+ старо ръчно c005, ако е имало).
+  const c005ByMonth = {};
+  (c005Store.list || []).forEach(r => { const m = String(r.date || "").slice(0, 7); if (m) c005ByMonth[m] = (c005ByMonth[m] || 0) + (Number(r.amount) || 0); });
+  Object.keys(c005Store.deleted || {}).forEach(m => { c005ByMonth[m] = (c005ByMonth[m] || 0) + (Number(c005Store.deleted[m]) || 0); });
+  const unpaidSum = (c005Store.list || []).filter(r => r.unpaid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
   const MONTH_BG = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
   const mLabel = m => { const [y, mm] = m.split("-").map(Number); return MONTH_BG[mm - 1] + " " + y; };
   const dash = n => Number(n) ? `<b>${eur(n)}</b>` : `<span class="erp-muted">—</span>`;
@@ -397,7 +417,7 @@ async function pulseMonthly(v) {
   const rows = months.map(m => {
     const man = manual[m] || {};
     const inv = invByMonth[m] || 0;
-    const c005 = Number(man.c005) || 0;
+    const c005 = (c005ByMonth[m] || 0) + (Number(man.c005) || 0);
     const salesT = inv + c005;
     const pur = purByMonth[m] || 0;
     const sal = salByMonth[m] || 0;
@@ -411,7 +431,7 @@ async function pulseMonthly(v) {
     return `<tr>
       <td><b>${mLabel(m)}</b></td>
       <td class="num">${dash(inv)}</td>
-      <td class="num">${inp(m, "c005", man.c005, "Продажби по 005 за месеца, €")}</td>
+      <td class="num" title="Сборът от регистъра „Стокови/005" отдолу (включително изтрити записи)">${dash(c005)}</td>
       <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
       <td class="num">${dash(pur)}</td>
       <td class="num">${dash(sal)}</td>
@@ -447,7 +467,31 @@ async function pulseMonthly(v) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>005 / Кредити / Други разходи / Бележки</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити − Други разходи ± ДДС.</b> Влизат само документите, въведени в Системата.</p>`;
+    <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>005</b> идва от регистъра отдолу; <b>Кредити / Други разходи / Бележки</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити − Други разходи ± ДДС.</b> Влизат само документите, въведени в Системата.</p>
+
+    <h4 class="erp-group-head" style="margin-top:14px">🧾 Стокови / 005 — продажби без фактура</h4>
+    <div class="erp-toolbar">
+      <input type="date" id="p5-date" value="${new Date().toISOString().slice(0, 10)}" />
+      <input type="text" id="p5-client" placeholder="Клиент" style="width:220px" />
+      <input type="number" id="p5-amt" step="any" placeholder="Сума €" style="width:110px" />
+      <label class="erp-inline"><input type="checkbox" id="p5-unpaid" /> неплатено</label>
+      <button class="btn btn-small btn-primary" id="p5-add">+ Добави</button>
+      <span class="spacer"></span>
+      ${unpaidSum ? `<span class="erp-count" style="color:#b91c1c"><b>Неплатени: ${eur(unpaidSum)}</b></span>` : ""}
+    </div>
+    <table class="report-table erp-table" style="max-width:780px">
+      <thead><tr><th>Дата</th><th>Клиент</th><th class="num">Сума</th><th>Неплатено</th><th></th></tr></thead>
+      <tbody>${(c005Store.list || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map(r => `
+        <tr style="${r.unpaid ? "background:#fef2f2" : ""}">
+          <td>${escapeHtml(String(r.date || "").split("-").reverse().join("."))}</td>
+          <td><b>${escapeHtml(r.client || "")}</b></td>
+          <td class="num"><b>${eur(r.amount)}</b></td>
+          <td><label class="erp-inline"><input type="checkbox" class="p5-up" data-id="${r.id}" ${r.unpaid ? "checked" : ""} /> ${r.unpaid ? `<b style="color:#b91c1c">не е платил</b>` : "платено"}</label></td>
+          <td><button class="btn btn-small p5-del" data-id="${r.id}" title="Маха записа от списъка — сумата ОСТАВА в месечния сбор">×</button></td>
+        </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма записи — добави първия отгоре.</td></tr>`}
+      </tbody>
+    </table>
+    <p class="hint">Сборът за месеца влиза АВТОМАТИЧНО в колоната „005" горе. „×" чисти записа от списъка, но сумата му ОСТАВА в месечния сбор (продажбата се е случила). Отметката „неплатено" е за следене кой още дължи.</p>`;
 
   const collect = () => {
     v.querySelectorAll(".pum-in").forEach(i => {
@@ -471,4 +515,29 @@ async function pulseMonthly(v) {
   });
   // Enter в поле = запази направо.
   v.querySelectorAll(".pum-in, .pum-note").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") v.querySelector("#pum-save").click(); }));
+
+  // 🧾 Регистърът Стокови/005.
+  v.querySelector("#p5-add").addEventListener("click", async () => {
+    const date = v.querySelector("#p5-date").value;
+    const client = v.querySelector("#p5-client").value.trim();
+    const amount = Number(String(v.querySelector("#p5-amt").value).replace(",", ".")) || 0;
+    if (!client || !amount) { alert("Попълни клиент и сума."); return; }
+    if (!date) { alert("Избери дата."); return; }
+    c005Store.list.push({ id: String(Date.now()), date, client, amount, unpaid: v.querySelector("#p5-unpaid").checked });
+    if (await pulseC005Save(c005Store)) pulseMonthly(v);
+  });
+  v.querySelectorAll(".p5-up").forEach(c => c.addEventListener("change", async () => {
+    const r = c005Store.list.find(x => String(x.id) === c.dataset.id);
+    if (r) { r.unpaid = c.checked; await pulseC005Save(c005Store); pulseMonthly(v); }
+  }));
+  v.querySelectorAll(".p5-del").forEach(b => b.addEventListener("click", async () => {
+    const i = c005Store.list.findIndex(x => String(x.id) === b.dataset.id);
+    if (i < 0) return;
+    const r = c005Store.list[i];
+    if (!confirm(`Махам записа „${r.client} — ${(Number(r.amount) || 0).toFixed(2)} €" от списъка.\nСумата ОСТАВА в месечния сбор 005. Продължавам?`)) return;
+    const m = String(r.date || "").slice(0, 7);
+    c005Store.deleted[m] = (Number(c005Store.deleted[m]) || 0) + (Number(r.amount) || 0);
+    c005Store.list.splice(i, 1);
+    if (await pulseC005Save(c005Store)) pulseMonthly(v);
+  }));
 }
