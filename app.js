@@ -82,7 +82,7 @@ async function loadAccess(email) {
 // Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
 const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com", "danko.orders@gmail.com"];   // Данко, Кристина, Григор, Юлия (28.09.2026)
 // Достъп до Пулс — отделно от Финансите.
-const PULSE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com"];   // Данко + Григор
+const PULSE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "office@dankosystems.com"];   // Данко + Григор + Кристина (29.09.2026)
 // Персонални поздрави при вход (по имейл).
 const LOGIN_GREETINGS = { "rusenmochukov@gmail.com": "Мачкай, Руси! 💪" };
 function showLoginGreeting() {
