@@ -23,11 +23,14 @@ async function renderPulse() {
     <div class="pr-row" style="margin-bottom:8px">
       <button class="btn btn-small ${PULSE_TAB === "today" ? "btn-primary" : ""}" id="pu-nav-t">⚡ Днес</button>
       <button class="btn btn-small ${PULSE_TAB === "monthly" ? "btn-primary" : ""}" id="pu-nav-m">📅 Месечни резултати</button>
+      <button class="btn btn-small ${PULSE_TAB === "activity" ? "btn-primary" : ""}" id="pu-nav-a">👣 Активност</button>
     </div><div id="pulse-body"><p class="erp-loading">Зареждане на пулса…</p></div>`;
   view.querySelector("#pu-nav-t").addEventListener("click", () => { PULSE_TAB = "today"; renderPulse(); });
   view.querySelector("#pu-nav-m").addEventListener("click", () => { PULSE_TAB = "monthly"; renderPulse(); });
+  view.querySelector("#pu-nav-a").addEventListener("click", () => { PULSE_TAB = "activity"; renderPulse(); });
   const body = view.querySelector("#pulse-body");
   if (PULSE_TAB === "monthly") await pulseMonthly(body);
+  else if (PULSE_TAB === "activity") await pulseActivity(body);
   else await pulseRenderToday(body);
 }
 
@@ -540,4 +543,59 @@ async function pulseMonthly(v) {
     c005Store.list.splice(i, 1);
     if (await pulseC005Save(c005Store)) pulseMonthly(v);
   }));
+}
+
+/* ---------- 👣 Активност — кой какво е свършил ----------
+   Чете дневника (activity-log.js: ред на потребител на ден) и показва
+   обобщение по дни: служител, кога, какви действия (по модули). */
+let PULSE_ACT_EMP = "", PULSE_ACT_DAYS = 7;
+async function pulseActivity(v) {
+  v.innerHTML = `<p class="erp-loading">Зареждане на дневника…</p>`;
+  let rows = [];
+  try {
+    const { data } = await sb.from("app_config").select("id,data").like("id", "act_%");
+    rows = data || [];
+  } catch (e) {
+    v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+  const since = new Date(Date.now() - (PULSE_ACT_DAYS - 1) * 864e5).toISOString().slice(0, 10);
+  const recs = rows.map(r => r.data || {})
+    .filter(d => d.day && d.day >= since && (d.list || []).length)
+    .filter(d => !PULSE_ACT_EMP || d.email === PULSE_ACT_EMP)
+    .sort((a, b) => String(b.day).localeCompare(String(a.day)) || String(a.email).localeCompare(String(b.email)));
+  const emails = [...new Set(rows.map(r => (r.data || {}).email).filter(Boolean))].sort();
+  const dmy = s => String(s || "").split("-").reverse().join(".");
+
+  const rowHtml = recs.map(d => {
+    const counts = {};
+    (d.list || []).forEach(e => { const l = actLabel(e) + (e.op === "delete" ? " (изтриване)" : ""); counts[l] = (counts[l] || 0) + 1; });
+    const summary = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([l, n]) => `${escapeHtml(l)} ×${n}`).join(" · ");
+    const first = (d.list[0] || {}).t || "", last = (d.list[d.list.length - 1] || {}).t || "";
+    const detail = (d.list || []).slice(-400).map(e => `<tr><td>${escapeHtml(e.t || "")}</td><td>${escapeHtml(actLabel(e))}</td><td>${escapeHtml(e.op === "delete" ? "изтриване" : "запис")}</td><td class="erp-muted">${escapeHtml(e.id || "")}</td></tr>`).join("");
+    return `<tr>
+      <td><b>${dmy(d.day)}</b></td>
+      <td><b>${escapeHtml(actName(d.email))}</b></td>
+      <td>${first ? `${escapeHtml(first.slice(0, 5))}–${escapeHtml(last.slice(0, 5))}` : "—"}</td>
+      <td class="num">${(d.list || []).length}</td>
+      <td>${summary || "—"}
+        <details style="margin-top:4px"><summary style="cursor:pointer" class="erp-muted">подробно</summary>
+        <table class="report-table erp-table" style="margin-top:4px;max-width:720px"><thead><tr><th>Час</th><th>Модул</th><th>Действие</th><th>Обект</th></tr></thead><tbody>${detail}</tbody></table></details>
+      </td></tr>`;
+  }).join("");
+
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">👣 Кой какво е свършил</span>
+      <label class="erp-inline">Служител <select id="pa-emp"><option value="">— всички —</option>${emails.map(e => `<option value="${escapeAttr(e)}" ${e === PULSE_ACT_EMP ? "selected" : ""}>${escapeHtml(actName(e))}</option>`).join("")}</select></label>
+      <label class="erp-inline">Период <select id="pa-days">${[7, 14, 30].map(n => `<option value="${n}" ${n === PULSE_ACT_DAYS ? "selected" : ""}>последните ${n} дни</option>`).join("")}</select></label>
+    </div>
+    <table class="report-table erp-table">
+      <thead><tr><th>Ден</th><th>Служител</th><th>От–до</th><th class="num">Действия</th><th>Какво (по модули)</th></tr></thead>
+      <tbody>${rowHtml || `<tr><td colspan="5" class="report-empty">Няма записана активност за периода. Дневникът тръгна на 04.10.2026 — записва от тук нататък, всичко преди това не е събирано.</td></tr>`}</tbody>
+    </table>
+    <p class="hint">Дневникът отбелязва ЗАПИСИТЕ в Системата (създаване/промяна/изтриване) по модул — не всяко разглеждане. Пази се по ден и служител; гледането тук не се брои за действие.</p>`;
+
+  v.querySelector("#pa-emp").addEventListener("change", e => { PULSE_ACT_EMP = e.target.value; pulseActivity(v); });
+  v.querySelector("#pa-days").addEventListener("change", e => { PULSE_ACT_DAYS = Number(e.target.value) || 7; pulseActivity(v); });
 }
