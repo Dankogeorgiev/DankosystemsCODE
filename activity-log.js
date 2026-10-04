@@ -89,4 +89,8 @@ const ACT_NAMES = {
   "dankog@gmail.com": "Данко", "grigor.baykov@dankosystems.com": "Григор",
   "office@dankosystems.com": "Кристина", "danko.orders@gmail.com": "Юлия",
 };
-function actName(email) { return ACT_NAMES[email] || email; }
+function actName(email) {
+  if (ACT_NAMES[email]) return ACT_NAMES[email];
+  const m = String(email || "").match(/^([^@]+)@danko\.local$/i);
+  return m ? m[1] + " (цех)" : email;
+}
