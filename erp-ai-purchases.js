@@ -427,15 +427,30 @@ async function erpPuAIConfirm() {
     // Празен паспорт → записва се; различен от записания → само предупреждение,
     // ръчно въведеният не се презаписва тихо.
     try {
-      const supNm = s.supName || (s.parsed || {}).client_name || "";
-      if (scannedIban && supNm && typeof suppLoad === "function") {
+      const p1 = s.parsed || {};
+      const supNm = s.supName || p1.client_name || "";
+      if (supNm && typeof suppLoad === "function") {
         await suppLoad();
         const k = suppKey(typeof suppCanon === "function" ? suppCanon(supNm) : supNm);
         const rec = SUPP_PROFILES.byKey[k] || (SUPP_PROFILES.byKey[k] = { name: supNm });
-        if (!rec.iban) { rec.iban = scannedIban; rec.ibanSrc = "ai"; await suppSave(); }
-        else if (rec.iban !== scannedIban) alert(`⚠ IBAN-ът от тази фактура (${scannedIban}) се РАЗЛИЧАВА от записания в паспорта на доставчика (${rec.iban}).\nПровери кой е верният и го поправи в картона, ако трябва.`);
+        let changed = false;
+        // Реквизитите от фактурата пълнят САМО празните полета — ръчното не се пипа.
+        const OUR = /115789385/;
+        const fill = (field, val) => {
+          const v = String(val || "").trim();
+          if (v && !OUR.test(v) && !rec[field]) { rec[field] = v; changed = true; }
+        };
+        fill("eik", p1.supplier_eik);
+        fill("vat", p1.supplier_vat);
+        fill("addr", p1.supplier_address);
+        fill("person", p1.supplier_mol);
+        if (scannedIban) {
+          if (!rec.iban) { rec.iban = scannedIban; rec.ibanSrc = "ai"; changed = true; }
+          else if (rec.iban !== scannedIban) alert(`⚠ IBAN-ът от тази фактура (${scannedIban}) се РАЗЛИЧАВА от записания в паспорта на доставчика (${rec.iban}).\nПровери кой е верният и го поправи в картона, ако трябва.`);
+        }
+        if (changed) await suppSave();
       }
-    } catch (e) { console.warn("IBAN:", e); }
+    } catch (e) { console.warn("паспорт от фактурата:", e); }
     // Отложено плащане → ред в Задължения. Липсваше и AI-фактурите не влизаха
     // там (изпуснати плащания — ХИ ТРАНСПОРТ, ГИРГИНОВИ), докато някой не ги
     // отвореше и запишеше наново на ръка.
