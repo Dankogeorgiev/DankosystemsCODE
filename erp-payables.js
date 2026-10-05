@@ -184,6 +184,7 @@ async function erpRenderPayables() {
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} ${rows.length === 1 ? "фактура" : "фактури"} · ${payMoney(rows.reduce((s, p) => s + (pybFilter === "paid" ? payNum(p.amountVat) : payLeft(p)), 0))} EUR</span>
       <button class="btn btn-small" id="pyb-audit" title="Минава през ВСИЧКИ въведени покупки и намира неплатени фактури с отложено плащане, които ЛИПСВАТ тук — с един клик ги създава">🔍 Сверка с Покупки</button>
+      <button class="btn btn-small" id="pyb-ibanscan" title="Минава през вече сканираните фактури (по една на доставчик без IBAN), разчита сметката с Claude и я записва в паспорта">🏦 IBAN-и от фактурите</button>
       <button class="btn btn-small" id="pyb-xls" title="Сваля точно това, което се вижда — със същия филтър и подредба">⬇ Excel</button>
     </div>
     <div class="pay-cards">
@@ -251,6 +252,7 @@ async function erpRenderPayables() {
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
   v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpPayPartial(Number(b.dataset.part))));
+  const ibs = v.querySelector("#pyb-ibanscan"); if (ibs) ibs.addEventListener("click", payIbanHarvest);
   // ✎ IBAN направо от списъка → паспорта на доставчика (важи за всичките му редове).
   v.querySelectorAll(".pay-iban-edit").forEach(a => a.addEventListener("click", async e => {
     e.preventDefault();
@@ -661,4 +663,77 @@ function erpPayPrint(items) {
     <tfoot><tr><td colspan="4" class="r">ОБЩО с ДДС</td><td class="r">${payMoney(tot)} EUR</td></tr></tfoot></table></body></html>`;
   const w = window.open("", "_blank"); if (!w) { alert("Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
+}
+
+/* ---------- 🏦 Събиране на IBAN-и от ВЕЧЕ сканираните фактури ----------
+   Много фактури са минали през AI преди IBAN-ът да се чете. Файловете им
+   стоят в облака — минаваме по ЕДНА (най-новата) на всеки доставчик без
+   IBAN, parse-document я разчита наново и сметката влиза в паспорта.
+   Изисква parse-document да е ре-деплойнат със supplier_iban. */
+const PAY_OWN_IBANS = new Set(["BG65UBBS81551485471707", "BG77UBBS81551085471718"]);   // нашите сметки — никога не са на доставчик
+let payIbanScanStop = false;
+
+async function payIbanHarvest() {
+  try { if (typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}
+  await suppLoad();
+  const bySup = new Map();
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    const nm = o.supplierName || "";
+    if (!nm) return;
+    const f = (o.files || []).find(x => x && x.url);
+    if (!f) return;
+    const k = suppKey(typeof suppCanon === "function" ? suppCanon(nm) : nm);
+    const rec = SUPP_PROFILES.byKey[k];
+    if (rec && rec.iban) return;   // вече има сметка
+    const cur = bySup.get(k);
+    if (!cur || String(o.date || "") > String(cur.date || "")) bySup.set(k, { k, name: nm, date: o.date || "", file: f });
+  });
+  const list = [...bySup.values()].sort((a, b) => a.name.localeCompare(b.name, "bg"));
+  if (!list.length) { alert("Няма доставчици без IBAN със сканирани фактури — всичко е попълнено или няма файлове."); return; }
+  if (!confirm(`Намерих ${list.length} доставчици без IBAN, които имат сканирана фактура.\nЩе разчета по най-новата фактура на всеки (по няколко секунди на доставчик).\nПродължавам?`)) return;
+
+  payIbanScanStop = false;
+  const { wrap, close } = erpDialog(`
+    <h3>🏦 IBAN-и от сканираните фактури</h3>
+    <p class="save-status" id="pis-st">Започвам…</p>
+    <div id="pis-log" style="max-height:48vh;overflow:auto;font-size:13px;line-height:1.6"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="pis-stop">⏹ Спри</button><button class="btn btn-primary" id="pis-close" disabled>Готово</button></div>`);
+  wrap.querySelector("#pis-stop").addEventListener("click", () => { payIbanScanStop = true; });
+  wrap.querySelector("#pis-close").addEventListener("click", () => { close(); erpRenderPayables(); });
+  const st = wrap.querySelector("#pis-st"), log = wrap.querySelector("#pis-log");
+  const line = (txt, color) => { log.insertAdjacentHTML("beforeend", `<div style="color:${color || "#111"}">${txt}</div>`); log.scrollTop = log.scrollHeight; };
+
+  const cfg = window.DANKO_CONFIG || {};
+  let token = cfg.SUPABASE_ANON_KEY;
+  try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
+
+  let found = 0, missing = 0, failed = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (payIbanScanStop) { line(`⏹ Спряно от теб — дотук попълнени ${found}.`, "#b45309"); break; }
+    const it = list[i];
+    st.textContent = `${i + 1} / ${list.length} · ${it.name}…`;
+    try {
+      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/parse-document", {
+        method: "POST", headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
+        body: JSON.stringify({ file_url: it.file.url, media_type: it.file.type || "", doc_type: "фактура_доставчик" }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j.error) throw new Error(String(j.error || ("HTTP " + res.status)));
+      const raw = String((j.parsed || {}).supplier_iban || "").replace(/\s+/g, "").toUpperCase();
+      if (!raw) { missing++; line(`▫ ${escapeHtml(it.name)} — във фактурата няма изписан IBAN.`, "#64748b"); continue; }
+      if (!/^[A-Z]{2}[0-9A-Z]{12,32}$/.test(raw) || PAY_OWN_IBANS.has(raw)) { missing++; line(`▫ ${escapeHtml(it.name)} — намерено „${escapeHtml(raw)}", но не е валиден чужд IBAN.`, "#64748b"); continue; }
+      const rec = SUPP_PROFILES.byKey[it.k] || (SUPP_PROFILES.byKey[it.k] = { name: it.name });
+      rec.iban = raw; rec.ibanSrc = "ai-harvest";
+      await suppSave();   // пазим след всеки успех — спирането не губи нищо
+      found++;
+      line(`✔ ${escapeHtml(it.name)} — <b>${escapeHtml(raw)}</b>`, "#166534");
+    } catch (e) {
+      failed++;
+      line(`⚠ ${escapeHtml(it.name)} — ${escapeHtml(String(e.message || e).slice(0, 120))}`, "#b91c1c");
+      if (/supplier_iban|schema/i.test(String(e.message || ""))) { line("Спирам — изглежда parse-document не е обновен (нужен е ре-деплой).", "#b91c1c"); break; }
+    }
+  }
+  st.textContent = `Готово: ✔ ${found} попълнени · ▫ ${missing} без IBAN във фактурата · ⚠ ${failed} грешки.`;
+  wrap.querySelector("#pis-stop").disabled = true;
+  wrap.querySelector("#pis-close").disabled = false;
 }
