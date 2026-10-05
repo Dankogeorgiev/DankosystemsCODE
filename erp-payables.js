@@ -570,6 +570,7 @@ async function erpPaySyncFromPurchase(o) {
       amount: Math.round((t.base / rate) * 100) / 100,
       amountVat: Math.round((t.total / rate) * 100) / 100,
       currency: "EUR", payMethod: "Банка", srcPurchaseId: o.id,
+      iban: o.supplierIban || "",   // от AI фактурата — редът го носи и без паспорт
     };
     if (idx >= 0) {
       if (!PAYABLES[idx].paid) Object.assign(PAYABLES[idx], fields);

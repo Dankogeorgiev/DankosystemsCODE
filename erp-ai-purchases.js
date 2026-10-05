@@ -399,12 +399,22 @@ async function erpPuAIConfirm() {
   }
   const btn = document.getElementById("pai-confirm"); if (btn) { btn.disabled = true; btn.textContent = "Създавам…"; }
   try {
+    const scannedIban = (() => {
+      const x = String((s.parsed || {}).supplier_iban || "").replace(/\s+/g, "").toUpperCase();
+      return /^[A-Z]{2}[0-9A-Z]{12,32}$/.test(x) ? x : "";
+    })();
+    // Разчитането мина, но без IBAN поле → старата parse-document още е на линия.
+    if (!("supplier_iban" in (s.parsed || {})) && !window.__IBAN_DEPLOY_WARNED) {
+      window.__IBAN_DEPLOY_WARNED = 1;
+      alert("ℹ Фактурата е разчетена, но БЕЗ IBAN: функцията parse-document в Supabase още е старата версия.\nДанко: Edge Functions → parse-document → постави новия код от GitHub → Deploy. След това IBAN-ите ще се записват сами.");
+    }
     const purchase = {
       type: "фактура", docType: s.docType === "credit" ? "credit" : "invoice",
       supplierName: s.supName || "", supplierId: s.supId || null, expenseType: s.expenseType || "",
       invoiceNo: s.invoiceNo || "", date: s.date || new Date().toISOString().slice(0, 10),
       payStatus: s.payStatus || "deferred", termDays: Number(s.termDays) || 0, dueDate: s.dueDate || "", paid: false, paidDate: "",
       currency: s.currency || "BGN", vatRate: 20, note: "", files: [s.fileInfo], aiParsed: s.parsed, posted: false,
+      supplierIban: scannedIban,   // → реда в Задължения (и паспорта по-долу)
       lines: s.rows.map(r => {
         const base = { groupName: r.groupName || s.expenseType || "", article: r.article || r.desc || "", code: r.code || "", qty: erpToNum(r.qty) || 1, unit: r.unit || "бр.", unitPrice: erpToNum(r.unitPrice) || "" };
         if (r.materialId && ERP.matById[r.materialId]) { const m = ERP.matById[r.materialId]; base.materialId = m.id; base.name = m.name; base.code = m.code; }
@@ -417,13 +427,13 @@ async function erpPuAIConfirm() {
     // Празен паспорт → записва се; различен от записания → само предупреждение,
     // ръчно въведеният не се презаписва тихо.
     try {
-      const scanned = String((s.parsed || {}).supplier_iban || "").replace(/\s+/g, "").toUpperCase();
-      if (scanned && /^[A-Z]{2}[0-9A-Z]{12,32}$/.test(scanned) && s.supName && typeof suppLoad === "function") {
+      const supNm = s.supName || (s.parsed || {}).client_name || "";
+      if (scannedIban && supNm && typeof suppLoad === "function") {
         await suppLoad();
-        const k = suppKey(typeof suppCanon === "function" ? suppCanon(s.supName) : s.supName);
-        const rec = SUPP_PROFILES.byKey[k] || (SUPP_PROFILES.byKey[k] = { name: s.supName });
-        if (!rec.iban) { rec.iban = scanned; rec.ibanSrc = "ai"; await suppSave(); }
-        else if (rec.iban !== scanned) alert(`⚠ IBAN-ът от тази фактура (${scanned}) се РАЗЛИЧАВА от записания в паспорта на доставчика (${rec.iban}).\nПровери кой е верният и го поправи в картона, ако трябва.`);
+        const k = suppKey(typeof suppCanon === "function" ? suppCanon(supNm) : supNm);
+        const rec = SUPP_PROFILES.byKey[k] || (SUPP_PROFILES.byKey[k] = { name: supNm });
+        if (!rec.iban) { rec.iban = scannedIban; rec.ibanSrc = "ai"; await suppSave(); }
+        else if (rec.iban !== scannedIban) alert(`⚠ IBAN-ът от тази фактура (${scannedIban}) се РАЗЛИЧАВА от записания в паспорта на доставчика (${rec.iban}).\nПровери кой е верният и го поправи в картона, ако трябва.`);
       }
     } catch (e) { console.warn("IBAN:", e); }
     // Отложено плащане → ред в Задължения. Липсваше и AI-фактурите не влизаха
