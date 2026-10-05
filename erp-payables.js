@@ -116,9 +116,23 @@ async function pybRemoveCovered() {
 }
 
 /* ---------- Списък ---------- */
+/* IBAN на доставчика за реда: първо от самия запис (AI фактурата), иначе от
+   паспорта на доставчика. Показва се САМО IBAN — без банка/BIC (Данко, 05.10). */
+function payIban(p) {
+  if (p && p.iban) return p.iban;
+  try {
+    if (typeof SUPP_PROFILES !== "undefined" && SUPP_PROFILES && typeof suppKey === "function") {
+      const rec = (SUPP_PROFILES.byKey || {})[suppKey(typeof suppCanon === "function" ? suppCanon(p.supplier || "") : (p.supplier || ""))];
+      return (rec && rec.iban) || "";
+    }
+  } catch (e) {}
+  return "";
+}
+
 async function erpRenderPayables() {
   const v = erpView();
   if (!PAYABLES) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpPayLoad(); }
+  try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}   // паспортите — за IBAN на редовете
   const eow = payEndOfWeek(), eom = payEndOfMonth(), eonm = payEndOfNextMonth();
   const unpaid = (PAYABLES || []).filter(p => !p.paid);
   const sum = arr => arr.reduce((s, p) => s + payLeft(p), 0);
@@ -201,7 +215,7 @@ async function erpRenderPayables() {
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
           <td>${escapeHtml(p.invoiceNo || "")}</td>
           <td>${pybFmt(p.docDate)}</td>
-          <td>${escapeHtml(p.supplier || "")}</td>
+          <td>${escapeHtml(p.supplier || "")}${(() => { const ib = payIban(p); return ib ? `<div class="erp-muted" style="font-size:11px;white-space:nowrap">IBAN: ${escapeHtml(ib)}</div>` : ""; })()}</td>
           <td class="pay-art" title="${escapeAttr(p.article || "")}">${escapeHtml(p.article || "")}</td>
           <td class="num">${payMoney(p.amount)}</td>
           <td class="num" title="${escapeAttr(payPartialTitle(p))}"><b>${payMoney(p.paid ? p.amountVat : payLeft(p))}</b>${

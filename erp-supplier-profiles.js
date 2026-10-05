@@ -481,6 +481,7 @@ function suppFormHtml(name, prep, embed) {
     <h4 class="erp-group-head">Търговски условия</h4>
     <div class="erp-co-grid">
       <label>Начин на плащане <input type="text" id="sp-paymethod" value="${g("payMethod", "Банка")}" /></label>
+      <label>IBAN <input type="text" id="sp-iban" value="${g("iban")}" placeholder="BG.. .... .... ...." title="Банковата сметка на доставчика — излиза в Задължения при плащане" /></label>
       <label>Срок (дни) <input type="number" id="sp-term" min="0" value="${g("termDays")}" /></label>
       <label>Договор № <input type="text" id="sp-contract" value="${g("contract")}" /></label>
       <label>Договор до <input type="date" id="sp-contractto" value="${g("contractTo")}" /></label>
@@ -584,7 +585,7 @@ function suppFormWire(wrap, name, prep, close, opts) {
       where: [...wrap.querySelectorAll(".sp-where:checked")].map(c => c.value),
       whereNote: val("wherenote"),
       kind: val("kind"), account: val("account"), expenseType: val("etype"), docflow: val("docflow"),
-      payMethod: val("paymethod"), termDays: val("term"), contract: val("contract"), contractTo: val("contractto"),
+      payMethod: val("paymethod"), iban: val("iban", p.iban).replace(/\s+/g, "").toUpperCase(), termDays: val("term"), contract: val("contract"), contractTo: val("contractto"),
       owner: val("owner"), critical: val("critical"), notes: val("notes"),
       updatedAt: new Date().toISOString(),
       updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "",

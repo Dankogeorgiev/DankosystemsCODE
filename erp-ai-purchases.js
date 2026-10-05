@@ -413,6 +413,19 @@ async function erpPuAIConfirm() {
     };
     if (typeof erpPuApplyPay === "function") erpPuApplyPay(purchase);   // канонични полета по статуса
     await erpSavePurchase(purchase);
+    // IBAN от фактурата → паспорта на доставчика (Задълженията го теглят оттам).
+    // Празен паспорт → записва се; различен от записания → само предупреждение,
+    // ръчно въведеният не се презаписва тихо.
+    try {
+      const scanned = String((s.parsed || {}).supplier_iban || "").replace(/\s+/g, "").toUpperCase();
+      if (scanned && /^[A-Z]{2}[0-9A-Z]{12,32}$/.test(scanned) && s.supName && typeof suppLoad === "function") {
+        await suppLoad();
+        const k = suppKey(typeof suppCanon === "function" ? suppCanon(s.supName) : s.supName);
+        const rec = SUPP_PROFILES.byKey[k] || (SUPP_PROFILES.byKey[k] = { name: s.supName });
+        if (!rec.iban) { rec.iban = scanned; rec.ibanSrc = "ai"; await suppSave(); }
+        else if (rec.iban !== scanned) alert(`⚠ IBAN-ът от тази фактура (${scanned}) се РАЗЛИЧАВА от записания в паспорта на доставчика (${rec.iban}).\nПровери кой е верният и го поправи в картона, ако трябва.`);
+      }
+    } catch (e) { console.warn("IBAN:", e); }
     // Отложено плащане → ред в Задължения. Липсваше и AI-фактурите не влизаха
     // там (изпуснати плащания — ХИ ТРАНСПОРТ, ГИРГИНОВИ), докато някой не ги
     // отвореше и запишеше наново на ръка.
