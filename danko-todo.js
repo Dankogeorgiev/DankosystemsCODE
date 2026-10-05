@@ -223,10 +223,10 @@ function todoPrint() {
   const today = new Date().toLocaleDateString("bg-BG");
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>To do — ${esc(me.name)}</title><style>
     body { font-family: Arial, "Segoe UI", sans-serif; margin: 24px; color: #111; }
-    h1 { font-size: 26pt; margin: 0 0 4px; }
-    .sub { font-size: 13pt; color: #555; margin-bottom: 18px; }
-    .row { display: flex; gap: 14px; align-items: flex-start; padding: 12px 4px; border-bottom: 1.5px solid #cbd5e1; font-size: 17pt; line-height: 1.45; }
-    .bx { flex: 0 0 auto; width: 22px; height: 22px; border: 2.5px solid #111; border-radius: 4px; margin-top: 4px; text-align: center; font-size: 15pt; line-height: 20px; }
+    h1 { font-size: 23pt; margin: 0 0 4px; }
+    .sub { font-size: 12pt; color: #555; margin-bottom: 16px; }
+    .row { display: flex; gap: 13px; align-items: flex-start; padding: 11px 4px; border-bottom: 1.5px solid #cbd5e1; font-size: 15.5pt; line-height: 1.45; }
+    .bx { flex: 0 0 auto; width: 20px; height: 20px; border: 2.5px solid #111; border-radius: 4px; margin-top: 4px; text-align: center; font-size: 13.5pt; line-height: 18px; }
     .done .bx::before { content: "✔"; }
     .done .tx { text-decoration: line-through; color: #777; }
     .from { font-weight: 700; }
