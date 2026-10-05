@@ -205,3 +205,46 @@ async function todoApplyAccess() {
     });
   }
 }
+
+/* 🖨 Печат на списъка: едри букви, квадратчета за отмятане на хартия,
+   първо несвършените. Работи за всеки профил със To do. */
+function todoPrint() {
+  const me = todoMe();
+  if (!me) return;
+  const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s));
+  const fmtD = iso => {
+    const s = String(iso || "").slice(0, 10).split("-");
+    return s.length === 3 ? `${s[2]}.${s[1]}.${s[0]}` : "";
+  };
+  const items = (TODO_ITEMS || []).slice()
+    .sort((a, b) => (a.done - b.done) || String(b.at || "").localeCompare(String(a.at || "")));
+  const w = window.open("", "_blank");
+  if (!w) { alert("Браузърът блокира прозореца — разреши popups."); return; }
+  const today = new Date().toLocaleDateString("bg-BG");
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>To do — ${esc(me.name)}</title><style>
+    body { font-family: Arial, "Segoe UI", sans-serif; margin: 24px; color: #111; }
+    h1 { font-size: 26pt; margin: 0 0 4px; }
+    .sub { font-size: 13pt; color: #555; margin-bottom: 18px; }
+    .row { display: flex; gap: 14px; align-items: flex-start; padding: 12px 4px; border-bottom: 1.5px solid #cbd5e1; font-size: 17pt; line-height: 1.45; }
+    .bx { flex: 0 0 auto; width: 22px; height: 22px; border: 2.5px solid #111; border-radius: 4px; margin-top: 4px; text-align: center; font-size: 15pt; line-height: 20px; }
+    .done .bx::before { content: "✔"; }
+    .done .tx { text-decoration: line-through; color: #777; }
+    .from { font-weight: 700; }
+    .dt { margin-left: auto; flex: 0 0 auto; font-size: 11pt; color: #777; padding-top: 7px; }
+    .noprint { position: fixed; top: 8px; right: 8px; padding: 10px 18px; font-size: 14pt; }
+    @media print { .noprint { display: none; } }
+  </style></head><body>
+    <h1>📝 To do — ${esc(me.name)}</h1>
+    <div class="sub">${today}${items.length ? ` · ${items.filter(i => !i.done).length} за правене` : ""}</div>
+    ${items.map(i => `<div class="row${i.done ? " done" : ""}"><div class="bx"></div><div class="tx">${i.from ? `<span class="from">от ${esc(i.from)}:</span> ` : ""}${esc(i.t)}</div><div class="dt">${fmtD(i.at)}</div></div>`).join("") || `<p style="font-size:16pt">Списъкът е празен.</p>`}
+    <button class="noprint" onclick="window.print()">🖨 Печат</button>
+  </body></html>`);
+  w.document.close();
+  setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
+}
+(function todoPrintInit() {
+  ["todo-print", "todo-print-w"].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener("click", todoPrint);
+  });
+})();
