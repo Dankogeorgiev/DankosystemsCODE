@@ -215,7 +215,7 @@ async function erpRenderPayables() {
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
           <td>${escapeHtml(p.invoiceNo || "")}</td>
           <td>${pybFmt(p.docDate)}</td>
-          <td>${escapeHtml(p.supplier || "")}${(() => { const ib = payIban(p); return ib ? `<div class="erp-muted" style="font-size:11px;white-space:nowrap">IBAN: ${escapeHtml(ib)}</div>` : ""; })()}</td>
+          <td>${escapeHtml(p.supplier || "")}<div class="erp-muted" style="font-size:11px;white-space:nowrap">IBAN: ${(() => { const ib = payIban(p); return ib ? escapeHtml(ib) : "—"; })()} <a href="#" class="pay-iban-edit" data-sup="${escapeAttr(p.supplier || "")}" title="Въведи/поправи IBAN — записва се в паспорта на доставчика и важи за всичките му фактури">✎</a></div></td>
           <td class="pay-art" title="${escapeAttr(p.article || "")}">${escapeHtml(p.article || "")}</td>
           <td class="num">${payMoney(p.amount)}</td>
           <td class="num" title="${escapeAttr(payPartialTitle(p))}"><b>${payMoney(p.paid ? p.amountVat : payLeft(p))}</b>${
@@ -251,6 +251,21 @@ async function erpRenderPayables() {
   v.querySelectorAll(".pay-sel").forEach(c => c.addEventListener("change", () => { const id = Number(c.dataset.id); if (c.checked) paySelected.add(id); else paySelected.delete(id); erpPayBar(); }));
   v.querySelectorAll("[data-today]").forEach(b => b.addEventListener("click", () => erpPayToggleToday(Number(b.dataset.today))));
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpPayPartial(Number(b.dataset.part))));
+  // ✎ IBAN направо от списъка → паспорта на доставчика (важи за всичките му редове).
+  v.querySelectorAll(".pay-iban-edit").forEach(a => a.addEventListener("click", async e => {
+    e.preventDefault();
+    const sup = a.dataset.sup;
+    if (!sup || typeof suppLoad !== "function") return;
+    await suppLoad();
+    const k = suppKey(typeof suppCanon === "function" ? suppCanon(sup) : sup);
+    const rec = SUPP_PROFILES.byKey[k] || (SUPP_PROFILES.byKey[k] = { name: sup });
+    const val = prompt(`IBAN на ${sup}:`, rec.iban || "");
+    if (val == null) return;
+    const clean = val.replace(/\s+/g, "").toUpperCase();
+    if (clean && !/^[A-Z]{2}[0-9A-Z]{12,32}$/.test(clean)) { alert("Това не прилича на IBAN (напр. BG97BNBG96618000112001)."); return; }
+    rec.iban = clean; rec.ibanSrc = "manual";
+    if (await suppSave()) erpRenderPayables();
+  }));
   const sSel = document.getElementById("pyb-sort");
   if (sSel) sSel.addEventListener("change", e => { pybSort = e.target.value; erpRenderPayables(); });
   const supSel = document.getElementById("pyb-supplier");
