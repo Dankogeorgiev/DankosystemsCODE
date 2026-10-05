@@ -261,6 +261,7 @@ async function erpRenderPurchases() {
       <button class="btn btn-small" id="pu-dups" title="Намира фактури, въведени два пъти (един и същ номер) и позволява да изтриеш излишната">🔁 Дубликати</button>
       <button class="btn btn-small" id="pu-bgn" title="Проверка: кои документи са записани в лева">💱 В лева</button>
       <button class="btn btn-small" id="pu-xls-all" title="Сваля ВСИЧКИ въведени покупни документи (фактури, стокови, кредитни) в Excel — платени и неплатени, от началото до днес">⤓ Excel (всички)</button>
+      <button class="btn btn-small" id="pu-xls-acc" title="Месечният файл за счетоводството: всяка фактура с пълните данни на доставчика (ЕИК, ДДС №, адрес, IBAN, счетоводна сметка) + отделен лист с всеки закупен ред">📒 За счетоводството</button>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
     </div>
@@ -283,6 +284,7 @@ async function erpRenderPurchases() {
   document.getElementById("pu-dups").addEventListener("click", erpPuDupsReport);
   document.getElementById("pu-bgn").addEventListener("click", erpPuBgnReport);
   document.getElementById("pu-xls-all").addEventListener("click", erpPuExportAllXls);
+  document.getElementById("pu-xls-acc").addEventListener("click", erpPuAccountingXls);
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
@@ -1336,4 +1338,86 @@ async function erpUnpostPurchase(o) {
   await erpLoadAll(); await erpLoadPurchases();
   alert("Фактурата е върната за редакция. Поправи каквото трябва, запази и я заприходи наново.");
   erpRenderPurchaseForm(o);
+}
+
+/* ---------- 📒 Месечният файл за счетоводството ----------
+   Лист 1 „Фактури": ред за всеки документ от месеца с ПЪЛНИТЕ данни на
+   доставчика от паспорта (ЕИК, ДДС №, държава, адрес, IBAN, вид на разхода,
+   счетоводна сметка, документооборот, какво купуваме от него) + сумите.
+   Лист 2 „Редове": всеки закупен артикул поотделно. */
+async function erpPuAccountingXls() {
+  const d = new Date(); d.setMonth(d.getMonth() - 1);
+  const def = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const { wrap, close } = erpDialog(`
+    <h3>📒 За счетоводството</h3>
+    <p class="hint" style="margin:0 0 8px">Избери месеца — файлът носи всяка фактура с пълните данни на доставчика и отделен лист с всеки закупен ред.</p>
+    <label class="erp-inline">Месец <input type="month" id="pacc-m" value="${def}" /></label>
+    <div class="erp-dialog-actions"><button class="btn" id="pacc-cancel">Отказ</button><button class="btn btn-primary" id="pacc-go">⤓ Свали Excel</button></div>`);
+  wrap.querySelector("#pacc-cancel").addEventListener("click", close);
+  wrap.querySelector("#pacc-go").addEventListener("click", async () => {
+    const m = wrap.querySelector("#pacc-m").value;
+    if (!/^\d{4}-\d{2}$/.test(m)) { alert("Избери месец."); return; }
+    try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
+    const RATE = 1.95583;
+    const n2 = x => Math.round((Number(x) || 0) * 100) / 100;
+    const docs = (erpPurchases || []).filter(o => String(o.date || "").slice(0, 7) === m)
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.invoiceNo || "").localeCompare(String(b.invoiceNo || "")));
+    if (!docs.length) { alert("Няма покупки за " + m + "."); return; }
+    const prof = name => {
+      try { return ((SUPP_PROFILES || {}).byKey || {})[suppKey(typeof suppCanon === "function" ? suppCanon(name || "") : (name || ""))] || {}; }
+      catch (e) { return {}; }
+    };
+    const kindBg = o => o.docType === "goods" ? "Стокова разписка" : o.docType === "credit" ? "Кредитно известие (−)" : "Фактура";
+    const payTxt = o => o.paid ? "платена" + (o.paidDate ? " · " + erpDMY(o.paidDate) : "") : ({ deferred: "НЕплатена (отложено)", cash: "в брой", card: "с карта", bank: "по банка" }[erpPuPayStatus(o)] || "");
+    let gB = 0, gV = 0, gT = 0;
+    const rows = docs.map(o => {
+      const p = prof(o.supplierName);
+      const t = erpPuTotals(o);
+      const cur = erpPuCur(o);
+      const k = cur === "BGN" ? 1 / RATE : 1;
+      gB += t.base * k; gV += t.vat * k; gT += t.total * k;
+      return [
+        erpDMY(o.date) || "", kindBg(o), o.invoiceNo || "", o.supplierName || "",
+        p.eik || "", p.vat || "", p.country || "", p.addr || "", p.iban || "",
+        o.expenseType || "", (typeof suppLabel === "function" && typeof SUPP_KIND !== "undefined") ? suppLabel(SUPP_KIND, p.kind) : (p.kind || ""), p.account || "",
+        p.whatWeBuy || "", (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 6).join(", "),
+        n2(t.base), n2(t.vat), n2(t.total), cur,
+        n2(t.base * k), n2(t.vat * k), n2(t.total * k),
+        payTxt(o), o.dueDate ? erpDMY(o.dueDate) : "", o.posted ? "да" : "не", o.note || "",
+      ];
+    });
+    rows.push(["", "", "", "ОБЩО (" + docs.length + " документа)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", n2(gB), n2(gV), n2(gT), "", "", "", ""]);
+    const lineRows = [];
+    docs.forEach(o => {
+      const cur = erpPuCur(o);
+      (o.lines || []).forEach(l => {
+        const q = erpToNum(l.qty) || 0, up = erpToNum(l.unitPrice) || 0;
+        lineRows.push([erpDMY(o.date) || "", o.invoiceNo || "", o.supplierName || "", l.article || l.name || "", l.code || "", q, l.unit || "", n2(up), n2(q * up), cur]);
+      });
+    });
+    reportExportXls("schetovodstvo-pokupki-" + m, "Покупки за счетоводството · " + m, [
+      {
+        title: "Фактури",
+        headers: [
+          { label: "Дата" }, { label: "Вид" }, { label: "№ документ" }, { label: "Доставчик" },
+          { label: "ЕИК" }, { label: "ДДС №" }, { label: "Държава" }, { label: "Адрес" }, { label: "IBAN" },
+          { label: "Вид разход (ЕРП)" }, { label: "Вид на разхода (паспорт)" }, { label: "Счет. сметка" },
+          { label: "Какво купуваме от него" }, { label: "Артикули по фактурата" },
+          { label: "Основа (док.)", num: true }, { label: "ДДС (док.)", num: true }, { label: "Общо (док.)", num: true }, { label: "Валута" },
+          { label: "Основа EUR", num: true }, { label: "ДДС EUR", num: true }, { label: "Общо EUR", num: true },
+          { label: "Плащане" }, { label: "Падеж" }, { label: "Заприходена" }, { label: "Бележка" },
+        ],
+        rows,
+      },
+      {
+        title: "Редове (всеки артикул)",
+        headers: [
+          { label: "Дата" }, { label: "№ Фактура" }, { label: "Доставчик" }, { label: "Артикул" }, { label: "Код" },
+          { label: "К-во", num: true }, { label: "Мярка" }, { label: "Ед. цена", num: true }, { label: "Стойност", num: true }, { label: "Валута" },
+        ],
+        rows: lineRows,
+      },
+    ]);
+    close();
+  });
 }
