@@ -582,6 +582,7 @@ async function erpInvForm(o) {
       ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
       ${o.posted && o.kind === "invoice" ? '<button class="btn btn-small" id="inv-make-credit" title="Ново кредитно известие по тази фактура (връщане/намаление)">➖ Кредитно</button><button class="btn btn-small" id="inv-make-debit" title="Ново дебитно известие по тази фактура (увеличение/допращане)">➕ Дебитно</button>' : ""}
       ${o.kind === "proforma" ? '<button class="btn btn-small btn-primary" id="inv-make-inv" title="Клиентът плати по проформата → издай истинската фактура: клиентът, редовете и условията се копират, ти само проверяваш и издаваш">🧾 Фактура от проформата</button>' : ""}
+      ${o.kind === "invoice" || o.kind === "proforma" ? '<button class="btn btn-small" id="inv-clone" title="Нов документ-чернова, копие на този: клиент, редове, условия — променяш каквото трябва и издаваш с нов номер">📄 Създай подобна</button>' : ""}
       ${locked ? '<span class="erp-count">✓ Издадена — само преглед</span><button class="btn btn-small" id="inv-unlock" title="Отключва издадената фактура за ръчна поправка (номерът се запазва)">✎ Ръчна редакция</button>'
         : (o.posted
           ? '<span class="erp-count erp-warn">⚠ Редакция на ИЗДАДЕНА — номерът се запазва</span><button class="btn btn-small btn-primary" id="inv-save">💾 Запази промените</button>'
@@ -774,6 +775,7 @@ async function erpInvForm(o) {
   const mkc = document.getElementById("inv-make-credit"); if (mkc) mkc.addEventListener("click", () => erpInvNoteFrom(o, "credit"));
   const mkd = document.getElementById("inv-make-debit"); if (mkd) mkd.addEventListener("click", () => erpInvNoteFrom(o, "debit"));
   const mki = document.getElementById("inv-make-inv"); if (mki) mki.addEventListener("click", () => erpInvFromProforma(o));
+  const cln = document.getElementById("inv-clone"); if (cln) cln.addEventListener("click", () => erpInvCloneSimilar(o));
   v.querySelectorAll("[data-goto-sale]").forEach(b => b.addEventListener("click", () => {
     try { erpSaQuery = b.dataset.gotoSale || ""; } catch (e) {}
     if (typeof erpSetTab === "function") erpSetTab("sales", true);
@@ -1122,6 +1124,27 @@ function erpInvFromProforma(src) {
     lines: (src.lines || []).map(l => ({ ...l })),
     status: "чернова", posted: false, compiledBy: src.compiledBy || "",
     tariffCode: src.tariffCode || "", payCond: src.payCond || "", pallets: src.pallets ? JSON.parse(JSON.stringify(src.pallets)) : undefined,
+  };
+  erpInvForm(o);
+}
+
+/* 📄 „Създай подобна": нов документ-чернова, копие на отворения — клиент,
+   редове, валута, условия. Датите са днешни, номер се взима при „Издай".
+   За повтарящи се фактури (наеми, абонаменти, същият клиент всеки месец). */
+function erpInvCloneSimilar(src) {
+  const today = new Date().toISOString().slice(0, 10);
+  const o = {
+    kind: src.kind || "invoice", seriesKey: invSeriesOfInvoice(src), issueDate: today, taxDate: today,
+    orderRef: src.orderRef || "", client: JSON.parse(JSON.stringify(src.client || {})),
+    consignee: src.consignee ? JSON.parse(JSON.stringify(src.consignee)) : null,
+    clientId: src.clientId || null, currency: src.currency || "EUR",
+    vatRate: src.vatRate != null ? src.vatRate : 20, vatBasis: src.vatBasis || "",
+    paymentMethod: src.paymentMethod || "", termDays: Number(src.termDays) || 0, dueDate: "",
+    note: src.note || "", lines: (src.lines || []).map(l => ({ ...l })),
+    status: "чернова", posted: false, compiledBy: src.compiledBy || "",
+    tariffCode: src.tariffCode || "", payCond: src.payCond || "",
+    pallets: src.pallets ? JSON.parse(JSON.stringify(src.pallets)) : undefined,
+    transport: src.transport ? JSON.parse(JSON.stringify(src.transport)) : undefined,
   };
   erpInvForm(o);
 }
