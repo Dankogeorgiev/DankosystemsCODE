@@ -1010,6 +1010,9 @@ async function erpInvIssue(o) {
     try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
     // Цените от фактурата попълват ценовата листа на клиента (авто).
     try { if (typeof erpPLApplyInvoice === "function") await erpPLApplyInvoice(o); } catch (e) {}
+    // 🚚 Consignee (адресът за доставка) → паспорта на клиента; Клиенти/
+    // Доставчици го показва в картона и търси по него.
+    try { if (typeof compDeliveryApply === "function" && typeof cliLoad === "function") { await cliLoad(); if (compDeliveryApply(o)) await cliSave(); } } catch (e) {}
     // Фактура от продажби: маркираме ги с номера (не се фактурират втори път).
     if ((o.fromSaleIds || []).length) { try { await erpInvMarkSalesInvoiced(o); } catch (e) {} }
     // Известие с движение на стока: кредитно ВРЪЩА артикулите в Склад детайли

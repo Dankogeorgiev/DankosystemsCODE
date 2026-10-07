@@ -79,6 +79,50 @@ function compAutoLinks() {
   return map;
 }
 
+/* ---------- 🚚 Адресите за доставка (Consignee) от износните фактури ----------
+   Износната фактура носи КЪДЕ пращаме камиона (CONSIGNEE) — често различно от
+   адреса по регистрация на клиента. Тези адреси влизат в паспорта на клиента
+   (полето „Адрес(и) за доставка") автоматично: празното се попълва, нов
+   различен адрес се ДОБАВЯ на нов ред, нищо не се трие. Пълни се веднъж на
+   сесия при отваряне на Клиенти/Доставчици + при всяко издаване на фактура
+   с получател. Картонът го показва, търсенето рови и в него. */
+function compDeliveryApply(o) {
+  const cs = o && o.consignee;
+  if (!cs || !(cs.street || cs.city) || !o.client || !o.client.name) return 0;
+  if (typeof CLI_PROFILES === "undefined" || !CLI_PROFILES) return 0;
+  const line = [cs.name, [cs.street, cs.city, cs.country].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  if (!line) return 0;
+  const squash = s => String(s || "").toLowerCase().replace(/[^a-zа-я0-9]+/g, "");
+  const key = cliKey(o.client.name);
+  CLI_PROFILES.byKey = CLI_PROFILES.byKey || {};
+  const prof = CLI_PROFILES.byKey[key] || { name: String(o.client.name).trim() };
+  const cur = String(prof.addr || "");
+  // Улицата+градът вече ги има (все едно как са изписани) → нищо ново.
+  const part = squash([cs.street, cs.city].filter(Boolean).join(" "));
+  if (part && squash(cur).includes(part)) return 0;
+  prof.addr = cur ? cur + "\n" + line : line;
+  prof.addrSrc = "invoice";
+  CLI_PROFILES.byKey[key] = prof;
+  return 1;
+}
+async function compDeliverySync() {
+  if (window.COMP_DELIV_SYNCED) return 0;
+  window.COMP_DELIV_SYNCED = true;
+  try {
+    if (typeof cliLoad !== "function") return 0;
+    await cliLoad();
+    if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+  } catch (e) { return 0; }
+  // Старите първи — така най-новият адрес застава на последния ред.
+  const docs = ((typeof erpInvoices !== "undefined" && erpInvoices) || [])
+    .filter(o => o.kind !== "proforma" && o.posted)
+    .sort((a, b) => String(a.issueDate || "").localeCompare(String(b.issueDate || "")));
+  let changed = 0;
+  docs.forEach(o => { changed += compDeliveryApply(o); });
+  if (changed) { try { if (!(await cliSave())) return 0; } catch (e) { return 0; } }
+  return changed;
+}
+
 async function compDirLoad() {
   if (COMP_DIR) return COMP_DIR;
   try {
@@ -153,6 +197,8 @@ async function erpRenderCompanies() {
   try { if ((typeof erpPurchases === "undefined" || !erpPurchases) && typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}
   try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
   try { if (typeof cliLoad === "function") await cliLoad(); } catch (e) {}
+  let delivNew = 0;
+  try { delivNew = await compDeliverySync(); } catch (e) {}
   await compDirLoad();
 
   let list = (erpPartners || []).slice();
@@ -163,7 +209,8 @@ async function erpRenderCompanies() {
     list = list.filter(p => {
       const cts = compContactsFor(p);
       const trade = compTradeFor(p);
-      const hay = compNorm([p.name, p.eik, p.vat, p.mol, p.city, p.street,
+      const cpA = (typeof cliProfile === "function") ? String((cliProfile(p.name) || {}).addr || "") : "";
+      const hay = compNorm([p.name, p.eik, p.vat, p.mol, p.city, p.street, cpA,
         cts.map(c => `${c.contact_person} ${c.email} ${c.phone} ${c.scope} ${c.notes}`).join(" "),
         trade.map(t => `${t.code} ${t.name}`).join(" ")].join(" "));
       if (!words.every(w => hay.includes(w))) return false;
@@ -265,7 +312,7 @@ async function erpRenderCompanies() {
       <button class="btn btn-small" id="comp-old" title="Старият изглед (директориите поотделно)">⚙ Стар изглед</button>
       <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
     </div>
-    <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити.</p>
+    <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити. Търсенето рови и в 🚚 адресите за доставка (Consignee от износните фактури).${delivNew ? ` <b style="color:#166534">🚚 Току-що попълних ${delivNew} адреса за доставка от фактурите.</b>` : ""}</p>
     <table class="report-table erp-table">
       <thead><tr><th>Фирма</th><th>Тип</th><th>ЕИК</th><th>🧾 Фактури на</th><th>Хора (лице · тел.)</th><th>Търгуваме (авто)</th><th></th></tr></thead>
       <tbody>${rowsData.map(r => r.html).join("") || `<tr><td colspan="7" class="report-empty">Няма фирми по този филтър.</td></tr>`}</tbody>
@@ -387,6 +434,12 @@ async function compCard(pid) {
     <div class="crm-kv"><span>ЕИК / ДДС №</span><b>${escapeHtml(p.eik || liFix.eik || rq.eik || "—")}${!p.eik && (liFix.eik || rq.eik) ? ` <span class="erp-muted" style="font-size:11px">(${liFix.eik ? "от фактура" : "от ДДС/паспорта"})</span>` : ""}${rq.vat || liFix.vat ? " · " + escapeHtml(rq.vat || liFix.vat) : ""}</b></div>
     <div class="crm-kv"><span>МОЛ</span><b>${escapeHtml(p.mol || liFix.mol || "—")}${!p.mol && liFix.mol ? ` <span class="erp-muted" style="font-size:11px">(от фактура)</span>` : ""}</b></div>
     <div class="crm-kv"><span>Адрес</span><b>${escapeHtml(rq.addr || [liFix.city, liFix.street, liFix.country].filter(Boolean).join(", ") || "—")}</b></div>
+    ${(function () {
+      const cp = (typeof cliProfile === "function") ? (cliProfile(p.name) || {}) : {};
+      const a = String(cp.addr || "").trim();
+      if (!a) return "";
+      return `<div class="crm-kv"><span>🚚 Адрес за доставка</span><b>${a.split("\n").map(x => escapeHtml(x)).join("<br>")}${cp.addrSrc === "invoice" ? ` <span class="erp-muted" style="font-size:11px">(от износните фактури — Consignee)</span>` : ""}</b></div>`;
+    })()}
     ${liHas ? `<p style="margin:4px 0"><button class="btn btn-small btn-primary" id="comp-lifix">⤵ Запиши реквизитите от последната фактура${lastInv.docNo ? " (№ " + escapeHtml(String(lastInv.docNo)) + ")" : ""}</button> <span class="hint">попълва само празните полета — МОЛ, ЕИК, адрес</span></p>` : ""}
     ${(rq.person || rq.phone || rq.email) ? `<div class="crm-kv"><span>Лице / тел. / имейл</span><b>${escapeHtml([rq.person, rq.phone, rq.email].filter(Boolean).join(" · "))}</b></div>` : ""}
     ${p.note ? `<div class="crm-kv"><span>Забележка</span><b>${escapeHtml(p.note)}</b></div>` : ""}
