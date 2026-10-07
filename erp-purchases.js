@@ -243,9 +243,28 @@ function erpPuExportAllXls() {
    Зарежда от базата само при вход в таба; търсенето филтрира В ПАМЕТТА (обновява
    само тялото на таблицата) — без нова заявка към Supabase и без трепване/загуба
    на фокус при всеки натиснат клавиш. */
+
+/* Платежният статус на покупка като хапче: платена (как) / в Задължения
+   (с падежа, РЕАЛНА проверка срещу списъка) / липсва в Задължения. */
+function erpPuPayBadge(o) {
+  const badge = (txt, bg, col) => `<span class="erp-co-status" style="background:${bg};color:${col};white-space:nowrap">${txt}</span>`;
+  if (o.docType === "goods") return badge("📦 без плащане", "#e2e8f0", "#334155");
+  if (o.docType === "credit") return badge("➖ кредитно", "#e2e8f0", "#334155");
+  const st = erpPuPayStatus(o);
+  if (st === "cash") return badge("💵 платена в брой", "#dcfce7", "#166534");
+  if (st === "card") return badge("💳 платена с карта", "#dcfce7", "#166534");
+  if (st === "bank" && o.paid) return badge("🏦 платена по банка", "#dcfce7", "#166534");
+  const pb = ((typeof PAYABLES !== "undefined" && PAYABLES) || []).find(p2 => String(p2.srcPurchaseId || "") === String(o.id));
+  if (pb && pb.paid) return badge("✔ платена" + (pb.paidDate ? " · " + erpDMY(pb.paidDate) : ""), "#dcfce7", "#166534");
+  if (pb) return badge("🟨 в Задължения · " + (pb.dueDate ? erpDMY(pb.dueDate) : "без падеж"), "#fef9c3", "#854d0e");
+  if (o.paid) return badge("✔ платена" + (o.paidDate ? " · " + erpDMY(o.paidDate) : ""), "#dcfce7", "#166534");
+  return badge("⚠ липсва в Задължения", "#fee2e2", "#991b1b");
+}
+
 async function erpRenderPurchases() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  try { if (typeof erpPayLoad === "function" && (typeof PAYABLES === "undefined" || !PAYABLES)) await erpPayLoad(); } catch (e) {}
   try { await erpLoadPurchases(); }
   catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя покупките</h3><p>${escapeHtml(e.message || String(e))}</p><p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица purchases) в Supabase.</p></div>`;
@@ -316,7 +335,7 @@ function erpPuFillRows() {
       <td data-label="Класификация">${o.expenseType ? `<b>${erpPuTypeIsMat(o.expenseType) ? "🧱 " : ""}${escapeHtml(o.expenseType)}</b>${cls ? " · " : ""}` : ""}${escapeHtml(cls || (o.expenseType ? "" : "—"))}</td>
       <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
       <td data-label="Плащане">${escapeHtml(erpPuPayLabel(o))}</td>
-      <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'}</td>
+      <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'} ${erpPuPayBadge(o)}</td>
       <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
     </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма фактури. Натисни „+ Нова фактура".</td></tr>`;
   tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
