@@ -380,6 +380,12 @@ async function erpRenderPurchaseForm(o) {
   const v = erpView();
   const suppliers = await erpLoadSuppliers();
   const locked = !!o.posted;   // заключва само редовете за склад (заприходените)
+  // IBAN: ако фактурата още няма, предзареждаме от паспорта на доставчика.
+  try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
+  if (!o.supplierIban && o.supplierName && typeof SUPP_PROFILES !== "undefined" && SUPP_PROFILES) {
+    const ibRec = (SUPP_PROFILES.byKey || {})[suppKey(typeof suppCanon === "function" ? suppCanon(o.supplierName) : o.supplierName)];
+    if (ibRec && ibRec.iban) o.supplierIban = ibRec.iban;
+  }
   // Подсказки за „Артикул": само последно ползваните (списъкът е сортиран по
   // updated_at) и до 300 — иначе с годините datalist-ът набъбва и бави писането.
   const articles = []; const artSeen = new Set();
@@ -430,6 +436,7 @@ async function erpRenderPurchaseForm(o) {
           : `<select id="pu-cur" disabled title="Всички покупки се водят в евро"><option selected>EUR</option></select>`}</label>
         <label>ДДС ставка % <select id="pu-vat">${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
         <label>Вид разход <select id="pu-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === o.expenseType ? "selected" : ""}>${t.mat ? "🧱 " : ""}${escapeHtml(t.k)}</option>`).join("")}</select></label>
+        <label>IBAN на доставчика <input type="text" id="pu-iban" value="${escapeAttr(o.supplierIban || "")}" placeholder="BG… — отива в паспорта и в Задължения" /></label>
       </div>
       ${o.docType === "goods"
         ? '<p class="hint" style="margin:4px 0">📦 <b>Стокова разписка:</b> заприходява склада ВЕДНАГА, но НЕ влиза в разходите и плащанията — парите идват с месечната фактура, която я покрива.</p>'
@@ -746,6 +753,21 @@ async function erpPuSaveClick(o, opts) {
   // Паспортите на доставчиците — за подсещането „нов доставчик без картон".
   try { if (typeof suppEnsureLoaded === "function") await suppEnsureLoaded(); } catch (e) {}
   erpPuApplyPay(o);   // синхронизира paid/срок/дата според избрания статус на плащане
+  // IBAN от формата → фактурата (→ реда в Задължения) и паспорта на доставчика.
+  try {
+    const ibEl = document.getElementById("pu-iban");
+    if (ibEl) {
+      const vv = ibEl.value.replace(/\s+/g, "").toUpperCase();
+      if (vv && !/^[A-Z]{2}[0-9A-Z]{12,32}$/.test(vv)) alert("⚠ IBAN-ът не изглежда валиден (напр. BG97BNBG96618000112001) — записвам фактурата БЕЗ него.");
+      o.supplierIban = /^[A-Z]{2}[0-9A-Z]{12,32}$/.test(vv) ? vv : "";
+      if (o.supplierIban && o.supplierName && typeof suppLoad === "function") {
+        await suppLoad();
+        const k = suppKey(typeof suppCanon === "function" ? suppCanon(o.supplierName) : o.supplierName);
+        const rec = SUPP_PROFILES.byKey[k] || (SUPP_PROFILES.byKey[k] = { name: o.supplierName });
+        if (rec.iban !== o.supplierIban) { rec.iban = o.supplierIban; rec.ibanSrc = "manual"; await suppSave(); }
+      }
+    }
+  } catch (e) { console.warn("IBAN:", e); }
   try {
     await erpSavePurchase(o); await erpLoadPurchases();
     try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
