@@ -723,7 +723,7 @@ function erpPuAfterSave(o, posted) {
     <div class="erp-dialog-actions">
       <button class="btn" id="pu-as-stay">✎ Остани в тази</button>
       <button class="btn" id="pu-as-list">← Към списъка</button>
-      <button class="btn btn-primary" id="pu-as-next">➕ Въведи следваща</button>
+      <button class="btn btn-primary" id="pu-as-next" title="Чиста празна форма — като „+ Нова фактура“">➕ Въведи нова</button>
     </div>`);
   const supBtn = wrap.querySelector("#pu-as-supp");
   if (supBtn) supBtn.addEventListener("click", () => { close(); if (typeof suppForm === "function") suppForm(o.supplierName); });
@@ -735,7 +735,7 @@ function erpPuAfterSave(o, posted) {
   });
   wrap.querySelector("#pu-as-stay").addEventListener("click", close);
   wrap.querySelector("#pu-as-list").addEventListener("click", () => { close(); erpRenderPurchases(); });
-  wrap.querySelector("#pu-as-next").addEventListener("click", () => { close(); erpNewPurchase(o); });
+  wrap.querySelector("#pu-as-next").addEventListener("click", () => { close(); erpNewPurchase(); });
 }
 
 async function erpPuSaveClick(o, opts) {
