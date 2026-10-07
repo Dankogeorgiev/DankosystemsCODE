@@ -277,8 +277,6 @@ async function erpRenderPurchases() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
-      <button class="btn btn-small" id="pu-dups" title="Намира фактури, въведени два пъти (един и същ номер) и позволява да изтриеш излишната">🔁 Дубликати</button>
-      <button class="btn btn-small" id="pu-bgn" title="Проверка: кои документи са записани в лева">💱 В лева</button>
       <button class="btn btn-small" id="pu-xls-all" title="Сваля ВСИЧКИ въведени покупни документи (фактури, стокови, кредитни) в Excel — платени и неплатени, от началото до днес">⤓ Excel (всички)</button>
       <button class="btn btn-small" id="pu-check" title="Всички фактури, въведени ДНЕС, със статус на плащането — и проверка дали отложените реално са в Задължения">🔎 Проверка</button>
       <button class="btn btn-small" id="pu-xls-acc" title="Месечният файл за счетоводството: всяка фактура с пълните данни на доставчика (ЕИК, ДДС №, адрес, IBAN, счетоводна сметка) + отделен лист с всеки закупен ред">📒 За счетоводството</button>
@@ -301,8 +299,6 @@ async function erpRenderPurchases() {
   erpPuMonthCards();
   document.getElementById("erp-pu-new").addEventListener("click", erpNewPurchase);
   document.getElementById("pu-code-hist").addEventListener("click", () => erpPuCodeHistory(""));
-  document.getElementById("pu-dups").addEventListener("click", erpPuDupsReport);
-  document.getElementById("pu-bgn").addEventListener("click", erpPuBgnReport);
   document.getElementById("pu-xls-all").addEventListener("click", erpPuExportAllXls);
   document.getElementById("pu-xls-acc").addEventListener("click", erpPuAccountingXls);
   document.getElementById("pu-check").addEventListener("click", erpPuCheckToday);
@@ -744,10 +740,17 @@ function erpPuAfterSave(o, posted) {
 
 async function erpPuSaveClick(o, opts) {
   const btn = document.getElementById("pu-save");
-  // Дубликат по № на фактурата — предупреждение още при записа.
+  // Дубликати (правило на Данко, 07.10.2026): същият № при СЪЩИЯ доставчик се
+  // БЛОКИРА — еднакви фактури не се въвеждат. Същият № при ДРУГ доставчик може
+  // да е съвпадение на номерацията — само предупреждение.
   if (!o.posted && o.invoiceNo) {
-    const dup = erpPuDupsOf(o).find(p => erpPuEq(p.supplierName) === erpPuEq(o.supplierName)) || erpPuDupsOf(o)[0];
-    if (dup && !confirm(`⚠ Фактура № ${o.invoiceNo} ВЕЧЕ е въведена: ${dup.supplierName || "?"} · ${erpDMY(dup.date) || "?"} · ${dup.posted ? "ЗАПРИХОДЕНА" : "чернова"}.\nАко това е СЪЩАТА фактура — спри и провери в списъка.\nДа запиша ли въпреки това ВТОРИ запис?`)) return;
+    const same = erpPuDupsOf(o).find(p => erpPuEq(p.supplierName) === erpPuEq(o.supplierName));
+    if (same) {
+      alert(`⛔ Фактура № ${o.invoiceNo} на ${same.supplierName || "?"} ВЕЧЕ е въведена (${erpDMY(same.date) || "?"} · ${same.posted ? "заприходена" : "чернова"}).\nЕднакви фактури не се записват — отвори съществуващата от списъка.\nАко старата е сгрешена: отвори я и я поправи (или 🗑 Изтрий).`);
+      return;
+    }
+    const other = erpPuDupsOf(o)[0];
+    if (other && !confirm(`⚠ Същият № ${o.invoiceNo} вече съществува при ДРУГ доставчик: ${other.supplierName || "?"} · ${erpDMY(other.date) || "?"}.\nАко е просто съвпадение на номерациите — продължи.\nДа запиша ли?`)) return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
   // Паспортите на доставчиците — за подсещането „нов доставчик без картон".

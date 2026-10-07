@@ -396,8 +396,10 @@ async function erpPuAIConfirm() {
   // Дубликат: същият № на фактура вече въведен (напр. сканирана два пъти).
   try { if (typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}   // свежа база — да хванем и въведеното междувременно
   if (s.invoiceNo && typeof erpPuEq === "function") {
-    const dup = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).find(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
-    if (dup && !confirm(`⚠ Фактура № ${s.invoiceNo} ВЕЧЕ е въведена: ${dup.supplierName || "?"} · ${dup.posted ? "ЗАПРИХОДЕНА" : "чернова"}.\nАко е същата фактура — спри (има я в списъка).\nДа създам ли въпреки това ВТОРИ запис?`)) return;
+    const dups = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
+    const same = dups.find(p => erpPuEq(p.supplierName) === erpPuEq(s.supName || ""));
+    if (same) { alert(`⛔ Фактура № ${s.invoiceNo} на ${same.supplierName || "?"} ВЕЧЕ е въведена (${same.posted ? "заприходена" : "чернова"}).\nЕднакви фактури не се записват — има я в списъка на Покупките.`); return; }
+    if (dups[0] && !confirm(`⚠ Същият № ${s.invoiceNo} вече съществува при ДРУГ доставчик: ${dups[0].supplierName || "?"}.\nАко е съвпадение на номерациите — продължи.\nДа създам ли?`)) return;
   }
   // Сверка на сумите срещу документа — да не се заприходи с грешна стойност.
   const p0 = s.parsed || {};
