@@ -273,6 +273,7 @@ async function erpRenderInvoices() {
       <span class="spacer"></span>
       ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
       <button class="btn btn-small" id="inv-report" title="Справка за период: вътрешни, външни и покупни фактури — с експорт">📊 Справка</button>
+      <button class="btn btn-small" id="inv-xls-acc" title="Месечен Excel за счетоводството: всички издадени фактури и известия към клиенти с пълните им данни + лист с всеки ред">📒 За счетоводството</button>
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
       ${typeof erpInvAIStart === "function" ? '<button class="btn btn-small" id="inv-from-offer" title="Качи нашата оферта (Excel шаблона DANKO Quotation) — редовете влизат във фактурата, материалът се изписва по посочени кодове, палетите се сглобяват до 800 кг">🤖 От оферта…</button>' : ""}
@@ -316,6 +317,7 @@ async function erpRenderInvoices() {
   document.getElementById("inv-fstatus").addEventListener("change", e => { erpInvStatusFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-series").addEventListener("click", erpInvSeriesDialog);
   document.getElementById("inv-report").addEventListener("click", erpInvReport);
+  const xa = document.getElementById("inv-xls-acc"); if (xa) xa.addEventListener("click", erpInvAccountingXls);
   const mt = document.getElementById("inv-mail-test"); if (mt) mt.addEventListener("click", erpMailDiag);
   const imEl = document.getElementById("inv-import");
   if (imEl) imEl.addEventListener("change", e => { erpInvImport(e.target.files[0]); e.target.value = ""; });
@@ -1147,6 +1149,108 @@ function erpInvCloneSimilar(src) {
     transport: src.transport ? JSON.parse(JSON.stringify(src.transport)) : undefined,
   };
   erpInvForm(o);
+}
+
+/* 📒 „За счетоводството" (продажби): месечен Excel с ВСИЧКИ издадени документи
+   към клиенти — фактури, кредитни и дебитни известия. Проформите НЕ влизат
+   (не са данъчни документи). Лист 1 — всеки документ с пълните данни на
+   клиента; лист 2 — всеки ред от всеки документ. Сумите и в EUR; кредитните
+   са с минус. Анулираните/сторнираните присъстват в списъка (номерът е
+   изгорен и счетоводството трябва да го види), но НЕ влизат в сборовете. */
+async function erpInvAccountingXls() {
+  if (!erpInvoices) { try { await erpLoadInvoices(); } catch (e) { alert("Не мога да заредя фактурите: " + (e.message || e)); return; } }
+  try { await erpInvLoadSeries(); } catch (e) {}
+  const d = new Date(); d.setMonth(d.getMonth() - 1);
+  const def = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const { wrap, close } = erpDialog(`
+    <h3>📒 За счетоводството — продажби</h3>
+    <p class="hint" style="margin:0 0 8px">Избери месеца — файлът носи всяка издадена фактура и известие с пълните данни на клиента и отделен лист с всеки ред. Проформите не влизат (не са данъчни документи).</p>
+    <label class="erp-inline">Месец <input type="month" id="iacc-m" value="${def}" /></label>
+    <div class="erp-dialog-actions"><button class="btn" id="iacc-cancel">Отказ</button><button class="btn btn-primary" id="iacc-go">⤓ Свали Excel</button></div>`);
+  wrap.querySelector("#iacc-cancel").addEventListener("click", close);
+  wrap.querySelector("#iacc-go").addEventListener("click", () => {
+    const m = wrap.querySelector("#iacc-m").value;
+    if (!/^\d{4}-\d{2}$/.test(m)) { alert("Избери месец."); return; }
+    const RATE = INV_EUR_BGN;
+    const n2 = x => Math.round((Number(x) || 0) * 100) / 100;
+    const stOf = o => o.status || (o.posted ? "издадена" : "чернова");
+    const docs = (erpInvoices || []).filter(o =>
+      o.kind !== "proforma" && stOf(o) !== "чернова" &&
+      String(o.issueDate || "").slice(0, 7) === m)
+      .sort((a, b) => String(a.docNo || a.cancelledNo || "").localeCompare(String(b.docNo || b.cancelledNo || "")));
+    if (!docs.length) { alert("Няма издадени документи за " + m + "."); return; }
+    let gB = 0, gV = 0, gT = 0, nReal = 0;
+    const rows = docs.map(o => {
+      const c = o.client || {};
+      const t = erpInvTotals(o);   // кредитното идва с минус
+      const cur = erpInvCur(o);
+      const k = cur === "BGN" ? 1 / RATE : 1;
+      const st = stOf(o);
+      const dead = st === "анулирана" || st === "сторнирана";
+      if (!dead) { gB += t.base * k; gV += t.vat * k; gT += t.total * k; nReal++; }
+      const ser = (erpInvSeries || {})[invSeriesOfInvoice(o)] || {};
+      return [
+        erpDMY(o.issueDate) || "", erpDMY(o.taxDate || o.issueDate) || "",
+        (INV_KINDS[o.kind] || {}).label || o.kind, String(o.docNo || o.cancelledNo || "—"),
+        ser.label || "", c.name || "", c.eik || "", c.vat || "", c.person || "",
+        c.country || "", c.city || "", c.street || "",
+        (o.consignee && o.consignee.name) || "",
+        o.vatBasis || "",
+        o.refInvoice ? ("№ " + (o.refInvoice.docNo || "") + " / " + (erpDMY(o.refInvoice.date) || "")) : "",
+        o.refReason || "", o.orderRef || "",
+        t.rate, n2(t.base), n2(t.vat), n2(t.total), cur,
+        dead ? "" : n2(t.base * k), dead ? "" : n2(t.vat * k), dead ? "" : n2(t.total * k),
+        o.paymentMethod || "", o.dueDate ? erpDMY(o.dueDate) : "", st, o.compiledBy || "", o.note || "",
+      ];
+    });
+    const voided = docs.length - nReal;
+    rows.push(["", "", "", "", "",
+      "ОБЩО (" + nReal + " документа" + (voided ? " · още " + voided + " анулирани/сторнирани извън сбора" : "") + ")",
+      "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+      n2(gB), n2(gV), n2(gT), "", "", "", "", ""]);
+    const lineRows = [];
+    docs.forEach(o => {
+      const cur = erpInvCur(o);
+      const sign = o.kind === "credit" ? -1 : 1;
+      const k = cur === "BGN" ? 1 / RATE : 1;
+      (o.lines || []).forEach(l => {
+        const q = erpToNum(l.qty) || 0, up = erpToNum(l.unitPrice) || 0;
+        let kg = 0; try { kg = erpDocLineKg(o, l) || 0; } catch (e) {}
+        lineRows.push([
+          erpDMY(o.issueDate) || "", String(o.docNo || o.cancelledNo || "—"),
+          (INV_KINDS[o.kind] || {}).label || o.kind, (o.client && o.client.name) || "",
+          l.code || "", l.clientCode || "", l.name || l.article || "",
+          q, l.unit || "", n2(up), n2(q * up * sign), cur, n2(q * up * sign * k), n2(kg),
+        ]);
+      });
+    });
+    reportExportXls("schetovodstvo-prodazhbi-" + m, "Продажби за счетоводството · " + m, [
+      {
+        title: "Фактури",
+        headers: [
+          { label: "Дата на издаване" }, { label: "Дан. събитие" }, { label: "Вид" }, { label: "№ документ" },
+          { label: "Серия" }, { label: "Клиент" }, { label: "ЕИК" }, { label: "ДДС №" }, { label: "МОЛ" },
+          { label: "Държава" }, { label: "Град" }, { label: "Адрес" }, { label: "Получател (ако е друг)" },
+          { label: "Основание 0% ДДС" }, { label: "Към фактура" }, { label: "Основание (известие)" }, { label: "Поръчка" },
+          { label: "ДДС %", num: true }, { label: "Основа (док.)", num: true }, { label: "ДДС (док.)", num: true }, { label: "Общо (док.)", num: true }, { label: "Валута" },
+          { label: "Основа EUR", num: true }, { label: "ДДС EUR", num: true }, { label: "Общо EUR", num: true },
+          { label: "Начин на плащане" }, { label: "Падеж" }, { label: "Статус" }, { label: "Изготвил" }, { label: "Бележка" },
+        ],
+        rows,
+      },
+      {
+        title: "Редове (всеки артикул)",
+        headers: [
+          { label: "Дата" }, { label: "№ документ" }, { label: "Вид" }, { label: "Клиент" },
+          { label: "Наш код" }, { label: "Клиентски код" }, { label: "Артикул" },
+          { label: "К-во", num: true }, { label: "Мярка" }, { label: "Ед. цена", num: true },
+          { label: "Стойност", num: true }, { label: "Валута" }, { label: "Стойност EUR", num: true }, { label: "Тегло (кг)", num: true },
+        ],
+        rows: lineRows,
+      },
+    ]);
+    close();
+  });
 }
 
 function erpInvNoteFrom(src, kind) {
