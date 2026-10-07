@@ -407,6 +407,7 @@ async function erpRenderPurchaseForm(o) {
       ${locked
         ? '<button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
         : ""}
+      ${o.id && !locked ? '<button class="btn btn-small btn-danger" id="pu-del" title="Изтрива фактурата (напр. дубликат). Маха и неплатения ѝ ред от Задължения.">🗑 Изтрий</button>' : ""}
     </div>
     <div class="erp-co-form">
       <div class="erp-co-grid">
@@ -494,6 +495,8 @@ async function erpRenderPurchaseForm(o) {
   document.getElementById("pu-next").addEventListener("click", () => erpPuSaveClick(o, { next: true }));
   const puCl = document.getElementById("pu-clone");
   if (puCl) puCl.addEventListener("click", () => erpPuCloneSimilar(o));
+  const puDel = document.getElementById("pu-del");
+  if (puDel) puDel.addEventListener("click", () => erpPuDelete(o));
   const puClAi = document.getElementById("pu-clone-ai");
   if (puClAi) puClAi.addEventListener("click", () => { if (typeof erpPuAIStart === "function") erpPuAIStart({ supName: o.supplierName || "", supId: o.supplierId || null, expenseType: o.expenseType || "" }); });
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
@@ -1529,4 +1532,24 @@ async function erpPuCheckRender(v) {
     const bk = document.getElementById("pu-back");
     if (bk) { const nb = bk.cloneNode(true); bk.parentNode.replaceChild(nb, bk); nb.addEventListener("click", () => erpPuCheckRender()); }
   }));
+}
+
+/* 🗑 Изтриване на (незаприходена) покупка — за дубликати и сгрешени записи.
+   Маха и неплатения ѝ ред от Задължения, за да не остане висящо плащане. */
+async function erpPuDelete(o) {
+  if (!o || !o.id) return;
+  if (o.posted) { alert(`Фактурата е ЗАПРИХОДЕНА.\nПърво „↩ Върни за редакция" (складът и цените се връщат), после я изтрий.`); return; }
+  const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { total: 0 };
+  if (!confirm(`🗑 Изтривам фактура № ${o.invoiceNo || "—"} · ${o.supplierName || "?"} · ${(Math.round((t.total || 0) * 100) / 100).toLocaleString("bg-BG")} ${erpPuCur(o)}?\nАко има неплатен ред в Задължения, и той ще се махне.\nИзтриването е окончателно.`)) return;
+  const { error } = await sb.from("purchases").delete().eq("id", o.id);
+  if (error) { alert("Грешка при изтриване: " + error.message); return; }
+  try {
+    if (typeof erpPayLoad === "function") {
+      await erpPayLoad();
+      const i = (PAYABLES || []).findIndex(p => String(p.srcPurchaseId || "") === String(o.id) && !p.paid);
+      if (i >= 0) { PAYABLES.splice(i, 1); await erpPaySave(); }
+    }
+  } catch (e) { console.warn("задължението на изтритата:", e); }
+  erpPurchases = null;
+  erpRenderPurchases();
 }
