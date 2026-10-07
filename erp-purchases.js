@@ -47,7 +47,7 @@ async function erpLoadPurchases() {
   const { data, error } = await erpSelectAll("purchases", "*");
   if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   if (error) throw error;
-  erpPurchases = (data || []).map(r => ({ id: r.id, posted: r.posted, ...(r.data || {}) }));
+  erpPurchases = (data || []).map(r => ({ id: r.id, posted: r.posted, createdAt: r.created_at || "", ...(r.data || {}) }));
 }
 async function erpSavePurchase(o) {
   const data = { ...o }; delete data.id; delete data.posted;
@@ -261,6 +261,7 @@ async function erpRenderPurchases() {
       <button class="btn btn-small" id="pu-dups" title="Намира фактури, въведени два пъти (един и същ номер) и позволява да изтриеш излишната">🔁 Дубликати</button>
       <button class="btn btn-small" id="pu-bgn" title="Проверка: кои документи са записани в лева">💱 В лева</button>
       <button class="btn btn-small" id="pu-xls-all" title="Сваля ВСИЧКИ въведени покупни документи (фактури, стокови, кредитни) в Excel — платени и неплатени, от началото до днес">⤓ Excel (всички)</button>
+      <button class="btn btn-small" id="pu-check" title="Всички фактури, въведени ДНЕС, със статус на плащането — и проверка дали отложените реално са в Задължения">🔎 Проверка</button>
       <button class="btn btn-small" id="pu-xls-acc" title="Месечният файл за счетоводството: всяка фактура с пълните данни на доставчика (ЕИК, ДДС №, адрес, IBAN, счетоводна сметка) + отделен лист с всеки закупен ред">📒 За счетоводството</button>
       ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-ai" title="Качи сканирана фактура — Claude я разчита">🤖 Разчети фактура (AI)</button>' : ""}
       <button class="btn btn-small btn-primary" id="erp-pu-new">+ Нова фактура</button>
@@ -285,6 +286,7 @@ async function erpRenderPurchases() {
   document.getElementById("pu-bgn").addEventListener("click", erpPuBgnReport);
   document.getElementById("pu-xls-all").addEventListener("click", erpPuExportAllXls);
   document.getElementById("pu-xls-acc").addEventListener("click", erpPuAccountingXls);
+  document.getElementById("pu-check").addEventListener("click", erpPuCheckToday);
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
@@ -1444,4 +1446,56 @@ function erpPuCloneSimilar(src) {
     lines: (src.lines || []).map(l => { const c = { ...l }; delete c.id; return c; }),
   };
   erpRenderPurchaseForm(o);
+}
+
+/* ---------- 🔎 Проверка: въведените ДНЕС фактури и къде им е плащането ----------
+   В брой / с карта / по банка — платени веднага; отложените ТРЯБВА да са в
+   Задължения — проверяваме реално срещу списъка и ако липсват, светва червено. */
+async function erpPuCheckToday() {
+  const today = new Date().toISOString().slice(0, 10);
+  try { if (typeof erpPayLoad === "function" && (typeof PAYABLES === "undefined" || !PAYABLES)) await erpPayLoad(); } catch (e) {}
+  const docs = (erpPurchases || []).filter(o =>
+    String(o.createdAt || "").slice(0, 10) === today || (!o.createdAt && String(o.date || "") === today))
+    .sort((a, b) => String(a.supplierName || "").localeCompare(String(b.supplierName || ""), "bg"));
+  const money = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const badge = (txt, bg, col) => `<span style="display:inline-block;background:${bg};color:${col};border-radius:7px;padding:1px 9px;font-weight:700;font-size:12px;white-space:nowrap">${txt}</span>`;
+  const statusOf = o => {
+    if (o.docType === "goods") return badge("📦 стокова — без плащане", "#e2e8f0", "#334155");
+    if (o.docType === "credit") return badge("➖ кредитно известие", "#e2e8f0", "#334155");
+    const st = (typeof erpPuPayStatus === "function") ? erpPuPayStatus(o) : "";
+    if (st === "cash") return badge("💵 платена в брой", "#dcfce7", "#166534");
+    if (st === "card") return badge("💳 платена с карта", "#dcfce7", "#166534");
+    if (st === "bank" && o.paid) return badge("🏦 платена по банка", "#dcfce7", "#166534");
+    // Отложено плащане → трябва да е в Задължения.
+    const pb = ((typeof PAYABLES !== "undefined" && PAYABLES) || []).find(p => String(p.srcPurchaseId || "") === String(o.id));
+    if (pb && pb.paid) return badge("✔ платена (през Задължения)", "#dcfce7", "#166534");
+    if (pb) return badge("🟨 в Задължения · падеж " + (pb.dueDate ? erpDMY(pb.dueDate) : "—"), "#fef9c3", "#854d0e");
+    if (o.paid) return badge("✔ платена", "#dcfce7", "#166534");
+    return badge("⚠ ЛИПСВА в Задължения!", "#fee2e2", "#991b1b");
+  };
+  const rows = docs.map(o => {
+    const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { total: 0 };
+    return `<tr>
+      <td><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
+      <td>${escapeHtml(o.supplierName || "")}</td>
+      <td class="num"><b>${money(t.total)}</b> ${escapeHtml(erpPuCur(o))}</td>
+      <td>${statusOf(o)}</td>
+    </tr>`;
+  }).join("");
+  const missing = docs.filter(o => {
+    if (o.docType === "goods" || o.docType === "credit" || o.paid) return false;
+    const st = (typeof erpPuPayStatus === "function") ? erpPuPayStatus(o) : "";
+    if (st === "cash" || st === "card") return false;
+    return !((typeof PAYABLES !== "undefined" && PAYABLES) || []).find(p => String(p.srcPurchaseId || "") === String(o.id));
+  }).length;
+  const { wrap, close } = erpDialog(`
+    <h3>🔎 Проверка — въведени днес (${erpDMY(today)})</h3>
+    <p class="hint" style="margin:0 0 6px">${docs.length} документа${missing ? ` · <b style="color:#b91c1c">${missing} с липсващо плащане в Задължения!</b>` : docs.length ? " · всичко е наред" : ""}</p>
+    <div style="max-height:56vh;overflow:auto">
+    <table class="report-table erp-table">
+      <thead><tr><th>№ Фактура</th><th>Доставчик</th><th class="num">С ДДС</th><th>Статус на плащането</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="report-empty">Днес няма въведени покупки.</td></tr>`}</tbody>
+    </table></div>
+    <div class="erp-dialog-actions"><button class="btn btn-primary" id="puck-close">Затвори</button></div>`);
+  wrap.querySelector("#puck-close").addEventListener("click", close);
 }
