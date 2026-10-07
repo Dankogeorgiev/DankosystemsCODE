@@ -49,7 +49,11 @@ async function erpRenderReceivables() {
   const v = erpView();
   if (!RECEIVABLES) { v.innerHTML = `<p class="erp-loading">Зареждане…</p>`; await erpRecvLoad(); }
   const eow = recvEndOfWeek(), eom = recvEndOfMonth();
-  const unpaid = (RECEIVABLES || []).filter(p => !p.paid);
+  // Стоковите разписки НЕ са вземания за събиране — те ЧАКАТ ФАКТУРИРАНЕ
+  // (правило на Данко, 07.10.2026). Отделна кошница и собствен раздел.
+  const unpaidAll = (RECEIVABLES || []).filter(p => !p.paid);
+  const goodsItems = unpaidAll.filter(p => (p.docType || "Фактура") === "Стокова");
+  const unpaid = unpaidAll.filter(p => (p.docType || "Фактура") !== "Стокова");
   // Сборовете за неплатените са ОСТАТЪЦИТЕ (частичните плащания са приспаднати).
   const sum = arr => arr.reduce((s, p) => s + (p.paid ? recvNum(p.amount) : recvOutstanding(p)), 0);
   const weekItems = unpaid.filter(p => p.dueDate && p.dueDate <= eow);
@@ -61,6 +65,7 @@ async function erpRenderReceivables() {
   else if (recvFilter === "week") rows = weekItems;
   else if (recvFilter === "month") rows = monthItems;
   else if (recvFilter === "overdue") rows = overdueItems;
+  else if (recvFilter === "goods") rows = goodsItems;
   else rows = unpaid;
   // 🔎 Търсене (в паметта): клиент / № фактура. Картите горе остават общи.
   const rq = (recvQuery || "").toLowerCase().trim();
@@ -141,7 +146,7 @@ async function erpRenderReceivables() {
       // „Стокова" със същата сума като по-късна ФАКТУРА на клиента = вероятен
       // дублаж (фактурата е издадена отделно и не е заменила стоковото вземане).
       const dupInv = (!p.paid && p.docType === "Стокова")
-        ? items.find(x => x !== p && (x.docType || "Фактура") === "Фактура" && Math.abs(recvNum(x.amount) - recvNum(p.amount)) <= 0.02 && String(x.docDate || "") >= String(p.docDate || ""))
+        ? unpaidAll.find(x => x !== p && normClient(x.client) === normClient(p.client) && (x.docType || "Фактура") === "Фактура" && Math.abs(recvNum(x.amount) - recvNum(p.amount)) <= 0.02 && String(x.docDate || "") >= String(p.docDate || ""))
         : null;
       return `<tr class="recv-inv-row ${overdue ? "pay-overdue" : soon ? "pay-soon" : ""}" data-id="${p.id}">
         ${recvFilter === "paid" ? "" : `<td class="pay-chk"><input type="checkbox" class="recv-sel" data-id="${p.id}" data-client="${escapeAttr(name)}" ${recvSelected.has(p.id) ? "checked" : ""} /></td>`}
@@ -166,13 +171,15 @@ async function erpRenderReceivables() {
       ${tab("week", "📅 Тази седмица")}
       ${tab("month", "📅 До края на месеца")}
       ${tab("overdue", `⚠ Просрочени (${overdueItems.length})`)}
+      ${tab("goods", `📦 Стокови — чакат фактура (${goodsItems.length})`)}
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="recv-q" placeholder="🔎 клиент / № фактура…" value="${escapeAttr(recvQuery)}" style="min-width:180px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="recv-audit" title="100% сверка: всяка издадена фактура има ли вземане с точната сума? Липсващите/различните се показват и могат да се оправят с 1 клик.">🔍 Сверка с фактурите</button>
     </div>
     <div class="pay-cards">
-      ${card("Σ Общо за събиране", unpaid, "pay-card-total")}
+      ${card("Σ Общо за събиране (само фактури)", unpaid, "pay-card-total")}
+      ${goodsItems.length ? card("📦 Стокови — чакат фактуриране (извън сбора)", goodsItems, "") : ""}
     </div>
     <div class="pay-scroll"><table class="report-table erp-table pay-table recv-table">
       <thead><tr>
