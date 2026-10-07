@@ -60,10 +60,13 @@ function erpPuAIMatch(desc, ctx) {
 }
 
 /* ---------- Вход ---------- */
-function erpPuAIStart() {
+let PAI_PRESET = null;   // „Разчети подобна": доставчик/вид разход от предишната фактура
+function erpPuAIStart(preset) {
+  PAI_PRESET = (preset && (preset.supName || preset.expenseType)) ? preset : null;
   const { wrap, close } = erpDialog(`
     <h3>🤖 Разчети фактура (AI)</h3>
     <p class="hint" style="margin:0 0 8px">Качи сканираната входяща фактура (PDF/снимка). Claude я разчита, ти потвърждаваш и въвеждаш плащането.</p>
+    ${PAI_PRESET ? `<p class="hint" style="margin:0 0 8px;background:#eef7ee;border:1px solid #bbe3bb;border-radius:8px;padding:6px 10px">📄 Подобна на предишната: <b>${escapeHtml(PAI_PRESET.supName || "")}</b>${PAI_PRESET.expenseType ? ` · вид разход <b>${escapeHtml(PAI_PRESET.expenseType)}</b>` : ""} — ще се попълнят, ако AI не ги познае от файла.</p>` : ""}
     <label class="btn co-attach-btn" style="display:inline-block">⬆ Избери файл<input type="file" id="pai-file" accept="application/pdf,image/*" hidden /></label>
     <span id="pai-fname" class="erp-muted"></span>
     <p class="save-status" id="pai-status"></p>
@@ -213,6 +216,12 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
       if (l.total != null) l.total = Math.round((Number(l.total) / R) * 100) / 100;
     });
     bgnConverted = true;
+  }
+  // „Разчети подобна": ако AI не позна доставчика/вида разход — взимаме ги от предишната фактура.
+  if (PAI_PRESET) {
+    if (!ctx.supId && PAI_PRESET.supName) { ctx.supId = PAI_PRESET.supId || null; ctx.supName = ctx.supName || PAI_PRESET.supName; }
+    if (!etype && PAI_PRESET.expenseType) etype = PAI_PRESET.expenseType;
+    PAI_PRESET = null;
   }
   PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: "EUR", bgnConverted, expenseType: etype, payStatus, termDays, dueDate, rows };
   erpPuAIDraw();

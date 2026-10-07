@@ -381,6 +381,7 @@ async function erpRenderPurchaseForm(o) {
       ${erpPuStateBadge(o)}
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-next" title="Записва тази и отваря нова празна фактура със същия доставчик и настройки">➕ Следваща фактура</button>
+      ${o.id ? '<button class="btn btn-small" id="pu-clone" title="Нова чернова — копие на тази: доставчик, вид разход, редове с количества и цени. Сменяш № на фактурата, датата и каквото е различно този месец">📄 Въведи подобна</button><button class="btn btn-small" id="pu-clone-ai" title="Качи файла на новата месечна фактура — Claude я разчита, а доставчикът и видът разход са предварително зададени от тази">🤖 Разчети подобна с AI</button>' : ""}
       <button class="btn btn-small btn-primary" id="pu-save" title="Записва фактурата; ако има редове за склад — веднага ги и заприходява (пита за потвърждение)">${erpPuSaveLabel(o)}</button>
       ${locked
         ? '<button class="btn btn-small btn-danger" id="pu-unpost" title="Връща складовите движения и средните цени, отключва фактурата за поправка. После я заприходи наново.">↩ Върни за редакция</button>'
@@ -470,6 +471,10 @@ async function erpRenderPurchaseForm(o) {
   document.getElementById("pu-back").addEventListener("click", erpRenderPurchases);
   document.getElementById("pu-save").addEventListener("click", () => erpPuSaveClick(o));
   document.getElementById("pu-next").addEventListener("click", () => erpPuSaveClick(o, { next: true }));
+  const puCl = document.getElementById("pu-clone");
+  if (puCl) puCl.addEventListener("click", () => erpPuCloneSimilar(o));
+  const puClAi = document.getElementById("pu-clone-ai");
+  if (puClAi) puClAi.addEventListener("click", () => { if (typeof erpPuAIStart === "function") erpPuAIStart({ supName: o.supplierName || "", supId: o.supplierId || null, expenseType: o.expenseType || "" }); });
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
   const addMat = document.getElementById("pu-add-mat"); if (addMat) addMat.addEventListener("click", () => erpPuAddMaterial(o));
   const addExp = document.getElementById("pu-add-exp"); if (addExp) addExp.addEventListener("click", () => { o.lines.push({ groupName: o.expenseType || "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
@@ -1420,4 +1425,23 @@ async function erpPuAccountingXls() {
     ]);
     close();
   });
+}
+
+/* 📄 „Въведи подобна": нова чернова-копие на отворената покупка — доставчик,
+   вид разход, плащане, валута и редовете с количества и цени. Номерът и
+   файлът се изчистват, датата е днешна. За месечните фактури (ток, наем,
+   интернет…) — отваряш миналомесечната, копираш, сменяш № и сумите. */
+function erpPuCloneSimilar(src) {
+  const today = new Date().toISOString().slice(0, 10);
+  const o = {
+    type: "фактура", docType: src.docType === "credit" ? "invoice" : (src.docType || "invoice"),
+    supplierName: src.supplierName || "", supplierId: src.supplierId || null,
+    expenseType: src.expenseType || "", invoiceNo: "", date: today,
+    payStatus: src.payStatus || "", paymentMethod: src.paymentMethod || "", termDays: Number(src.termDays) || 0,
+    dueDate: "", paid: false, paidDate: "",
+    currency: src.currency || "BGN", vatRate: src.vatRate != null ? src.vatRate : 20,
+    note: src.note || "", files: [], posted: false,
+    lines: (src.lines || []).map(l => { const c = { ...l }; delete c.id; return c; }),
+  };
+  erpRenderPurchaseForm(o);
 }
