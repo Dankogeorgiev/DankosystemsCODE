@@ -1449,16 +1449,23 @@ function erpPuCloneSimilar(src) {
 }
 
 /* ---------- 🔎 Проверка: въведените ДНЕС фактури и къде им е плащането ----------
-   В брой / с карта / по банка — платени веднага; отложените ТРЯБВА да са в
-   Задължения — проверяваме реално срещу списъка и ако липсват, светва червено. */
-async function erpPuCheckToday() {
+   Собствен РАЗДЕЛ до Покупки (не прозорец). Редът се цъка → отваря фактурата
+   за редакция; „← Назад" от нея връща към Проверката. Отложените ТРЯБВА да са
+   в Задължения — проверяваме реално срещу списъка; липсва ли, светва червено. */
+function erpPuCheckToday() { erpSetTab("pucheck"); }
+
+async function erpPuCheckRender(v) {
+  v = v || erpView();
+  v.innerHTML = `<p class="erp-loading">Проверявам днешните…</p>`;
   const today = new Date().toISOString().slice(0, 10);
+  try { if (!erpPurchases) await erpLoadPurchases(); } catch (e) {}
   try { if (typeof erpPayLoad === "function" && (typeof PAYABLES === "undefined" || !PAYABLES)) await erpPayLoad(); } catch (e) {}
   const docs = (erpPurchases || []).filter(o =>
     String(o.createdAt || "").slice(0, 10) === today || (!o.createdAt && String(o.date || "") === today))
     .sort((a, b) => String(a.supplierName || "").localeCompare(String(b.supplierName || ""), "bg"));
   const money = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const badge = (txt, bg, col) => `<span style="display:inline-block;background:${bg};color:${col};border-radius:7px;padding:1px 9px;font-weight:700;font-size:12px;white-space:nowrap">${txt}</span>`;
+  const payableOf = o => ((typeof PAYABLES !== "undefined" && PAYABLES) || []).find(p => String(p.srcPurchaseId || "") === String(o.id));
   const statusOf = o => {
     if (o.docType === "goods") return badge("📦 стокова — без плащане", "#e2e8f0", "#334155");
     if (o.docType === "credit") return badge("➖ кредитно известие", "#e2e8f0", "#334155");
@@ -1466,36 +1473,41 @@ async function erpPuCheckToday() {
     if (st === "cash") return badge("💵 платена в брой", "#dcfce7", "#166534");
     if (st === "card") return badge("💳 платена с карта", "#dcfce7", "#166534");
     if (st === "bank" && o.paid) return badge("🏦 платена по банка", "#dcfce7", "#166534");
-    // Отложено плащане → трябва да е в Задължения.
-    const pb = ((typeof PAYABLES !== "undefined" && PAYABLES) || []).find(p => String(p.srcPurchaseId || "") === String(o.id));
+    const pb = payableOf(o);
     if (pb && pb.paid) return badge("✔ платена (през Задължения)", "#dcfce7", "#166534");
     if (pb) return badge("🟨 в Задължения · падеж " + (pb.dueDate ? erpDMY(pb.dueDate) : "—"), "#fef9c3", "#854d0e");
     if (o.paid) return badge("✔ платена", "#dcfce7", "#166534");
     return badge("⚠ ЛИПСВА в Задължения!", "#fee2e2", "#991b1b");
   };
-  const rows = docs.map(o => {
-    const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { total: 0 };
-    return `<tr>
-      <td><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
-      <td>${escapeHtml(o.supplierName || "")}</td>
-      <td class="num"><b>${money(t.total)}</b> ${escapeHtml(erpPuCur(o))}</td>
-      <td>${statusOf(o)}</td>
-    </tr>`;
-  }).join("");
   const missing = docs.filter(o => {
     if (o.docType === "goods" || o.docType === "credit" || o.paid) return false;
     const st = (typeof erpPuPayStatus === "function") ? erpPuPayStatus(o) : "";
     if (st === "cash" || st === "card") return false;
-    return !((typeof PAYABLES !== "undefined" && PAYABLES) || []).find(p => String(p.srcPurchaseId || "") === String(o.id));
+    return !payableOf(o);
   }).length;
-  const { wrap, close } = erpDialog(`
-    <h3>🔎 Проверка — въведени днес (${erpDMY(today)})</h3>
-    <p class="hint" style="margin:0 0 6px">${docs.length} документа${missing ? ` · <b style="color:#b91c1c">${missing} с липсващо плащане в Задължения!</b>` : docs.length ? " · всичко е наред" : ""}</p>
-    <div style="max-height:56vh;overflow:auto">
-    <table class="report-table erp-table">
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">🔎 Въведени днес (${erpDMY(today)}): ${docs.length} документа${missing ? ` · <b style="color:#b91c1c">${missing} с липсващо плащане в Задължения!</b>` : docs.length ? " · всичко е наред" : ""}</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="puck-refresh" title="Презарежда покупките и задълженията">↻ Опресни</button>
+    </div>
+    <table class="report-table erp-table" style="max-width:1100px">
       <thead><tr><th>№ Фактура</th><th>Доставчик</th><th class="num">С ДДС</th><th>Статус на плащането</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="4" class="report-empty">Днес няма въведени покупки.</td></tr>`}</tbody>
-    </table></div>
-    <div class="erp-dialog-actions"><button class="btn btn-primary" id="puck-close">Затвори</button></div>`);
-  wrap.querySelector("#puck-close").addEventListener("click", close);
+      <tbody>${docs.map(o => `<tr class="erp-clickable" data-puid="${escapeAttr(String(o.id))}" title="Отвори фактурата за преглед/редакция">
+        <td><b>${escapeHtml(o.invoiceNo || "—")}</b></td>
+        <td>${escapeHtml(o.supplierName || "")}</td>
+        <td class="num"><b>${money((typeof erpPuTotals === "function" ? erpPuTotals(o) : { total: 0 }).total)}</b> ${escapeHtml(erpPuCur(o))}</td>
+        <td>${statusOf(o)}</td>
+      </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Днес няма въведени покупки.</td></tr>`}</tbody>
+    </table>
+    <p class="hint">Цъкни ред → фактурата се отваря за редакция („← Назад" връща към Проверката). „⚠ ЛИПСВА в Задължения" = отложено плащане без ред там — отвори я и я запиши наново, за да се създаде.</p>`;
+  v.querySelector("#puck-refresh").addEventListener("click", async () => { erpPurchases = null; try { if (typeof PAYABLES !== "undefined") PAYABLES = null; } catch (e) {} erpPuCheckRender(v); });
+  v.querySelectorAll("[data-puid]").forEach(tr => tr.addEventListener("click", async () => {
+    const o = (erpPurchases || []).find(x => String(x.id) === tr.dataset.puid);
+    if (!o) return;
+    await erpRenderPurchaseForm(JSON.parse(JSON.stringify(o)));
+    // „← Назад" от формата да връща към Проверката, не към списъка Покупки.
+    const bk = document.getElementById("pu-back");
+    if (bk) { const nb = bk.cloneNode(true); bk.parentNode.replaceChild(nb, bk); nb.addEventListener("click", () => erpPuCheckRender()); }
+  }));
 }
