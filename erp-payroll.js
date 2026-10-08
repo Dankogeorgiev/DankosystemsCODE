@@ -162,7 +162,9 @@ function payFriDistribute(net, fridays, friMap, weekly, fromIso) {
   let lastIso = null;
   fridays.forEach(f => {
     const x = (friMap || {})[f.iso] || {};
-    if (fromIso && f.iso < fromIso) {   // минал петък — пази се както е платен
+    // Пази се: минал петък (платеното си остава) или РЪЧНО пипнат (x.lock —
+    // „ръчното е господар": болничен на 005 не се връща на банка от тригер).
+    if ((fromIso && f.iso < fromIso) || x.lock) {
       out[f.iso] = { b: r2(x.b), c: r2(x.c), o: r2(x.o) };
       room = r2(Math.max(0, room - out[f.iso].b));
       return;
@@ -339,10 +341,17 @@ async function erpPayFridaysView(v) {
     if (!(weekly > 0)) return;
     const net = Number((v.querySelector(`.pf-net[data-name="${esc}"]`) || {}).value) || 0;
     const cur = {};
-    fridays.forEach(f => { cur[f.iso] = { b: friVal("pf-frib", esc, f.iso), c: friVal("pf-fric", esc, f.iso), o: friVal("pf-frio", esc, f.iso) }; });
+    fridays.forEach(f => {
+      const bEl = v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${f.iso}"]`);
+      const cEl = v.querySelector(`.pf-fric[data-name="${esc}"][data-iso="${f.iso}"]`);
+      cur[f.iso] = {
+        b: Number((bEl || {}).value) || 0, c: Number((cEl || {}).value) || 0, o: friVal("pf-frio", esc, f.iso),
+        lock: !!((bEl && bEl.dataset.manual) || (cEl && cEl.dataset.manual)),
+      };
+    });
     const map = payFriDistribute(net, fridays, cur, weekly, fromIso);
     fridays.forEach(f => {
-      if (fromIso && f.iso < fromIso) return;
+      if ((fromIso && f.iso < fromIso) || cur[f.iso].lock) return;
       const bEl = v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${f.iso}"]`);
       const cEl = v.querySelector(`.pf-fric[data-name="${esc}"][data-iso="${f.iso}"]`);
       if (bEl) bEl.value = String(map[f.iso].b || 0);
@@ -353,6 +362,9 @@ async function erpPayFridaysView(v) {
   v.querySelectorAll(".pf-net").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, todayIso)));
   v.querySelectorAll(".pf-sedm").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, todayIso)));
   v.querySelectorAll(".pf-frio").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, i.dataset.iso)));
+  // Ръчна редакция на Седм. банка / Седм. 005 ЗАКЛЮЧВА петъка за авто-
+  // разпределението („ръчното е господар") — до следващото презареждане.
+  v.querySelectorAll(".pf-frib, .pf-fric").forEach(i => i.addEventListener("input", () => { i.dataset.manual = "1"; }));
   // Отметка „По банка" за петък в даден цех: премества седмичната сума банка⇄005 за всички в цеха.
   v.querySelectorAll(".pf-bankchk").forEach(chk => chk.addEventListener("change", () => {
     const ws = chk.dataset.ws, iso = chk.dataset.iso, toBank = chk.checked;
@@ -364,6 +376,7 @@ async function erpPayFridaysView(v) {
       const b = Number(bEl.value) || 0, c = Number(cEl.value) || 0;
       if (toBank) { bEl.value = String(b + c); cEl.value = "0"; }
       else { cEl.value = String(b + c); bEl.value = "0"; }
+      bEl.dataset.manual = "1"; cEl.dataset.manual = "1";   // ръчно решение — заключва петъка
       recompute(e.name);
     });
     recomputeFooter();
