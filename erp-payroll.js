@@ -426,12 +426,14 @@ async function erpPayFridaysView(v) {
     if (i.value.trim() === "") delete i.dataset.manual;
     else i.dataset.manual = "1";
   }));
-  // ↻ на реда: изрично преразпределяне — маха ръчните ключалки на БЪДЕЩИТЕ
-  // петъци и налива банката наново от днес (миналите не се пипат).
+  // ↻ на реда: изрично преразпределяне — маха ръчните ключалки и пита откъде:
+  // от ПЪРВИЯ петък (когато месецът е почнал, а банката се зарежда сега —
+  // напр. октомври 2026, платено частично на 02.10) или само от днес нататък.
   v.querySelectorAll(".pf-redo").forEach(b => b.addEventListener("click", () => {
     const esc = CSS.escape(b.dataset.name);
+    const whole = confirm(`↻ ${b.dataset.name}: пренареждам банката по петъците.\n\nОК = от ПЪРВИЯ петък на месеца — пренарежда и вече миналите (ползвай, когато месецът е започнал, а ПО БАНКА се зарежда сега)\nОтказ = само от ДНЕС нататък — миналите петъци остават както са платени`);
     v.querySelectorAll(`.pf-frib[data-name="${esc}"], .pf-fric[data-name="${esc}"]`).forEach(x => { delete x.dataset.manual; });
-    redistribute(b.dataset.name, payIso(new Date()));
+    redistribute(b.dataset.name, whole ? null : payIso(new Date()));
   }));
   // Отметка „По банка" за петък в даден цех: премества седмичната сума банка⇄005 за всички в цеха.
   v.querySelectorAll(".pf-bankchk").forEach(chk => chk.addEventListener("change", () => {
