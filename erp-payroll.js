@@ -255,7 +255,9 @@ async function erpPayFridaysView(v) {
     const net = Number(r.net) || 0;
     const sum = sumB + sumC + sumO;
     return `<tr data-row="${escapeAttr(e.name)}">
-      <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button></td>
+      <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button>
+        <div style="margin-top:2px;white-space:nowrap">🏦 <span class="t-code pf-iban-val" data-name="${escapeAttr(e.name)}" style="font-size:10px">${e.iban ? escapeHtml(e.iban) : `<span class="erp-muted">— няма сметка</span>`}</span>
+        <button class="btn btn-small pf-iban-edit" data-name="${escapeAttr(e.name)}" title="Редакция на банковата сметка на служителя (за преводите)">✎</button></div></td>
       <td class="num pf-dnc">${inp("pf-dnevno", e.name, e.dnevno)}</td>
       <td class="num pf-sec">${inp("pf-sedm", e.name, e.sedmichno)}</td>
       <td class="num pf-netc">${inp("pf-net", e.name, r.net)}<button class="btn btn-small pf-redo" data-name="${escapeAttr(e.name)}" title="Разпредели наново: налива ПО БАНКА по петъците от днес нататък (по СЕДМИЧНОТО + извънредните). Маха ръчните корекции на бъдещите петъци; миналите не пипа.">↻</button></td>
@@ -282,6 +284,8 @@ async function erpPayFridaysView(v) {
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
       <button class="btn btn-small" id="pf-xls" title="Сваля таблицата за месеца в Excel: ПО БАНКА, От банка и общо CODE 005 за всеки служител">⤓ Excel (месеца)</button>
+      <button class="btn btn-small" id="pf-iban-imp" title="Качи Excel файла със сметките (колона A = трите имена, колона B = IBAN) — записват се под имената на служителите">🏦 IBAN-и (Excel)</button>
+      <input type="file" id="pf-iban-file" accept=".xlsx,.xls" hidden />
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="pf-save-all">💾 ЗАПАЗИ</button>
       <span class="erp-muted" id="pf-save-status" style="margin-left:8px"></span>
@@ -419,6 +423,59 @@ async function erpPayFridaysView(v) {
     }
     redistribute(i.dataset.name, i.dataset.iso);
   }));
+  // 🏦 IBAN на служителя — моливчето под името. Пази се в Разходи и ставки
+  // (COST_CFG.employees[].iban), записва се ВЕДНАГА; никакви лични сметки в кода.
+  v.querySelectorAll(".pf-iban-edit").forEach(b => b.addEventListener("click", async () => {
+    const emp = (COST_CFG.employees || []).find(x => x.name === b.dataset.name);
+    if (!emp) return;
+    let nv = prompt(`IBAN на ${emp.name} (за банковия превод):`, emp.iban || "");
+    if (nv == null) return;
+    nv = nv.replace(/\s+/g, "").toUpperCase();
+    if (nv && !/^[A-Z]{2}[0-9A-Z]{12,32}$/.test(nv)) { alert("Това не прилича на IBAN (напр. BG80UBBS80021011084720). Нищо не записах."); return; }
+    emp.iban = nv;
+    await erpSaveCostCfg();
+    const sp = v.querySelector(`.pf-iban-val[data-name="${CSS.escape(emp.name)}"]`);
+    if (sp) sp.innerHTML = nv ? escapeHtml(nv) : `<span class="erp-muted">— няма сметка</span>`;
+  }));
+  // 🏦 IBAN-и от Excel: колона A = трите имена, колона B = IBAN. Съпоставя по
+  // име (точно, после по общи думи), пише само празните и различията ДОКЛАДВА.
+  const ibFile = v.querySelector("#pf-iban-file");
+  const ibBtn = v.querySelector("#pf-iban-imp");
+  if (ibBtn) ibBtn.addEventListener("click", () => ibFile.click());
+  if (ibFile) ibFile.addEventListener("change", async () => {
+    const file = ibFile.files[0]; ibFile.value = "";
+    if (!file) return;
+    if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена — презареди страницата."); return; }
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" });
+    const ibNorm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const pairs = rows.map(r => ({ name: String(r[0] || "").trim(), iban: String(r[1] || "").replace(/\s+/g, "").toUpperCase() }))
+      .filter(p => p.name && /^[A-Z]{2}[0-9A-Z]{12,32}$/.test(p.iban));
+    if (!pairs.length) { alert("Не намерих редове с име + IBAN във файла (колона A = имена, колона B = IBAN)."); return; }
+    const emps = COST_CFG.employees || [];
+    let setN = 0, sameN = 0; const diff = [], noMatch = [];
+    pairs.forEach(p => {
+      const key = ibNorm(p.name);
+      let hit = emps.filter(x => ibNorm(x.name) === key);
+      if (!hit.length) {
+        const pw = key.split(" ");
+        hit = emps.filter(x => { const ew = ibNorm(x.name).split(" "); const a = pw.length <= ew.length ? pw : ew; const b2 = a === pw ? ew : pw; return a.length >= 2 && a.every(w => b2.includes(w)); });
+      }
+      if (hit.length !== 1) { noMatch.push(p.name); return; }
+      const emp = hit[0];
+      if (emp.iban === p.iban) { sameN++; return; }
+      if (emp.iban && emp.iban !== p.iban) { diff.push(`${emp.name}: в системата ${emp.iban} ≠ файла ${p.iban}`); return; }
+      emp.iban = p.iban; setN++;
+    });
+    if (setN) await erpSaveCostCfg();
+    v.querySelectorAll(".pf-iban-val").forEach(sp => {
+      const emp = emps.find(x => x.name === sp.dataset.name);
+      if (emp) sp.innerHTML = emp.iban ? escapeHtml(emp.iban) : `<span class="erp-muted">— няма сметка</span>`;
+    });
+    alert(`🏦 IBAN-и от „${file.name}“:\n• записани: ${setN}\n• вече същите: ${sameN}` +
+      (diff.length ? `\n\n⚠ РАЗЛИЧНИ (не ги пипнах — провери с ✎):\n${diff.join("\n")}` : "") +
+      (noMatch.length ? `\n\n❓ Без (еднозначно) съвпадение при служителите:\n${noMatch.join("\n")}` : ""));
+  });
   // Ръчна редакция на Седм. банка / Седм. 005 ЗАКЛЮЧВА петъка за авто-
   // разпределението („ръчното е господар") — до следващото презареждане.
   // ИЗТРИТО (празно) поле обаче ОТКЛЮЧВА — „изчистих го, попълни ме наново".
