@@ -136,7 +136,11 @@ function payFriNormalize(r, fridays) {
   const isNew = Object.values(fri).some(x => x && typeof x === "object" && (("b" in x) || ("c" in x)));
   const map = {};
   if (isNew) {
-    fridays.forEach(f => { const x = fri[f.iso] || {}; map[f.iso] = { b: Number(x.b) || 0, c: Number(x.c) || 0, o: Number(x.o) || 0 }; });
+    fridays.forEach(f => {
+      const x = fri[f.iso] || {};
+      map[f.iso] = { b: Number(x.b) || 0, c: Number(x.c) || 0, o: Number(x.o) || 0 };
+      if (x.i) map[f.iso].i = 1;   // извънредните са ВЪТРЕ в банка/005 (авто-разпределен петък)
+    });
     return map;
   }
   const bd = payFriBreakdown(r && r.net, fri, fridays);
@@ -166,6 +170,7 @@ function payFriDistribute(net, fridays, friMap, weekly, fromIso) {
     // „ръчното е господар": болничен на 005 не се връща на банка от тригер).
     if ((fromIso && f.iso < fromIso) || x.lock) {
       out[f.iso] = { b: r2(x.b), c: r2(x.c), o: r2(x.o) };
+      if (x.i) out[f.iso].i = 1;
       room = r2(Math.max(0, room - out[f.iso].b));
       return;
     }
@@ -173,11 +178,41 @@ function payFriDistribute(net, fridays, friMap, weekly, fromIso) {
     const due = r2(w + o);
     const b = Math.min(due, room);
     out[f.iso] = { b: r2(b), c: r2(due - b), o };
+    // i=1: извънредните са ВКЛЮЧЕНИ в банка/005 на петъка (дължимото ги носи)
+    // — сборовете не бива да ги добавят втори път.
+    if (o) out[f.iso].i = 1;
     room = r2(room - b);
     lastIso = f.iso;
   });
   if (room > 0.004 && lastIso) out[lastIso].b = r2(out[lastIso].b + room);
   return out;
+}
+
+/* Чистото от ведомостта → ПО БАНКА (net) + авто-разпределение по петъците.
+   ЕДНА функция за ДВАТА пътя на запис: „✅ Приложи реално" (от теста) и
+   директния „💾 Запази" без тестов режим — иначе вторият път пълнеше само
+   ПО БАНКА и петъците оставаха празни. Минали петъци (локална дата) не се
+   пипат; офисните/напусналите (skipKeys) не влизат в петъчната таблица. */
+function payApplyNetsToMonth(entries, netByName, skipKeys, monthStr) {
+  const frs = payFridays(...monthStr.split("-").map(Number));
+  const fromIso = payIso(new Date());
+  Object.keys(netByName || {}).forEach(n => {
+    if (skipKeys.has(payNameKey(n))) return;
+    const er = entries[n] = entries[n] || {};
+    // Снимка на петъците ПРЕДИ новото чисто: при стар формат (число/{w,o})
+    // нормализацията дели банка/005 по net — трябва да е СТАРИЯТ net,
+    // иначе миналите петъци се пренаписват с новата сума.
+    const before = payFriNormalize(er, frs);
+    er.net = netByName[n];
+    const emp = (COST_CFG.employees || []).find(e => payNameKey(e.name) === payNameKey(n));
+    const weekly = Number(emp && emp.sedmichno) || 0;
+    if (weekly > 0) {
+      const map = payFriDistribute(er.net, frs, before, weekly, fromIso);
+      const clean = {};
+      Object.keys(map).forEach(k => { const x = map[k]; if (x.b || x.c || x.o) clean[k] = x; });
+      if (Object.keys(clean).length) er.fri = clean; else delete er.fri;
+    }
+  });
 }
 
 async function erpPayFridaysView(v) {
@@ -209,9 +244,9 @@ async function erpPayFridaysView(v) {
     const rzSum = Number(rz.sum) || 0;
     let sumB = 0, sumC = 0, sumO = 0;
     const friCells = fridays.map(f => {
-      const x = friN[f.iso]; sumB += x.b; sumC += x.c; sumO += x.o;
+      const x = friN[f.iso]; sumB += x.b; sumC += x.c; sumO += (x.i ? 0 : x.o);
       return `<td class="num pf-fricol">
-        <div class="pf-fline"><span>Седм. банка</span>${inp("pf-frib", e.name, x.b, `data-iso="${f.iso}"`)}</div>
+        <div class="pf-fline"><span>Седм. банка</span>${inp("pf-frib", e.name, x.b, `data-iso="${f.iso}" data-inc="${x.i ? 1 : 0}"`)}</div>
         <div class="pf-fline"><span>Седм. 005</span>${inp("pf-fric", e.name, x.c, `data-iso="${f.iso}"`)}</div>
         <div class="pf-fline"><span>Извънредни</span>${inp("pf-frio", e.name, x.o, `data-iso="${f.iso}"`)}</div>
         <div class="pf-fribd" data-name="${escapeAttr(e.name)}" data-iso="${f.iso}">${friBreak3(x.b, x.c, x.o)}</div>
@@ -290,13 +325,16 @@ async function erpPayFridaysView(v) {
   v.querySelectorAll(".pf-rm").forEach(b => b.addEventListener("click", () => erpPayRemoveEmployee(b.dataset.name, v)));
 
   const friVal = (cls, esc, iso) => Number((v.querySelector(`.${cls}[data-name="${esc}"][data-iso="${iso}"]`) || {}).value) || 0;
+  // Извънредните на АВТО-разпределен петък (data-inc=1 на b-полето) са вече
+  // вътре в банка/005 — сборовете не ги добавят втори път.
+  const friInc = (esc, iso) => ((v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${iso}"]`) || {}).dataset || {}).inc === "1";
   const recompute = name => {
     const esc = CSS.escape(name);
     const net = Number((v.querySelector(`.pf-net[data-name="${esc}"]`) || {}).value) || 0;
     let sumB = 0, sumC = 0, sumO = 0;
     fridays.forEach(f => {
       const b = friVal("pf-frib", esc, f.iso), c = friVal("pf-fric", esc, f.iso), o = friVal("pf-frio", esc, f.iso);
-      sumB += b; sumC += c; sumO += o;
+      sumB += b; sumC += c; sumO += (friInc(esc, f.iso) ? 0 : o);
       const el = v.querySelector(`.pf-fribd[data-name="${esc}"][data-iso="${f.iso}"]`);
       if (el) el.innerHTML = `🏦 ${payEur(b)}<br>005 ${payEur(c)}<br>Изв. ${payEur(o)}`;
     });
@@ -313,7 +351,7 @@ async function erpPayFridaysView(v) {
       const esc = CSS.escape(tr.getAttribute("data-row"));
       fridays.forEach(f => {
         const b = friVal("pf-frib", esc, f.iso), c = friVal("pf-fric", esc, f.iso), o = friVal("pf-frio", esc, f.iso);
-        perFri[f.iso].bank += b; perFri[f.iso].code += c; gBank += b; gCode += c; gO += o;
+        perFri[f.iso].bank += b; perFri[f.iso].code += c; gBank += b; gCode += c; gO += (friInc(esc, f.iso) ? 0 : o);
       });
     });
     let gRz = 0;
@@ -334,7 +372,12 @@ async function erpPayFridaysView(v) {
      от fromIso нататък; миналите петъци НЕ се пипат (платеното си остава).
      Ръчна поправка на Седм. банка / Седм. 005 НЕ преразпределя — ръчното е
      господар. Служител без СЕДМИЧНО ставка не се разпределя автоматично. */
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // Отметките „По банка" на цеховете следват реалните стойности (c=0 и b>0).
+  const syncBankChecks = () => v.querySelectorAll(".pf-bankchk").forEach(chk => {
+    let b = 0, c = 0;
+    (byWs[chk.dataset.ws] || []).forEach(e => { const esc = CSS.escape(e.name); b += friVal("pf-frib", esc, chk.dataset.iso); c += friVal("pf-fric", esc, chk.dataset.iso); });
+    chk.checked = c === 0 && b > 0;
+  });
   const redistribute = (name, fromIso) => {
     const esc = CSS.escape(name);
     const weekly = Number((v.querySelector(`.pf-sedm[data-name="${esc}"]`) || {}).value) || 0;
@@ -346,6 +389,7 @@ async function erpPayFridaysView(v) {
       const cEl = v.querySelector(`.pf-fric[data-name="${esc}"][data-iso="${f.iso}"]`);
       cur[f.iso] = {
         b: Number((bEl || {}).value) || 0, c: Number((cEl || {}).value) || 0, o: friVal("pf-frio", esc, f.iso),
+        i: ((bEl || {}).dataset || {}).inc === "1" ? 1 : 0,
         lock: !!((bEl && bEl.dataset.manual) || (cEl && cEl.dataset.manual)),
       };
     });
@@ -354,14 +398,27 @@ async function erpPayFridaysView(v) {
       if ((fromIso && f.iso < fromIso) || cur[f.iso].lock) return;
       const bEl = v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${f.iso}"]`);
       const cEl = v.querySelector(`.pf-fric[data-name="${esc}"][data-iso="${f.iso}"]`);
-      if (bEl) bEl.value = String(map[f.iso].b || 0);
+      if (bEl) { bEl.value = String(map[f.iso].b || 0); bEl.dataset.inc = map[f.iso].i ? "1" : "0"; }
       if (cEl) cEl.value = String(map[f.iso].c || 0);
     });
-    recompute(name); recomputeFooter();
+    recompute(name); recomputeFooter(); syncBankChecks();
   };
-  v.querySelectorAll(".pf-net").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, todayIso)));
-  v.querySelectorAll(".pf-sedm").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, todayIso)));
-  v.querySelectorAll(".pf-frio").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, i.dataset.iso)));
+  // Датата „днес" се смята В МОМЕНТА на пипането (локално време, payIso) —
+  // екранът може да стои отворен с дни, а toISOString е UTC и след полунощ бърка.
+  v.querySelectorAll(".pf-net").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, payIso(new Date()))));
+  v.querySelectorAll(".pf-sedm").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, payIso(new Date()))));
+  v.querySelectorAll(".pf-frio").forEach(i => i.addEventListener("input", () => {
+    const today = payIso(new Date());
+    if (i.dataset.iso < today) {
+      // Извънредни със задна дата: миналият петък НЕ се пренарежда (платен е);
+      // сумата се брои ОТДЕЛНО (махаме inc флага му) и нищо друго не мърда.
+      const bEl = v.querySelector(`.pf-frib[data-name="${CSS.escape(i.dataset.name)}"][data-iso="${i.dataset.iso}"]`);
+      if (bEl) bEl.dataset.inc = "0";
+      recompute(i.dataset.name); recomputeFooter();
+      return;
+    }
+    redistribute(i.dataset.name, i.dataset.iso);
+  }));
   // Ръчна редакция на Седм. банка / Седм. 005 ЗАКЛЮЧВА петъка за авто-
   // разпределението („ръчното е господар") — до следващото презареждане.
   v.querySelectorAll(".pf-frib, .pf-fric").forEach(i => i.addEventListener("input", () => { i.dataset.manual = "1"; }));
@@ -397,7 +454,7 @@ async function erpPayFridaysView(v) {
       const esc = CSS.escape(e.name);
       if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
       let b = 0, c = 0, o = 0;
-      fridays.forEach(f => { b += friVal("pf-frib", esc, f.iso); c += friVal("pf-fric", esc, f.iso); o += friVal("pf-frio", esc, f.iso); });
+      fridays.forEach(f => { b += friVal("pf-frib", esc, f.iso); c += friVal("pf-fric", esc, f.iso); o += (friInc(esc, f.iso) ? 0 : friVal("pf-frio", esc, f.iso)); });
       const rz = numOf("pf-rzsum", esc);
       list.push({ name: e.name, ws, net: numOf("pf-net", esc), code: c, total: b + c + o + rz });
     }));
@@ -444,7 +501,12 @@ async function erpPayFridaysView(v) {
       const friClean = {};
       fridays.forEach(f => {
         const b = num(val("pf-frib", esc, f.iso)), c = num(val("pf-fric", esc, f.iso)), o = num(val("pf-frio", esc, f.iso));
-        if (b || c || o) friClean[f.iso] = { b, c, o };
+        if (b || c || o) {
+          friClean[f.iso] = { b, c, o };
+          // i=1: извънредните на този петък са ВЪТРЕ в банка/005 (авто-разпределение).
+          const bEl = v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${f.iso}"]`);
+          if (bEl && bEl.dataset.inc === "1") friClean[f.iso].i = 1;
+        }
       });
       if (Object.keys(friClean).length) rec.fri = friClean; else delete rec.fri;
       // РАЗЛИЧНИ (Сума + Бел.).
@@ -616,13 +678,16 @@ async function payComputeMonth(monthStr) {
   Object.keys(friEntries || {}).forEach(name => {
     const r = friEntries[name] || {};
     const map = payFriNormalize(r, fridays);
-    let b = 0, c = 0, o = 0;
-    fridays.forEach(f => { const x = map[f.iso] || {}; b += Number(x.b) || 0; c += Number(x.c) || 0; o += Number(x.o) || 0; });
+    // oSep = извънредни, платени ОТДЕЛНО (пари в повече); oAll = всички
+    // извънредни за показване — тези с i=1 са ВЕЧЕ вътре в банка/005.
+    let b = 0, c = 0, oSep = 0, oAll = 0;
+    fridays.forEach(f => { const x = map[f.iso] || {}; b += Number(x.b) || 0; c += Number(x.c) || 0; const oo = Number(x.o) || 0; oAll += oo; if (!x.i) oSep += oo; });
     const rz = Number((r.rz || {}).sum) || 0;
-    if (!(b || c || o || rz)) return;
+    if (!(b || c || oAll || rz)) return;
     friHasData = true;
     const g = tot[name] || (tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0 });
-    g.bank += b; g.cash += c; g.overtime += o; g.rz = (g.rz || 0) + rz;
+    g.bank += b; g.cash += c; g.overtime += oSep; g.rz = (g.rz || 0) + rz;
+    g.otAll = (g.otAll || 0) + oAll;
   });
   // Осигуровките от Ведомостта за заплати (разчетени с AI, пазени по месец).
   const osigRec = await erpPayLoadOsig(monthStr);
@@ -663,14 +728,17 @@ async function erpPayMonthView(v) {
 
   const draw = () => {
     const q = (payFilter || "").trim().toLowerCase();
+    // Показваните извънредни: ВСИЧКИ (otAll — вкл. платените през банката/005
+    // при авто-разпределението); в „ОБЩО получено" влизат само отделно платените.
+    const otShow = r => Number(r.otAll != null ? r.otAll : r.overtime) || 0;
     const shown = list.filter(r =>
       (!mWs || r.ws === mWs) &&
       (!mEmp || r.name === mEmp) &&
-      (!mOt || (Number(r.overtime) || 0) > 0) &&
+      (!mOt || otShow(r) > 0) &&
       (!q || r.name.toLowerCase().includes(q)));
-    if (mOt) shown.sort((a, b) => (Number(b.overtime) || 0) - (Number(a.overtime) || 0));
+    if (mOt) shown.sort((a, b) => otShow(b) - otShow(a));
     const sum = shown.reduce((s, r) => s + r.total, 0);
-    const otSum = shown.reduce((s, r) => s + (Number(r.overtime) || 0), 0);
+    const otSum = shown.reduce((s, r) => s + otShow(r), 0);
     const colSum = k => shown.reduce((s, r) => s + (Number(r[k]) || 0), 0);
     const osigOf = name => Number((osigBy || {})[name]) || 0;
     const osigSum = shown.reduce((s, r) => s + osigOf(r.name), 0);
@@ -696,7 +764,7 @@ async function erpPayMonthView(v) {
       <button class="btn btn-small" id="pay-csv">⤓ Excel</button>
     </div>
     ${mOt ? `<div style="display:inline-block;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">⏱ Извънредни за ${PAY_MONTHS[M - 1]} ${Y}${mWs ? ` · ${escapeHtml(mWs)}` : ""}: <b style="font-size:18px">${payEur(otSum)}</b> при ${shown.length} служители</div>` : ""}
-    ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — ${[["банка", one.bank], ["005", one.cash], ["надник", one.nadnik], ["извънредни", one.overtime], ["бонус", one.bonus], ["различни", one.rz]].filter(p => Number(p[1])).map(p => `${p[0]} ${payEur(p[1])}`).join(" · ") || "без разбивка"}</div>` : ""}
+    ${one ? `<div style="display:inline-block;background:#eef7ee;border:1px solid #bbe3bb;border-radius:10px;padding:8px 16px;margin:2px 0 8px;font-size:16px">💶 <b>${escapeHtml(one.name)}</b> (${escapeHtml(one.ws)}) е получил <b style="font-size:18px">${payEur(one.total)}</b> за ${PAY_MONTHS[M - 1]} ${Y} — ${[["банка", one.bank], ["005", one.cash], ["надник", one.nadnik], ["извънредни", otShow(one)], ["бонус", one.bonus], ["различни", one.rz]].filter(p => Number(p[1])).map(p => `${p[0]} ${payEur(p[1])}`).join(" · ") || "без разбивка"}</div>` : ""}
     ${weeks.length && friHasData ? `<p class="hint" style="color:#b45309"><b>⚠ Внимание:</b> този месец има данни И в седмичния изглед, И в „По петъци" — сборът по-долу ги СЪБИРА. Ако едните дублират другите, изтрий дубликата от съответния изглед.</p>` : ""}
     ${hasTest ? (() => {
       const tOs = Object.values(testBy).reduce((s, x) => s + (Number(x) || 0), 0);
@@ -730,6 +798,11 @@ async function erpPayMonthView(v) {
               const ch = (e.nadnikLog || []).filter(l => { const d = new Date((l.date || "") + "T00:00:00"); return d.getFullYear() === Y && (d.getMonth() + 1) === M; });
               if (ch.length) { const last = ch[ch.length - 1]; extra = ` <span class="pay-raise" title="Надникът е променен през месеца">⬆ ${payEur(last.from)}→${payEur(last.to)}</span>`; }
             }
+            if (c.k === "overtime") {
+              const all = otShow(r);
+              const inBank = all - (Number(r.overtime) || 0);
+              return `<td class="num">${dash(all)}${inBank > 0.004 ? ` <span class="erp-muted" style="font-size:10px" title="Платени през банката/005 — включени са в тези колони, не се броят втори път">↪ в банка/005</span>` : ""}</td>`;
+            }
             return `<td class="num">${dash(r[c.k])}${extra}</td>`;
           }).join("")}
           <td class="num">${dash(r.rz)}</td>
@@ -738,7 +811,7 @@ async function erpPayMonthView(v) {
           <td class="num"><b>${payEur(r.total)}</b></td></tr>`).join("") ||
           `<tr><td colspan="${hasTest ? 11 : 10}" class="report-empty">${list.length ? "Нищо не отговаря на филтъра." : "Няма попълнени данни за този месец — нито в седмичния изглед, нито в „По петъци“."}</td></tr>`}
         ${shown.length ? `<tr class="pr-total"><td colspan="2"><b>ОБЩО${mWs || mEmp || q || mOt ? " (по филтъра)" : " за месеца"}</b></td>
-          ${PAY_MONEY.map(c => `<td class="num"><b>${dash(colSum(c.k))}</b></td>`).join("")}
+          ${PAY_MONEY.map(c => `<td class="num"><b>${dash(c.k === "overtime" ? otSum : colSum(c.k))}</b></td>`).join("")}
           <td class="num"><b>${dash(colSum("rz"))}</b></td>
           <td class="num"><b>${dash(osigSum)}</b></td>
           ${hasTest ? `<td class="num" style="background:#fffbeb"><b>${dash(shown.reduce((s, r) => s + (Number(testBy[r.name]) || 0), 0))}</b></td>` : ""}
@@ -774,27 +847,7 @@ async function erpPayMonthView(v) {
         const entries = await erpPayLoadMonth(erpPayMonth);
         // ПО БАНКА само за цеховите (офисните и напусналите не са в петъчната таблица).
         const skipKeys = new Set([...(COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)), ...(rec.reportOnly || []).map(payNameKey)]);
-        const frs = payFridays(...erpPayMonth.split("-").map(Number));
-        const fromIso = new Date().toISOString().slice(0, 10);
-        Object.keys(rec.netByName).forEach(n => {
-          if (skipKeys.has(payNameKey(n))) return;
-          const er = entries[n] = entries[n] || {};
-          // Снимка на петъците ПРЕДИ новото чисто: при стар формат (число/{w,o})
-          // нормализацията дели банка/005 по net — трябва да е СТАРИЯТ net,
-          // иначе миналите петъци се пренаписват с новата сума.
-          const before = payFriNormalize(er, frs);
-          er.net = rec.netByName[n];
-          // ПРАВИЛОТО НА ДАНКО (08.10.2026): чистото веднага се разпределя по
-          // петъците (банка отпред-назад, после 005). Минали петъци не се пипат.
-          const emp = (COST_CFG.employees || []).find(e => payNameKey(e.name) === payNameKey(n));
-          const weekly = Number(emp && emp.sedmichno) || 0;
-          if (weekly > 0) {
-            const map = payFriDistribute(er.net, frs, before, weekly, fromIso);
-            const clean = {};
-            Object.keys(map).forEach(k => { const x = map[k]; if (x.b || x.c || x.o) clean[k] = x; });
-            if (Object.keys(clean).length) er.fri = clean; else delete er.fri;
-          }
-        });
+        payApplyNetsToMonth(entries, rec.netByName, skipKeys, erpPayMonth);
         ok2 = await erpPaySaveMonth(erpPayMonth, entries);
       }
       if (ok1 && ok2) { await erpPayDeleteOsigTest(erpPayMonth); erpPayMonthView(v); }
@@ -811,8 +864,8 @@ async function erpPayMonthView(v) {
     v.querySelector("#pay-csv").addEventListener("click", () => {
       const n = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const headers = [{ label: "Служител" }, { label: "Цех" }, ...PAY_MONEY.map(c => ({ label: c.l, num: true })), { label: "Различни", num: true }, { label: "Осигуровки", num: true }, { label: "ОБЩО получено", num: true }];
-      const rows = shown.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(r[c.k])), n(r.rz), n(osigOf(r.name)), n(r.total)]);
-      rows.push(["ОБЩО", "", ...PAY_MONEY.map(c => n(colSum(c.k))), n(colSum("rz")), n(osigSum), n(sum)]);
+      const rows = shown.map(r => [r.name, r.ws, ...PAY_MONEY.map(c => n(c.k === "overtime" ? otShow(r) : r[c.k])), n(r.rz), n(osigOf(r.name)), n(r.total)]);
+      rows.push(["ОБЩО", "", ...PAY_MONEY.map(c => n(c.k === "overtime" ? otSum : colSum(c.k))), n(colSum("rz")), n(osigSum), n(sum)]);
       reportExportXls(`zaplati-${erpPayMonth}${mWs ? "-" + mWs : ""}`, `Заплати · ${PAY_MONTHS[M - 1]} ${Y}${mWs ? " · " + mWs : ""}${mEmp ? " · " + mEmp : ""}`, [{ headers, rows }]);
     });
   };
@@ -1226,13 +1279,14 @@ function payOsigPreview(vedMonth, srcName, matched, unmatched, names, after, isT
     //    „➕ добави"-хората стават служители в Разходи и ставки (Офис / Управление).
     const rec = await payOsigMaterialize({ byName, netByName, extra, reportOnly, src: srcName, at: new Date().toISOString(), month: payMonth, vedMonth });
     const ok1 = await erpPaySaveOsig(payMonth, rec);
-    // 2) Чистото → ПО БАНКА (net) в „По петъци" на месеца на плащане (не пипа петъците).
-    //    Само за цеховите — офисните (office) и напусналите (reportOnly) не са в петъчната таблица.
+    // 2) Чистото → ПО БАНКА (net) в „По петъци" + АВТО-РАЗПРЕДЕЛЕНИЕ по петъците
+    //    (правилото на Данко). Само за цеховите — офисните (office) и
+    //    напусналите (reportOnly) не са в петъчната таблица.
     let ok2 = true;
     if (ok1 && Object.keys(rec.netByName).length) {
       const entries = await erpPayLoadMonth(payMonth);
       const skipKeys = new Set([...(COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)), ...(rec.reportOnly || []).map(payNameKey)]);
-      Object.keys(rec.netByName).forEach(name => { if (!skipKeys.has(payNameKey(name))) (entries[name] = entries[name] || {}).net = rec.netByName[name]; });
+      payApplyNetsToMonth(entries, rec.netByName, skipKeys, payMonth);
       ok2 = await erpPaySaveMonth(payMonth, entries);
     }
     stt.textContent = ok1 && ok2 ? "✓ Записано" : "";
