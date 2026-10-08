@@ -779,13 +779,17 @@ async function erpPayMonthView(v) {
         Object.keys(rec.netByName).forEach(n => {
           if (skipKeys.has(payNameKey(n))) return;
           const er = entries[n] = entries[n] || {};
+          // Снимка на петъците ПРЕДИ новото чисто: при стар формат (число/{w,o})
+          // нормализацията дели банка/005 по net — трябва да е СТАРИЯТ net,
+          // иначе миналите петъци се пренаписват с новата сума.
+          const before = payFriNormalize(er, frs);
           er.net = rec.netByName[n];
           // ПРАВИЛОТО НА ДАНКО (08.10.2026): чистото веднага се разпределя по
           // петъците (банка отпред-назад, после 005). Минали петъци не се пипат.
           const emp = (COST_CFG.employees || []).find(e => payNameKey(e.name) === payNameKey(n));
           const weekly = Number(emp && emp.sedmichno) || 0;
           if (weekly > 0) {
-            const map = payFriDistribute(er.net, frs, payFriNormalize(er, frs), weekly, fromIso);
+            const map = payFriDistribute(er.net, frs, before, weekly, fromIso);
             const clean = {};
             Object.keys(map).forEach(k => { const x = map[k]; if (x.b || x.c || x.o) clean[k] = x; });
             if (Object.keys(clean).length) er.fri = clean; else delete er.fri;
