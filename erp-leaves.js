@@ -464,6 +464,9 @@ function openLeavesStandalone() {
 function leavesMainInit() {
   const b = document.getElementById("btn-leaves-main");
   if (b && !b._lvWired) { b._lvWired = true; b.addEventListener("click", openLeavesStandalone); }
+  // Същият прозорец и от 💼 Офис менюто в ЕРП-то.
+  const ob = document.getElementById("erp-office-leaves");
+  if (ob && !ob._lvWired) { ob._lvWired = true; ob.addEventListener("click", openLeavesStandalone); }
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", leavesMainInit);
 else leavesMainInit();

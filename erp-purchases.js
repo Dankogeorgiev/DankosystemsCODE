@@ -1525,12 +1525,15 @@ function erpPuCheckToday() { erpSetTab("pucheck"); }
 
 async function erpPuCheckRender(v) {
   v = v || erpView();
-  v.innerHTML = `<p class="erp-loading">Проверявам днешните…</p>`;
+  v.innerHTML = `<p class="erp-loading">Проверявам въведените…</p>`;
   const today = new Date().toISOString().slice(0, 10);
+  // Избираема дата (по Данко, 09.10.2026): днес, вчера, по-назад — пази се
+  // до края на сесията, за да оцелее при „← Назад" от отворена фактура.
+  const day = window.PU_CHECK_DATE || today;
   try { if (!erpPurchases) await erpLoadPurchases(); } catch (e) {}
   try { if (typeof erpPayLoad === "function" && (typeof PAYABLES === "undefined" || !PAYABLES)) await erpPayLoad(); } catch (e) {}
   const docs = (erpPurchases || []).filter(o =>
-    String(o.createdAt || "").slice(0, 10) === today || (!o.createdAt && String(o.date || "") === today))
+    String(o.createdAt || "").slice(0, 10) === day || (!o.createdAt && String(o.date || "") === day))
     .sort((a, b) => String(a.supplierName || "").localeCompare(String(b.supplierName || ""), "bg"));
   const money = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const badge = (txt, bg, col) => `<span style="display:inline-block;background:${bg};color:${col};border-radius:7px;padding:1px 9px;font-weight:700;font-size:12px;white-space:nowrap">${txt}</span>`;
@@ -1556,7 +1559,12 @@ async function erpPuCheckRender(v) {
   }).length;
   v.innerHTML = `
     <div class="erp-toolbar">
-      <span class="erp-count">🔎 Въведени днес (${erpDMY(today)}): ${docs.length} документа${missing ? ` · <b style="color:#b91c1c">${missing} с липсващо плащане в Задължения!</b>` : docs.length ? " · всичко е наред" : ""}</span>
+      <span class="erp-count">🔎 Въведени на ${erpDMY(day)}${day === today ? " (днес)" : ""}: ${docs.length} документа${missing ? ` · <b style="color:#b91c1c">${missing} с липсващо плащане в Задължения!</b>` : docs.length ? " · всичко е наред" : ""}</span>
+      <span class="erp-inline" style="display:inline-flex;align-items:center;gap:4px">
+        <button class="btn btn-small" id="puck-prev" title="Предишен ден">‹</button>
+        <input type="date" id="puck-date" value="${escapeAttr(day)}" max="${today}" title="Избери дата — днес, вчера или по-назад" />
+        <button class="btn btn-small" id="puck-next" title="Следващ ден">›</button>
+      </span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="puck-refresh" title="Презарежда покупките и задълженията">↻ Опресни</button>
     </div>
@@ -1567,10 +1575,19 @@ async function erpPuCheckRender(v) {
         <td>${escapeHtml(o.supplierName || "")}</td>
         <td class="num"><b>${money((typeof erpPuTotals === "function" ? erpPuTotals(o) : { total: 0 }).total)}</b> ${escapeHtml(erpPuCur(o))}</td>
         <td>${statusOf(o)}</td>
-      </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Днес няма въведени покупки.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="4" class="report-empty">Няма въведени покупки на тази дата.</td></tr>`}</tbody>
     </table>
     <p class="hint">Цъкни ред → фактурата се отваря за редакция („← Назад" връща към Проверката). „⚠ ЛИПСВА в Задължения" = отложено плащане без ред там — отвори я и я запиши наново, за да се създаде.</p>`;
   v.querySelector("#puck-refresh").addEventListener("click", async () => { erpPurchases = null; try { if (typeof PAYABLES !== "undefined") PAYABLES = null; } catch (e) {} erpPuCheckRender(v); });
+  const puckShift = dir => {
+    const d = new Date(day + "T00:00:00"); d.setDate(d.getDate() + dir);
+    const nd = d.toISOString().slice(0, 10);
+    if (nd > today) return;
+    window.PU_CHECK_DATE = nd; erpPuCheckRender(v);
+  };
+  v.querySelector("#puck-prev").addEventListener("click", () => puckShift(-1));
+  v.querySelector("#puck-next").addEventListener("click", () => puckShift(1));
+  v.querySelector("#puck-date").addEventListener("change", e => { if (e.target.value) { window.PU_CHECK_DATE = e.target.value; erpPuCheckRender(v); } });
   v.querySelectorAll("[data-puid]").forEach(tr => tr.addEventListener("click", async () => {
     const o = (erpPurchases || []).find(x => String(x.id) === tr.dataset.puid);
     if (!o) return;

@@ -143,9 +143,13 @@ function applyAccess() {
   if (typeof juliaBtnApply === "function") juliaBtnApply();
   // 📝 To do списъкът на Данко (danko-todo.js).
   if (typeof todoApplyAccess === "function") todoApplyAccess();
-  // Отпуски на началния екран — само за изрично изброените (erp-leaves.js).
+  // 💼 Офис на началния екран — пълните админи (производството не го вижда).
+  const offBtn = document.getElementById("btn-office");
+  if (offBtn) offBtn.style.display = (MY_ACCESS.isAdmin && !MY_ACCESS.production) ? "" : "none";
+  // Отпуски на началния екран — само за изрично изброените (erp-leaves.js),
+  // БЕЗ тези с пълен офисен достъп: те ги имат в 💼 Офис (по Данко, 09.10.2026).
   const lvBtn = document.getElementById("btn-leaves-main");
-  if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed()) ? "" : "none";
+  if (lvBtn) lvBtn.style.display = (typeof leavesMainAllowed === "function" && leavesMainAllowed() && !(MY_ACCESS.isAdmin && !MY_ACCESS.production)) ? "" : "none";
   // План за седмицата — само Данко и Григор.
   const wkBtn = document.getElementById("btn-loading");
   if (wkBtn) wkBtn.style.display = weekPlanAllowed() ? "" : "none";

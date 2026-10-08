@@ -539,10 +539,12 @@ async function erpPayFridaysView(v) {
         if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
         const b = friVal("pf-frib", esc, iso);
         if (!(b > 0)) return;
-        if (!e.iban) { noIban.push(`${e.name} — ${r2x(b)} €`); return; }
-        out.push([String(e.name).toUpperCase(), e.iban, r2x(b), osn]);
+        // Без IBAN → редът ВЛИЗА с празна клетка за сметката (по Данко,
+        // 09.10.2026) — попълва се в банкирането или после с ✎ под името.
+        if (!e.iban) noIban.push(`${e.name} — ${r2x(b)} €`);
+        out.push([String(e.name).toUpperCase(), e.iban || "", r2x(b), osn]);
       }));
-      if (!out.length) { alert("Няма служители със сума по банка за този петък" + (noIban.length ? ", на които да им е попълнен IBAN.\n\nБез IBAN (попълни с ✎ под името):\n" + noIban.join("\n") : ".")); return; }
+      if (!out.length) { alert("Няма служители със сума по банка за този петък."); return; }
       out.sort((a, b) => a[0].localeCompare(b[0], "bg"));
       const sheet = XLSX.utils.aoa_to_sheet(out);
       sheet["!cols"] = [{ wch: 34 }, { wch: 26 }, { wch: 10 }, { wch: 38 }];
@@ -550,7 +552,7 @@ async function erpPayFridaysView(v) {
       XLSX.utils.book_append_sheet(wb, sheet, "Преводи");
       XLSX.writeFile(wb, `banka-petuk-${iso}.xlsx`);
       close();
-      if (noIban.length) alert(`⚠ ${noIban.length} души имат сума по банка за ${erpDMY(iso)}, но НЯМАТ IBAN — не са във файла:\n${noIban.join("\n")}\n\nПопълни им сметките с ✎ под името и свали наново.`);
+      if (noIban.length) alert(`⚠ ${noIban.length} души са във файла с ПРАЗНА клетка за сметка (нямат IBAN в Системата):\n${noIban.join("\n")}\n\nДопиши им сметката във файла/банкирането — и я запиши и тук с ✎ под името, да я има за другия път.`);
     });
   });
 

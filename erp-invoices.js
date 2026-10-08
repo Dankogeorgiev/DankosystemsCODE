@@ -277,6 +277,7 @@ async function erpRenderInvoices() {
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
       ${typeof erpInvAIStart === "function" ? '<button class="btn btn-small" id="inv-from-offer" title="Качи нашата оферта (Excel шаблона DANKO Quotation) — редовете влизат във фактурата, материалът се изписва по посочени кодове, палетите се сглобяват до 800 кг">🤖 От оферта…</button>' : ""}
+      <button class="btn btn-small erp-tab-pfco" id="inv-pfco" title="Авансова проформа НАПРАВО от заявка — за клиенти, които плащат преди да произведем. Складът не се пипа.">⚡ Проформа от заявка</button>
       <button class="btn btn-small btn-primary" id="inv-new-proforma">+ Проформа</button>
       <button class="btn btn-small btn-primary" id="inv-new-invoice">+ Фактура</button>
     </div>
@@ -327,6 +328,8 @@ async function erpRenderInvoices() {
   if (caEl) caEl.addEventListener("click", erpInvClearAll);
   document.getElementById("inv-new-proforma").addEventListener("click", () => erpNewInvoice("proforma"));
   document.getElementById("inv-new-invoice").addEventListener("click", () => erpNewInvoice("invoice"));
+  const pfcoBtn = document.getElementById("inv-pfco");
+  if (pfcoBtn) pfcoBtn.addEventListener("click", () => erpSetTab("proformaco"));
   const foBtn = document.getElementById("inv-from-offer");
   if (foBtn) foBtn.addEventListener("click", () => erpInvAIStart());
   const fsBtn = document.getElementById("inv-from-sales");
