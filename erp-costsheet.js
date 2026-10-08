@@ -918,9 +918,10 @@ function csHideDraw(now) {
 }
 
 /* ---------- 👩 Бутонът „Юлия — упътване" на основния екран ----------
-   Вижда се само за профила на Юлия (danko.orders@gmail.com) + Данко и
-   Григор (за преглед). Отваря Склад/ЕРП направо на раздела с упътването. */
-const JULIA_GUIDE_EMAILS = ["danko.orders@gmail.com", "dankog@gmail.com", "grigor.baykov@dankosystems.com"];
+   Вижда се САМО от профила на Юлия (danko.orders@gmail.com) — по Данко,
+   09.10.2026. Отваря Склад/ЕРП направо на раздела с упътването; останалите
+   го достигат при нужда през раздела juliaguide. */
+const JULIA_GUIDE_EMAILS = ["danko.orders@gmail.com"];
 function juliaBtnApply() {
   const b = document.getElementById("btn-julia");
   if (!b) return;
