@@ -144,6 +144,40 @@ function payFriNormalize(r, fridays) {
   return map;
 }
 
+/* ---------- ПРАВИЛОТО НА ДАНКО за разпределението (08.10.2026) ----------
+   Месечната сума ПО БАНКА (net, чистото от ведомостта) се налива по петъците
+   ОТПРЕД-НАЗАД: всеки петък взима по банка най-много дължимото си, а дължимото
+   е СЕДМИЧНОТО (ставката) + извънредните на петъка. Щом банковият бюджет
+   свърши, остатъкът от дължимото отива в Седм. 005; следващите петъци са
+   изцяло 005. net = 0 (Георги) → всичко в 005. Ако net > сбора дължими,
+   остатъкът се добавя към ПОСЛЕДНИЯ петък по банка — чистото по ведомост се
+   превежда до стотинка. Петъци ПРЕДИ fromIso не се пипат (платеното си
+   остава, „увеличението е винаги в бъдеще") — тяхната банка се приспада от
+   бюджета. Извънредните (o) само се четат — тях ги въвежда човек. */
+function payFriDistribute(net, fridays, friMap, weekly, fromIso) {
+  const r2 = x => Math.round((Number(x) || 0) * 100) / 100;
+  const out = {};
+  let room = r2(Math.max(0, Number(net) || 0));
+  const w = r2(weekly);
+  let lastIso = null;
+  fridays.forEach(f => {
+    const x = (friMap || {})[f.iso] || {};
+    if (fromIso && f.iso < fromIso) {   // минал петък — пази се както е платен
+      out[f.iso] = { b: r2(x.b), c: r2(x.c), o: r2(x.o) };
+      room = r2(Math.max(0, room - out[f.iso].b));
+      return;
+    }
+    const o = r2(x.o);
+    const due = r2(w + o);
+    const b = Math.min(due, room);
+    out[f.iso] = { b: r2(b), c: r2(due - b), o };
+    room = r2(room - b);
+    lastIso = f.iso;
+  });
+  if (room > 0.004 && lastIso) out[lastIso].b = r2(out[lastIso].b + room);
+  return out;
+}
+
 async function erpPayFridaysView(v) {
   if (!erpPayMonth) { const d = new Date(); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
   const [Y, M] = erpPayMonth.split("-").map(Number);
@@ -243,7 +277,7 @@ async function erpPayFridaysView(v) {
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> е ориентир (чистата сума за месеца) — ако „От банка" я надвиши, се оцветява. Попълва се АВТОМАТИЧНО от „🤖 Ведомост" в Месечния отчет: ведомостта за предходния месец дава чистото, което се плаща през ТОЗИ месец (може и ръчно да се коригира). <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — въвеждаш ги веднъж и се пренасят за всеки следващ месец. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> (чистото за месеца) се попълва АВТОМАТИЧНО от „🤖 Ведомост" в Месечния отчет и се <b>РАЗПРЕДЕЛЯ САМО̀ по петъците</b>: банката се налива отпред-назад — всеки петък взима по банка до дължимото си (СЕДМИЧНО + извънредните му), а щом банката свърши, остатъкът от дължимото отива в Седм. 005; празно ПО БАНКА → всичко в 005. Пипнеш ли <b>ПО БАНКА</b>, <b>СЕДМИЧНО</b> или <b>Извънредни</b>, разпределението се преизчислява наново — от днес нататък (при извънредни — от техния петък); минали петъци НЕ се пипат. Ръчна поправка на Седм. банка/005 не се преразпределя — ръчното е господар, но ако „От банка" надвиши ПО БАНКА, колоната се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
 
   const pfShift = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayFridaysView(v); };
   v.querySelector("#pf-m-prev").addEventListener("click", () => pfShift(-1));
@@ -292,6 +326,33 @@ async function erpPayFridaysView(v) {
     const gt = v.querySelector("#pf-gtot"); if (gt) gt.innerHTML = `<b>${payEur(gBank + gCode + gO + gRz)}</b>`;
   };
   v.querySelectorAll(".pf-net, .pf-frib, .pf-fric, .pf-frio, .pf-rzsum").forEach(i => i.addEventListener("input", () => { recompute(i.dataset.name); recomputeFooter(); }));
+
+  /* Автоматичното разпределение (ПРАВИЛОТО НА ДАНКО, 08.10.2026): пипнеш ли
+     ПО БАНКА, СЕДМИЧНО или Извънредни — банката се пренарежда по петъците
+     от fromIso нататък; миналите петъци НЕ се пипат (платеното си остава).
+     Ръчна поправка на Седм. банка / Седм. 005 НЕ преразпределя — ръчното е
+     господар. Служител без СЕДМИЧНО ставка не се разпределя автоматично. */
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const redistribute = (name, fromIso) => {
+    const esc = CSS.escape(name);
+    const weekly = Number((v.querySelector(`.pf-sedm[data-name="${esc}"]`) || {}).value) || 0;
+    if (!(weekly > 0)) return;
+    const net = Number((v.querySelector(`.pf-net[data-name="${esc}"]`) || {}).value) || 0;
+    const cur = {};
+    fridays.forEach(f => { cur[f.iso] = { b: friVal("pf-frib", esc, f.iso), c: friVal("pf-fric", esc, f.iso), o: friVal("pf-frio", esc, f.iso) }; });
+    const map = payFriDistribute(net, fridays, cur, weekly, fromIso);
+    fridays.forEach(f => {
+      if (fromIso && f.iso < fromIso) return;
+      const bEl = v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${f.iso}"]`);
+      const cEl = v.querySelector(`.pf-fric[data-name="${esc}"][data-iso="${f.iso}"]`);
+      if (bEl) bEl.value = String(map[f.iso].b || 0);
+      if (cEl) cEl.value = String(map[f.iso].c || 0);
+    });
+    recompute(name); recomputeFooter();
+  };
+  v.querySelectorAll(".pf-net").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, todayIso)));
+  v.querySelectorAll(".pf-sedm").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, todayIso)));
+  v.querySelectorAll(".pf-frio").forEach(i => i.addEventListener("input", () => redistribute(i.dataset.name, i.dataset.iso)));
   // Отметка „По банка" за петък в даден цех: премества седмичната сума банка⇄005 за всички в цеха.
   v.querySelectorAll(".pf-bankchk").forEach(chk => chk.addEventListener("change", () => {
     const ws = chk.dataset.ws, iso = chk.dataset.iso, toBank = chk.checked;
@@ -700,7 +761,23 @@ async function erpPayMonthView(v) {
         const entries = await erpPayLoadMonth(erpPayMonth);
         // ПО БАНКА само за цеховите (офисните и напусналите не са в петъчната таблица).
         const skipKeys = new Set([...(COST_CFG.employees || []).filter(e => e.office).map(e => payNameKey(e.name)), ...(rec.reportOnly || []).map(payNameKey)]);
-        Object.keys(rec.netByName).forEach(n => { if (!skipKeys.has(payNameKey(n))) (entries[n] = entries[n] || {}).net = rec.netByName[n]; });
+        const frs = payFridays(...erpPayMonth.split("-").map(Number));
+        const fromIso = new Date().toISOString().slice(0, 10);
+        Object.keys(rec.netByName).forEach(n => {
+          if (skipKeys.has(payNameKey(n))) return;
+          const er = entries[n] = entries[n] || {};
+          er.net = rec.netByName[n];
+          // ПРАВИЛОТО НА ДАНКО (08.10.2026): чистото веднага се разпределя по
+          // петъците (банка отпред-назад, после 005). Минали петъци не се пипат.
+          const emp = (COST_CFG.employees || []).find(e => payNameKey(e.name) === payNameKey(n));
+          const weekly = Number(emp && emp.sedmichno) || 0;
+          if (weekly > 0) {
+            const map = payFriDistribute(er.net, frs, payFriNormalize(er, frs), weekly, fromIso);
+            const clean = {};
+            Object.keys(map).forEach(k => { const x = map[k]; if (x.b || x.c || x.o) clean[k] = x; });
+            if (Object.keys(clean).length) er.fri = clean; else delete er.fri;
+          }
+        });
         ok2 = await erpPaySaveMonth(erpPayMonth, entries);
       }
       if (ok1 && ok2) { await erpPayDeleteOsigTest(erpPayMonth); erpPayMonthView(v); }
