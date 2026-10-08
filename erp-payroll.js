@@ -258,7 +258,7 @@ async function erpPayFridaysView(v) {
       <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button></td>
       <td class="num pf-dnc">${inp("pf-dnevno", e.name, e.dnevno)}</td>
       <td class="num pf-sec">${inp("pf-sedm", e.name, e.sedmichno)}</td>
-      <td class="num pf-netc">${inp("pf-net", e.name, r.net)}</td>
+      <td class="num pf-netc">${inp("pf-net", e.name, r.net)}<button class="btn btn-small pf-redo" data-name="${escapeAttr(e.name)}" title="Разпредели наново: налива ПО БАНКА по петъците от днес нататък (по СЕДМИЧНОТО + извънредните). Маха ръчните корекции на бъдещите петъци; миналите не пипа.">↻</button></td>
       ${friCells}
       <td class="num pf-bank ${net > 0 && sumB > net ? "pf-over" : ""}" data-bank="${escapeAttr(e.name)}">${payEur(sumB)}</td>
       <td class="num pf-code" data-code="${escapeAttr(e.name)}">${payEur(sumC)}</td>
@@ -421,7 +421,18 @@ async function erpPayFridaysView(v) {
   }));
   // Ръчна редакция на Седм. банка / Седм. 005 ЗАКЛЮЧВА петъка за авто-
   // разпределението („ръчното е господар") — до следващото презареждане.
-  v.querySelectorAll(".pf-frib, .pf-fric").forEach(i => i.addEventListener("input", () => { i.dataset.manual = "1"; }));
+  // ИЗТРИТО (празно) поле обаче ОТКЛЮЧВА — „изчистих го, попълни ме наново".
+  v.querySelectorAll(".pf-frib, .pf-fric").forEach(i => i.addEventListener("input", () => {
+    if (i.value.trim() === "") delete i.dataset.manual;
+    else i.dataset.manual = "1";
+  }));
+  // ↻ на реда: изрично преразпределяне — маха ръчните ключалки на БЪДЕЩИТЕ
+  // петъци и налива банката наново от днес (миналите не се пипат).
+  v.querySelectorAll(".pf-redo").forEach(b => b.addEventListener("click", () => {
+    const esc = CSS.escape(b.dataset.name);
+    v.querySelectorAll(`.pf-frib[data-name="${esc}"], .pf-fric[data-name="${esc}"]`).forEach(x => { delete x.dataset.manual; });
+    redistribute(b.dataset.name, payIso(new Date()));
+  }));
   // Отметка „По банка" за петък в даден цех: премества седмичната сума банка⇄005 за всички в цеха.
   v.querySelectorAll(".pf-bankchk").forEach(chk => chk.addEventListener("change", () => {
     const ws = chk.dataset.ws, iso = chk.dataset.iso, toBank = chk.checked;
