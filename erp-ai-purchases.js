@@ -392,6 +392,14 @@ async function erpPuAIConfirm() {
   if (!s.rows.length) { st.textContent = "⚠ Няма редове."; return; }
   const bad = s.rows.filter(r => !(erpToNum(r.qty) > 0));
   if (bad.length) { alert("Има редове с количество ≤ 0."); return; }
+  // ЗАДЪЛЖИТЕЛНИ реквизити (правило на Данко, 08.10.2026) — важи и за AI потока:
+  // без доставчик и № на фактурата чернова НЕ се създава.
+  {
+    const miss = [];
+    if (!String(s.supName || "").trim()) miss.push("• Доставчик");
+    if (!String(s.invoiceNo || "").trim()) miss.push("• № на фактурата");
+    if (miss.length) { alert("⛔ НЕ създавам черновата — липсват задължителни реквизити:\n\n" + miss.join("\n") + "\n\nПопълни ги в полетата горе (AI не ги е разчел) и натисни пак."); return; }
+  }
   if (!s.expenseType && !confirm("Не е избран Вид разход. Да създам черновата без него? (може да се добави и после във формата)")) return;
   // Дубликат: същият № на фактура вече въведен (напр. сканирана два пъти).
   try { if (typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}   // свежа база — да хванем и въведеното междувременно

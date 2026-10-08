@@ -740,6 +740,28 @@ function erpPuAfterSave(o, posted) {
 
 async function erpPuSaveClick(o, opts) {
   const btn = document.getElementById("pu-save");
+  // ЗАДЪЛЖИТЕЛНИ реквизити (правило на Данко, 08.10.2026): без доставчик,
+  // № на документа и начин на плащане фактурата НЕ се записва — иначе се
+  // губи в списъците, в дубликатната проверка и не стига до Задължения.
+  {
+    const gv = id => { const el = document.getElementById(id); return el ? el.value : null; };
+    if (gv("pu-supplier") != null) o.supplierName = String(gv("pu-supplier")).trim();
+    if (gv("pu-invoice") != null) o.invoiceNo = String(gv("pu-invoice")).trim();
+    const mark = (id, bad) => { const el = document.getElementById(id); if (el) el.style.borderColor = bad ? "#dc2626" : ""; };
+    const missing = [];
+    const noSupp = !String(o.supplierName || "").trim();
+    mark("pu-supplier", noSupp); if (noSupp) missing.push(["Доставчик", "pu-supplier"]);
+    const noNo = !String(o.invoiceNo || "").trim();
+    mark("pu-invoice", noNo); if (noNo) missing.push([o.docType === "goods" ? "№ на стоковата разписка" : "№ на фактурата", "pu-invoice"]);
+    const payV = o.payStatus || gv("pu-pay") || "";
+    const noPay = !PU_PAY_OPTS.some(p => p.k === payV);
+    mark("pu-pay", noPay); if (noPay) missing.push(["Начин на плащане", "pu-pay"]);
+    if (missing.length) {
+      alert("⛔ НЕ записвам — липсват задължителни реквизити на фактурата:\n\n" + missing.map(x => "• " + x[0]).join("\n") + "\n\nПопълни ги (отбелязани са в червено) и натисни „Запази“ отново.");
+      const f = document.getElementById(missing[0][1]); if (f) f.focus();
+      return;
+    }
+  }
   // Дубликати (правило на Данко, 07.10.2026): същият № при СЪЩИЯ доставчик се
   // БЛОКИРА — еднакви фактури не се въвеждат. Същият № при ДРУГ доставчик може
   // да е съвпадение на номерацията — само предупреждение.
