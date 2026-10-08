@@ -283,7 +283,7 @@ async function erpPayFridaysView(v) {
       ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
-      <button class="btn btn-small" id="pf-xls" title="Сваля таблицата за месеца в Excel: ПО БАНКА, От банка и общо CODE 005 за всеки служител">⤓ Excel (месеца)</button>
+      <button class="btn btn-small" id="pf-xls" title="Файл за онлайн банкирането: Име · IBAN · Сума (Седм. банка) · Основание — за избран петък">⤓ Excel за банката</button>
       <button class="btn btn-small" id="pf-iban-imp" title="Качи Excel файла със сметките (колона A = трите имена, колона B = IBAN) — записват се под имената на служителите">🏦 IBAN-и (Excel)</button>
       <input type="file" id="pf-iban-file" accept=".xlsx,.xls" hidden />
       <span class="spacer"></span>
@@ -511,41 +511,47 @@ async function erpPayFridaysView(v) {
   recomputeFooter();
   payApplyFilter(v);
 
-  /* ⤓ Excel за месеца — една чиста таблица: Цех · Служител · ПО БАНКА · CODE 005 · ОБЩО.
-     Данко е най-отгоре (най-голямата заплата), а долу има два сбора: без него и с него.
-     Чете живите стойности от таблицата — значи хваща и още незаписаното. */
+  /* ⤓ Excel за банката: файл за МАСОВ ПРЕВОД в онлайн банкирането за избран
+     петък — Име (главни) · IBAN · Сума (Седм. банка) · Основание, без заглавен
+     ред (точно като файла на счетоводството). Влизат само служители със сума
+     по банка > 0 за петъка; липсва ли IBAN — редът се пропуска и се ДОКЛАДВА.
+     Чете живите стойности от таблицата — хваща и още незаписаното. */
   v.querySelector("#pf-xls").addEventListener("click", () => {
-    const n2 = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const numOf = (cls, esc) => { const el = v.querySelector(`.${cls}[data-name="${esc}"]`); return el ? Number(el.value) || 0 : 0; };
-
-    // Събиране на данните по служител (в реда на таблицата: по цехове).
-    const list = [];
-    order.forEach(ws => byWs[ws].forEach(e => {
-      const esc = CSS.escape(e.name);
-      if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
-      let b = 0, c = 0, o = 0;
-      fridays.forEach(f => { b += friVal("pf-frib", esc, f.iso); c += friVal("pf-fric", esc, f.iso); o += (friInc(esc, f.iso) ? 0 : friVal("pf-frio", esc, f.iso)); });
-      const rz = numOf("pf-rzsum", esc);
-      list.push({ name: e.name, ws, net: numOf("pf-net", esc), code: c, total: b + c + o + rz });
-    }));
-    // Собственикът излиза пръв — заплатата му изкривява картината на цеховете.
-    const isBoss = r => PAY_TOP_NAME.test(r.name);
-    const boss = list.filter(isBoss), rest = list.filter(r => !isBoss(r));
-    const ordered = boss.concat(rest);
-
-    const sum = (arr, k) => arr.reduce((s, r) => s + (Number(r[k]) || 0), 0);
-    const totRow = (label, arr) => ["", label, n2(sum(arr, "net")), n2(sum(arr, "code")), n2(sum(arr, "total"))];
-
-    const headers = [{ label: "Цех" }, { label: "Служител" }, { label: "ПО БАНКА", num: true }, { label: "CODE 005", num: true }, { label: "ОБЩО", num: true }];
-    const rows = ordered.map(r => [r.ws, r.name, n2(r.net), n2(r.code), n2(r.total)]);
-    if (rows.length) {
-      if (boss.length) rows.push(totRow("ОБЩО (без " + boss[0].name.split(" ")[0] + ")", rest));
-      rows.push(totRow(boss.length ? "ОБЩО (всички)" : "ОБЩО ЗА МЕСЕЦА", ordered));
-    }
-
-    const per = `${PAY_MONTHS[M - 1]} ${Y}`;
-    reportExportXls(`zaplati-petuci-${erpPayMonth}`, `Заплати по петъци · ${per}`,
-      [{ title: `По служител · ${per} (сумите са в евро)`, headers, rows }]);
+    if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена — презареди страницата."); return; }
+    const today = payIso(new Date());
+    const defIso = (fridays.find(f => f.iso >= today) || fridays[fridays.length - 1] || {}).iso || "";
+    const pm = new Date(Y, M - 2, 1);   // ведомостта е месец назад → основанието носи предходния месец
+    const defOsn = `ПЛАЩАНЕ ЧАСТИЧНО ${PAY_MONTHS[pm.getMonth()].toUpperCase()} ${pm.getFullYear()}`;
+    const { wrap, close } = erpDialog(`
+      <h3>⤓ Excel за банката — масов превод</h3>
+      <p class="hint" style="margin:0 0 8px">Сваля файл за онлайн банкирането: Име · IBAN · Сума („Седм. банка" на петъка) · Основание. Влизат само служители със сума по банка над 0 и с попълнен IBAN.</p>
+      <label class="erp-inline">Петък <select id="pfb-f">${fridays.map(f => `<option value="${f.iso}" ${f.iso === defIso ? "selected" : ""}>${f.label}</option>`).join("")}</select></label>
+      <label>Основание на превода <input type="text" id="pfb-osn" value="${escapeAttr(defOsn)}" /></label>
+      <div class="erp-dialog-actions"><button class="btn" id="pfb-cancel">Отказ</button><button class="btn btn-primary" id="pfb-go">⤓ Свали</button></div>`);
+    wrap.querySelector("#pfb-cancel").addEventListener("click", close);
+    wrap.querySelector("#pfb-go").addEventListener("click", () => {
+      const iso = wrap.querySelector("#pfb-f").value;
+      const osn = wrap.querySelector("#pfb-osn").value.trim();
+      const r2x = x => Math.round((Number(x) || 0) * 100) / 100;
+      const out = [], noIban = [];
+      order.forEach(ws => byWs[ws].forEach(e => {
+        const esc = CSS.escape(e.name);
+        if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
+        const b = friVal("pf-frib", esc, iso);
+        if (!(b > 0)) return;
+        if (!e.iban) { noIban.push(`${e.name} — ${r2x(b)} €`); return; }
+        out.push([String(e.name).toUpperCase(), e.iban, r2x(b), osn]);
+      }));
+      if (!out.length) { alert("Няма служители със сума по банка за този петък" + (noIban.length ? ", на които да им е попълнен IBAN.\n\nБез IBAN (попълни с ✎ под името):\n" + noIban.join("\n") : ".")); return; }
+      out.sort((a, b) => a[0].localeCompare(b[0], "bg"));
+      const sheet = XLSX.utils.aoa_to_sheet(out);
+      sheet["!cols"] = [{ wch: 34 }, { wch: 26 }, { wch: 10 }, { wch: 38 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, sheet, "Преводи");
+      XLSX.writeFile(wb, `banka-petuk-${iso}.xlsx`);
+      close();
+      if (noIban.length) alert(`⚠ ${noIban.length} души имат сума по банка за ${erpDMY(iso)}, но НЯМАТ IBAN — не са във файла:\n${noIban.join("\n")}\n\nПопълни им сметките с ✎ под името и свали наново.`);
+    });
   });
 
   const num = x => Number(String(x).replace(",", ".")) || 0;
