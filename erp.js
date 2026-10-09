@@ -154,9 +154,12 @@ async function openErp() {
   if (typeof sb === "undefined" || !sb) { alert("Първо влез в приложението."); return; }
   if (erpAmWorker()) { alert("Този модул е достъпен само за офиса."); return; }
   document.getElementById("erp-modal").hidden = false;
-  // 💼 Офис режим: лявата (производствено-търговската) лента се скрива.
+  // 💼 Офис режим: лявата (производствено-търговската) лента се скрива;
+  // офисните табове са си НОРМАЛНИ бутони (по Данко, 09.10.2026 — без меню).
   const leftTabs = document.querySelector(".erp-tabs");
   if (leftTabs) leftTabs.style.display = ERP.officeMode ? "none" : "";
+  const modalEl = document.getElementById("erp-modal");
+  if (modalEl) modalEl.classList.toggle("erp-office-mode", !!ERP.officeMode);
   // Финансите се отварят само през бутона на началната страница (не като таб в ЕРП)
   // и само от оторизираните.
   const finOk = (typeof financeAllowed !== "function") || financeAllowed();
@@ -625,13 +628,5 @@ function erpInit() {
       const t = b.dataset.tab;
       erpSetTab(t, ERP.tab === t && (ERP.openTabs || []).includes(t));
     }));
-  // 💼 Офис — бутонът разгъва офисните модули; избор или клик навън затваря.
-  const offBtn = document.getElementById("erp-office-btn");
-  const offMenu = document.getElementById("erp-office-menu");
-  if (offBtn && offMenu) {
-    offBtn.addEventListener("click", e => { e.stopPropagation(); offMenu.hidden = !offMenu.hidden; });
-    offMenu.addEventListener("click", () => { offMenu.hidden = true; });
-    document.addEventListener("click", e => { if (!offMenu.hidden && !offMenu.contains(e.target) && e.target !== offBtn) offMenu.hidden = true; });
-  }
 }
 document.addEventListener("DOMContentLoaded", erpInit);
