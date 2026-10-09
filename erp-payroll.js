@@ -284,6 +284,7 @@ async function erpPayFridaysView(v) {
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
       <button class="btn btn-small" id="pf-xls" title="Файл за онлайн банкирането: Име · IBAN · Сума (Седм. банка) · Основание — за избран петък">⤓ Excel за банката</button>
+      <button class="btn btn-small" id="pf-xls005" title="Файл за раздаването В БРОЙ: Цех · Служител · Седм. 005 (+ отделно платени извънредни) за избран петък, с общ сбор">⤓ Excel Седм. 005</button>
       <button class="btn btn-small" id="pf-iban-imp" title="Качи Excel файла със сметките (колона A = трите имена, колона B = IBAN) — записват се под имената на служителите">🏦 IBAN-и (Excel)</button>
       <input type="file" id="pf-iban-file" accept=".xlsx,.xls" hidden />
       <span class="spacer"></span>
@@ -553,6 +554,43 @@ async function erpPayFridaysView(v) {
       XLSX.writeFile(wb, `banka-petuk-${iso}.xlsx`);
       close();
       if (noIban.length) alert(`⚠ ${noIban.length} души са във файла с ПРАЗНА клетка за сметка (нямат IBAN в Системата):\n${noIban.join("\n")}\n\nДопиши им сметката във файла/банкирането — и я запиши и тук с ✎ под името, да я има за другия път.`);
+    });
+  });
+
+  /* ⤓ Excel Седм. 005: кой колко получава В БРОЙ за избран петък (Седм. 005 +
+     отделно платените извънредни — включените в банката НЕ се дублират),
+     по цехове, с общ сбор — колко пари да се приготвят за раздаване. */
+  v.querySelector("#pf-xls005").addEventListener("click", () => {
+    const today = payIso(new Date());
+    const defIso = (fridays.find(f => f.iso >= today) || fridays[fridays.length - 1] || {}).iso || "";
+    const { wrap, close } = erpDialog(`
+      <h3>⤓ Excel Седм. 005 — в брой</h3>
+      <p class="hint" style="margin:0 0 8px">Кой колко получава В БРОЙ (Седм. 005 + отделно платените извънредни) за избрания петък — по цехове, с общ сбор колко пари да приготвиш.</p>
+      <label class="erp-inline">Петък <select id="pfc-f">${fridays.map(f => `<option value="${f.iso}" ${f.iso === defIso ? "selected" : ""}>${f.label}</option>`).join("")}</select></label>
+      <div class="erp-dialog-actions"><button class="btn" id="pfc-cancel">Отказ</button><button class="btn btn-primary" id="pfc-go">⤓ Свали</button></div>`);
+    wrap.querySelector("#pfc-cancel").addEventListener("click", close);
+    wrap.querySelector("#pfc-go").addEventListener("click", () => {
+      const iso = wrap.querySelector("#pfc-f").value;
+      const n2 = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      let gC = 0, gO = 0;
+      const rows = [];
+      order.forEach(ws => byWs[ws].forEach(e => {
+        const esc = CSS.escape(e.name);
+        if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
+        const c = friVal("pf-fric", esc, iso);
+        const o = friInc(esc, iso) ? 0 : friVal("pf-frio", esc, iso);
+        if (!(c > 0 || o > 0)) return;
+        gC += c; gO += o;
+        rows.push([ws, e.name, n2(c), o ? n2(o) : "", n2(c + o)]);
+      }));
+      if (!rows.length) { alert("За този петък няма суми в брой (Седм. 005)."); return; }
+      const nPpl = rows.length;
+      rows.push(["", `ОБЩО ЗА РАЗДАВАНЕ (${nPpl} души)`, n2(gC), gO ? n2(gO) : "", n2(gC + gO)]);
+      reportExportXls("kesh-005-petuk-" + iso, "В брой (CODE 005) · петък " + (erpDMY(iso) || iso), [{
+        headers: [{ label: "Цех" }, { label: "Служител" }, { label: "Седм. 005", num: true }, { label: "Извънредни (отделно)", num: true }, { label: "ОБЩО в брой", num: true }],
+        rows,
+      }]);
+      close();
     });
   });
 
