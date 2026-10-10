@@ -869,3 +869,7 @@ td.supp-colwhat { font-size: 12px; }
 /* 💼 Офис режим: производствената лента е скрита, офисните табове са си
    нормални бутони — лентата застава вляво, без разделителния кант. */
 .erp-office-mode .erp-fin-tabs { border-left: none; padding-left: 18px; }
+
+/* В Офис режим офисните табове са с 10% по-едри (по Данко, 10.10.2026):
+   базата е .btn-small 13px / 5px 10px → 14.3px / 5.5px 11px. */
+.erp-office-mode .erp-fin-tabs .btn { font-size: 14.3px; padding: 5.5px 11px; }
