@@ -870,6 +870,10 @@ td.supp-colwhat { font-size: 12px; }
    нормални бутони — лентата застава вляво, без разделителния кант. */
 .erp-office-mode .erp-fin-tabs { border-left: none; padding-left: 18px; }
 
-/* В Офис режим офисните табове са с 10% по-едри (по Данко, 10.10.2026):
-   базата е .btn-small 13px / 5px 10px → 14.3px / 5.5px 11px. */
-.erp-office-mode .erp-fin-tabs .btn { font-size: 14.3px; padding: 5.5px 11px; }
+/* В Офис режим (по Данко, 11.10.2026): всичките офисни бутони на ЕДИН ред,
+   разпънати да обхванат цялата му ширина, с по-едър шрифт. display:contents
+   слива двата .erp-fin-row реда в общия flex ред. */
+.erp-office-mode .erp-fin-tabs { flex-direction: row; flex-wrap: nowrap; width: 100%; gap: 10px; }
+.erp-office-mode .erp-fin-row { display: contents; }
+.erp-office-mode .erp-fin-tabs .btn { flex: 1 1 0; min-width: 0; font-size: 15px; padding: 10px 6px; text-align: center; }
+@media (max-width: 1100px) { .erp-office-mode .erp-fin-tabs { flex-wrap: wrap; } .erp-office-mode .erp-fin-tabs .btn { flex: 1 1 160px; } }
