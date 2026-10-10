@@ -402,6 +402,7 @@ function erpShowDossier(emp, host) {
   const { wrap, close } = erpDialog(`
     <h3>📄 ${escapeHtml(emp.name || "")}</h3>
     <p class="dos-pay">Заплата: <b>${(emp.pay != null && emp.pay !== "") ? money(emp.pay) + " €/мес" : "—"}</b> <span class="erp-muted">🔗 автоматично от Месечния отчет${emp.paySrc && typeof payYmLabel === "function" ? ` за ${payYmLabel(emp.paySrc)}` : ""} (банка + 005 + надник + извънреден + бонус + различни + осигуровки) — поправя се само в Заплатите</span></p>
+    <p class="dos-pay">🏦 Банкова сметка (IBAN): <input type="text" id="dos-iban" value="${escapeAttr(emp.iban || "")}" placeholder="BG…" style="width:270px" /> <span class="erp-muted">същата сметка ползват „По петъци" и „Excel за банката"</span></p>
     ${DOSSIER_FIELDS.map(field).join("")}
     <div class="erp-dialog-actions">
       <button class="btn" id="dos-cancel">Отказ</button>
@@ -416,6 +417,14 @@ function erpShowDossier(emp, host) {
     if (!target) { target = { name: emp.name, ws: emp.ws || "", pay: emp.pay || 0 }; (COST_CFG.employees = COST_CFG.employees || []).push(target); }
     target.dossier = target.dossier || {};
     DOSSIER_FIELDS.forEach(f => { target.dossier[f.k] = wrap.querySelector("#dos-" + f.k).value.trim(); });
+    // 🏦 IBAN — живее при служителя (employees[].iban), не в досието: едно
+    // място за „По петъци", „Excel за банката" и тук.
+    const ibEl = wrap.querySelector("#dos-iban");
+    if (ibEl) {
+      const nv = ibEl.value.replace(/\s+/g, "").toUpperCase();
+      if (nv && !/^[A-Z]{2}[0-9A-Z]{12,32}$/.test(nv)) alert("⚠ IBAN-ът не изглежда валиден (напр. BG80UBBS80021011084720) — досието записах, сметката НЕ.");
+      else target.iban = nv;
+    }
     // Заплатата НЕ се пипа тук — идва автоматично от Месечния отчет (Заплати).
     const ok = await erpSaveCostCfg();
     st.textContent = ok ? "✓ Записано" : "";
