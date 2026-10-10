@@ -24,6 +24,15 @@ let sb = null;            // Supabase клиент
    BG_COLLATOR — един готов сравнител за българска азбука (localeCompare
    създава нов при всяко повикване и бави сортирането на големи списъци). */
 function uiDebounce(fn, ms) { let t = null; return function (...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms || 200); }; }
+/* Търсене САМО с Enter (правило на Данко, 10.10.2026): живото търсене на
+   всяка буква пре-рисува големите списъци и влачи. Enter прилага; X-то на
+   полето (изчистване) също прилага веднага. Малките диалог-пикери (избор на
+   материал/продукт) остават на живо — те са мигновени. */
+function uiSearchEnter(el, apply) {
+  if (!el) return;
+  el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); apply(el.value); } });
+  el.addEventListener("search", () => { if (!el.value) apply(""); });
+}
 const BG_COLLATOR = (typeof Intl !== "undefined" && Intl.Collator) ? new Intl.Collator("bg") : null;
 function bgCmp(a, b) { return BG_COLLATOR ? BG_COLLATOR.compare(String(a || ""), String(b || "")) : String(a || "").localeCompare(String(b || ""), "bg"); }
 let session = null;

@@ -181,7 +181,7 @@ async function erpRenderPlan() {
     <div class="erp-toolbar">
       <h3 class="erp-h" style="margin:0">📅 План за производство</h3>
       <span class="spacer"></span>
-      <input type="search" id="plan-q" placeholder="🔎 клиент / код…" value="${escapeAttr(erpPlanQ)}" style="min-width:200px" />
+      <input type="search" id="plan-q" placeholder="🔎 клиент / код… (Enter)" value="${escapeAttr(erpPlanQ)}" style="min-width:200px" />
       <button class="btn btn-small" id="plan-refresh">⟳ Преизчисли</button>
     </div>
     <div class="costk-stats">
@@ -217,8 +217,7 @@ async function erpRenderPlan() {
     </table>
     <p class="hint">Ритъмът е медианата на интервалите между заявките на клиента за този код; количеството — медианата на количествата. Закъснялата очаквана заявка е сигнал да подсетиш клиента или да заредиш склада предварително (Производство за склад).</p>`;
 
-  const qi = v.querySelector("#plan-q");
-  if (qi) qi.addEventListener("input", e => { erpPlanQ = e.target.value; erpRenderPlan(); setTimeout(() => { const el = document.getElementById("plan-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); });
+  uiSearchEnter(v.querySelector("#plan-q"), val => { erpPlanQ = val; erpRenderPlan(); setTimeout(() => { const el = document.getElementById("plan-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); });
   const rf = v.querySelector("#plan-refresh");
   if (rf) rf.addEventListener("click", () => { erpPlanCache = null; erpRenderPlan(); });
   // 🏭 Пускане за склад направо от плана (иска потвърждение + позволява друга бройка).

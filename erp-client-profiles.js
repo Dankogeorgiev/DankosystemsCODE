@@ -199,7 +199,7 @@ async function erpRenderClientProfiles() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} клиента · попълнени <b>${done}</b> от ${active.length}</span>
-      <input type="search" id="cli-q" placeholder="🔎 клиент (търси във всички)…" value="${escapeAttr(cliQuery)}" style="min-width:190px" autocomplete="off" />
+      <input type="search" id="cli-q" placeholder="🔎 клиент (търси във всички)… (Enter)" value="${escapeAttr(cliQuery)}" style="min-width:190px" autocomplete="off" />
       <label class="erp-inline" title="Показват се клиентите с движение в този период">Период
         <select id="cli-months">
           ${[[3, "последните 3 месеца"], [6, "последните 6 месеца"], [12, "последните 12 месеца"], [0, "всички"]]
@@ -248,9 +248,8 @@ async function erpRenderClientProfiles() {
     </table>`;
 
   cliSetBadge(missing.length);
-  const qEl = document.getElementById("cli-q");
-  if (qEl) qEl.addEventListener("input", e => {
-    cliQuery = e.target.value; erpRenderClientProfiles();
+  uiSearchEnter(document.getElementById("cli-q"), val => {
+    cliQuery = val; erpRenderClientProfiles();
     const el = document.getElementById("cli-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   });
   const mEl = document.getElementById("cli-months");

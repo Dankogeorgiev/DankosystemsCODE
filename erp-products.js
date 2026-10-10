@@ -245,7 +245,7 @@ function erpRenderProducts() {
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <input type="search" id="erp-prod-search" placeholder="Търси код, име, група…" value="${escapeAttr(erpProdSearch)}" />
+      <input type="search" id="erp-prod-search" placeholder="Търси код, име, група… (Enter)" value="${escapeAttr(erpProdSearch)}" />
       <select id="erp-prod-filter">
         <option value="all" ${erpProdFilter === "all" ? "selected" : ""}>Всички</option>
         <option value="top" ${erpProdFilter === "top" ? "selected" : ""}>🧾 Само крайни (за фактура)</option>
@@ -277,9 +277,7 @@ function erpRenderProducts() {
   if (typeof quickLoad === "function" && !QUICK) quickLoad().then(() => erpProdFillRows()).catch(() => {});
   const sqEl = document.getElementById("erp-prod-showquick");
   if (sqEl) sqEl.addEventListener("change", e => { erpProdShowQuick = e.target.checked; erpProdFillRows(); });
-  document.getElementById("erp-prod-search").addEventListener("input", e => {
-    erpProdSearch = e.target.value; erpProdFillRows();
-  });
+  uiSearchEnter(document.getElementById("erp-prod-search"), val => { erpProdSearch = val; erpProdFillRows(); });
   document.getElementById("erp-prod-filter").addEventListener("change", e => {
     erpProdFilter = e.target.value; erpProdFillRows();
   });

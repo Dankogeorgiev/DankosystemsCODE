@@ -273,7 +273,7 @@ async function erpRenderPurchases() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count" id="pu-count"></span>
-      <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код…" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
+      <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код… (Enter)" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
@@ -292,8 +292,7 @@ async function erpRenderPurchases() {
       <thead><tr><th>Дата</th><th>№ Фактура</th><th>Доставчик</th><th>Класификация</th><th class="num">Сума (с ДДС)</th><th>Плащане</th><th>Статус</th><th></th></tr></thead>
       <tbody id="pu-tbody"></tbody>
     </table>`;
-  const qEl = document.getElementById("pu-q");
-  if (qEl) qEl.addEventListener("input", uiDebounce(e => { erpPuQuery = e.target.value; erpPuFillRows(); }, 200));
+  uiSearchEnter(document.getElementById("pu-q"), val => { erpPuQuery = val; erpPuFillRows(); });
   const mEl = document.getElementById("pu-month");
   if (mEl) mEl.addEventListener("change", e => { erpPuMonth = e.target.value; erpPuMonthCards(); });
   erpPuMonthCards();

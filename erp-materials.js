@@ -49,7 +49,7 @@ function erpRenderMaterials() {
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <input type="search" id="erp-mat-search" placeholder="Търси код, име, група…" value="${escapeAttr(erpMatSearch)}" />
+      <input type="search" id="erp-mat-search" placeholder="Търси код, име, група… (Enter)" value="${escapeAttr(erpMatSearch)}" />
       <label class="erp-check"><input type="checkbox" id="erp-mat-below" ${erpMatOnlyBelow ? "checked" : ""} /> Само липсващите</label>
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} материала${belowCount ? ` · <span class="erp-warn">${belowCount} под минимум</span>` : ""}</span>
@@ -88,10 +88,10 @@ function erpRenderMaterials() {
       </tbody>
     </table>`;
 
-  document.getElementById("erp-mat-search").addEventListener("input", uiDebounce(e => {
-    erpMatSearch = e.target.value; erpRenderMaterials();
-    const el = document.getElementById("erp-mat-search"); el.focus(); el.setSelectionRange(el.value.length, el.value.length);
-  }, 200));
+  uiSearchEnter(document.getElementById("erp-mat-search"), val => {
+    erpMatSearch = val; erpRenderMaterials();
+    const el = document.getElementById("erp-mat-search"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
   document.getElementById("erp-mat-below").addEventListener("change", e => {
     erpMatOnlyBelow = e.target.checked; erpRenderMaterials();
   });

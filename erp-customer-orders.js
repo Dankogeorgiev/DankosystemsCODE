@@ -538,7 +538,7 @@ async function erpRenderCustomerOrders() {
     <div class="erp-toolbar">
       <span class="erp-count" id="erp-co-count">${rows.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
         ` <span class="sell-cell erp-muted" title="Сборът е само по НЕдоставеното — вече изпратеното не се брои">· остава ${erpEur(rows.reduce((s, o) => s + erpCOValueLeft(o), 0))}</span>`}</span>
-      <input type="search" id="erp-co-q" placeholder="🔎 търси № / клиент / статус…" value="${escapeAttr(erpCOQuery)}" autocomplete="off" style="min-width:190px" />
+      <input type="search" id="erp-co-q" placeholder="🔎 търси № / клиент / статус… (Enter)" value="${escapeAttr(erpCOQuery)}" autocomplete="off" style="min-width:190px" />
       <label class="erp-inline">Статус
         <select id="erp-co-fstatus"><option value="">Всички</option>${statusOpts.map(s => `<option ${s === erpCOStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select>
       </label>
@@ -590,14 +590,12 @@ async function erpRenderCustomerOrders() {
   if (clearF) clearF.addEventListener("click", () => { erpCOStatusFilter = ""; erpCOClientFilter = ""; erpCORefreshTable(); });
   const hideDoneEl = document.getElementById("erp-co-hidedone");
   if (hideDoneEl) hideDoneEl.addEventListener("change", e => { erpCOHideDone = e.target.checked; erpCORefreshTable(); });
-  const qEl = document.getElementById("erp-co-q");
-  if (qEl) qEl.addEventListener("input", uiDebounce(e => {
-    erpCOQuery = e.target.value;
-    // пре-рисуваме само таблицата със заявките, за да не губим фокуса на търсачката
+  uiSearchEnter(document.getElementById("erp-co-q"), val => {
+    erpCOQuery = val;
     const tb = v.querySelector("#co-orders-table tbody");
     if (!tb) { erpRenderCustomerOrders(); return; }
     erpCORefreshTable();
-  }, 200));
+  });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   v.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
@@ -638,7 +636,7 @@ async function erpRenderArchive() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count" id="erp-arch-count"></span>
-      <input type="search" id="erp-arch-q" placeholder="🔎 търси № / клиент…" value="${escapeAttr(erpArchiveQuery)}" style="min-width:210px" autocomplete="off" />
+      <input type="search" id="erp-arch-q" placeholder="🔎 търси № / клиент… (Enter)" value="${escapeAttr(erpArchiveQuery)}" style="min-width:210px" autocomplete="off" />
     </div>
     <p class="hint">Тук отиват заявките, чиято продажба е осчетоводена. Продажбите се пазят и ще станат фактури, когато свържем счетоводния модул.</p>
     <table class="report-table erp-table">
@@ -671,8 +669,7 @@ async function erpRenderArchive() {
     tb.querySelectorAll(".erp-arch-sale").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); if (typeof erpOpenSale === "function") erpOpenSale(b.dataset.sale); }));
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenCO(tr.dataset.id)));
   };
-  const qEl = document.getElementById("erp-arch-q");
-  if (qEl) qEl.addEventListener("input", e => { erpArchiveQuery = e.target.value; fill(); });
+  uiSearchEnter(document.getElementById("erp-arch-q"), val => { erpArchiveQuery = val; fill(); });
   fill();
 }
 

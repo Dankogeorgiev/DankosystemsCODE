@@ -254,7 +254,7 @@ async function erpRenderDetailStockInner() {
       Задръж мишката върху числата за разбивка по заявки. При пускане на заявка системата пита какво от
       наличното да се ползва — ти решаваш, ред по ред.</p>
     <div class="erp-toolbar">
-      <input type="search" id="ds-q" placeholder="Търси код или име…" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
+      <input type="search" id="ds-q" placeholder="Търси код или име… (Enter)" value="${escapeAttr(DS_TERM)}" autocomplete="off" />
       <label class="erp-inline"><input type="checkbox" id="ds-only" ${DS_ONLY_STOCK ? "checked" : ""} /> само с наличност</label>
       <button type="button" class="btn btn-small${DS_ONLY_NEG ? " btn-danger" : ""}" id="ds-neg" title="Показва само детайлите, чиято наличност е под нулата (изписано е повече, отколкото е заприходено)">⚠ Отрицателни наличности</button>
       <button type="button" class="btn btn-small" id="ds-acc" title="Наличностите на аксесоарите (спирачки, пружини, болтове, степенчати колела) — изписват се при продажбата, не при сглобяването">🔩 Аксесоари</button>
@@ -275,9 +275,7 @@ async function erpRenderDetailStockInner() {
       <tbody id="ds-tbody"></tbody>
     </table>`;
 
-  const q = document.getElementById("ds-q");
-  // Търсене „на живо" без пре-рисуване на целия изглед (за да не губи фокус полето).
-  if (q) q.addEventListener("input", uiDebounce(e => { DS_TERM = e.target.value; dsFillRows(); }, 180));
+  uiSearchEnter(document.getElementById("ds-q"), val => { DS_TERM = val; dsFillRows(); });
   const only = document.getElementById("ds-only");
   if (only) only.addEventListener("change", e => { DS_ONLY_STOCK = e.target.checked; dsFillRows(); });
   const neg = document.getElementById("ds-neg");

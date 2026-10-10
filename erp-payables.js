@@ -175,7 +175,7 @@ async function erpRenderPayables() {
       ${tab("month", "📅 До края на месеца")}
       ${tab("next", `📅 Следващ месец (${nextItems.length})`)}
       ${tab("paid", "✓ Платени (архив)")}
-      <input type="search" id="pyb-q" placeholder="🔎 доставчик / № / артикул…" value="${escapeAttr(pybQuery)}" style="min-width:190px" autocomplete="off" />
+      <input type="search" id="pyb-q" placeholder="🔎 доставчик / № / артикул… (Enter)" value="${escapeAttr(pybQuery)}" style="min-width:190px" autocomplete="off" />
       <label class="erp-inline">Доставчик
         <select id="pyb-supplier"><option value="">Всички</option>${supplierOpts.map(s => `<option ${s === pybSupplier ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}</select></label>
       <label class="erp-inline">Подреди по
@@ -238,13 +238,12 @@ async function erpRenderPayables() {
     if (pybFilter === "paid") pybSort = "due";
     paySelected.clear(); erpRenderPayables();
   }));
-  const pqEl = document.getElementById("pyb-q");
-  if (pqEl) pqEl.addEventListener("input", uiDebounce(e => {
-    pybQuery = e.target.value;
+  uiSearchEnter(document.getElementById("pyb-q"), val => {
+    pybQuery = val;
     erpRenderPayables();
     const el = document.getElementById("pyb-q");
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  }, 220));
+  });
   const au = document.getElementById("pyb-audit"); if (au) au.addEventListener("click", erpPayAuditPurchases);
   const fi = document.getElementById("pay-file"); if (fi) fi.addEventListener("change", e => erpPayImport(e.target.files[0]));
   const ci = document.getElementById("pay-clear-import"); if (ci) ci.addEventListener("click", erpPayClearImport);

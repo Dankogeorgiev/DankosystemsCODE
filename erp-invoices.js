@@ -265,7 +265,7 @@ async function erpRenderInvoices() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${rows.length} документа</span>
-      <input type="search" id="inv-q" placeholder="🔎 № / клиент…" value="${escapeAttr(erpInvQuery)}" style="min-width:170px" />
+      <input type="search" id="inv-q" placeholder="🔎 № / клиент… (Enter)" value="${escapeAttr(erpInvQuery)}" style="min-width:170px" />
       <label class="erp-inline">Тип
         <select id="inv-fkind"><option value="">Всички</option>${Object.entries(INV_KINDS).map(([k, x]) => `<option value="${k}" ${k === erpInvKindFilter ? "selected" : ""}>${x.label}</option>`).join("")}</select></label>
       <label class="erp-inline">Статус
@@ -304,13 +304,12 @@ async function erpRenderInvoices() {
     </table>
     <p class="hint">Складът се движи от <b>Продажби</b> (не оттук). Фактурата е документът. Етап 2 ще свърже двете за тест.</p>`;
 
-  const qEl = document.getElementById("inv-q");
-  if (qEl) qEl.addEventListener("input", uiDebounce(e => {
-    erpInvQuery = e.target.value;
+  uiSearchEnter(document.getElementById("inv-q"), val => {
+    erpInvQuery = val;
     erpRenderInvoices();
     const el = document.getElementById("inv-q");   // пре-рисуването сменя елемента — връщаме курсора
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  }, 220));
+  });
   const mEl = document.getElementById("inv-month");
   if (mEl) mEl.addEventListener("change", e => { erpInvMonth = e.target.value; erpInvMonthCards(); });
   erpInvMonthCards();

@@ -89,7 +89,7 @@ async function erpRenderPackaging() {
     <div id="pack-orders-box">${packOrdersListHtml()}</div>
     <div class="erp-toolbar">
       <span class="erp-count" id="pack-count"></span>
-      <input type="search" id="pack-q" placeholder="🔎 код / клиент / име…" value="${escapeAttr(packQuery)}" style="min-width:220px" autocomplete="off" />
+      <input type="search" id="pack-q" placeholder="🔎 код / клиент / име… (Enter)" value="${escapeAttr(packQuery)}" style="min-width:220px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pack-arc-import" title="Еднократно: качва архива от старите палетни описи (packing-archive.json) в базата — храната на „🤖 Опис с AI"">⬆ Стари описи (импорт)</button>
       <button class="btn btn-small" id="pack-ai-opis" title="Claude пише палетния опис в стила на старите описи на клиента">🤖 Опис с AI</button>
@@ -107,8 +107,7 @@ async function erpRenderPackaging() {
     <datalist id="pack-codes">${(typeof ERP !== "undefined" && ERP.products ? ERP.products : []).slice(0, 4000).map(p => `<option value="${escapeAttr(p.code || "")}">${escapeAttr(p.name || "")}</option>`).join("")}</datalist>
     <datalist id="pack-clients">${clientNames.map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
     ${packBoxDatalistHtml()}`;
-  const qEl = document.getElementById("pack-q");
-  if (qEl) qEl.addEventListener("input", uiDebounce(e => { packQuery = e.target.value; erpPackFillRows(); }, 200));
+  uiSearchEnter(document.getElementById("pack-q"), val => { packQuery = val; erpPackFillRows(); });
   document.getElementById("pack-new").addEventListener("click", () => erpPackForm(null));
   const arcBtn = document.getElementById("pack-arc-import");
   if (arcBtn) arcBtn.addEventListener("click", () => { if (typeof palArcImport === "function") palArcImport(arcBtn); });

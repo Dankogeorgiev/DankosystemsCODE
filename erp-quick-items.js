@@ -88,7 +88,7 @@ async function erpQuickHome() {
     <div class="erp-toolbar" style="border-left:4px solid #f59e0b;padding-left:8px">
       <button class="btn btn-small" id="q-back">← Назад към заявките</button>
       <span class="erp-count">${items.length} ${items.length === 1 ? "изделие" : "изделия"}</span>
-      <input type="search" id="q-find" placeholder="🔎 код / име / клиент…" value="${escapeAttr(quickHomeQ)}" style="min-width:200px" />
+      <input type="search" id="q-find" placeholder="🔎 код / име / клиент… (Enter)" value="${escapeAttr(quickHomeQ)}" style="min-width:200px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="q-tpl" title="Сваля празна таблица за попълване: ред за всяко изделие (клиент, код, име, бройка, цена, маршрут, материали). Вторият лист изброява ВАЛИДНИТЕ имена на операции.">⤓ Шаблон (Excel)</button>
       ${quickAllowed() ? `<label class="btn btn-small" title="Качи ПОПЪЛНЕНИЯ шаблон — Системата чете редовете, показва преглед и създава изделията с мини-рецептите + заявка с бройките">⬆ Качи попълнен шаблон<input type="file" id="q-imp" accept=".xlsx,.xls" hidden /></label>` : ""}
@@ -113,8 +113,8 @@ async function erpQuickHome() {
   v.querySelector("#q-tpl").addEventListener("click", erpQuickTemplateXls);
   const impEl = v.querySelector("#q-imp");
   if (impEl) impEl.addEventListener("change", e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) erpQuickImportXls(f); });
-  v.querySelector("#q-find").addEventListener("input", uiDebounce(e => {
-    quickHomeQ = e.target.value;
+  uiSearchEnter(v.querySelector("#q-find"), val => {
+    quickHomeQ = val;
     const toks = puMatNorm(quickHomeQ).split(" ").filter(Boolean);
     const list = !toks.length ? items : items.filter(x => {
       const hay = puMatNorm(`${x.p.code} ${x.p.name} ${x.e.client}`);
@@ -123,7 +123,7 @@ async function erpQuickHome() {
     const tb = v.querySelector("#q-tbody");
     tb.innerHTML = rowsHtml(list) || `<tr><td colspan="9" class="report-empty">Няма съвпадения.</td></tr>`;
     wire();
-  }, 200));
+  });
 }
 
 async function erpQuickDelete(pid) {

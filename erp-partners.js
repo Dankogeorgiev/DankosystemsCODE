@@ -99,7 +99,7 @@ async function erpRenderPartners() {
         <button class="erp-seg-btn ${erpPartnerKind === "customer" ? "active" : ""}" data-kind="customer">👤 Клиенти (${cCount})</button>
         <button class="erp-seg-btn ${erpPartnerKind === "supplier" ? "active" : ""}" data-kind="supplier">🏭 Доставчици (${sCount})</button>
       </div>
-      <input type="search" id="erp-pt-search" placeholder="търси име, лице, град, ДДС…" value="${escapeAttr(erpPartnerSearch)}" />
+      <input type="search" id="erp-pt-search" placeholder="търси име, лице, град, ДДС… (Enter)" value="${escapeAttr(erpPartnerSearch)}" />
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} записа</span>
       <button class="btn btn-small btn-primary" id="erp-pt-add">+ Нов ${erpPartnerKind === "customer" ? "клиент" : "доставчик"}</button>
@@ -123,9 +123,9 @@ async function erpRenderPartners() {
     </table>`;
 
   v.querySelectorAll(".erp-seg-btn").forEach(b => b.addEventListener("click", () => { erpPartnerKind = b.dataset.kind; erpRenderPartners(); }));
-  document.getElementById("erp-pt-search").addEventListener("input", e => {
-    erpPartnerSearch = e.target.value; erpRenderPartners();
-    const el = document.getElementById("erp-pt-search"); el.focus(); el.setSelectionRange(el.value.length, el.value.length);
+  uiSearchEnter(document.getElementById("erp-pt-search"), val => {
+    erpPartnerSearch = val; erpRenderPartners();
+    const el = document.getElementById("erp-pt-search"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   });
   document.getElementById("erp-pt-add").addEventListener("click", () => erpEditPartner(null));
   v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpEditPartner(Number(b.dataset.edit)); }));

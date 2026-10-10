@@ -139,7 +139,7 @@ async function erpRenderSales() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count" id="sa-count"></span>
-      <input type="search" id="sa-q" placeholder="🔎 № / клиент / код / продукт…" value="${escapeAttr(erpSaQuery || "")}" style="min-width:220px" autocomplete="off" />
+      <input type="search" id="sa-q" placeholder="🔎 № / клиент / код / продукт… (Enter)" value="${escapeAttr(erpSaQuery || "")}" style="min-width:220px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small erp-tab-pfco" id="sa-pfco" title="Авансова проформа НАПРАВО от заявка — за клиенти, които плащат преди да произведем. Складът не се пипа.">⚡ Проформа от заявка</button>
       <button class="btn btn-small btn-primary" id="erp-sa-new">+ Нова продажба</button>
@@ -151,8 +151,7 @@ async function erpRenderSales() {
   document.getElementById("erp-sa-new").addEventListener("click", erpNewSale);
   const saPfco = document.getElementById("sa-pfco");
   if (saPfco) saPfco.addEventListener("click", () => erpSetTab("proformaco"));
-  const qEl = document.getElementById("sa-q");
-  if (qEl) qEl.addEventListener("input", uiDebounce(e => { erpSaQuery = e.target.value; erpSaFillRows(); }, 200));
+  uiSearchEnter(document.getElementById("sa-q"), val => { erpSaQuery = val; erpSaFillRows(); });
   const imEl = document.getElementById("sa-import");
   if (imEl) imEl.addEventListener("change", e => { erpSaImport(e.target.files[0]); e.target.value = ""; });
   const ciEl = document.getElementById("sa-clear-import");

@@ -263,7 +263,7 @@ function erpPLRenderGrid() {
 
   host.innerHTML = `
     <div class="erp-toolbar">
-      <input type="search" id="pl-q" placeholder="търси в листата…" value="${escapeAttr(PL_TERM)}" autocomplete="off" />
+      <input type="search" id="pl-q" placeholder="търси в листата… (Enter)" value="${escapeAttr(PL_TERM)}" autocomplete="off" />
       <button class="btn btn-small" id="pl-add">+ Добави продукт</button>
       <span class="erp-count">${all.length} продукта за <b>${escapeHtml(PL_CLIENT.company || "")}</b></span>
       <span class="spacer"></span>
@@ -301,7 +301,7 @@ function erpPLRenderGrid() {
     </table>
     <p class="hint">За наливане наведнъж: свали Excel, попълни „Име при клиента" и „Цена", после импортирай (съвпадение по Код).</p>`;
 
-  host.querySelector("#pl-q").addEventListener("input", e => { erpPLCollect(); PL_TERM = e.target.value; erpPLRenderGrid(); const q = document.getElementById("pl-q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } });
+  uiSearchEnter(host.querySelector("#pl-q"), val => { erpPLCollect(); PL_TERM = val; erpPLRenderGrid(); const q = document.getElementById("pl-q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } });
   host.querySelector("#pl-add").addEventListener("click", () => { erpPLCollect(); erpPLAddProduct(); });
   host.querySelectorAll(".pl-rm").forEach(b => b.addEventListener("click", () => {
     erpPLCollect();
