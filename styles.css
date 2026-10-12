@@ -1817,3 +1817,6 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 .lv2-kind { display: inline-block; border-radius: 7px; padding: 2px 8px; font-weight: 700; font-size: 12px; white-space: nowrap; }
 .lv2-sheet { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
 .lv2-pipe { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
+
+/* 🔦 Лазери V2 — чист операторски екран: филтърните ленти се крият. */
+#tasks-modal.lv2-mode .tasks-controls:has(#task-workshop) { display: none; }

@@ -1377,6 +1377,8 @@ function applyTasksAccess() {
   if (lv2b) {
     lv2b.hidden = !(!w || MY_ACCESS.workshop === "Лазери" || (MY_ACCESS.workshops || []).includes("Лазери"));
     lv2b.classList.toggle("btn-primary", LASERS_V2);
+    lv2b.textContent = LASERS_V2 ? "↩ Лазери V1" : "🔦 Лазери V2";
+    lv2b.title = LASERS_V2 ? "Връща стария изглед на Лазерите (с филтрите)" : lv2b.title;
     if (!lv2b._wired) {
       lv2b._wired = true;
       lv2b.addEventListener("click", () => {
@@ -1387,6 +1389,7 @@ function applyTasksAccess() {
           if (sel && [...sel.options].some(o => o.value === "Лазери")) sel.value = "Лазери";
         }
         lv2b.classList.toggle("btn-primary", LASERS_V2);
+        lv2b.textContent = LASERS_V2 ? "↩ Лазери V1" : "🔦 Лазери V2";
         renderTasks();
       });
     }
@@ -1753,6 +1756,10 @@ function renderTasks() {
 
   // Цехове без колона „Дебелина" (не им трябва дебелина на материала).
   const isZavView = ws === "Заваръчно";
+  // 🔦 V2: чист операторски екран — филтърните ленти (цех/служител/клиент/№/
+  // търсене) се крият; остават горните табове, бутоните и списъкът-папки.
+  const tmEl = document.getElementById("tasks-modal");
+  if (tmEl) tmEl.classList.toggle("lv2-mode", v2);
   const thPrio = document.querySelector('.tasks-table th[data-sort="priority"]');
   if (thPrio) { thPrio.textContent = v2 ? "Вид" : "★"; thPrio.title = v2 ? "Лист или Тръба — тръбните не са за Димитър Павлов и Кръстьо" : "Приоритет"; }
   const tbl = document.querySelector(".tasks-table");
