@@ -1344,6 +1344,7 @@ async function openWorkshopDirect(ws) {
    бутона „🔦 Лазери V2" горе; одобрят ли го операторите — става основен. */
 let LASERS_V2 = false;
 const LV2_OPEN = new Set();   // кои папки (клиенти) са отворени
+let LV2_KIND_FILTER = "";     // "" = всички · "sheet" = само листове · "pipe" = само тръби
 function lv2ClientOf(t) {
   if (t.client) return t.client;
   const cls = [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))];
@@ -1380,6 +1381,7 @@ function applyTasksAccess() {
       lv2b._wired = true;
       lv2b.addEventListener("click", () => {
         LASERS_V2 = !LASERS_V2;
+        if (!LASERS_V2) LV2_KIND_FILTER = "";   // излизане от V2 → филтърът пада
         if (LASERS_V2) {
           const sel = document.getElementById("task-workshop");
           if (sel && [...sel.options].some(o => o.value === "Лазери")) sel.value = "Лазери";
@@ -1508,23 +1510,38 @@ function renderWorkerBar() {
   const ws = currentWorkshop();
   const names = wsWorkersOf(ws);
   const active = document.getElementById("task-worker-filter").value;
-  if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>`; return; }
+  // 🔦 V2: филтър Лист/Тръба до „Служители" (по Данко, 12.10.2026).
+  const v2here = LASERS_V2 && ws === "Лазери";
+  const kindChips = v2here
+    ? ` <button class="wchip ${LV2_KIND_FILTER === "sheet" ? "active" : ""}" id="lv2-f-sheet" title="Показва само ЛИСТОВИТЕ детайли">▭ Само листове</button>`
+      + `<button class="wchip ${LV2_KIND_FILTER === "pipe" ? "active" : ""}" id="lv2-f-pipe" title="Показва само ТРЪБНИТЕ детайли">⬛ Само тръби</button>`
+    : "";
+  const wireKind = () => {
+    const sh = bar.querySelector("#lv2-f-sheet"), pp = bar.querySelector("#lv2-f-pipe");
+    if (sh) sh.addEventListener("click", () => { LV2_KIND_FILTER = LV2_KIND_FILTER === "sheet" ? "" : "sheet"; renderTasks(); });
+    if (pp) pp.addEventListener("click", () => { LV2_KIND_FILTER = LV2_KIND_FILTER === "pipe" ? "" : "pipe"; renderTasks(); });
+  };
+  if (!names.length) { bar.innerHTML = `<span class="wbar-hint">Добави служители от бутона „👤 Служители“</span>${kindChips}`; wireKind(); return; }
   if (!workerBarOpen) {
     // Сгънат изглед: само бутон (+ активният филтър, ако има).
     bar.innerHTML = `<button class="btn btn-small" id="wbar-toggle" title="Показва служителите за филтриране на задачите">👥 Служители (${names.length}) ▾</button>`
-      + (active ? ` <button class="wchip active" id="wbar-clear" title="Махни филтъра по служител"><span class="wav">${escapeHtml((active.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(active)} ✕</button>` : "");
+      + (active ? ` <button class="wchip active" id="wbar-clear" title="Махни филтъра по служител"><span class="wav">${escapeHtml((active.trim()[0] || "?").toUpperCase())}</span>${escapeHtml(active)} ✕</button>` : "")
+      + kindChips;
     const t = bar.querySelector("#wbar-toggle"); if (t) t.addEventListener("click", () => { workerBarOpen = true; renderWorkerBar(); });
     const c = bar.querySelector("#wbar-clear"); if (c) c.addEventListener("click", () => { document.getElementById("task-worker-filter").value = ""; renderTasks(); });
+    wireKind();
     return;
   }
-  bar.innerHTML = `<button class="btn btn-small" id="wbar-hide" title="Скрий списъка със служители">▴ Скрий</button>`
+  bar.innerHTML = kindChips + `<button class="btn btn-small" id="wbar-hide" title="Скрий списъка със служители">▴ Скрий</button>`
     + `<button class="wchip wchip-all ${!active ? "active" : ""}" data-name="">Всички</button>` +
     names.map(n => {
       const init = (n.trim()[0] || "?").toUpperCase();
       return `<button class="wchip ${n === active ? "active" : ""}" data-name="${escapeAttr(n)}"><span class="wav">${escapeHtml(init)}</span>${escapeHtml(n)}</button>`;
     }).join("");
   const h = bar.querySelector("#wbar-hide"); if (h) h.addEventListener("click", () => { workerBarOpen = false; renderWorkerBar(); });
-  bar.querySelectorAll(".wchip").forEach(b => b.addEventListener("click", () => {
+  wireKind();
+  // Само служителските чипове (имат data-name) — Лист/Тръба са си отделни.
+  bar.querySelectorAll(".wchip[data-name]").forEach(b => b.addEventListener("click", () => {
     const filter = document.getElementById("task-worker-filter");
     filter.value = (filter.value === b.dataset.name) ? "" : b.dataset.name;
     workerBarOpen = false;   // избра ли — лентата се сгъва, филтърът остава видим като чип
@@ -1690,6 +1707,8 @@ function renderTasks() {
     if (clientFilter && !taskClients(t).includes(clientFilter)) return false;   // всичко пуснато за избрания клиент
     if (orderFilter && !taskOrderNos(t).includes(orderFilter)) return false;    // всичко по избраната наша заявка
     if (readyOnly && !taskIsReady(t, flowMap)) return false;   // само готовите за работа (не чакат друг цех)
+    // 🔦 V2: филтър „Само листове" / „Само тръби" (чиповете до Служители).
+    if (LASERS_V2 && ws === "Лазери" && LV2_KIND_FILTER && lv2Kind(t) !== LV2_KIND_FILTER) return false;
     return true;
   });
 
