@@ -56,11 +56,11 @@ async function openLaserFill() {
   const posted = (LFILL || []).filter(isHandled).sort((a, b) => String(b.postedAt || "").localeCompare(a.postedAt || "")).slice(0, 30);
 
   const pendRow = r => `<tr data-id="${r.id}">
-    <td>${lfillFmt(r.date)}</td>
+    <td>${isAdmin ? `<input type="checkbox" class="lf-sel" data-id="${r.id}" title="Избери за обединяване с други редове на СЪЩИЯ детайл" /> ` : ""}${lfillFmt(r.date)}</td>
     <td>${escapeHtml(r.workshop || "Лазери")}</td>
     <td>${isAdmin ? `<input type="text" class="lf-code" data-id="${r.id}" value="${escapeAttr(r.code || "")}" list="lf-codes" style="width:110px" placeholder="код…" />` : `<b>${escapeHtml(r.code || "—")}</b>`}</td>
     <td>${escapeHtml(r.thickness || "")}</td>
-    <td>${escapeHtml(r.name || "")}</td>
+    <td>${escapeHtml(r.name || "")}${r.merged ? `<div class="erp-muted" style="font-size:11px" title="${escapeAttr(r.merged.map(x => lfillFmt(x.date) + " · " + x.qty + " бр. · " + (x.worker || "")).join("\n"))}">🔗 обединени ${r.merged.length} реда</div>` : ""}</td>
     <td class="num"><b>${erpNum(r.qty)}</b></td>
     <td>${escapeHtml(r.worker || "")}</td>
     <td class="erp-row-actions">
@@ -91,7 +91,7 @@ async function openLaserFill() {
       : "Попълни каквото знаеш — кодът може да остане празен, офисът ще го сложи. Всяка бройка после се заприходява като готов детайл."}</p>
     <div class="lf-scroll">
     ${pending.length > LFILL_ALARM_OVER ? `<div class="lf-warn">🚨 Натрупали са се <b>${pending.length}</b> реда за заприходяване (${erpNum(pending.reduce((a, r) => a + (Number(r.qty) || 0), 0))} бр.). Докато не се заприходят, тази стока я няма в Склад детайли.</div>` : ""}
-    <h4 class="erp-group-head">⏳ Чакащи заприходяване (${pending.length})</h4>
+    <h4 class="erp-group-head">⏳ Чакащи заприходяване (${pending.length})${isAdmin && pending.length > 1 ? ` <button class="btn btn-small" id="lf-merge" title="Маркирай с отметките редовете, които са ЕДИН И СЪЩ детайл (напр. рязан в различни дни) — стават един ред със сборната бройка, който заприходяваш с един клик">🔗 Обедини избраните</button>` : ""}</h4>
     ${pending.length ? `<table class="report-table erp-table"><thead><tr><th>Дата</th><th>Цех</th><th>Код</th><th>Дебелина</th><th>Наименование</th><th class="num">Брой</th><th>Служител</th><th></th></tr></thead>
       <tbody id="lf-pending">${pending.map(pendRow).join("")}</tbody></table>`
       : `<p class="hint">Няма чакащи редове. ${isAdmin ? "Когато лазерджиите запишат пълнеж, редовете излизат тук — слагаш код и заприходяваш." : "Попълни долу и натисни Запази."}</p>`}
@@ -131,6 +131,40 @@ async function openLaserFill() {
   });
 
   if (!isAdmin) return;
+  // 🔗 Обединяване на еднакви детайли (по Данко, 12.10.2026): маркираш редовете
+  // на СЪЩИЯ детайл → стават ЕДИН ред със сборната бройка (пази се кой/кога е
+  // рязал в r.merged) → заприходяваш го с един клик, вместо ред по ред.
+  const mergeBtn = wrap.querySelector("#lf-merge");
+  if (mergeBtn) mergeBtn.addEventListener("click", async () => {
+    const ids = [...wrap.querySelectorAll(".lf-sel:checked")].map(x => Number(x.dataset.id));
+    if (ids.length < 2) { alert("Маркирай с отметките вляво поне 2 реда, които са ЕДИН И СЪЩ детайл."); return; }
+    await lfillLoad();
+    const rowsSel = (LFILL || []).filter(r => ids.includes(Number(r.id)) && !isHandled(r));
+    if (rowsSel.length < 2) { alert("Избраните редове вече не са чакащи — затвори и отвори прозореца наново."); return; }
+    const wsSet = [...new Set(rowsSel.map(r => r.workshop || "Лазери"))];
+    if (wsSet.length > 1) { alert("Избраните са от РАЗЛИЧНИ цехове (" + wsSet.join(", ") + ") — обединявай само редове от един цех."); return; }
+    const codes = [...new Set(rowsSel.map(r => (r.code || "").trim()).filter(Boolean))];
+    if (codes.length > 1) { alert("Избраните имат РАЗЛИЧНИ кодове: " + codes.join(", ") + ".\nОбединяват се само редове на един и същ детайл."); return; }
+    const names = [...new Set(rowsSel.map(r => (r.name || "").trim().toLowerCase()).filter(Boolean))];
+    const total = rowsSel.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    if (!confirm(`🔗 Обединявам ${rowsSel.length} реда в ЕДИН:\n`
+      + rowsSel.map(r => `• ${lfillFmt(r.date)} · ${r.name || r.code || "—"} · ${erpNum(r.qty)} бр. (${r.worker || "?"})`).join("\n")
+      + `\n\nОбщо: ${erpNum(total)} бр.`
+      + (names.length > 1 ? `\n⚠ Имената се РАЗЛИЧАВАТ — увери се, че наистина е същият детайл!` : "")
+      + `\nПосле го заприходяваш с един бутон.`)) return;
+    const base = rowsSel.slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))[0];
+    const merged = {
+      id: lfillNextId(), date: base.date, code: codes[0] || "",
+      thickness: base.thickness || rowsSel.map(r => r.thickness).find(Boolean) || "",
+      name: base.name || rowsSel.map(r => r.name).find(Boolean) || "", qty: total,
+      worker: [...new Set(rowsSel.map(r => (r.worker || "").trim()).filter(Boolean))].join(", "),
+      workshop: wsSet[0], status: "чакащ",
+      merged: rowsSel.map(r => ({ id: r.id, date: r.date, qty: r.qty, worker: r.worker || "" })),
+    };
+    LFILL = (LFILL || []).filter(r => !ids.includes(Number(r.id)));
+    LFILL.push(merged);
+    if (await lfillSave()) { try { await lfillAlarmRefresh(true); } catch (e) {} close(); openLaserFill(); }
+  });
   // Админ: код + заприходяване + изтриване.
   wrap.querySelectorAll(".lf-code").forEach(inp => inp.addEventListener("change", async () => {
     const r = (LFILL || []).find(x => x.id === Number(inp.dataset.id)); if (!r) return;
