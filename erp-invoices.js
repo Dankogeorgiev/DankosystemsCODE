@@ -580,6 +580,7 @@ async function erpInvForm(o) {
       <span class="erp-count">${escapeHtml(k.label || o.kind)}${o.docNo ? " № " + escapeHtml(o.docNo) : " (чернова)"}</span>
       <span class="spacer"></span>
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
+      ${o.posted ? '<button class="btn btn-small" id="inv-pdf" title="Сваля издадената фактура направо като PDF файл — без да минаваш през Печат">⤓ PDF</button>' : ""}
       <button class="btn btn-small" id="inv-fix" title="Отваря документа за ръчна поправка ПРЕДИ печат (номерът и статусът се запазват)">✎ Ръчна корекция</button>
       ${o.posted && o.status !== "анулирана" ? '<button class="btn btn-small btn-danger" id="inv-cancel" title="Анулира документа: вземането пада, продажбите се отвързват, а НОМЕРЪТ се освобождава и може да се даде на друг клиент">🚫 Анулирай</button>' : ""}
       ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span>` : ""}
@@ -833,6 +834,7 @@ async function erpInvForm(o) {
   g("inv-ccountry", e => o.client.country = e.target.value);
   g("inv-note", e => o.note = e.target.value);
   const pr = document.getElementById("inv-print"); if (pr) pr.addEventListener("click", () => erpInvPrint(o));
+  const pdfB = document.getElementById("inv-pdf"); if (pdfB) pdfB.addEventListener("click", () => erpInvPdfDownload(o, pdfB));
   const fx = document.getElementById("inv-fix");
   if (fx) fx.addEventListener("click", () => {
     if (locked) {

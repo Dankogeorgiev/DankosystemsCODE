@@ -173,6 +173,29 @@ async function erpInvPdfBase64(o) {
   } finally { fr.remove(); }
 }
 
+/* ⤓ PDF с един клик (бутонът във Фактуриране, по Данко 12.10.2026):
+   същият PDF, който отива по имейла, но направо като свален файл —
+   без да се минава през Печат → Запази като PDF. */
+async function erpInvPdfDownload(o, btn) {
+  const old = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Правя PDF…"; }
+  try {
+    const b64 = await erpInvPdfBase64(o);
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const blob = new Blob([buf], { type: "application/pdf" });
+    const en = String(o.seriesKey || "") === "1";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${en ? "Invoice" : "Фактура"}-${String(o.docNo || "чернова").replace(/[^0-9A-Za-zА-Яа-я_-]+/g, "_")}.pdf`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch (e) {} }, 4000);
+  } catch (e) {
+    alert("PDF не се получи: " + (e.message || e) + "\nПолзвай 🖨 Печат → Запази като PDF.");
+  } finally { if (btn) { btn.disabled = false; btn.textContent = old; } }
+}
+
 /* ---------- Фактура към клиента ----------
    Износна фактура (серия 1) → целият имейл е НА АНГЛИЙСКИ (тема, текст,
    таблица, банкови данни от ERP_SELLER_EN); вътрешна → на български. */
