@@ -301,7 +301,7 @@ async function erpRenderDetailStockInner() {
   const nm = document.getElementById("ds-nodemap");
   if (nm) nm.addEventListener("click", () => dsNodeMapOpen(null));
   dsFillRows();
-  if (q) q.focus();
+  { const qEl = document.getElementById("ds-q"); if (qEl) qEl.focus(); }
   // Чертежите се дозареждат отзад — таблицата вече е на екрана и НЕ я чака.
   dsLoadHasDrawings().then(() => dsFillRows()).catch(() => {});
 }
