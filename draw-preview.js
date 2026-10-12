@@ -288,9 +288,13 @@
     if (!list.length) { el.innerHTML = `<div class="dp-pop-h"><b>${esc(rec.code)}</b> ${esc(rec.name || "")}<span class="dp-pop-x" title="затвори">✕</span></div><div class="dp-pop-other">няма качен чертеж</div>`; return; }
     const d = list[0], kind = kindOf(d);
     const more = list.length > 1 ? `<div class="dp-pop-more">+ още ${list.length - 1}: ${list.slice(1).map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || "файл")}</a>`).join(" · ")}</div>` : "";
+    // PDF: <object> с изричен type, НЕ <iframe> — iframe при PDF, качен със
+    // суров файлов тип (octet-stream), кара браузъра да го СВАЛИ само от
+    // посочване (Данко, 12.10.2026). <object> показва превюто, а не може ли —
+    // пада на бутона „отвори чертежа" и нищо не се тегли само̀.
     el.innerHTML = `<div class="dp-pop-h"><span><b>${esc(rec.code)}</b> ${esc(rec.name || "")}</span><span><a href="${esc(d.url)}" target="_blank" rel="noopener">отвори ↗</a> <span class="dp-pop-x" title="затвори">✕</span></span></div>`
       + (kind === "image" ? `<a href="${esc(d.url)}" target="_blank" rel="noopener"><img src="${esc(d.url)}" alt="" /></a>`
-        : kind === "pdf" ? `<iframe src="${esc(d.url)}#toolbar=0&navpanes=0&view=FitH" title="чертеж"></iframe>`
+        : kind === "pdf" ? `<object data="${esc(d.url)}#toolbar=0&navpanes=0&view=FitH" type="application/pdf"><div class="dp-pop-other">Превюто не може да се покаже тук — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори чертежа ↗</a></div></object>`
         : `<div class="dp-pop-other">📎 ${esc(d.name || "файл")} — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори</a></div>`)
       + `<div class="dp-pop-f">${esc(d.name || "")}</div>` + more;
     place(el, anchor);
@@ -341,7 +345,7 @@
 #dp-pop .dp-pop-h a { color: #1d4ed8; text-decoration: none; font-weight: 600; }
 #dp-pop .dp-pop-x { cursor: pointer; margin-left: 8px; color: #94a3b8; font-weight: 700; }
 #dp-pop img { display: block; max-width: 520px; max-height: 400px; margin: 0 auto; border-radius: 6px; }
-#dp-pop iframe { display: block; width: 520px; max-width: 100%; height: 390px; border: 0; border-radius: 6px; background: #f8fafc; }
+#dp-pop iframe, #dp-pop object { display: block; width: 520px; max-width: 100%; height: 390px; border: 0; border-radius: 6px; background: #f8fafc; }
 #dp-pop .dp-pop-more, #dp-pop .dp-pop-other, #dp-pop .dp-pop-f, #dp-pop .dp-pop-wait { font-size: 12px; color: #475569; margin-top: 6px; }
 #dp-pop .dp-pop-wait { padding: 18px 0; text-align: center; }
 @media print { .dp-code { border-bottom: 0; } .dp-file { cursor: pointer; }
