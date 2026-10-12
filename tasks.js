@@ -1337,6 +1337,30 @@ async function openWorkshopDirect(ws) {
     renderTasks();
   }
 }
+/* ---------- 🔦 ЛАЗЕРИ V2 (проба, по Данко 12.10.2026) ----------
+   Детайлите на цех Лазери в ПАПКИ по клиент — цъкаш папката, отварят се
+   редовете както са си. На мястото на приоритета (★) стои „Лист/Тръба",
+   защото тръбните детайли не касаят Димитър Павлов и Кръстьо. Пуска се с
+   бутона „🔦 Лазери V2" горе; одобрят ли го операторите — става основен. */
+let LASERS_V2 = false;
+const LV2_OPEN = new Set();   // кои папки (клиенти) са отворени
+function lv2ClientOf(t) {
+  if (t.client) return t.client;
+  const cls = [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))];
+  return cls.length === 1 ? cls[0] : (cls.length ? "СЕРИЯ — " + cls.length + " клиента" : "СЕРИЯ / без клиент");
+}
+// Тръба или Лист: по името на детайла („Тр. 50 x 1.4…", „…тръба…"). Ако някой
+// детайл се разпознае грешно — кажи на Данко как се познават, ще прецизираме.
+function lv2Kind(t) {
+  const p = String(t.product || "").toLowerCase();
+  return (/^тр[\s.]/.test(p.trim()) || /тръб/.test(p)) ? "pipe" : "sheet";
+}
+function lv2KindBadge(t) {
+  return lv2Kind(t) === "pipe"
+    ? `<span class="lv2-kind lv2-pipe" title="Тръбен детайл — не е за Димитър Павлов и Кръстьо">Тръба</span>`
+    : `<span class="lv2-kind lv2-sheet" title="Листов детайл">Лист</span>`;
+}
+
 function applyTasksAccess() {
   const w = amWorker();
   ["btn-add-task", "btn-times", "btn-planning", "btn-workers", "btn-task-report", "tasks-close"].forEach(id => {
@@ -1347,6 +1371,24 @@ function applyTasksAccess() {
   const masterOk = !w || meEmail === "grigor.baykov@dankosystems.com";
   const mBtn = document.getElementById("btn-master"); if (mBtn) mBtn.style.display = masterOk ? "" : "none";
   const lo = document.getElementById("tasks-logout"); if (lo) lo.hidden = !w;
+  // „🔦 Лазери V2" — за админи и за лазерните служители (пробният изглед).
+  const lv2b = document.getElementById("tasks-lasers-v2");
+  if (lv2b) {
+    lv2b.hidden = !(!w || MY_ACCESS.workshop === "Лазери" || (MY_ACCESS.workshops || []).includes("Лазери"));
+    lv2b.classList.toggle("btn-primary", LASERS_V2);
+    if (!lv2b._wired) {
+      lv2b._wired = true;
+      lv2b.addEventListener("click", () => {
+        LASERS_V2 = !LASERS_V2;
+        if (LASERS_V2) {
+          const sel = document.getElementById("task-workshop");
+          if (sel && [...sel.options].some(o => o.value === "Лазери")) sel.value = "Лазери";
+        }
+        lv2b.classList.toggle("btn-primary", LASERS_V2);
+        renderTasks();
+      });
+    }
+  }
   // „Отчет боядисване“ — за админи и за служители от Цех Боя (Бояджийно)
   const pb = document.getElementById("tasks-painting");
   if (pb) pb.hidden = !(!w || MY_ACCESS.workshop === "Бояджийно");
@@ -1683,9 +1725,16 @@ function renderTasks() {
     return 0;
   });
   updateSortIndicators();
+  // V2: групиране по клиент — стабилният сорт пази реда по срок ВЪТРЕ в папката.
+  if (v2) rows.sort((a, b) => lv2ClientOf(a).localeCompare(lv2ClientOf(b), "bg"));
+  let lv2LastClient = null;
 
   // Цехове без колона „Дебелина" (не им трябва дебелина на материала).
   const isZavView = ws === "Заваръчно";
+  // 🔦 Лазери V2: папки по клиент + „Вид" (Лист/Тръба) на мястото на ★.
+  const v2 = LASERS_V2 && ws === "Лазери";
+  const thPrio = document.querySelector('.tasks-table th[data-sort="priority"]');
+  if (thPrio) { thPrio.textContent = v2 ? "Вид" : "★"; thPrio.title = v2 ? "Лист или Тръба — тръбните не са за Димитър Павлов и Кръстьо" : "Приоритет"; }
   const tbl = document.querySelector(".tasks-table");
   if (tbl) tbl.classList.toggle("hide-thickness", HIDE_THICKNESS_WORKSHOPS.includes(ws));
   // Колона „Взимам" — само за Лазери/Абкант/Преси. Заглавието се добавя/маха динамично.
@@ -1745,6 +1794,21 @@ function renderTasks() {
   }
 
   rows.forEach(t => {
+    // 🔦 V2: ред-ПАПКА при смяна на клиента; затворена папка крие редовете си.
+    if (v2) {
+      const cl = lv2ClientOf(t);
+      if (cl !== lv2LastClient) {
+        lv2LastClient = cl;
+        const n = rows.reduce((s, x) => s + (lv2ClientOf(x) === cl ? 1 : 0), 0);
+        const open = LV2_OPEN.has(cl);
+        const fr = document.createElement("tr");
+        fr.className = "lv2-folder";
+        fr.innerHTML = `<td colspan="20">${open ? "📂" : "📁"} <b>${escapeHtml(cl)}</b> — ${n} ${n === 1 ? "детайл" : "детайла"} <span class="lv2-hint">${open ? "цъкни за свиване ▴" : "цъкни за отваряне ▾"}</span></td>`;
+        fr.addEventListener("click", () => { if (LV2_OPEN.has(cl)) LV2_OPEN.delete(cl); else LV2_OPEN.add(cl); renderTasks(); });
+        tbody.appendChild(fr);
+      }
+      if (!LV2_OPEN.has(cl)) return;
+    }
     const qty = Number(t.qty) || 0, prod = Number(t.produced) || 0;
     const rem = Math.max(qty - prod, 0);
     // „налично" показваме само за операции, които ЧАКАТ предната (поточно) — за
@@ -1780,9 +1844,11 @@ function renderTasks() {
     // Всички цехове отчитат през Отчетния прозорец (машина/време) — за да
     // събираме времена за всяка операция (нужно за ценообразуването).
     const usesDialog = true;
-    const prioCell = amWorker()
-      ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
-      : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
+    const prioCell = v2
+      ? `<td class="t-prio-cell" data-label="Вид">${lv2KindBadge(t)}</td>`
+      : amWorker()
+        ? `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет">${pi.badge ? `<span class="t-prio-badge" title="${pi.label}">${pi.badge}</span>` : ""}</td>`
+        : `<td class="t-prio-cell ${pi.cls}" data-label="Приоритет"><button type="button" class="t-prio" title="Приоритет: ${pi.label} (натисни за смяна)">${pi.icon}</button></td>`;
 
     const tr = document.createElement("tr");
     tr.className = "task-" + st + (pi.cls ? " " + pi.cls : "");

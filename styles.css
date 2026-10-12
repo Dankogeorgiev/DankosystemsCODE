@@ -1809,3 +1809,11 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 
 /* (+5% на всичко — пробвано и МАХНАТО на 26.09 по решение на Данко;
    +13% на табовете по-горе си остава) */
+
+/* 🔦 Лазери V2 — папки по клиент + бадж Лист/Тръба (пробен изглед) */
+.lv2-folder td { background: #eef2ff; border-top: 2px solid #c7d2fe; font-size: 15px; padding: 10px 12px; cursor: pointer; }
+.lv2-folder:hover td { background: #e0e7ff; }
+.lv2-folder .lv2-hint { color: #64748b; font-size: 12px; margin-left: 8px; }
+.lv2-kind { display: inline-block; border-radius: 7px; padding: 2px 8px; font-weight: 700; font-size: 12px; white-space: nowrap; }
+.lv2-sheet { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+.lv2-pipe { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }

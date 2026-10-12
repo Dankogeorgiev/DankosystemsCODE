@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
-  <link rel="stylesheet" href="styles.css?v=346" />
+  <link rel="stylesheet" href="styles.css?v=347" />
   <link rel="stylesheet" href="erp.css?v=325" />
   <link rel="stylesheet" href="crm.css?v=2" />
 </head>
@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 889</p>
+      <p class="login-version">версия 890</p>
     </form>
   </div>
 
@@ -441,6 +441,7 @@
       <div class="tasks-head">
         <h2>🏭 Производство по цехове</h2>
         <div class="tasks-head-actions">
+          <button id="tasks-lasers-v2" class="btn btn-paint" hidden title="ПРОБЕН изглед за Лазерите: детайлите в папки по клиент (цъкаш папката → отваря се) + Лист/Тръба на мястото на приоритета. Натисни пак за връщане към стария изглед.">🔦 Лазери V2</button>
           <button id="tasks-painting" class="btn btn-paint" hidden onclick="location.href='boya/'">🎨 Боядисване конвейр</button>
           <button id="tasks-painting-manual" class="btn btn-paint" hidden onclick="location.href='boya-rachna/'">✋ Боядисване ръчно</button>
           <button id="tasks-welding-roboti" class="btn btn-paint" hidden onclick="location.href='zavarka-roboti/'">🤖 Заваръчно роботи</button>
@@ -711,7 +712,7 @@
   <script src="app.js?v=263"></script>
   <script src="activity-log.js?v=2"></script>
   <script src="quality.js?v=3"></script>
-  <script src="tasks.js?v=330"></script>
+  <script src="tasks.js?v=331"></script>
   <script src="laser-fill.js?v=5"></script>
   <script src="master-report.js?v=15"></script>
   <script src="prod-report.js?v=168"></script>
