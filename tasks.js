@@ -1725,14 +1725,15 @@ function renderTasks() {
     return 0;
   });
   updateSortIndicators();
+  // 🔦 Лазери V2: папки по клиент + „Вид" (Лист/Тръба) на мястото на ★.
+  // ВАЖНО: v2 се дефинира ТУК (преди сорта) — декларация по-долу гърмеше.
+  const v2 = LASERS_V2 && ws === "Лазери";
   // V2: групиране по клиент — стабилният сорт пази реда по срок ВЪТРЕ в папката.
   if (v2) rows.sort((a, b) => lv2ClientOf(a).localeCompare(lv2ClientOf(b), "bg"));
   let lv2LastClient = null;
 
   // Цехове без колона „Дебелина" (не им трябва дебелина на материала).
   const isZavView = ws === "Заваръчно";
-  // 🔦 Лазери V2: папки по клиент + „Вид" (Лист/Тръба) на мястото на ★.
-  const v2 = LASERS_V2 && ws === "Лазери";
   const thPrio = document.querySelector('.tasks-table th[data-sort="priority"]');
   if (thPrio) { thPrio.textContent = v2 ? "Вид" : "★"; thPrio.title = v2 ? "Лист или Тръба — тръбните не са за Димитър Павлов и Кръстьо" : "Приоритет"; }
   const tbl = document.querySelector(".tasks-table");
