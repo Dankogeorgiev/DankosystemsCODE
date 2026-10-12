@@ -288,15 +288,29 @@
     if (!list.length) { el.innerHTML = `<div class="dp-pop-h"><b>${esc(rec.code)}</b> ${esc(rec.name || "")}<span class="dp-pop-x" title="затвори">✕</span></div><div class="dp-pop-other">няма качен чертеж</div>`; return; }
     const d = list[0], kind = kindOf(d);
     const more = list.length > 1 ? `<div class="dp-pop-more">+ още ${list.length - 1}: ${list.slice(1).map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || "файл")}</a>`).join(" · ")}</div>` : "";
-    // PDF: <object> с изричен type, НЕ <iframe> — iframe при PDF, качен със
-    // суров файлов тип (octet-stream), кара браузъра да го СВАЛИ само от
-    // посочване (Данко, 12.10.2026). <object> показва превюто, а не може ли —
-    // пада на бутона „отвори чертежа" и нищо не се тегли само̀.
-    el.innerHTML = `<div class="dp-pop-h"><span><b>${esc(rec.code)}</b> ${esc(rec.name || "")}</span><span><a href="${esc(d.url)}" target="_blank" rel="noopener">отвори ↗</a> <span class="dp-pop-x" title="затвори">✕</span></span></div>`
-      + (kind === "image" ? `<a href="${esc(d.url)}" target="_blank" rel="noopener"><img src="${esc(d.url)}" alt="" /></a>`
-        : kind === "pdf" ? `<object data="${esc(d.url)}#toolbar=0&navpanes=0&view=FitH" type="application/pdf"><div class="dp-pop-other">Превюто не може да се покаже тук — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори чертежа ↗</a></div></object>`
-        : `<div class="dp-pop-other">📎 ${esc(d.name || "файл")} — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори</a></div>`)
-      + `<div class="dp-pop-f">${esc(d.name || "")}</div>` + more;
+    const head = `<div class="dp-pop-h"><span><b>${esc(rec.code)}</b> ${esc(rec.name || "")}</span><span><a href="${esc(d.url)}" target="_blank" rel="noopener">отвори ↗</a> <span class="dp-pop-x" title="затвори">✕</span></span></div>`;
+    const foot = `<div class="dp-pop-f">${esc(d.name || "")}</div>` + more;
+    if (kind === "pdf") {
+      // PDF: тегли се В ПАМЕТТА (fetch → blob) и се показва от blob: адрес с
+      // изричен тип. Така посочването НИКОГА не сваля файла в Downloads —
+      // каквото и да е качването (octet-stream, грешен тип…) — Данко, 12.10.2026.
+      let src = "";
+      try {
+        const resp = await fetch(d.url);
+        const blob = await resp.blob();
+        if (my !== seq || el.hidden) return;
+        if (DP._blobUrl) { try { URL.revokeObjectURL(DP._blobUrl); } catch (e2) {} }
+        src = DP._blobUrl = URL.createObjectURL(blob.slice(0, blob.size, "application/pdf"));
+      } catch (e2) { src = ""; }
+      if (my !== seq || el.hidden) return;
+      el.innerHTML = head + (src
+        ? `<object data="${esc(src)}#toolbar=0&navpanes=0&view=FitH" type="application/pdf"><div class="dp-pop-other">Превюто не тръгна — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори чертежа ↗</a></div></object>`
+        : `<div class="dp-pop-other">📄 ${esc(d.name || "чертеж")} — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори чертежа ↗</a></div>`) + foot;
+    } else {
+      el.innerHTML = head
+        + (kind === "image" ? `<a href="${esc(d.url)}" target="_blank" rel="noopener"><img src="${esc(d.url)}" alt="" /></a>`
+          : `<div class="dp-pop-other">📎 ${esc(d.name || "файл")} — <a href="${esc(d.url)}" target="_blank" rel="noopener">отвори</a></div>`) + foot;
+    }
     place(el, anchor);
   }
   function hide(now) {
