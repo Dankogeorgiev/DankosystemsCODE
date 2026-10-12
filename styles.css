@@ -1818,5 +1818,10 @@ body.samples-hidden .btn-todo-fab { left: 18px; }
 .lv2-sheet { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
 .lv2-pipe { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
 
-/* 🔦 Лазери V2 — чист операторски екран: филтърните ленти се крият. */
-#tasks-modal.lv2-mode .tasks-controls:has(#task-workshop) { display: none; }
+/* 🔦 Лазери V2 — чист операторски екран: крият се САМО петте филтър-полета
+   (цех/служител/клиент/№/търсене); бутоните в същата лента си остават. */
+#tasks-modal.lv2-mode #task-workshop,
+#tasks-modal.lv2-mode #task-worker-filter,
+#tasks-modal.lv2-mode #task-client-filter,
+#tasks-modal.lv2-mode #task-order-filter,
+#tasks-modal.lv2-mode #task-search { display: none; }
