@@ -41,10 +41,15 @@ const PAY_MONTHS = ["януари", "февруари", "март", "април"
    останалите полетата са заключени. Промяната важи само ЗАНАПРЕД: авто-
    разпределението пипа петъци от днес нататък, миналите пазят записаното. */
 const PAY_RATE_EDIT_EMAILS = ["dankog@gmail.com"];
-function payRatesLocked() {
+// Защита и срещу неволна промяна от самия Данко: полетата са заключени по
+// подразбиране И за него — отключват се с бутона „🔓 Отключи ставките" за
+// текущата сесия, а записът пита с изричен списък „старо → ново".
+let PAY_RATES_UNLOCKED = false;
+function payRatesAllowed() {
   const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
-  return !PAY_RATE_EDIT_EMAILS.includes(e);
+  return PAY_RATE_EDIT_EMAILS.includes(e);
 }
+function payRatesLocked() { return !payRatesAllowed() || !PAY_RATES_UNLOCKED; }
 
 function payIso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function payMondayOf(dateStr) {
@@ -266,7 +271,8 @@ async function erpPayFridaysView(v) {
     return `<tr data-row="${escapeAttr(e.name)}">
       <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button>
         <div style="margin-top:2px;white-space:nowrap">🏦 <span class="t-code pf-iban-val" data-name="${escapeAttr(e.name)}" style="font-size:10px">${e.iban ? escapeHtml(e.iban) : `<span class="erp-muted">— няма сметка</span>`}</span>
-        <button class="btn btn-small pf-iban-edit" data-name="${escapeAttr(e.name)}" title="Редакция на банковата сметка на служителя (за преводите)">✎</button></div></td>
+        <button class="btn btn-small pf-iban-edit" data-name="${escapeAttr(e.name)}" title="Редакция на банковата сметка на служителя (за преводите)">✎</button>
+        <input type="text" class="pf-iban-note" data-name="${escapeAttr(e.name)}" value="${escapeAttr(e.ibanNote || "")}" placeholder="бележка…" title="Коментар към сметката (напр. нова сметка от октомври) — записва се веднага" style="width:110px;font-size:10.5px;padding:2px 6px" /></div></td>
       <td class="num pf-dnc">${inp("pf-dnevno", e.name, e.dnevno, payRatesLocked() ? `disabled title="🔒 Ставките променя само Данко"` : "")}</td>
       <td class="num pf-sec">${inp("pf-sedm", e.name, e.sedmichno, payRatesLocked() ? `disabled title="🔒 Ставките променя само Данко"` : "")}</td>
       <td class="num pf-netc">${inp("pf-net", e.name, r.net)}<button class="btn btn-small pf-redo" data-name="${escapeAttr(e.name)}" title="Разпредели наново: налива ПО БАНКА по петъците от днес нататък (по СЕДМИЧНОТО + извънредните). Маха ръчните корекции на бъдещите петъци; миналите не пипа.">↻</button></td>
@@ -292,6 +298,7 @@ async function erpPayFridaysView(v) {
       ${payFindBox()}
       <span class="erp-count">${PAY_MONTHS[M - 1]} ${Y} · ${fridays.length} петъка</span>
       <button class="btn btn-small" id="pf-add-emp">+ Добави служител</button>
+      ${payRatesAllowed() ? `<button class="btn btn-small" id="pf-rates-lock" title="Ставките ДНЕВНО/СЕДМИЧНО са заключени срещу неволна промяна — отключи, промени, запиши (записът пита със списък на промените), заключи пак">${PAY_RATES_UNLOCKED ? "🔒 Заключи ставките" : "🔓 Отключи ставките"}</button>` : ""}
       <button class="btn btn-small" id="pf-xls" title="Файл за онлайн банкирането: Име · IBAN · Сума (Седм. банка) · Основание — за избран петък">⤓ Excel за банката</button>
       <button class="btn btn-small" id="pf-xls005" title="Файл за раздаването В БРОЙ: Цех · Служител · Седм. 005 (+ отделно платени извънредни) за избран петък, с общ сбор">⤓ Excel Седм. 005</button>
       <button class="btn btn-small" id="pf-iban-imp" title="Качи Excel файла със сметките (колона A = трите имена, колона B = IBAN) — записват се под имената на служителите">🏦 IBAN-и (Excel)</button>
@@ -336,6 +343,22 @@ async function erpPayFridaysView(v) {
   v.querySelector("#pf-month").addEventListener("change", e => { if (e.target.value) { erpPayMonth = e.target.value; erpPayFridaysView(v); } });
   const pfFind = v.querySelector("#pay-find"); if (pfFind) pfFind.addEventListener("input", e => { payFilter = e.target.value; payApplyFilter(v); });
   v.querySelector("#pf-add-emp").addEventListener("click", () => erpPayAddEmployee(v));
+  // 🔓/🔒 Отключване на ставките — на място, без пре-рендер (пази незаписаното).
+  const rlBtn = v.querySelector("#pf-rates-lock");
+  if (rlBtn) rlBtn.addEventListener("click", () => {
+    PAY_RATES_UNLOCKED = !PAY_RATES_UNLOCKED;
+    rlBtn.textContent = PAY_RATES_UNLOCKED ? "🔒 Заключи ставките" : "🔓 Отключи ставките";
+    rlBtn.classList.toggle("btn-primary", PAY_RATES_UNLOCKED);
+    const dis = payRatesLocked();
+    v.querySelectorAll(".pf-dnevno, .pf-sedm").forEach(i => { i.disabled = dis; });
+  });
+  // 💬 Бележка до банковата сметка — записва се веднага при напускане на полето.
+  v.querySelectorAll(".pf-iban-note").forEach(i => i.addEventListener("change", async () => {
+    const emp = (COST_CFG.employees || []).find(x => x.name === i.dataset.name);
+    if (!emp) return;
+    emp.ibanNote = i.value.trim();
+    await erpSaveCostCfg();
+  }));
   v.querySelectorAll(".pf-rm").forEach(b => b.addEventListener("click", () => erpPayRemoveEmployee(b.dataset.name, v)));
 
   const friVal = (cls, esc, iso) => Number((v.querySelector(`.${cls}[data-name="${esc}"][data-iso="${iso}"]`) || {}).value) || 0;
@@ -614,12 +637,37 @@ async function erpPayFridaysView(v) {
 
   // ЗАПАЗИ (всичко): ставки ДНЕВНО/СЕДМИЧНО (при служителя) + ПО БАНКА + всички
   // петъци (Седм./Изв.) + РАЗЛИЧНИ (Сума/Бел.) — от текущите стойности в таблицата.
-  async function payDoSaveAll() {
+  async function payDoSaveAll(auto) {
     const entries = await erpPayLoadMonth(erpPayMonth);
+    // 🔒 Промени по ставките: събират се, изброяват се и се потвърждават —
+    // защита от неволно изтриване (и от самия Данко). Авто-записът НИКОГА не
+    // пипа ставки — те чакат ръчното „💾 ЗАПАЗИ".
+    const rateCh = [];
+    if (!payRatesLocked()) {
+      eachRow((name, esc) => {
+        const emp = (COST_CFG.employees || []).find(x => x.name === name);
+        if (!emp) return;
+        const d = val("pf-dnevno", esc), s = val("pf-sedm", esc);
+        const nd = d === "" ? 0 : num(d), ns = s === "" ? 0 : num(s);
+        const od = Number(emp.dnevno) || 0, os = Number(emp.sedmichno) || 0;
+        if (od !== nd || os !== ns) rateCh.push({ name, od, os, nd, ns });
+      });
+    }
+    let ratesOk = !payRatesLocked();
+    if (rateCh.length && auto) ratesOk = false;
+    else if (rateCh.length && !auto) {
+      const txt = rateCh.map(c => `• ${c.name}: ДНЕВНО ${c.od} → ${c.nd}${!c.nd && c.od ? " ⚠ НУЛИРАНЕ!" : ""} · СЕДМИЧНО ${c.os} → ${c.ns}${!c.ns && c.os ? " ⚠ НУЛИРАНЕ!" : ""}`).join("\n");
+      ratesOk = confirm(`🔒 Променяш СТАВКИ на ${rateCh.length} ${rateCh.length === 1 ? "служител" : "служители"}:\n\n${txt}\n\nПромяната важи само занапред (миналите петъци не мърдат).\nДа запиша ли ставките?\n\nОтказ = ставките се ВРЪЩАТ на старите; всичко останало се записва.`);
+      if (!ratesOk) rateCh.forEach(c => {
+        const esc2 = CSS.escape(c.name);
+        const dEl = v.querySelector(`.pf-dnevno[data-name="${esc2}"]`); if (dEl) dEl.value = c.od ? String(c.od) : "";
+        const sEl = v.querySelector(`.pf-sedm[data-name="${esc2}"]`); if (sEl) sEl.value = c.os ? String(c.os) : "";
+      });
+    }
     eachRow((name, esc) => {
       const emp = (COST_CFG.employees || []).find(x => x.name === name);
-      // 🔒 Ставките се записват само от Данко — заключените полета не пипат COST_CFG.
-      if (emp && !payRatesLocked()) { const d = val("pf-dnevno", esc), s = val("pf-sedm", esc); emp.dnevno = d === "" ? 0 : num(d); emp.sedmichno = s === "" ? 0 : num(s); }
+      // 🔒 Ставките се записват само отключени + потвърдени.
+      if (emp && ratesOk) { const d = val("pf-dnevno", esc), s = val("pf-sedm", esc); emp.dnevno = d === "" ? 0 : num(d); emp.sedmichno = s === "" ? 0 : num(s); }
       const rec = entries[name] = entries[name] || {};
       const n = val("pf-net", esc);
       if (n === "") delete rec.net; else rec.net = num(n);
@@ -656,7 +704,7 @@ async function erpPayFridaysView(v) {
   if (payAutoTimer) { clearInterval(payAutoTimer); payAutoTimer = null; }
   payAutoTimer = setInterval(async () => {
     if (!document.body.contains(v) || !v.querySelector(".pf-table")) { clearInterval(payAutoTimer); payAutoTimer = null; return; }
-    const ok = await payDoSaveAll();
+    const ok = await payDoSaveAll(true);   // авто-записът не пипа ставки
     const st = v.querySelector("#pf-save-status"); if (st) st.textContent = ok ? "✓ Авто-запазено " + payNowHM() : "⚠ авто-запис: грешка";
   }, 120000);
 }
