@@ -1951,6 +1951,8 @@ function renderTasks() {
     });
     filesCell.querySelectorAll(".tf-x").forEach(b =>
       b.addEventListener("click", () => removeTaskFile(t, Number(b.dataset.i))));
+    const syncBtn = filesCell.querySelector(".tf-sync");
+    if (syncBtn) syncBtn.addEventListener("click", () => refreshTaskDrawings(t));
     const asgAdd = tr.querySelector("select.t-asg-add");
     if (asgAdd) asgAdd.addEventListener("change", () => {
       if (amWorker()) return;
@@ -2322,7 +2324,28 @@ function taskFilesCell(t) {
   const qd = QUICK_DRAW && QUICK_DRAW[String(t.code || "").trim()];
   if (qd) links += `<span class="tf"><a href="${escapeAttr(qd)}" target="_blank" rel="noopener" class="dp-file" data-url="${escapeAttr(qd)}" data-name="${escapeAttr(t.product || "")}" data-code="${escapeAttr(t.code || "")}" title="Чертеж на изделието (от Нестандартни поръчки) — посочи за преглед, клик за отваряне">📄</a></span>`;
   const add = amWorker() ? "" : `<button type="button" class="btn btn-small tf-add">${(files.length || qd) ? "+" : "Прикачи"}</button>`;
-  return (links || (amWorker() ? "—" : "")) + add;
+  // 🔄 (офис): кламерът е СНИМКА на чертежите от пускането — ако после чертежът
+  // на продукта е сменен, тук виси старият/грешният. Бутонът ги презарежда.
+  const sync = (amWorker() || !t.code) ? "" : `<button type="button" class="btn btn-small tf-sync" title="Презарежда чертежите от продукта (Склад детайли) за ВСИЧКИ операции на детайла — ако кламерът носи стар или грешен чертеж от пускането">🔄</button>`;
+  return (links || (amWorker() ? "—" : "")) + add + sync;
+}
+
+/* Презарежда чертежите на задачата (и на всички операции на същия детайл)
+   от АКТУАЛНИТЕ продуктови чертежи по кода. Ръчно качените на задачата
+   файлове (tasks/…) се запазват. */
+async function refreshTaskDrawings(t) {
+  const code = String(t.code || "").trim();
+  if (!code) { alert("Задачата няма код на детайл — няма откъде да взема чертежа."); return; }
+  const { data, error } = await sb.from("products").select("id,drawings").eq("code", code).limit(2);
+  if (error) { alert("Грешка при четене на продукта: " + error.message); return; }
+  if (!data || !data.length) { alert("Няма продукт с код " + code + " — чертежите не са пипнати."); return; }
+  const fresh = (Array.isArray(data[0].drawings) ? data[0].drawings : []).filter(f => f && f.url)
+    .map(f => ({ name: f.name, type: f.type, path: f.path, url: f.url }));
+  const apply = x => { x.files = (x.files || []).filter(f => String(f.path || "").startsWith("tasks/")).concat(fresh.map(f => ({ ...f }))); };
+  apply(t); await tSaveTask(t);
+  for (const x of detailFileSiblings(t)) { apply(x); await tSaveTask(x); }
+  renderTasks();
+  alert(`✅ Чертежите на „${code}" са презаредени от продукта (${fresh.length} ${fresh.length === 1 ? "файл" : "файла"}) — за всички операции на детайла. Ръчно качените на задачата файлове са запазени.`);
 }
 async function handleTaskFiles(t, files) {
   if (amWorker()) return;
@@ -2362,7 +2385,10 @@ async function removeTaskFile(t, i) {
   const f = (t.files || [])[i];
   if (!f) return;
   const path = f.path;
-  if (path) await sb.storage.from(BUCKET).remove([path]);
+  // От хранилището се трият САМО файловете, качени НА задачата (tasks/…).
+  // Копията „от рецептата" сочат ПРОДУКТОВИЯ чертеж — триенето им от storage
+  // чупеше чертежа на продукта в Склад детайли (Данко, 15.10.2026).
+  if (path && String(path).startsWith("tasks/")) await sb.storage.from(BUCKET).remove([path]);
   t.files.splice(i, 1);
   await tSaveTask(t);
   // Махаме чертежа и от другите операции на детайла (пътува навсякъде).
