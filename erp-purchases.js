@@ -403,6 +403,9 @@ async function erpRenderPurchaseForm(o) {
       ${erpPuStateBadge(o)}
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-next" title="Записва тази и отваря нова празна фактура със същия доставчик и настройки">➕ Следваща фактура</button>
+      ${typeof erpPuAIStart === "function" ? '<button class="btn btn-small" id="pu-f-ai" title="Качи сканирана фактура — Claude я разчита (нова, на чисто)">🤖 Разчети фактура (AI)</button>' : ""}
+      <button class="btn btn-small" id="pu-f-check" title="Всички фактури, въведени днес, със статуса на плащането им — и дали отложените са в Задължения">🔎 Проверка</button>
+      <button class="btn btn-small" id="pu-f-acc" title="Месечният файл за счетоводството: всяка фактура с пълните данни на доставчика + лист с всеки ред">📒 За счетоводството</button>
       ${o.id ? '<button class="btn btn-small" id="pu-clone" title="Нова чернова — копие на тази: доставчик, вид разход, редове с количества и цени. Сменяш № на фактурата, датата и каквото е различно този месец">📄 Въведи подобна</button><button class="btn btn-small" id="pu-clone-ai" title="Качи файла на новата месечна фактура — Claude я разчита, а доставчикът и видът разход са предварително зададени от тази">🤖 Разчети подобна с AI</button>' : ""}
       <button class="btn btn-small btn-primary" id="pu-save" title="Записва фактурата; ако има редове за склад — веднага ги и заприходява (пита за потвърждение)">${erpPuSaveLabel(o)}</button>
       ${locked
@@ -501,6 +504,14 @@ async function erpRenderPurchaseForm(o) {
   if (puDel) puDel.addEventListener("click", () => erpPuDelete(o));
   const puClAi = document.getElementById("pu-clone-ai");
   if (puClAi) puClAi.addEventListener("click", () => { if (typeof erpPuAIStart === "function") erpPuAIStart({ supName: o.supplierName || "", supId: o.supplierId || null, expenseType: o.expenseType || "" }); });
+  // Същите бутони като в списъка Покупки — да са подръка и от формата
+  // (по Данко, 15.10.2026: „Въведи нова" губеше AI/Проверка/Счетоводството).
+  const fAi = document.getElementById("pu-f-ai");
+  if (fAi) fAi.addEventListener("click", () => { if (typeof erpPuAIStart === "function") erpPuAIStart(); });
+  const fCk = document.getElementById("pu-f-check");
+  if (fCk) fCk.addEventListener("click", erpPuCheckToday);
+  const fAcc = document.getElementById("pu-f-acc");
+  if (fAcc) fAcc.addEventListener("click", erpPuAccountingXls);
   const unpostBtn = document.getElementById("pu-unpost"); if (unpostBtn) unpostBtn.addEventListener("click", () => erpUnpostPurchase(o));
   const addMat = document.getElementById("pu-add-mat"); if (addMat) addMat.addEventListener("click", () => erpPuAddMaterial(o));
   const addExp = document.getElementById("pu-add-exp"); if (addExp) addExp.addEventListener("click", () => { o.lines.push({ groupName: o.expenseType || "", article: "", code: "", batch: "", qty: 1, unit: "бр.", unitPrice: "" }); erpPuRefreshFull(o); });
