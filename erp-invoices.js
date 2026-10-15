@@ -436,32 +436,69 @@ async function erpInvMarkSalesInvoiced(o) {
 }
 
 // „От продажби…": една фактура от НЯКОЛКО осчетоводени продажби на един клиент.
+// Старите „затлачени" продажби (фактурирани другаде / забравени) се чистят с
+// ✕ на реда или с „🧹 Скрий старите" — слага им се invoiceSkip и не излизат
+// повече тук (Данко, 15.10.2026). Новите са отгоре; старите идват БЕЗ отметка.
 async function erpInvFromSalesDialog() {
   try { if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales(); } catch (e) {}
-  const cand = ((typeof erpSales !== "undefined" && erpSales) || [])
+  const FRESH_DAYS = 45;
+  const freshFrom = (() => { const d = new Date(); d.setDate(d.getDate() - FRESH_DAYS); return d.toISOString().slice(0, 10); })();
+  const allCand = ((typeof erpSales !== "undefined" && erpSales) || [])
     .filter(s => s.posted && !s.imported && !s.invoiceNo);
+  const cand = allCand.filter(s => !s.invoiceSkip);
   if (!cand.length) { alert("Няма осчетоводени продажби без фактура.\n(Фактура се пуска само по осчетоводена продажба — складът върви с продажбата.)"); return; }
   const clients = [...new Set(cand.map(s => (s.clientName || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
-  const listFor = cn => cand.filter(s => (s.clientName || "").trim() === cn)
-    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  const listFor = cn => cand.filter(s => (s.clientName || "").trim() === cn && !s.invoiceSkip)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));   // най-новите отгоре
+  const oldOnes = () => cand.filter(s => !s.invoiceSkip && String(s.date || "") < freshFrom);
   const rowsHtml = cn => listFor(cn).map(s => {
     const t = (typeof erpSaleTotals === "function") ? erpSaleTotals(s) : { total: 0 };
-    return `<label class="inv-fs-row"><input type="checkbox" class="inv-fs-chk" data-id="${escapeAttr(String(s.id))}" checked />
+    const fresh = String(s.date || "") >= freshFrom;
+    return `<label class="inv-fs-row" style="${fresh ? "" : "opacity:.65"}"><input type="checkbox" class="inv-fs-chk" data-id="${escapeAttr(String(s.id))}" ${fresh ? "checked" : ""} />
       <b>№ ${escapeHtml(s.saleNo || "—")}</b> · ${escapeHtml(s.date || "")} · ${erpNum(Math.round(t.total * 100) / 100)} ${escapeHtml(erpSaleCur(s))}
-      <span class="erp-muted">(${(s.lines || []).length} реда)</span></label>`;
-  }).join("");
+      <span class="erp-muted">(${(s.lines || []).length} реда)${fresh ? "" : " · стара"}</span>
+      <button type="button" class="btn btn-small inv-fs-hide" data-id="${escapeAttr(String(s.id))}" title="Скрива тази продажба от списъка ЗАВИНАГИ (фактурирана другаде / няма да се фактурира оттук). Продажбата и складът не се пипат.">✕</button></label>`;
+  }).join("") || `<p class="hint">Няма чакащи продажби за този клиент.</p>`;
   const { wrap, close } = erpDialog(`
     <h3>📑 Една фактура от няколко продажби</h3>
-    <p class="hint">Показват се само осчетоводени продажби БЕЗ фактура. Редовете на избраните се обединяват в една фактура; продажбите се маркират с номера ѝ при издаване.</p>
+    <p class="hint">Показват се само осчетоводени продажби БЕЗ фактура, най-новите отгоре. Отпреди ${FRESH_DAYS} дни идват без отметка и със „стара". ✕ скрива ред завинаги (ако е фактуриран другаде); „🧹 Скрий старите" чисти всички наведнъж.</p>
     <label>Клиент <select id="inv-fs-client">${clients.map(c => `<option>${escapeHtml(c)}</option>`).join("")}</select></label>
     <div id="inv-fs-list" style="max-height:44vh;overflow:auto;margin:8px 0">${rowsHtml(clients[0])}</div>
     <div class="erp-dialog-actions">
       <button class="btn" id="inv-fs-cancel">Отказ</button>
+      ${oldOnes().length ? `<button class="btn" id="inv-fs-sweep" title="Скрива ВСИЧКИ продажби отпреди ${FRESH_DAYS} дни (на всички клиенти) от този списък — те са фактурирани другаде или няма да се фактурират оттук. Продажбите и складът не се пипат.">🧹 Скрий старите (${oldOnes().length})</button>` : ""}
+      <span class="spacer"></span>
       <button class="btn btn-primary" id="inv-fs-go">📄 Създай фактура от избраните</button>
     </div>`);
   wrap.querySelector("#inv-fs-cancel").addEventListener("click", close);
   const sel = wrap.querySelector("#inv-fs-client");
-  sel.addEventListener("change", () => { wrap.querySelector("#inv-fs-list").innerHTML = rowsHtml(sel.value); });
+  const redraw = () => {
+    wrap.querySelector("#inv-fs-list").innerHTML = rowsHtml(sel.value);
+    wireHide();
+  };
+  const wireHide = () => wrap.querySelectorAll(".inv-fs-hide").forEach(b => b.addEventListener("click", async e => {
+    e.preventDefault(); e.stopPropagation();
+    const s = cand.find(x => String(x.id) === b.dataset.id);
+    if (!s) return;
+    if (!confirm(`Скривам продажба № ${s.saleNo || "—"} от ${s.date || "?"} от този списък ЗАВИНАГИ?\n(Продажбата и складът остават — само няма да се предлага за фактуриране.)`)) return;
+    s.invoiceSkip = true;
+    try { await erpSaveSale(s); } catch (e2) { alert("Грешка при запис: " + (e2.message || e2)); s.invoiceSkip = false; return; }
+    redraw();
+  }));
+  wireHide();
+  sel.addEventListener("change", redraw);
+  const sweep = wrap.querySelector("#inv-fs-sweep");
+  if (sweep) sweep.addEventListener("click", async () => {
+    const olds = oldOnes();
+    if (!olds.length) { alert("Няма стари продажби за скриване."); return; }
+    const sum = olds.map(s => `• № ${s.saleNo || "—"} · ${s.date || "?"} · ${(s.clientName || "").trim()}`).slice(0, 15).join("\n");
+    if (!confirm(`🧹 Скривам ${olds.length} стари продажби (отпреди ${FRESH_DAYS} дни) от списъка за фактуриране — на ВСИЧКИ клиенти:\n\n${sum}${olds.length > 15 ? "\n…и още " + (olds.length - 15) : ""}\n\nПродажбите и складът НЕ се пипат — само вече няма да се предлагат тук.\nПродължавам?`)) return;
+    sweep.disabled = true; sweep.textContent = "Скривам…";
+    for (const s of olds) { s.invoiceSkip = true; try { await erpSaveSale(s); } catch (e2) { s.invoiceSkip = false; } }
+    sweep.remove();
+    redraw();
+    alert("✅ Старите продажби са скрити. Останаха само актуалните.");
+  });
   wrap.querySelector("#inv-fs-go").addEventListener("click", async () => {
     const ids = [...wrap.querySelectorAll(".inv-fs-chk:checked")].map(c => c.dataset.id);
     const chosen = listFor(sel.value).filter(s => ids.includes(String(s.id)));
