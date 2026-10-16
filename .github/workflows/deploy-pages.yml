@@ -1,0 +1,79 @@
+name: Deploy to GitHub Pages
+
+# Собствен деплой към GitHub Pages с АВТО-ПОВТАРЯНЕ. GitHub Pages често връща
+# временна грешка „Deployment failed, try again later" на първия опит — тук
+# опитваме до 4 пъти, така че не се налага ръчно да буташ нов комит.
+#
+# ВАЖНО (еднократно): Settings → Pages → Build and deployment → Source:
+# смени на „GitHub Actions" (вместо „Deploy from a branch"), за да поеме този
+# workflow. След това всеки push към main деплойва автоматично, с повтаряне.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Не отменяме текущ деплой при нов push — изчакваме на опашка (по-стабилно).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.a1.outputs.page_url || steps.a2.outputs.page_url || steps.a3.outputs.page_url || steps.a4.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact (целият сайт)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      # До 4 опита за деплой. Всеки следващ се пуска само ако предният е паднал.
+      - name: Deploy (опит 1)
+        id: a1
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Изчакване преди опит 2
+        if: steps.a1.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy (опит 2)
+        id: a2
+        if: steps.a1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Изчакване преди опит 3
+        if: steps.a1.outcome == 'failure' && steps.a2.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy (опит 3)
+        id: a3
+        if: steps.a1.outcome == 'failure' && steps.a2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Изчакване преди опит 4
+        if: steps.a1.outcome == 'failure' && steps.a2.outcome == 'failure' && steps.a3.outcome == 'failure'
+        run: sleep 45
+
+      # Последният опит НЕ е continue-on-error — ако и той падне, workflow-ът се
+      # маркира като провален (за да видиш, че наистина има проблем).
+      - name: Deploy (опит 4 — последен)
+        id: a4
+        if: steps.a1.outcome == 'failure' && steps.a2.outcome == 'failure' && steps.a3.outcome == 'failure'
+        uses: actions/deploy-pages@v5
