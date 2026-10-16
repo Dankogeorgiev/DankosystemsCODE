@@ -743,8 +743,8 @@ async function erpInvForm(o) {
       </div>
       <div class="erp-co-actions">
         ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="inv-mail-transport" title="Запитване за транспорт до превозвач (маршрут/палети/тегло се попълват сами)">🚚 Запитване за транспорт</button>' : ""}
-        <button class="btn btn-small" id="inv-edit-transport" ${locked ? "disabled" : ""}>✎ Транспорт</button>
-        <button class="btn btn-small" id="inv-edit-pallets" ${locked ? "disabled" : ""}>✎ Палети (${(o.pallets || []).length})</button>
+        <button class="btn btn-small" id="inv-edit-transport" title="Транспортните данни (за ЧМР/Packing List) се попълват и СЛЕД издаване — не пипат суми и номер">✎ Транспорт</button>
+        <button class="btn btn-small" id="inv-edit-pallets" title="Палетите (за Packing List/ЧМР) се попълват и СЛЕД издаване — не пипат суми и номер">✎ Палети (${(o.pallets || []).length})</button>
       </div>
       <p class="hint">Зелените се пълнят от <b>Опаковки</b> — Системата намира заявката по „Поръчка на клиента (Order No)" и взема кашоните, теглата и палетния план оттам. Сините се пълнят от <b>тази фактура</b> (+ „✎ Транспорт" за камиона и маршрута).</p>
 
@@ -906,9 +906,13 @@ async function erpInvForm(o) {
   const dd = document.getElementById("inv-doc-desc"); if (dd) dd.addEventListener("click", () => erpInvPrintDescGoods(o));
   const db1 = document.getElementById("inv-doc-decl-bg"); if (db1) db1.addEventListener("click", () => erpInvPrintDeclaration(o, "bg"));
   const db2 = document.getElementById("inv-doc-decl-en"); if (db2) db2.addEventListener("click", () => erpInvPrintDeclaration(o, "en"));
-  const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o));
+  // Транспорт/Палети са редактируеми и при ИЗДАДЕНА фактура (Данко, 16.10.2026):
+  // камионът става ясен след издаването, а тези данни пълнят само ЧМР/Packing
+  // List — не пипат суми и номер. При заключена форма записват веднага.
+  const lockedSave = async what => { try { await erpSaveInvoice(o); alert(what + " са записани по издадената фактура — документите (ЧМР, Packing List) ще ги ползват."); } catch (e2) { alert("Грешка при запис: " + (e2.message || e2)); } };
+  const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o, locked ? (() => lockedSave("🚚 Транспортните данни")) : undefined));
   const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", () => erpMailTransportInquiry(o));
-  const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o));
+  const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o, locked ? (() => lockedSave("📦 Палетите")) : undefined));
   erpInvWireLines(o, locked);
   erpInvTotalsBox(o);
 }
