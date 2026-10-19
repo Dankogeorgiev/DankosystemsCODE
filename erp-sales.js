@@ -175,7 +175,7 @@ function erpSaFillRows() {
       <td data-label="Клиент">${escapeHtml(o.clientName || "")}</td>
       <td class="num" data-label="Редове">${(o.lines || []).length}</td>
       <td class="num" data-label="Сума">${erpSaleMoney(t.total, erpSaleCur(o))}</td>
-      <td data-label="Статус">${o.imported ? '<span class="erp-co-status" style="background:#f1f5f9;color:#475569" title="Импорт от GenCloud — само регистър, не пипа склада">импорт</span>' : o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">осчетоводена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">чернова</span>'}</td>
+      <td data-label="Статус">${o.imported ? '<span class="erp-co-status" style="background:#f1f5f9;color:#475569" title="Импорт от GenCloud — само регистър, не пипа склада">импорт</span>' : o.invoiceNo ? `<span class="erp-co-status" style="background:#ecfccb;color:#3f6212" title="Издадена е фактура № ${escapeAttr(o.invoiceNo)} по тази продажба">📄 фактурирана</span>` : o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534" title="Складът е изписан; фактура още няма">осчетоводена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">чернова</span>'}</td>
       <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
     </tr>`; }).join("") ||
     `<tr><td colspan="7" class="report-empty">${q ? "Няма продажби за това търсене." : "Още няма продажби. Натисни бутона + Нова продажба."}</td></tr>`;
