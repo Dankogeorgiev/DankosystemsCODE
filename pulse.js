@@ -163,7 +163,9 @@ async function pulseRenderToday(v) {
   });
   const vatDue = vatOut - vatIn;   // >0 → за внасяне; <0 → за възстановяване
 
-  const recvUnpaid = recvList.filter(p => !p.paid);
+  // Стоковите разписки ЧАКАТ ФАКТУРИРАНЕ — не са реално вземане и не влизат
+  // в картата (Данко, 19.10.2026). Виждат се във Вземания → 📦 Стокови.
+  const recvUnpaid = recvList.filter(p => !p.paid && (p.docType || "Фактура") !== "Стокова");
   // Остатък = сума − частичните плащания (p.payments).
   const recvRest = p => (num(p.amount) || 0) - (p.payments || []).reduce((s, x) => s + (num(x.amount) || 0), 0);
   const recvSum = recvUnpaid.reduce((s, p) => s + recvRest(p), 0);

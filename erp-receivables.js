@@ -179,7 +179,7 @@ async function erpRenderReceivables() {
     </div>
     <div class="pay-cards">
       ${card("Σ Общо за събиране (само фактури)", unpaid, "pay-card-total")}
-      ${goodsItems.length ? card("📦 Стокови — чакат фактуриране (извън сбора)", goodsItems, "") : ""}
+      ${goodsItems.length ? `<div id="recv-goods-card" style="cursor:pointer" title="Цъкни — отваря списъка на стоковите, които чакат фактуриране">${card("📦 Стокови — чакат фактуриране (извън сбора)", goodsItems, "")}</div>` : ""}
     </div>
     <div class="pay-scroll"><table class="report-table erp-table pay-table recv-table">
       <thead><tr>
@@ -192,13 +192,15 @@ async function erpRenderReceivables() {
     ${recvFilter !== "paid" ? `<div class="pay-paybar" id="recv-paybar"></div>` : ""}`;
 
   v.querySelectorAll("[data-rf]").forEach(b => b.addEventListener("click", () => { recvFilter = b.dataset.rf; recvSelected.clear(); erpRenderReceivables(); }));
-  const rqEl = document.getElementById("recv-q");
-  if (rqEl) rqEl.addEventListener("input", uiDebounce(e => {
-    recvQuery = e.target.value;
+  // 📦 Картата на стоковите → списъкът им (табът „Стокови — чакат фактура").
+  const gCard = v.querySelector("#recv-goods-card");
+  if (gCard) gCard.addEventListener("click", () => { recvFilter = "goods"; recvSelected.clear(); erpRenderReceivables(); });
+  uiSearchEnter(document.getElementById("recv-q"), val => {
+    recvQuery = val;
     erpRenderReceivables();
     const el = document.getElementById("recv-q");
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-  }, 220));
+  });
   const fi = document.getElementById("recv-file"); if (fi) fi.addEventListener("change", e => erpRecvImport(e.target.files[0]));
   const ci = document.getElementById("recv-clear-import"); if (ci) ci.addEventListener("click", erpRecvClearImport);
   const ca = document.getElementById("recv-clear-all"); if (ca) ca.addEventListener("click", erpRecvClearAll);
