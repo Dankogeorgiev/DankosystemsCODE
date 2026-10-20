@@ -614,7 +614,7 @@ function erpInit() {
   if (finBtn) finBtn.addEventListener("click", () => { ERP.tab = "finance"; openErp(); });
   // 💼 Офис от основния екран: само офисните модули — производствената лента
   // (Заявки, Материали, Склад…) се скрива, за да не задръства екрана.
-  const OFFICE_TABS = ["invoices", "sales", "payables", "finance", "purchases", "receivables", "archive", "proformaco", "logistics"];
+  const OFFICE_TABS = ["invoices", "sales", "payables", "finance", "purchases", "receivables", "archive", "proformaco", "logistics", "partners"];
   const offMain = document.getElementById("btn-office");
   if (offMain) offMain.addEventListener("click", () => {
     ERP.officeMode = true;
