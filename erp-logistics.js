@@ -97,11 +97,13 @@ function logiInquiry(preset) {
         try {
           await logiLoad();
           LOGI.inq = LOGI.inq || [];
+          // Товарът (брой палети) се чете от реда „• Товар: …" на ФИНАЛНИЯ
+          // текст — хваща и редакциите, направени в композитора преди пращане.
           LOGI.inq.push({
             id: Date.now(), at: new Date().toISOString(),
             to: [toV].concat((info && info.extras) || []).filter(Boolean),
             subject: (info && info.subject) || "", text: (info && info.text) || text,
-            label: p.label || "",
+            label: p.label || "", cargo: logiCargoOf({ text: (info && info.text) || text }),
           });
           await logiSave();
           if (typeof ERP !== "undefined" && ERP.tab === "logistics") erpRenderLogistics();
@@ -109,6 +111,17 @@ function logiInquiry(preset) {
       },
     });
   });
+}
+
+/* Товарът на запитване: полето cargo, а за старите записи — от текста
+   (редът „• Товар: …"). Непопълнен шаблон „(брой палети / тегло)" = празно. */
+function logiCargoOf(x) {
+  let c = String((x && x.cargo) || "").trim();
+  if (!c) {
+    const ln = String((x && x.text) || "").split("\n").find(l => l.trim().startsWith("• Товар"));
+    c = ln ? ln.replace(/^\s*•\s*Товар:?\s*/, "").trim() : "";
+  }
+  return /^\(/.test(c) ? "" : c;
 }
 
 /* 📜 Товарите: авто-редове от издадените износни фактури с превозвач. */
@@ -150,21 +163,23 @@ async function erpRenderLogistics() {
   let body = "";
   if (logiView === "inq") {
     let inqs = (LOGI.inq || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
-    if (q) inqs = inqs.filter(x => logiNorm([x.label, x.subject, (x.to || []).join(" "), x.text].join(" ")).includes(q));
+    if (q) inqs = inqs.filter(x => logiNorm([x.label, x.subject, (x.to || []).join(" "), logiCargoOf(x), x.price, x.text].join(" ")).includes(q));
     body = `<table class="report-table erp-table">
-      <thead><tr><th>Кога</th><th>До кого</th><th>Относно</th><th>Откъс</th><th></th></tr></thead>
+      <thead><tr><th>Кога</th><th>До кого</th><th>Относно</th><th>Товар</th><th>Върната цена</th><th>Откъс</th><th></th></tr></thead>
       <tbody>${inqs.map(x => `<tr>
         <td style="white-space:nowrap">${escapeHtml(new Date(x.at).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }))}</td>
         <td>${(x.to || []).map(t => `<span class="t-code">${escapeHtml(t)}</span>`).join("<br>")}</td>
         <td>${escapeHtml(x.label || x.subject || "")}</td>
-        <td class="erp-muted" style="max-width:420px;font-size:12px">${escapeHtml(String(x.text || "").split("\n").filter(l => l.trim().startsWith("•")).join(" · ") || String(x.text || "").slice(0, 90))}</td>
+        <td style="white-space:nowrap">${escapeHtml(logiCargoOf(x)) || `<span class="erp-muted">—</span>`}</td>
+        <td><input type="text" class="lgq-price" data-id="${x.id}" value="${escapeAttr(x.price || "")}" placeholder="напр. 450 €" title="Цената, която фирмата върна в отговор — записва се веднага, за сравнение между превозвачите" style="width:110px" /></td>
+        <td class="erp-muted" style="max-width:340px;font-size:12px">${escapeHtml(String(x.text || "").split("\n").filter(l => l.trim().startsWith("•")).join(" · ") || String(x.text || "").slice(0, 90))}</td>
         <td class="erp-row-actions">
           <button class="btn btn-small lgq-view" data-id="${x.id}" title="Пълният текст на запитването">👁</button>
           <button class="btn btn-small btn-primary lgq-resend" data-id="${x.id}" title="Същото запитване до ДРУГА фирма — избираш получател, текстът е готов">↪ До друга фирма</button>
         </td>
-      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Още няма изпратени запитвания. Пращат се от „📨 Запитване за транспорт" или от бутона на дестинация — и се записват тук сами.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Още няма изпратени запитвания. Пращат се от „📨 Запитване за транспорт" или от бутона на дестинация — и се записват тук сами.</td></tr>`}</tbody>
     </table>
-    <p class="hint">Всяко изпратено запитване се помни: кога, до кого и какъв текст. „↪ До друга фирма" праща СЪЩИЯ текст на нов получател с два клика.</p>`;
+    <p class="hint">Всяко изпратено запитване се помни: кога, до кого, за какъв товар и какъв текст. Като получиш оферта — напиши я в „Върната цена" (записва се веднага) и после сравняваш превозвачите. „↪ До друга фирма" праща СЪЩИЯ текст на нов получател с два клика.</p>`;
   } else if (logiView === "dest") {
     let dests = logiDestinations();
     if (q) dests = dests.filter(d => logiNorm([d.client, d.consignee, d.addr, d.country].join(" ")).includes(q));
@@ -225,7 +240,7 @@ async function erpRenderLogistics() {
   v.querySelectorAll(".lgq-view").forEach(b => b.addEventListener("click", () => {
     const x = findInq(b.dataset.id); if (!x) return;
     const { wrap, close } = erpDialog(`<h3>📨 ${escapeHtml(x.subject || "Запитване")}</h3>
-      <p class="hint" style="margin:0 0 6px">До: ${(x.to || []).map(escapeHtml).join(", ")} · ${escapeHtml(new Date(x.at).toLocaleString("bg-BG"))}</p>
+      <p class="hint" style="margin:0 0 6px">До: ${(x.to || []).map(escapeHtml).join(", ")} · ${escapeHtml(new Date(x.at).toLocaleString("bg-BG"))}${logiCargoOf(x) ? ` · Товар: <b>${escapeHtml(logiCargoOf(x))}</b>` : ""}${x.price ? ` · Върната цена: <b>${escapeHtml(x.price)}</b>` : ""}</p>
       <pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;font:13px/1.5 system-ui">${escapeHtml(x.text || "")}</pre>
       <div class="erp-dialog-actions"><button class="btn" id="lgq-close">Затвори</button></div>`);
     wrap.querySelector("#lgq-close").addEventListener("click", close);
@@ -233,6 +248,10 @@ async function erpRenderLogistics() {
   v.querySelectorAll(".lgq-resend").forEach(b => b.addEventListener("click", () => {
     const x = findInq(b.dataset.id); if (!x) return;
     logiInquiry({ text: x.text, subject: x.subject, label: (x.label || "") + " (повторно)" });
+  }));
+  v.querySelectorAll(".lgq-price").forEach(i => i.addEventListener("change", async () => {
+    const x = findInq(i.dataset.id); if (!x) return;
+    x.price = i.value.trim(); await logiSave();
   }));
   uiSearchEnter(v.querySelector("#lgi-q"), val => { logiQ = val; erpRenderLogistics(); });
   v.querySelector("#lgi-inq").addEventListener("click", () => logiInquiry());
