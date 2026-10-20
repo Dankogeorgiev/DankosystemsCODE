@@ -766,9 +766,10 @@ async function erpRenderCOForm(o) {
         <button class="btn btn-small" id="co-doc-pallets">🧱 Палет опис</button>
       </div>
       <div class="erp-co-actions">
-        ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="co-mail-transport" title="Запитване за транспорт до превозвач — маршрут/палети/тегло се попълват от заявката">🚚 Запитване за транспорт</button>' : ""}
+        ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="co-mail-transport" title="Запитване за транспорт до транспортните фирми — маршрут/палети/тегло се попълват от заявката, а запитването се помни в Логистика, вързано към ТАЗИ поръчка">🚚 Запитване за транспорт</button>' : ""}
         <button class="btn btn-small" id="co-edit-transport">✎ Транспорт</button>
         <button class="btn btn-small" id="co-edit-pallets">✎ Палети (${(o.pallets || []).length})</button>
+        <span class="erp-muted" id="co-logi-line" style="font-size:12px;align-self:center"></span>
       </div>
       <p class="hint">Зелените документи се пълнят от <b>Опаковки</b> (кашони, тегла и палетния план на ТАЗИ заявка). ЧМР, Description of goods и декларациите се правят от <b>фактурата</b> — виж синята група там.</p>
       <div id="co-extra"></div>
@@ -902,7 +903,21 @@ async function erpRenderCOForm(o) {
   const et = document.getElementById("co-edit-transport");
   if (et) et.addEventListener("click", () => { if (typeof erpInvTransportDialog === "function") erpInvTransportDialog(o, () => { erpSaveCO(o).catch(() => {}); }); });
   const mtr = document.getElementById("co-mail-transport");
-  if (mtr) mtr.addEventListener("click", () => erpMailTransportInquiry(docObj()));
+  // Запитването минава през Логистиката: влиза в регистъра „Запитвания",
+  // ВЪРЗАНО към тази поръчка — като дойде фактурата, товарът я хваща сам.
+  if (mtr) mtr.addEventListener("click", () => {
+    if (typeof logiInquiryForDoc === "function") logiInquiryForDoc(docObj(), { orderId: o.id || null, ourNo: o.ourNo || "", client: o.clientName || "" });
+    else erpMailTransportInquiry(docObj());
+  });
+  // Живият транспортен ред: запитвания/товари по тази поръчка от Логистиката.
+  (async () => {
+    try {
+      if (typeof logiOrderLine !== "function" || !o.id) return;
+      const html = await logiOrderLine(o.id);
+      const el = document.getElementById("co-logi-line");
+      if (el && html) el.innerHTML = html;
+    } catch (e) {}
+  })();
   const ep = document.getElementById("co-edit-pallets");
   if (ep) ep.addEventListener("click", () => { if (typeof erpInvPalletsDialog === "function") erpInvPalletsDialog(o, () => { erpSaveCO(o).catch(() => {}); erpRenderCOForm(o); }); });
 

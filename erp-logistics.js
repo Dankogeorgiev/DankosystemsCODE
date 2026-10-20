@@ -59,6 +59,30 @@ function logiDestinations() {
   return [...by.values()].sort((a, b) => String(b.last).localeCompare(String(a.last)));
 }
 
+/* 📨 Запитване от ДОКУМЕНТ (заявка или фактура): маршрут, палети и тегло се
+   попълват от „✎ Транспорт"/Опаковки, а запитването влиза в регистъра ВЪРЗАНО
+   към поръчката (orderId/наш №) или към фактурата. Данко, 20.10.2026:
+   транспортът се търси докато е още поръчка; фактурата идва после — сама. */
+function logiInquiryForDoc(o, link) {
+  const tr = (o && o.transport) || {};
+  const lk = link || {};
+  const pal = (typeof erpDocAutoRows === "function") ? (erpDocAutoRows(o) || []) : [];
+  const totKg = (erpToNum(tr.totalWeightKg) || 0) || pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
+  const cnt = ((o.pallets || []).length) || Number(tr.totalPackages) || pal.length || 0;
+  const clientName = (o.client && o.client.name) || lk.client || "";
+  logiInquiry({
+    from: tr.loadPlace || "Пловдив, България",
+    to: tr.unloadPlace || tr.destination || ((o.client && [o.client.city, o.client.country].filter(Boolean).join(", ")) || ""),
+    cargo: cnt ? (cnt + " палета" + (totKg ? ", общо ~" + erpNum(totKg) + " кг" : "")) : "",
+    ready: tr.loadDate || tr.shipDate || "",
+    incoterms: tr.incoterms || "",
+    label: [clientName, lk.ourNo ? "поръчка №" + lk.ourNo : (lk.invNo || o.docNo ? "ф-ра №" + (lk.invNo || o.docNo) : "")].filter(Boolean).join(" — "),
+    orderId: lk.orderId || null, ourNo: lk.ourNo || "",
+    invNo: lk.invNo || (lk.orderId ? "" : String(o.docNo || "")),
+    client: clientName,
+  });
+}
+
 /* 📨 Запитване до транспортните: избор на фирми + готов текст. */
 function logiInquiry(preset) {
   const carriers = logiCarriers();
@@ -81,7 +105,7 @@ function logiInquiry(preset) {
 • Маршрут: ${p.from || "Пловдив, България"} → ${p.to || "(адрес на разтоварване)"}
 • Товар: ${p.cargo || "(брой палети / тегло)"}
 • Готовност за товарене: ${p.ready || "(дата)"}
-
+${p.incoterms ? "• Условие: " + p.incoterms + "\n" : ""}
 Моля, посочете цена и срок за доставка.
 
 Поздрави,
@@ -104,6 +128,10 @@ function logiInquiry(preset) {
             to: [toV].concat((info && info.extras) || []).filter(Boolean),
             subject: (info && info.subject) || "", text: (info && info.text) || text,
             label: p.label || "", cargo: logiCargoOf({ text: (info && info.text) || text }),
+            // Връзката с поръчката/фактурата — за колоната „Поръчка / Ф-ра"
+            // и за бутона „🚛 → Товар" (товарът наследява поръчката).
+            orderId: p.orderId || null, ourNo: p.ourNo || "", invNo: p.invNo || "",
+            client: p.client || "", dest: p.to || "",
           });
           await logiSave();
           if (typeof ERP !== "undefined" && ERP.tab === "logistics") erpRenderLogistics();
@@ -124,11 +152,16 @@ function logiCargoOf(x) {
   return /^\(/.test(c) ? "" : c;
 }
 
-/* 📜 Товарите: авто-редове от издадените износни фактури с превозвач. */
+/* 📜 Товарите: авто-редове от издадените износни фактури с превозвач.
+   Ако по поръчката на фактурата вече ЧАКА товар (създаден преди издаването,
+   без №) — той се ДОПЪЛВА с номера/превозвача, не се прави дублиращ ред. */
 function logiSyncFromInvoices() {
   const loads = LOGI.loads;
-  const have = new Set(loads.map(l => logiNorm(l.invNo)));
-  let added = 0;
+  const have = new Set(loads.map(l => logiNorm(l.invNo)).filter(Boolean));
+  // Продажба → заявка (за проследяване фактура → поръчка без заявки към базата).
+  const orderBySale = new Map();
+  ((typeof erpSales !== "undefined" && erpSales) || []).forEach(s => { if (s.fromOrderId) orderBySale.set(String(s.id), String(s.fromOrderId)); });
+  let added = 0, linked = 0;
   ((typeof erpInvoices !== "undefined" && erpInvoices) || []).forEach(o => {
     if (o.kind === "proforma" || !o.posted || !o.docNo) return;
     const tr = o.transport || {};
@@ -136,15 +169,103 @@ function logiSyncFromInvoices() {
     const isExport = String(invSeriesOfInvoice ? invSeriesOfInvoice(o) : o.seriesKey || "") === "1";
     if (!isExport && !tr.carrier) return;
     if (have.has(logiNorm(o.docNo))) return;
+    // Чакащ товар се допълва само от ИСТИНСКА фактура (не известие).
+    const oids = new Set();
+    if ((o.kind || "invoice") === "invoice") {
+      if (o.fromOrderId) oids.add(String(o.fromOrderId));
+      (o.fromSaleIds || []).forEach(sid => { const x = orderBySale.get(String(sid)); if (x) oids.add(x); });
+    }
+    const waiting = loads.find(l => !l.invNo && l.orderId && oids.has(String(l.orderId)));
+    if (waiting) {
+      waiting.invNo = String(o.docNo);
+      if (!waiting.carrier && tr.carrier) { waiting.carrier = tr.carrier; waiting.status = waiting.status === "заявен" ? "натоварен" : waiting.status; }
+      if (!waiting.vehicle) waiting.vehicle = tr.vehicleReg || "";
+      if (!waiting.date) waiting.date = tr.shipDate || o.issueDate || "";
+      if (!waiting.client) waiting.client = (o.client && o.client.name) || "";
+      if (!waiting.dest) waiting.dest = [cs.city, cs.country].filter(Boolean).join(", ");
+      have.add(logiNorm(o.docNo)); linked++;
+      return;
+    }
     loads.push({
       id: logiNextId(), invNo: String(o.docNo), date: tr.shipDate || o.issueDate || "",
       client: (o.client && o.client.name) || "", dest: [cs.city, cs.country].filter(Boolean).join(", "),
       carrier: tr.carrier || "", vehicle: tr.vehicleReg || "",
+      orderId: oids.size === 1 ? [...oids][0] : null,
       status: tr.carrier ? "натоварен" : "заявен", note: "", at: new Date().toISOString(),
     });
     have.add(logiNorm(o.docNo)); added++;
   });
-  return added;
+  return added + linked;
+}
+
+/* ---- Връзката поръчка ↔ фактура ↔ товар (Данко, 20.10.2026) ----
+   Транспортът се търси докато е още ПОРЪЧКА; товарът се създава с orderId и
+   БЕЗ № фактура („⏳ очаква ф-ра"). Щом фактурата се издаде, тя се проследява:
+   фактура → продажби (fromSaleIds) → заявка (fromOrderId) → чакащият товар
+   получава номера ѝ АВТОМАТИЧНО. При анулиране връзката се разкача. */
+
+// Всички orderId-та, към които води една фактура (директно или през продажбите).
+async function logiOrderIdsOfInvoice(o) {
+  const ids = new Set();
+  if (o && o.fromOrderId) ids.add(String(o.fromOrderId));
+  for (const sid of ((o && o.fromSaleIds) || [])) {
+    let s = ((typeof erpSales !== "undefined" && erpSales) || []).find(x => String(x.id) === String(sid));
+    if (!s) { try { const { data } = await sb.from("sales").select("data").eq("id", sid).maybeSingle(); s = (data && data.data) || null; } catch (e) {} }
+    if (s && s.fromOrderId) ids.add(String(s.fromOrderId));
+  }
+  return ids;
+}
+
+/* Издадена фактура → попълва № на чакащите товари по същата поръчка.
+   Само истински фактури — проформи и кредитни/дебитни известия не връзват. */
+async function logiBindInvoice(o) {
+  try {
+    if (!o || !o.docNo || (o.kind || "invoice") !== "invoice") return 0;
+    const ids = await logiOrderIdsOfInvoice(o);
+    if (!ids.size) return 0;
+    await logiLoad();
+    let n = 0;
+    (LOGI.loads || []).forEach(l => {
+      if (l.invNo || !l.orderId || !ids.has(String(l.orderId))) return;
+      l.invNo = String(o.docNo);
+      if (!l.client) l.client = (o.client && o.client.name) || "";
+      if (!l.date) l.date = (o.transport && o.transport.shipDate) || o.issueDate || "";
+      n++;
+    });
+    if (n) await logiSave();
+    return n;
+  } catch (e) { console.warn("logiBindInvoice:", e); return 0; }
+}
+
+/* Анулирана фактура → товарите ѝ се връщат в „⏳ очаква ф-ра" (само тези,
+   които са вързани към поръчка — ръчните редове по номер не се пипат). */
+async function logiUnbindInvoice(no) {
+  try {
+    if (!no) return 0;
+    await logiLoad();
+    let n = 0;
+    (LOGI.loads || []).forEach(l => { if (l.orderId && logiNorm(l.invNo) === logiNorm(no)) { l.invNo = ""; n++; } });
+    if (n) await logiSave();
+    return n;
+  } catch (e) { return 0; }
+}
+
+/* Транспортният ред в картона на заявката: запитвания + товари по поръчката. */
+async function logiOrderLine(orderId) {
+  try {
+    await logiLoad();
+    const oid = String(orderId);
+    const inqs = (LOGI.inq || []).filter(x => String(x.orderId || "") === oid);
+    const loads = (LOGI.loads || []).filter(l => String(l.orderId || "") === oid);
+    if (!inqs.length && !loads.length) return "";
+    const parts = [];
+    if (inqs.length) {
+      const priced = inqs.filter(x => x.price);
+      parts.push(`${inqs.length} запитван${inqs.length === 1 ? "е" : "ия"}${priced.length ? " (цени: " + priced.map(x => escapeHtml(x.price)).join("; ") + ")" : ""}`);
+    }
+    loads.forEach(l => parts.push(`товар: <b>${escapeHtml(l.carrier || "без превозвач")}</b> — ${l.invNo ? "ф-ра № " + escapeHtml(l.invNo) + ", " + escapeHtml(l.status || "") : "⏳ очаква ф-ра"}`));
+    return `🚛 ${parts.join(" · ")}`;
+  } catch (e) { return ""; }
 }
 
 const LOGI_STATUSES = ["заявен", "натоварен", "разтоварен"];
@@ -164,22 +285,27 @@ async function erpRenderLogistics() {
   if (logiView === "inq") {
     let inqs = (LOGI.inq || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
     if (q) inqs = inqs.filter(x => logiNorm([x.label, x.subject, (x.to || []).join(" "), logiCargoOf(x), x.price, x.text].join(" ")).includes(q));
+    const loadOfInq = x => (LOGI.loads || []).find(l => Number(l.id) === Number(x.loadId));
     body = `<table class="report-table erp-table">
-      <thead><tr><th>Кога</th><th>До кого</th><th>Относно</th><th>Товар</th><th>Върната цена</th><th>Откъс</th><th></th></tr></thead>
+      <thead><tr><th>Кога</th><th>До кого</th><th>Относно</th><th>Поръчка / Ф-ра</th><th>Товар</th><th>Върната цена</th><th>Откъс</th><th></th></tr></thead>
       <tbody>${inqs.map(x => `<tr>
         <td style="white-space:nowrap">${escapeHtml(new Date(x.at).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }))}</td>
         <td>${(x.to || []).map(t => `<span class="t-code">${escapeHtml(t)}</span>`).join("<br>")}</td>
         <td>${escapeHtml(x.label || x.subject || "")}</td>
+        <td style="white-space:nowrap">${x.ourNo ? `<b title="Запитването е по тази поръчка">№ ${escapeHtml(x.ourNo)}</b>` : ""}${x.invNo ? `${x.ourNo ? "<br>" : ""}<span class="erp-muted" title="Фактура">ф-ра ${escapeHtml(x.invNo)}</span>` : ""}${!x.ourNo && !x.invNo ? `<span class="erp-muted">—</span>` : ""}</td>
         <td style="white-space:nowrap">${escapeHtml(logiCargoOf(x)) || `<span class="erp-muted">—</span>`}</td>
         <td><input type="text" class="lgq-price" data-id="${x.id}" value="${escapeAttr(x.price || "")}" placeholder="напр. 450 €" title="Цената, която фирмата върна в отговор — записва се веднага, за сравнение между превозвачите" style="width:110px" /></td>
-        <td class="erp-muted" style="max-width:340px;font-size:12px">${escapeHtml(String(x.text || "").split("\n").filter(l => l.trim().startsWith("•")).join(" · ") || String(x.text || "").slice(0, 90))}</td>
+        <td class="erp-muted" style="max-width:300px;font-size:12px">${escapeHtml(String(x.text || "").split("\n").filter(l => l.trim().startsWith("•")).join(" · ") || String(x.text || "").slice(0, 90))}</td>
         <td class="erp-row-actions">
           <button class="btn btn-small lgq-view" data-id="${x.id}" title="Пълният текст на запитването">👁</button>
           <button class="btn btn-small btn-primary lgq-resend" data-id="${x.id}" title="Същото запитване до ДРУГА фирма — избираш получател, текстът е готов">↪ До друга фирма</button>
+          ${x.orderId ? (loadOfInq(x)
+            ? `<span class="erp-count" title="От това запитване вече е направен товар">🚛 ${escapeHtml((loadOfInq(x).carrier || "товар"))}</span>`
+            : `<button class="btn btn-small lgq-load" data-id="${x.id}" title="Избрал си тази фирма → създава ТОВАР по поръчката. № на фактурата ще се попълни САМ, щом я издадеш.">🚛 → Товар</button>`) : ""}
         </td>
-      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Още няма изпратени запитвания. Пращат се от „📨 Запитване за транспорт" или от бутона на дестинация — и се записват тук сами.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Още няма изпратени запитвания. Пращат се от „📨 Запитване за транспорт" — от поръчката (Заявки), от фактурата или от дестинация — и се записват тук сами.</td></tr>`}</tbody>
     </table>
-    <p class="hint">Всяко изпратено запитване се помни: кога, до кого, за какъв товар и какъв текст. Като получиш оферта — напиши я в „Върната цена" (записва се веднага) и после сравняваш превозвачите. „↪ До друга фирма" праща СЪЩИЯ текст на нов получател с два клика.</p>`;
+    <p class="hint">Всяко изпратено запитване се помни: кога, до кого, по коя поръчка и за какъв товар. Като получиш оферта — напиши я в „Върната цена" (записва се веднага). Избереш ли фирма — „🚛 → Товар" прави товара по поръчката, а № на фактурата се връзва сам при издаването ѝ.</p>`;
   } else if (logiView === "dest") {
     let dests = logiDestinations();
     if (q) dests = dests.filter(d => logiNorm([d.client, d.consignee, d.addr, d.country].join(" ")).includes(q));
@@ -199,15 +325,16 @@ async function erpRenderLogistics() {
     v.__dests = dests;
   } else {
     let loads = (LOGI.loads || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-    if (q) loads = loads.filter(l => logiNorm([l.invNo, l.client, l.dest, l.carrier, l.vehicle, l.note].join(" ")).includes(q));
+    if (q) loads = loads.filter(l => logiNorm([l.invNo, l.ourNo, l.client, l.dest, l.carrier, l.vehicle, l.note].join(" ")).includes(q));
     const stBadge = s => s === "разтоварен" ? `<span class="erp-co-status" style="background:#dcfce7;color:#166534">✓ разтоварен</span>`
       : s === "натоварен" ? `<span class="erp-co-status" style="background:#fef9c3;color:#854d0e">🚚 натоварен</span>`
       : `<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">⏳ заявен</span>`;
     body = `<table class="report-table erp-table">
-      <thead><tr><th>Дата</th><th>№ Фактура</th><th>Клиент</th><th>Дестинация</th><th>Превозвач</th><th>Камион</th><th>Статус</th><th>Бележка / ЧМР</th><th></th></tr></thead>
+      <thead><tr><th>Дата</th><th>№ Фактура</th><th>Поръчка</th><th>Клиент</th><th>Дестинация</th><th>Превозвач</th><th>Камион</th><th>Статус</th><th>Бележка / ЧМР</th><th></th></tr></thead>
       <tbody>${loads.map(l => `<tr data-lid="${l.id}">
         <td>${erpDMY(l.date) || "—"}</td>
-        <td><b>${escapeHtml(l.invNo || "—")}</b></td>
+        <td>${l.invNo ? `<b>${escapeHtml(l.invNo)}</b>` : (l.orderId || l.ourNo ? `<span class="erp-muted" title="Товарът е по поръчка — номерът на фактурата ще се попълни САМ при издаването ѝ">⏳ очаква ф-ра</span>` : "—")}</td>
+        <td>${l.ourNo ? `<b title="Наш № на поръчката (Заявки)">№ ${escapeHtml(l.ourNo)}</b>` : `<span class="erp-muted">—</span>`}</td>
         <td>${escapeHtml(l.client || "")}</td>
         <td>${escapeHtml(l.dest || "")}</td>
         <td>${escapeHtml(l.carrier || "") || `<span class="erp-muted">—</span>`}</td>
@@ -215,9 +342,9 @@ async function erpRenderLogistics() {
         <td><select class="lgi-st" data-lid="${l.id}" title="Статус на товара">${LOGI_STATUSES.map(s => `<option ${l.status === s ? "selected" : ""}>${s}</option>`).join("")}</select> ${stBadge(l.status)}</td>
         <td><input type="text" class="lgi-note" data-lid="${l.id}" value="${escapeAttr(l.note || "")}" placeholder="ЧМР №, файл, уговорка…" style="width:160px" /></td>
         <td class="erp-row-actions"><button class="btn btn-small lgi-edit" data-lid="${l.id}" title="Редакция на товара">✎</button><button class="btn btn-small btn-danger lgi-del" data-lid="${l.id}" title="Изтрий реда">×</button></td>
-      </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма записани товари. „🔄 От фактурите" пълни архива от издадените износни фактури.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма записани товари. Товар се прави от запитване („🚛 → Товар") още докато е поръчка, а „🔄 От фактурите" пълни архива от издадените износни фактури.</td></tr>`}</tbody>
     </table>
-    <p class="hint">Архивът помни коя фактура с кой превозвач е тръгнала: заявен → натоварен → разтоварен. Статусът и бележката (№ на ЧМР) се записват веднага. „Разтоварен" отбелязваш, щом клиентът потвърди — така знаеш, че стоката е пристигнала.</p>`;
+    <p class="hint">Архивът помни коя поръчка/фактура с кой превозвач е тръгнала: заявен → натоварен → разтоварен. Товар по поръчка стои с „⏳ очаква ф-ра" и номерът се попълва САМ при издаването на фактурата. Статусът и бележката (№ на ЧМР) се записват веднага.</p>`;
   }
 
   v.innerHTML = `
@@ -253,6 +380,17 @@ async function erpRenderLogistics() {
     const x = findInq(i.dataset.id); if (!x) return;
     x.price = i.value.trim(); await logiSave();
   }));
+  // „🚛 → Товар": от избраното запитване → товар по поръчката (без №, чака ф-ра).
+  v.querySelectorAll(".lgq-load").forEach(b => b.addEventListener("click", () => {
+    const x = findInq(b.dataset.id); if (!x) return;
+    logiEditDialog({
+      id: 0, invNo: "", date: new Date().toISOString().slice(0, 10),
+      client: x.client || (x.label || "").split(" — ")[0] || "", dest: x.dest || "",
+      carrier: "", vehicle: "", status: "заявен",
+      note: x.price ? "оферта: " + x.price : "",
+      orderId: x.orderId, ourNo: x.ourNo || "",
+    }, async l => { x.loadId = l.id; await logiSave(); });
+  }));
   uiSearchEnter(v.querySelector("#lgi-q"), val => { logiQ = val; erpRenderLogistics(); });
   v.querySelector("#lgi-inq").addEventListener("click", () => logiInquiry());
   v.querySelectorAll("[data-inq]").forEach(b => b.addEventListener("click", () => {
@@ -264,6 +402,8 @@ async function erpRenderLogistics() {
   if (logiView !== "loads") return;
   const findL = id => (LOGI.loads || []).find(x => Number(x.id) === Number(id));
   v.querySelector("#lgi-sync").addEventListener("click", async () => {
+    // Продажбите трябват за проследяването фактура → поръчка (fromOrderId).
+    try { if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales(); } catch (e) {}
     const n = logiSyncFromInvoices();
     if (!n) { alert("Няма нови фактури за добавяне — всичко издадено (износ/с превозвач) вече е в архива."); return; }
     if (await logiSave()) { alert(`✅ Добавени ${n} товара от фактурите.`); erpRenderLogistics(); }
@@ -286,15 +426,18 @@ async function erpRenderLogistics() {
   }));
 }
 
-/* Ръчен товар / редакция. */
-function logiEditDialog(l) {
-  const isNew = !l;
+/* Ръчен товар / редакция. l може да е и ПРЕДПОПЪЛНЕН нов (id:0, напр. от
+   запитване — тогава носи orderId/ourNo). onSaved(l) се вика след записа. */
+function logiEditDialog(l, onSaved) {
+  const isNew = !l || !Number(l.id);
   l = l || { id: 0, invNo: "", date: new Date().toISOString().slice(0, 10), client: "", dest: "", carrier: "", vehicle: "", status: "заявен", note: "" };
   const carriers = [...new Set(logiCarriers().map(c => (c.company || "").trim()).filter(Boolean))];
   const { wrap, close } = erpDialog(`
-    <h3>${isNew ? "➕ Нов товар" : "✎ Товар — фактура № " + escapeHtml(l.invNo || "—")}</h3>
+    <h3>${isNew ? "➕ Нов товар" : "✎ Товар — " + (l.invNo ? "фактура № " + escapeHtml(l.invNo) : (l.ourNo ? "поръчка № " + escapeHtml(l.ourNo) : "—"))}</h3>
+    ${l.orderId && !l.invNo ? `<p class="hint" style="margin:0 0 6px">Товарът е по поръчка № ${escapeHtml(l.ourNo || "—")} — № на фактурата ще се попълни САМ, щом я издадеш. Остави полето празно.</p>` : ""}
     <div class="erp-co-grid">
-      <label>№ Фактура <input type="text" id="lg-inv" value="${escapeAttr(l.invNo)}" /></label>
+      <label>№ Фактура <input type="text" id="lg-inv" value="${escapeAttr(l.invNo)}" ${l.orderId && !l.invNo ? 'placeholder="ще дойде сам от фактурата"' : ""} /></label>
+      <label>Поръчка № (Заявки) <input type="text" id="lg-ourno" value="${escapeAttr(l.ourNo || "")}" placeholder="наш № на заявката" /></label>
       <label>Дата на товарене <input type="date" id="lg-date" value="${escapeAttr(l.date || "")}" /></label>
       <label>Клиент <input type="text" id="lg-client" value="${escapeAttr(l.client)}" /></label>
       <label>Дестинация <input type="text" id="lg-dest" value="${escapeAttr(l.dest)}" placeholder="град, държава" /></label>
@@ -307,9 +450,9 @@ function logiEditDialog(l) {
   wrap.querySelector("#lg-cancel").addEventListener("click", close);
   wrap.querySelector("#lg-save").addEventListener("click", async () => {
     const gv = id => (wrap.querySelector("#" + id) || {}).value.trim();
-    l.invNo = gv("lg-inv"); l.date = gv("lg-date"); l.client = gv("lg-client"); l.dest = gv("lg-dest");
+    l.invNo = gv("lg-inv"); l.ourNo = gv("lg-ourno"); l.date = gv("lg-date"); l.client = gv("lg-client"); l.dest = gv("lg-dest");
     l.carrier = gv("lg-carrier"); l.vehicle = gv("lg-vehicle"); l.status = gv("lg-status"); l.note = gv("lg-note");
     if (isNew) { l.id = logiNextId(); l.at = new Date().toISOString(); LOGI.loads.push(l); }
-    if (await logiSave()) { close(); erpRenderLogistics(); }
+    if (await logiSave()) { if (onSaved) { try { await onSaved(l); } catch (e) {} } close(); erpRenderLogistics(); }
   });
 }

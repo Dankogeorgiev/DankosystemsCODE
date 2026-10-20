@@ -911,7 +911,12 @@ async function erpInvForm(o) {
   // List — не пипат суми и номер. При заключена форма записват веднага.
   const lockedSave = async what => { try { await erpSaveInvoice(o); alert(what + " са записани по издадената фактура — документите (ЧМР, Packing List) ще ги ползват."); } catch (e2) { alert("Грешка при запис: " + (e2.message || e2)); } };
   const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o, locked ? (() => lockedSave("🚚 Транспортните данни")) : undefined));
-  const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", () => erpMailTransportInquiry(o));
+  // Запитването минава през Логистиката: влиза в регистъра „Запитвания",
+  // вързано към фактурата (или поръчката ѝ), с избор на превозвачи.
+  const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", () => {
+    if (typeof logiInquiryForDoc === "function") logiInquiryForDoc(o, { invNo: o.docNo || "", orderId: o.fromOrderId || null, ourNo: o.fromOrderNo || "" });
+    else erpMailTransportInquiry(o);
+  });
   const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o, locked ? (() => lockedSave("📦 Палетите")) : undefined));
   erpInvWireLines(o, locked);
   erpInvTotalsBox(o);
@@ -1060,6 +1065,9 @@ async function erpInvIssue(o) {
     try { if (typeof compDeliveryApply === "function" && typeof cliLoad === "function") { await cliLoad(); if (compDeliveryApply(o)) await cliSave(); } } catch (e) {}
     // Фактура от продажби: маркираме ги с номера (не се фактурират втори път).
     if ((o.fromSaleIds || []).length) { try { await erpInvMarkSalesInvoiced(o); } catch (e) {} }
+    // 🚚 Логистика: ако по поръчката на фактурата ЧАКА товар (транспортът е
+    // уреден още като поръчка), той получава номера на фактурата АВТОМАТИЧНО.
+    try { if (typeof logiBindInvoice === "function") await logiBindInvoice(o); } catch (e) {}
     // Известие с движение на стока: кредитно ВРЪЩА артикулите в Склад детайли
     // (клиентът ги връща), дебитно ги ИЗПИСВА (пращаме стока).
     if ((o.kind === "credit" || o.kind === "debit") && o.returnStock) { try { await erpInvNoteStockMoves(o); } catch (e) { alert("Складовите движения по известието не минаха: " + (e.message || e)); } }
@@ -1119,6 +1127,8 @@ async function erpInvCancel(o) {
         if (local) { delete local.invoiceNo; delete local.invoiceId; }
       } catch (e) {}
     }
+    // 🚚 Логистика: товарите по поръчка с този № се връщат в „⏳ очаква ф-ра".
+    try { if (typeof logiUnbindInvoice === "function") await logiUnbindInvoice(no); } catch (e) {}
     await erpLoadInvoices();
     alert(isPf
       ? `✓ Проформата е анулирана.\nФактурните номера не са пипани.`
