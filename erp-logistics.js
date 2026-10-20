@@ -12,7 +12,7 @@
    Ползва erpDialog/erpDMY/escapeHtml/sb/erpInvoices/erpMailComposeDialog. */
 
 let LOGI = null;             // { loads: [...] }
-let logiView = "dest";       // dest | loads
+let logiView = "orders";     // orders | dest | loads | inq (📦 Поръчки е работният екран)
 let logiQ = "";
 
 async function logiLoad(force) {
@@ -308,6 +308,97 @@ async function logiOrderLine(orderId) {
   } catch (e) { return ""; }
 }
 
+/* ---- 📦 Поръчки в Логистика (за Таня, 20.10.2026) ----
+   Офисът не влиза в Склад/ЕРП: всичко нужно за експедицията на една поръчка
+   се вижда ТУК — срок, производство, палети/тегло, адрес, файлове, документи. */
+
+/* Адресът на разтоварване: транспорта на заявката или паспорта на клиента
+   (последният = най-новият адрес за доставка, събран от износните фактури). */
+function logiOrderAddr(c) {
+  const tr = (c && c.transport) || {};
+  if (tr.unloadPlace || tr.destination) return tr.unloadPlace || tr.destination;
+  try {
+    const prof = (typeof CLI_PROFILES !== "undefined" && CLI_PROFILES && CLI_PROFILES.byKey && typeof cliKey === "function")
+      ? CLI_PROFILES.byKey[cliKey(c.clientName)] : null;
+    const lines = String((prof && prof.addr) || "").split("\n").map(s => s.trim()).filter(Boolean);
+    return lines.length ? lines[lines.length - 1] : "";
+  } catch (e) { return ""; }
+}
+
+/* Палети/тегло на заявката: от „✎ Палети" или от „✎ Транспорт". */
+function logiOrderCargo(c) {
+  const tr = (c && c.transport) || {};
+  const pal = (c && c.pallets) || [];
+  const cnt = pal.length || Number(tr.totalPackages) || 0;
+  const kg = (erpToNum(tr.totalWeightKg) || 0) || pal.reduce((s, p) => s + (erpToNum(p.weightKg) || 0), 0);
+  return { cnt, kg };
+}
+
+/* 👁 Поръчката за Таня — САМО ЗА ЧЕТЕНЕ: редове, палети, транспорт, файлове
+   и печатните документи (Стокова / Packing List / Палет опис от Опаковки). */
+function logiOrderViewDialog(co) {
+  if (!co) { alert("Поръчката не е намерена в Заявките."); return; }
+  const tr = co.transport || {};
+  const pal = co.pallets || [];
+  const cg = logiOrderCargo(co);
+  const pct = (typeof erpCOPct === "function") ? erpCOPct(co) : { tot: 0, del: 0, pct: 0 };
+  const files = co.files || [];
+  const trRows = [
+    ["Маршрут", [tr.loadPlace, tr.unloadPlace || tr.destination].filter(Boolean).join(" → ")],
+    ["Превозвач", tr.carrier], ["Камион №", tr.vehicleReg], ["Шофьор", tr.driver],
+    ["Дата на товарене", tr.shipDate ? erpDMY(tr.shipDate) : ""], ["Условие (Incoterms)", tr.incoterms],
+    ["Тегло общо", cg.kg ? erpNum(cg.kg) + " кг" : ""], ["Естество на стоката", tr.goodsNature],
+  ].filter(x => x[1]);
+  const { wrap, close } = erpDialog(`
+    <h3>📦 Поръчка № ${escapeHtml(co.ourNo || "—")} — ${escapeHtml(co.clientName || "")}</h3>
+    <p class="hint" style="margin:0 0 8px">
+      ${co.clientNo ? `Клиентски №: <b>${escapeHtml(co.clientNo)}</b> · ` : ""}Дата: <b>${erpDMY(co.date) || "—"}</b> · Срок: <b>${erpDMY(co.deadline) || "—"}</b> ·
+      Статус: <b>${escapeHtml(co.status || "нова")}</b>${pct.tot ? ` · доставени <b>${erpNum(pct.del)}</b> от <b>${erpNum(pct.tot)}</b> бр. (${pct.pct}%)` : ""}
+      ${logiOrderAddr(co) ? `<br>🚚 Разтоварване: <b>${escapeHtml(logiOrderAddr(co))}</b>` : ""}
+    </p>
+    <table class="report-table erp-table" style="margin-bottom:8px">
+      <thead><tr><th>Код</th><th>Продукт</th><th class="num">Поръчано</th><th class="num">Доставено</th><th class="num">Остава</th></tr></thead>
+      <tbody>${(co.lines || []).map(l => {
+        const qq = erpToNum(l.qty) || 0, dd = Math.min(Number(l.delivered) || 0, qq);
+        return `<tr><td>${escapeHtml(l.code || "")}</td><td>${escapeHtml(l.name || "")}${l.clientCode ? ` <span class="t-code" title="Код при клиента">${escapeHtml(l.clientCode)}</span>` : ""}</td>
+          <td class="num">${erpNum(qq)} ${escapeHtml(l.unit || "бр.")}</td><td class="num">${erpNum(dd)}</td><td class="num"><b>${erpNum(qq - dd)}</b></td></tr>`;
+      }).join("") || `<tr><td colspan="5" class="report-empty">Няма редове.</td></tr>`}</tbody>
+    </table>
+    ${pal.length ? `<p style="margin:4px 0 2px"><b>🧱 Палети: ${pal.length}</b>${cg.kg ? ` · общо ~${erpNum(cg.kg)} кг` : ""}</p>
+    <table class="report-table erp-table" style="margin-bottom:8px"><thead><tr><th>№</th><th>Съдържание</th><th class="num">Бройка</th><th class="num">Тегло (кг)</th></tr></thead>
+      <tbody>${pal.map((p, i) => `<tr><td>${escapeHtml(String(p.no || i + 1))}</td><td>${escapeHtml(p.desc || "")}</td><td class="num">${erpNum(p.qty)}</td><td class="num">${erpNum(p.weightKg)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${trRows.length ? `<p style="margin:4px 0 2px"><b>🚚 Транспортни данни (за ЧМР)</b></p>
+    <p class="hint" style="margin:0 0 8px">${trRows.map(x => `${escapeHtml(x[0])}: <b>${escapeHtml(String(x[1]))}</b>`).join(" · ")}</p>` : ""}
+    ${files.length ? `<p style="margin:4px 0 2px"><b>📎 Файлове на заявката</b></p>
+    <p style="margin:0 0 8px">${files.map(f => `<a href="${escapeAttr(f.url || "#")}" target="_blank" rel="noopener" style="margin-right:12px">📄 ${escapeHtml(f.name || "файл")}</a>`).join("")}</p>` : ""}
+    <div class="erp-dialog-actions" style="justify-content:flex-start;flex-wrap:wrap">
+      ${typeof erpPackPrintFor === "function" ? `
+      <button class="btn btn-small" id="lgo-doc-goods" title="Стокова разписка от Опаковки — за печат">🧾 Стокова разписка</button>
+      <button class="btn btn-small" id="lgo-doc-packing" title="Packing List от Опаковки — за печат">📦 Packing List</button>
+      <button class="btn btn-small" id="lgo-doc-pallets" title="Палет опис от Опаковки — за печат">🧱 Палет опис</button>` : ""}
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn btn-small btn-primary" id="lgo-v-inq" title="Запитване за транспорт по тази поръчка — влиза в регистъра">📨 Запитване</button>
+      <button class="btn" id="lgo-v-close">Затвори</button>
+    </div>`);
+  try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
+  wrap.querySelector("#lgo-v-close").addEventListener("click", close);
+  ["goods", "packing", "pallets"].forEach(kind => {
+    const b = wrap.querySelector("#lgo-doc-" + kind);
+    if (b) b.addEventListener("click", () => { try { erpPackPrintFor(co, kind); } catch (e) { alert("Документът не се отвори: " + (e.message || e)); } });
+  });
+  wrap.querySelector("#lgo-v-inq").addEventListener("click", () => { close(); logiOrderInquiry(co); });
+}
+
+/* 📨 Запитване от поръчка (ползва се от 📦 Поръчки и от 👁 диалога). */
+function logiOrderInquiry(co) {
+  const doc = (typeof erpCODocAdapter === "function") ? erpCODocAdapter(co)
+    : { client: { name: co.clientName || "" }, transport: co.transport || {}, pallets: co.pallets || [] };
+  if (!doc.transport.unloadPlace && !doc.transport.destination) {
+    doc.transport = { ...doc.transport, unloadPlace: logiOrderAddr(co) };
+  }
+  logiInquiryForDoc(doc, { orderId: co.id, ourNo: co.ourNo || "", client: co.clientName || "" });
+}
+
 const LOGI_STATUSES = ["заявен", "натоварен", "разтоварен"];
 
 async function erpRenderLogistics() {
@@ -316,6 +407,9 @@ async function erpRenderLogistics() {
   try { if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices(); } catch (e) {}
   try { if (typeof erpInvLoadSeries === "function") await erpInvLoadSeries(); } catch (e) {}
   try { if ((typeof CONTACTS === "undefined" || !CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad(); } catch (e) {}
+  // Заявките + паспортите на клиентите: за 📦 Поръчки и кликаемите номера.
+  try { if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders(); } catch (e) {}
+  try { if (typeof cliLoad === "function") await cliLoad(); } catch (e) {}
   await logiLoad(true);   // табът винаги показва (и после пише върху) актуалното
 
   const q = logiNorm(logiQ);
@@ -332,7 +426,7 @@ async function erpRenderLogistics() {
         <td style="white-space:nowrap">${escapeHtml(new Date(x.at).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }))}</td>
         <td>${(x.to || []).map(t => `<span class="t-code">${escapeHtml(t)}</span>`).join("<br>")}</td>
         <td>${escapeHtml(x.label || x.subject || "")}</td>
-        <td style="white-space:nowrap">${x.ourNo ? `<b title="Запитването е по тази поръчка">№ ${escapeHtml(x.ourNo)}</b>` : ""}${x.invNo ? `${x.ourNo ? "<br>" : ""}<span class="erp-muted" title="Фактура">ф-ра ${escapeHtml(x.invNo)}</span>` : ""}${!x.ourNo && !x.invNo ? `<span class="erp-muted">—</span>` : ""}</td>
+        <td style="white-space:nowrap">${x.ourNo ? `<a class="lgo-open" data-oid="${escapeAttr(String(x.orderId || ""))}" data-ono="${escapeAttr(x.ourNo)}" style="cursor:pointer;text-decoration:underline" title="Какво се товари: редове, палети, транспорт, файлове и документи"><b>№ ${escapeHtml(x.ourNo)}</b></a>` : ""}${x.invNo ? `${x.ourNo ? "<br>" : ""}<span class="erp-muted" title="Фактура">ф-ра ${escapeHtml(x.invNo)}</span>` : ""}${!x.ourNo && !x.invNo ? `<span class="erp-muted">—</span>` : ""}</td>
         <td style="white-space:nowrap">${escapeHtml(logiCargoOf(x)) || `<span class="erp-muted">—</span>`}</td>
         <td><input type="text" class="lgq-price" data-id="${x.id}" value="${escapeAttr(x.price || "")}" placeholder="напр. 450 €" title="Цената, която фирмата върна в отговор — записва се веднага, за сравнение между превозвачите" style="width:110px" /></td>
         <td class="erp-muted" style="max-width:300px;font-size:12px">${escapeHtml(String(x.text || "").split("\n").filter(l => l.trim().startsWith("•")).join(" · ") || String(x.text || "").slice(0, 90))}</td>
@@ -346,6 +440,46 @@ async function erpRenderLogistics() {
       </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Още няма изпратени запитвания. Пращат се от „📨 Запитване за транспорт" — от поръчката (Заявки), от фактурата или от дестинация — и се записват тук сами.</td></tr>`}</tbody>
     </table>
     <p class="hint">Всяко изпратено запитване се помни: кога, до кого, по коя поръчка и за какъв товар. Като получиш оферта — напиши я в „Върната цена" (записва се веднага). Избереш ли фирма — „🚛 → Товар" прави товара по поръчката, а № на фактурата се връзва сам при издаването ѝ.</p>`;
+  } else if (logiView === "orders") {
+    let cos = ((typeof erpCOList !== "undefined" && erpCOList) || []).filter(c => (c.status || "нова") !== "завършена");
+    if (q) cos = cos.filter(c => logiNorm([c.ourNo, c.clientNo, c.clientName, c.status, logiOrderAddr(c)].join(" ")).includes(q));
+    cos.sort((a, b) => String(a.deadline || "9999-99-99").localeCompare(String(b.deadline || "9999-99-99")));
+    const today = new Date().toISOString().slice(0, 10);
+    const trCell = c => {
+      const oid = String(c.id);
+      const inqs = (LOGI.inq || []).filter(x => String(x.orderId || "") === oid);
+      const lds = (LOGI.loads || []).filter(l => String(l.orderId || "") === oid);
+      const parts = [];
+      if (inqs.length) {
+        const priced = inqs.filter(x => x.price);
+        parts.push(`<span title="Изпратени запитвания по поръчката${priced.length ? " · върнати цени: " + priced.map(x => escapeAttr(x.price)).join("; ") : ""}">📨 ${inqs.length}${priced.length ? " · " + priced.map(x => escapeHtml(x.price)).join("; ") : ""}</span>`);
+      }
+      lds.forEach(l => parts.push(`<span title="Товар по поръчката">🚛 ${escapeHtml(l.carrier || "товар")} — ${l.invNo ? "ф-ра " + escapeHtml(l.invNo) + ", " + escapeHtml(l.status || "") : "⏳ очаква ф-ра"}</span>`));
+      return parts.join("<br>") || `<span class="erp-muted">—</span>`;
+    };
+    body = `<table class="report-table erp-table">
+      <thead><tr><th>Поръчка</th><th>Клиент</th><th>Срок</th><th>Производство</th><th>Палети · Тегло</th><th>Разтоварване</th><th>Транспорт</th><th></th></tr></thead>
+      <tbody>${cos.map(c => {
+        const pct = (typeof erpCOPct === "function") ? erpCOPct(c) : { tot: 0, del: 0, pct: 0 };
+        const cg = logiOrderCargo(c);
+        const late = c.deadline && c.deadline < today && (c.status || "") !== "готова за продажба";
+        return `<tr>
+          <td><a class="lgo-open" data-oid="${escapeAttr(String(c.id))}" style="cursor:pointer;text-decoration:underline" title="Какво се товари: редове, палети, транспорт, файлове и документи — без да влизаш в Склад/ЕРП"><b>№ ${escapeHtml(c.ourNo || "—")}</b></a>${c.clientNo ? `<div class="erp-muted" style="font-size:11px" title="Клиентски №">кл. № ${escapeHtml(c.clientNo)}</div>` : ""}</td>
+          <td>${escapeHtml(c.clientName || "")}</td>
+          <td style="white-space:nowrap">${c.deadline ? `<b style="${late ? "color:#dc2626" : ""}">${erpDMY(c.deadline)}</b>${late ? ' <span title="Срокът е минал">⚠</span>' : ""}` : `<span class="erp-muted">—</span>`}</td>
+          <td><span class="erp-co-status s-${escapeAttr(c.status || "нова")}">${escapeHtml(c.status || "нова")}</span>${pct.tot ? `<div class="erp-muted" style="font-size:11px">доставени ${erpNum(pct.del)} от ${erpNum(pct.tot)} бр. (${pct.pct}%)</div>` : ""}</td>
+          <td style="white-space:nowrap">${cg.cnt ? `🧱 ${cg.cnt} пал.` : `<span class="erp-muted" title="Палетите се попълват от Опаковки / ✎ Палети на заявката">—</span>`}${cg.kg ? `<div class="erp-muted" style="font-size:11px">~${erpNum(cg.kg)} кг</div>` : ""}</td>
+          <td style="max-width:260px">${escapeHtml(logiOrderAddr(c)) || `<span class="erp-muted">—</span>`}</td>
+          <td style="font-size:12px">${trCell(c)}</td>
+          <td class="erp-row-actions">
+            <button class="btn btn-small lgo-view" data-oid="${escapeAttr(String(c.id))}" title="Какво се товари — редове, палети, файлове, документи">👁</button>
+            <button class="btn btn-small lgo-inq" data-oid="${escapeAttr(String(c.id))}" title="Запитване за транспорт по тази поръчка — адрес/палети/тегло са готови">📨</button>
+            <button class="btn btn-small btn-primary lgo-load" data-oid="${escapeAttr(String(c.id))}" title="Нов товар по тази поръчка — № на фактурата ще дойде сам при издаването">🚛</button>
+          </td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="8" class="report-empty">Няма активни поръчки (завършените се крият). Поръчките идват от Заявки — тук е всичко нужно за експедицията им.</td></tr>`}</tbody>
+    </table>
+    <p class="hint">Всичко за експедицията на една поръчка е тук — без влизане в Склад/ЕРП: 👁 показва какво се товари (редове, палети, файлове, Стокова/Packing List/Палет опис), 📨 праща запитване с готов адрес и тегло, 🚛 отваря нов товар. Срок в червено = минал срок.</p>`;
   } else if (logiView === "dest") {
     let dests = logiDestinations();
     if (q) dests = dests.filter(d => logiNorm([d.client, d.consignee, d.addr, d.country].join(" ")).includes(q));
@@ -374,7 +508,7 @@ async function erpRenderLogistics() {
       <tbody>${loads.map(l => `<tr data-lid="${l.id}">
         <td>${erpDMY(l.date) || "—"}</td>
         <td>${l.invNo ? `<b>${escapeHtml(l.invNo)}</b>` : (l.orderId || l.ourNo ? `<span class="erp-muted" title="Товарът е по поръчка — номерът на фактурата ще се попълни САМ при издаването ѝ">⏳ очаква ф-ра</span>` : "—")}</td>
-        <td>${l.ourNo ? `<b title="Наш № на поръчката (Заявки)">№ ${escapeHtml(l.ourNo)}</b>` : `<span class="erp-muted">—</span>`}</td>
+        <td>${l.ourNo || l.orderId ? `<a class="lgo-open" data-oid="${escapeAttr(String(l.orderId || ""))}" data-ono="${escapeAttr(l.ourNo || "")}" style="cursor:pointer;text-decoration:underline" title="Какво се товари: редове, палети, транспорт, файлове и документи"><b>№ ${escapeHtml(l.ourNo || "?")}</b></a>` : `<span class="erp-muted">—</span>`}</td>
         <td>${escapeHtml(l.client || "")}</td>
         <td>${escapeHtml(l.dest || "")}</td>
         <td>${escapeHtml(l.carrier || "") || `<span class="erp-muted">—</span>`}</td>
@@ -389,10 +523,11 @@ async function erpRenderLogistics() {
 
   v.innerHTML = `
     <div class="erp-toolbar">
+      <button class="btn btn-small ${logiView === "orders" ? "btn-primary" : ""}" id="lgi-v-orders" title="Активните поръчки с всичко за експедицията — срок, производство, палети, адрес, документи">📦 Поръчки (${(((typeof erpCOList !== "undefined" && erpCOList) || []).filter(c => (c.status || "нова") !== "завършена")).length})</button>
       <button class="btn btn-small ${logiView === "dest" ? "btn-primary" : ""}" id="lgi-v-dest">🗺 Дестинации</button>
       <button class="btn btn-small ${logiView === "loads" ? "btn-primary" : ""}" id="lgi-v-loads">📜 Товари (${(LOGI.loads || []).length})</button>
       <button class="btn btn-small ${logiView === "inq" ? "btn-primary" : ""}" id="lgi-v-inq">📨 Запитвания (${(LOGI.inq || []).length})</button>
-      <input type="search" id="lgi-q" placeholder="🔎 клиент / адрес / № фактура / превозвач… (Enter)" value="${escapeAttr(logiQ)}" style="min-width:250px" autocomplete="off" />
+      <input type="search" id="lgi-q" placeholder="🔎 поръчка / клиент / адрес / № фактура / превозвач… (Enter)" value="${escapeAttr(logiQ)}" style="min-width:250px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="lgi-inq" title="Свободно запитване за транспорт до избрани транспортни фирми">📨 Запитване за транспорт</button>
       ${logiView === "loads" ? `<button class="btn btn-small" id="lgi-sync" title="Добавя в архива издадените износни фактури, които още ги няма (превозвачът идва от ✎ Транспорт на фактурата)">🔄 От фактурите</button>
@@ -400,9 +535,27 @@ async function erpRenderLogistics() {
     </div>
     ${body}`;
 
+  v.querySelector("#lgi-v-orders").addEventListener("click", () => { logiView = "orders"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-dest").addEventListener("click", () => { logiView = "dest"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-loads").addEventListener("click", () => { logiView = "loads"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-inq").addEventListener("click", () => { logiView = "inq"; erpRenderLogistics(); });
+  // Поръчката по id/наш № — за 👁 диалога отвсякъде (📦, Товари, Запитвания).
+  const findCO = (oid, ono) => {
+    const list = (typeof erpCOList !== "undefined" && erpCOList) || [];
+    return (oid && list.find(x => String(x.id) === String(oid)))
+      || (ono && list.find(x => logiNorm(x.ourNo) === logiNorm(ono))) || null;
+  };
+  v.querySelectorAll(".lgo-open, .lgo-view").forEach(el => el.addEventListener("click", () => logiOrderViewDialog(findCO(el.dataset.oid, el.dataset.ono))));
+  v.querySelectorAll(".lgo-inq").forEach(b => b.addEventListener("click", () => { const co = findCO(b.dataset.oid); if (co) logiOrderInquiry(co); }));
+  v.querySelectorAll(".lgo-load").forEach(b => b.addEventListener("click", () => {
+    const co = findCO(b.dataset.oid); if (!co) return;
+    logiEditDialog({
+      id: 0, invNo: "", date: new Date().toISOString().slice(0, 10),
+      client: co.clientName || "", dest: logiOrderAddr(co),
+      carrier: "", vehicle: "", status: "заявен", note: "",
+      orderId: co.id, ourNo: co.ourNo || "",
+    });
+  }));
   const findInq = id => (LOGI.inq || []).find(x => Number(x.id) === Number(id));
   v.querySelectorAll(".lgq-view").forEach(b => b.addEventListener("click", () => {
     const x = findInq(b.dataset.id); if (!x) return;
