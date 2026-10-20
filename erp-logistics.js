@@ -15,16 +15,22 @@ let LOGI = null;             // { loads: [...] }
 let logiView = "dest";       // dest | loads
 let logiQ = "";
 
-async function logiLoad() {
-  if (LOGI) return LOGI;
+async function logiLoad(force) {
+  if (LOGI && LOGI.__db && !force) return LOGI;
   try {
-    const { data } = await sb.from("app_config").select("data").eq("id", "logistics_loads").maybeSingle();
-    LOGI = { loads: (data && data.data && data.data.loads) || [], inq: (data && data.data && data.data.inq) || [] };
-  } catch (e) { LOGI = { loads: [], inq: [] }; }
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "logistics_loads").maybeSingle();
+    if (error) throw error;
+    LOGI = { loads: (data && data.data && data.data.loads) || [], inq: (data && data.data && data.data.inq) || [], __db: true };
+  } catch (e) {
+    // Неуспешен прочит НЕ се кешира като „празен регистър": запис върху такъв
+    // обект би изтрил всички товари и запитвания. __db=false → logiSave отказва.
+    if (!LOGI) LOGI = { loads: [], inq: [], __db: false };
+  }
   return LOGI;
 }
 async function logiSave() {
-  const { error } = await sb.from("app_config").upsert({ id: "logistics_loads", data: { loads: (LOGI || {}).loads || [], inq: (LOGI || {}).inq || [] }, updated_at: new Date().toISOString() });
+  if (!LOGI || !LOGI.__db) { alert("Логистиката не се зареди от базата (прекъсната връзка?). Нищо не е записано — презареди страницата и опитай пак."); return false; }
+  const { error } = await sb.from("app_config").upsert({ id: "logistics_loads", data: { loads: LOGI.loads || [], inq: LOGI.inq || [] }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис: " + error.message); return false; }
   return true;
 }
@@ -119,7 +125,7 @@ ${p.incoterms ? "• Условие: " + p.incoterms + "\n" : ""}
       // за да се вижда в Логистика → Запитвания и да се препраща на друг.
       onSent: async (toV, info) => {
         try {
-          await logiLoad();
+          await logiLoad(true);   // свеж прочит: композиторът може да е стоял дълго отворен
           LOGI.inq = LOGI.inq || [];
           // Товарът (брой палети) се чете от реда „• Товар: …" на ФИНАЛНИЯ
           // текст — хваща и редакциите, направени в композитора преди пращане.
@@ -161,6 +167,9 @@ function logiSyncFromInvoices() {
   // Продажба → заявка (за проследяване фактура → поръчка без заявки към базата).
   const orderBySale = new Map();
   ((typeof erpSales !== "undefined" && erpSales) || []).forEach(s => { if (s.fromOrderId) orderBySale.set(String(s.id), String(s.fromOrderId)); });
+  // Поръчка → наш № (резерва за ръчни товари, въведени само с №).
+  const noByOrder = new Map();
+  ((typeof erpCOList !== "undefined" && erpCOList) || []).forEach(c => { if (c.ourNo) noByOrder.set(String(c.id), logiNorm(c.ourNo)); });
   let added = 0, linked = 0;
   ((typeof erpInvoices !== "undefined" && erpInvoices) || []).forEach(o => {
     if (o.kind === "proforma" || !o.posted || !o.docNo) return;
@@ -169,23 +178,33 @@ function logiSyncFromInvoices() {
     const isExport = String(invSeriesOfInvoice ? invSeriesOfInvoice(o) : o.seriesKey || "") === "1";
     if (!isExport && !tr.carrier) return;
     if (have.has(logiNorm(o.docNo))) return;
-    // Чакащ товар се допълва само от ИСТИНСКА фактура (не известие).
+    // Чакащ товар се допълва само от ИСТИНСКА фактура (не известие) — по ЕДИН
+    // (най-стария) на поръчка: частичните пратки чакат следващите фактури.
     const oids = new Set();
     if ((o.kind || "invoice") === "invoice") {
       if (o.fromOrderId) oids.add(String(o.fromOrderId));
       (o.fromSaleIds || []).forEach(sid => { const x = orderBySale.get(String(sid)); if (x) oids.add(x); });
     }
-    const waiting = loads.find(l => !l.invNo && l.orderId && oids.has(String(l.orderId)));
-    if (waiting) {
+    const oidNos = new Set([...oids].map(x => noByOrder.get(x)).filter(Boolean));
+    const pool = loads
+      .filter(l => !l.invNo && ((l.orderId && oids.has(String(l.orderId))) || (!l.orderId && l.ourNo && oidNos.has(logiNorm(l.ourNo)))))
+      .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+    const done = new Set();
+    let matched = 0;
+    pool.forEach(waiting => {
+      const key = waiting.orderId ? "id:" + waiting.orderId : "no:" + logiNorm(waiting.ourNo);
+      if (done.has(key)) return;
+      done.add(key);
       waiting.invNo = String(o.docNo);
       if (!waiting.carrier && tr.carrier) { waiting.carrier = tr.carrier; waiting.status = waiting.status === "заявен" ? "натоварен" : waiting.status; }
       if (!waiting.vehicle) waiting.vehicle = tr.vehicleReg || "";
       if (!waiting.date) waiting.date = tr.shipDate || o.issueDate || "";
       if (!waiting.client) waiting.client = (o.client && o.client.name) || "";
       if (!waiting.dest) waiting.dest = [cs.city, cs.country].filter(Boolean).join(", ");
-      have.add(logiNorm(o.docNo)); linked++;
-      return;
-    }
+      matched++;
+    });
+    if (matched) { have.add(logiNorm(o.docNo)); linked += matched; return; }
+    if (done.size) return;   // не би трябвало, но никога ред+допълване от една фактура
     loads.push({
       id: logiNextId(), invNo: String(o.docNo), date: tr.shipDate || o.issueDate || "",
       client: (o.client && o.client.name) || "", dest: [cs.city, cs.country].filter(Boolean).join(", "),
@@ -195,7 +214,7 @@ function logiSyncFromInvoices() {
     });
     have.add(logiNorm(o.docNo)); added++;
   });
-  return added + linked;
+  return { added, linked };
 }
 
 /* ---- Връзката поръчка ↔ фактура ↔ товар (Данко, 20.10.2026) ----
@@ -223,13 +242,34 @@ async function logiBindInvoice(o) {
     if (!o || !o.docNo || (o.kind || "invoice") !== "invoice") return 0;
     const ids = await logiOrderIdsOfInvoice(o);
     if (!ids.size) return 0;
-    await logiLoad();
+    await logiLoad(true);   // свеж прочит — пишем от фактурния екран, не от таба
+    // Наш №-тата на поръчките — резерва за ръчни товари, въведени само с №.
+    const nos = new Set();
+    for (const oid of ids) {
+      let co = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(oid));
+      if (!co) { try { const { data } = await sb.from("customer_orders").select("data").eq("id", oid).maybeSingle(); co = (data && data.data) || null; } catch (e) {} }
+      if (co && co.ourNo) nos.add(logiNorm(co.ourNo));
+    }
+    // По ЕДИН чакащ товар на поръчка (най-старият): при частични пратки с
+    // няколко камиона всяка фактура хваща своя товар, не всичките наведнъж.
     let n = 0;
-    (LOGI.loads || []).forEach(l => {
-      if (l.invNo || !l.orderId || !ids.has(String(l.orderId))) return;
+    const done = new Set();
+    (LOGI.loads || []).slice().sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))).forEach(l => {
+      if (l.invNo) return;
+      const byId = l.orderId && ids.has(String(l.orderId));
+      const byNo = !l.orderId && l.ourNo && nos.has(logiNorm(l.ourNo));
+      if (!byId && !byNo) return;
+      const key = byId ? "id:" + l.orderId : "no:" + logiNorm(l.ourNo);
+      if (done.has(key)) return;
+      done.add(key);
+      const tr = o.transport || {};
+      const cs = (o.consignee && (o.consignee.city || o.consignee.street)) ? o.consignee : (o.client || {});
       l.invNo = String(o.docNo);
       if (!l.client) l.client = (o.client && o.client.name) || "";
-      if (!l.date) l.date = (o.transport && o.transport.shipDate) || o.issueDate || "";
+      if (!l.date) l.date = tr.shipDate || o.issueDate || "";
+      if (!l.carrier && tr.carrier) { l.carrier = tr.carrier; if (l.status === "заявен") l.status = "натоварен"; }
+      if (!l.vehicle) l.vehicle = tr.vehicleReg || "";
+      if (!l.dest) l.dest = [cs.city, cs.country].filter(Boolean).join(", ");
       n++;
     });
     if (n) await logiSave();
@@ -242,7 +282,7 @@ async function logiBindInvoice(o) {
 async function logiUnbindInvoice(no) {
   try {
     if (!no) return 0;
-    await logiLoad();
+    await logiLoad(true);   // свеж прочит — пишем от фактурния екран
     let n = 0;
     (LOGI.loads || []).forEach(l => { if (l.orderId && logiNorm(l.invNo) === logiNorm(no)) { l.invNo = ""; n++; } });
     if (n) await logiSave();
@@ -276,7 +316,7 @@ async function erpRenderLogistics() {
   try { if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices(); } catch (e) {}
   try { if (typeof erpInvLoadSeries === "function") await erpInvLoadSeries(); } catch (e) {}
   try { if ((typeof CONTACTS === "undefined" || !CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad(); } catch (e) {}
-  await logiLoad();
+  await logiLoad(true);   // табът винаги показва (и после пише върху) актуалното
 
   const q = logiNorm(logiQ);
   const money = "";
@@ -374,7 +414,9 @@ async function erpRenderLogistics() {
   }));
   v.querySelectorAll(".lgq-resend").forEach(b => b.addEventListener("click", () => {
     const x = findInq(b.dataset.id); if (!x) return;
-    logiInquiry({ text: x.text, subject: x.subject, label: (x.label || "") + " (повторно)" });
+    // Повторното запитване пази връзката с поръчката/фактурата на оригинала.
+    logiInquiry({ text: x.text, subject: x.subject, label: (x.label || "") + " (повторно)",
+      orderId: x.orderId || null, ourNo: x.ourNo || "", invNo: x.invNo || "", client: x.client || "", to: x.dest || "" });
   }));
   v.querySelectorAll(".lgq-price").forEach(i => i.addEventListener("change", async () => {
     const x = findInq(i.dataset.id); if (!x) return;
@@ -383,10 +425,12 @@ async function erpRenderLogistics() {
   // „🚛 → Товар": от избраното запитване → товар по поръчката (без №, чака ф-ра).
   v.querySelectorAll(".lgq-load").forEach(b => b.addEventListener("click", () => {
     const x = findInq(b.dataset.id); if (!x) return;
+    // Ако запитването е било до ЕДНА фирма — тя е избраният превозвач.
+    const one = (x.to || []).length === 1 ? (logiCarriers().find(c => logiNorm(c.email) === logiNorm(x.to[0])) || {}).company || "" : "";
     logiEditDialog({
-      id: 0, invNo: "", date: new Date().toISOString().slice(0, 10),
+      id: 0, invNo: x.invNo || "", date: new Date().toISOString().slice(0, 10),
       client: x.client || (x.label || "").split(" — ")[0] || "", dest: x.dest || "",
-      carrier: "", vehicle: "", status: "заявен",
+      carrier: one, vehicle: "", status: "заявен",
       note: x.price ? "оферта: " + x.price : "",
       orderId: x.orderId, ourNo: x.ourNo || "",
     }, async l => { x.loadId = l.id; await logiSave(); });
@@ -403,10 +447,16 @@ async function erpRenderLogistics() {
   const findL = id => (LOGI.loads || []).find(x => Number(x.id) === Number(id));
   v.querySelector("#lgi-sync").addEventListener("click", async () => {
     // Продажбите трябват за проследяването фактура → поръчка (fromOrderId).
+    // Без тях чакащ товар не се разпознава и би се направил ДУБЛИРАЩ ред.
     try { if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales(); } catch (e) {}
-    const n = logiSyncFromInvoices();
-    if (!n) { alert("Няма нови фактури за добавяне — всичко издадено (износ/с превозвач) вече е в архива."); return; }
-    if (await logiSave()) { alert(`✅ Добавени ${n} товара от фактурите.`); erpRenderLogistics(); }
+    if (typeof erpSales === "undefined" || !Array.isArray(erpSales)) { alert("Продажбите не се заредиха (прекъсната връзка?) — без тях синхронизацията би дублирала товари. Опитай пак."); return; }
+    try { if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders(); } catch (e) {}
+    const r = logiSyncFromInvoices();
+    if (!r.added && !r.linked) { alert("Няма нови фактури за добавяне — всичко издадено (износ/с превозвач) вече е в архива."); return; }
+    if (await logiSave()) {
+      alert(`✅ ${r.added ? "Добавени " + r.added + " товара от фактурите." : ""}${r.added && r.linked ? "\n" : ""}${r.linked ? "Допълнени " + r.linked + " чакащи товара с № на фактурата им." : ""}`);
+      erpRenderLogistics();
+    }
   });
   v.querySelector("#lgi-add").addEventListener("click", () => logiEditDialog(null));
   v.querySelectorAll(".lgi-st").forEach(s => s.addEventListener("change", async () => {
@@ -452,6 +502,14 @@ function logiEditDialog(l, onSaved) {
     const gv = id => (wrap.querySelector("#" + id) || {}).value.trim();
     l.invNo = gv("lg-inv"); l.ourNo = gv("lg-ourno"); l.date = gv("lg-date"); l.client = gv("lg-client"); l.dest = gv("lg-dest");
     l.carrier = gv("lg-carrier"); l.vehicle = gv("lg-vehicle"); l.status = gv("lg-status"); l.note = gv("lg-note");
+    // Ръчно въведен наш № → намира поръчката, за да работи авто-връзката с фактурата.
+    if (!l.orderId && l.ourNo) {
+      try {
+        if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders();
+        const co = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => logiNorm(x.ourNo) === logiNorm(l.ourNo));
+        if (co) l.orderId = co.id;
+      } catch (e) {}
+    }
     if (isNew) { l.id = logiNextId(); l.at = new Date().toISOString(); LOGI.loads.push(l); }
     if (await logiSave()) { if (onSaved) { try { await onSaved(l); } catch (e) {} } close(); erpRenderLogistics(); }
   });

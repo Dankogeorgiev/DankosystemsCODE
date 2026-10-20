@@ -913,9 +913,19 @@ async function erpInvForm(o) {
   const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o, locked ? (() => lockedSave("🚚 Транспортните данни")) : undefined));
   // Запитването минава през Логистиката: влиза в регистъра „Запитвания",
   // вързано към фактурата (или поръчката ѝ), с избор на превозвачи.
-  const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", () => {
-    if (typeof logiInquiryForDoc === "function") logiInquiryForDoc(o, { invNo: o.docNo || "", orderId: o.fromOrderId || null, ourNo: o.fromOrderNo || "" });
-    else erpMailTransportInquiry(o);
+  const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", async () => {
+    if (typeof logiInquiryForDoc === "function") {
+      // Поръчката зад фактурата: директно (от проформа) или през продажбите ѝ.
+      let oid = o.fromOrderId || null, ono = o.fromOrderNo || "";
+      if (!oid && (o.fromSaleIds || []).length) {
+        try {
+          if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales();
+          const s = ((typeof erpSales !== "undefined" && erpSales) || []).find(x => (o.fromSaleIds || []).some(id => String(id) === String(x.id)) && x.fromOrderId);
+          if (s) oid = s.fromOrderId;
+        } catch (e) {}
+      }
+      logiInquiryForDoc(o, { invNo: o.docNo || "", orderId: oid, ourNo: ono });
+    } else erpMailTransportInquiry(o);
   });
   const ep = document.getElementById("inv-edit-pallets"); if (ep) ep.addEventListener("click", () => erpInvPalletsDialog(o, locked ? (() => lockedSave("📦 Палетите")) : undefined));
   erpInvWireLines(o, locked);
@@ -1180,7 +1190,10 @@ function erpInvFromProforma(src) {
     vatRate: src.vatRate != null ? src.vatRate : 20, vatBasis: src.vatBasis || "",
     paymentMethod: src.paymentMethod || "Банка", termDays: 0, dueDate: "",
     note: `Към проформа ${src.docNo || ""} / ${erpDMY(src.issueDate) || ""} — платено авансово`,
-    fromProformaId: src.id || null, fromOrderId: src.fromOrderId || null,
+    // Пренасят се и продажбите/поръчката: така фактурата от проформа маркира
+    // продажбите като фактурирани и връзва чакащия товар в Логистиката.
+    fromProformaId: src.id || null, fromOrderId: src.fromOrderId || null, fromOrderNo: src.fromOrderNo || "",
+    fromSaleIds: (src.fromSaleIds || []).slice(), fromSaleNos: (src.fromSaleNos || []).slice(),
     lines: (src.lines || []).map(l => ({ ...l })),
     status: "чернова", posted: false, compiledBy: src.compiledBy || "",
     tariffCode: src.tariffCode || "", payCond: src.payCond || "", pallets: src.pallets ? JSON.parse(JSON.stringify(src.pallets)) : undefined,

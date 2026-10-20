@@ -906,8 +906,10 @@ async function erpRenderCOForm(o) {
   // Запитването минава през Логистиката: влиза в регистъра „Запитвания",
   // ВЪРЗАНО към тази поръчка — като дойде фактурата, товарът я хваща сам.
   if (mtr) mtr.addEventListener("click", () => {
-    if (typeof logiInquiryForDoc === "function") logiInquiryForDoc(docObj(), { orderId: o.id || null, ourNo: o.ourNo || "", client: o.clientName || "" });
-    else erpMailTransportInquiry(docObj());
+    if (typeof logiInquiryForDoc === "function") {
+      if (!o.id) { alert("Първо запази заявката (💾) — запитването се връзва към записана поръчка."); return; }
+      logiInquiryForDoc(docObj(), { orderId: o.id, ourNo: o.ourNo || "", client: o.clientName || "" });
+    } else erpMailTransportInquiry(docObj());
   });
   // Живият транспортен ред: запитвания/товари по тази поръчка от Логистиката.
   (async () => {
