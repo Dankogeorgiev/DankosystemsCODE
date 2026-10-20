@@ -160,6 +160,9 @@ async function openErp() {
   if (leftTabs) leftTabs.style.display = ERP.officeMode ? "none" : "";
   const modalEl = document.getElementById("erp-modal");
   if (modalEl) modalEl.classList.toggle("erp-office-mode", !!ERP.officeMode);
+  // Заглавието според режима (Данко, 20.10.2026): Офисът не е „Склад".
+  const headEl = modalEl && modalEl.querySelector(".tasks-head h2");
+  if (headEl) headEl.textContent = ERP.officeMode ? "💼 Покупки · Продажби · Финанси" : "📦 Склад · Рецепти · Себестойност";
   // Финансите се отварят само през бутона на началната страница (не като таб в ЕРП)
   // и само от оторизираните.
   const finOk = (typeof financeAllowed !== "function") || financeAllowed();

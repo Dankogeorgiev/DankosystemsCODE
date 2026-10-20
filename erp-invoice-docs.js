@@ -67,7 +67,9 @@ function invClientBlock(o, which) {
 }
 
 /* Печатен прозорец с общи стилове + бутони Печат и ✎ Редакция (contentEditable —
-   поправяш текста директно преди печат; печатът крие бутоните). */
+   поправяш текста директно преди печат; печатът крие бутоните).
+   opts.returnHtml: ВРЪЩА html-а (без бутоните) вместо да отваря прозорец —
+   така PDF-ът на износната фактура се прави от СЪЩИЯ изглед (бял PDF фикс). */
 function invPrintWindow(title, body, lang, opts) {
   const en = lang === "en";
   opts = opts || {};
@@ -98,14 +100,15 @@ function invPrintWindow(title, body, lang, opts) {
     .btne{background:#b45309}
     body.editing{outline:3px dashed #b45309;outline-offset:-3px}
   </style></head><body>
-    <div class="noprint">
+    ${opts.returnHtml ? "" : `<div class="noprint">
       <button class="btnp" onclick="window.print()">🖨 ${en ? "Print" : "Печат"}</button>
       <button class="btnp btne" onclick="var b=document.body;b.contentEditable=(b.contentEditable!=='true');b.classList.toggle('editing');this.textContent=b.contentEditable==='true'?'✔ ${en ? "Done editing" : "Готово"}':'✎ ${en ? "Edit" : "Редакция"}'">✎ ${en ? "Edit" : "Редакция"}</button>
-    </div>
+    </div>`}
     ${opts.noLogo ? "" : `<div class="lg"><img src="${base}welcome.svg?v=144" alt="DankoSystems" /></div>`}
     ${body}
     ${opts.noMade ? "" : `<div class="made">The Systems</div>`}
   </body></html>`;
+  if (opts.returnHtml) return html;
   const w = window.open("", "_blank");
   if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
   w.document.write(html); w.document.close(); w.focus();
@@ -232,7 +235,7 @@ function erpInvPalletsDialog(o, onSave) {
 }
 
 /* ---------- ИЗНОСНА ФАКТУРА (EN, само ORIGINAL — по образеца от GenCloud) ---------- */
-function erpInvPrintExport(o) {
+function erpInvPrintExport(o, opts) {
   const s = ERP_SELLER_EN;
   const t = erpInvTotals(o); const cur = erpInvCur(o) || "EUR";
   const tr = o.transport || {};
@@ -327,7 +330,7 @@ function erpInvPrintExport(o) {
       .vatline{border:1.4px solid #000;padding:5px 10px;margin-bottom:8px;font-weight:600}
       .bankbox{border:1.4px solid #000;padding:8px 10px;display:flex;justify-content:space-between;gap:20px}
     </style>`;
-  invPrintWindow(title + " " + (o.docNo || ""), body, "en");
+  return invPrintWindow(title + " " + (o.docNo || ""), body, "en", opts);
 }
 
 /* ---------- Packing List (по образеца: Marks and numbers / Order / Qty / Net weight / Value) ---------- */

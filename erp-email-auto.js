@@ -171,7 +171,15 @@ async function erpInvPdfBase64(o) {
   if (typeof erpInvPrintHTML !== "function") throw new Error("Модул Фактуриране не е зареден.");
   await erpLoadScript("vendor-html2canvas.js?v=1", "html2canvas");
   await erpLoadScript("vendor-jspdf.js?v=1", "jspdf");
-  const html = erpInvPrintHTML(o, true);   // само оригиналът, без бутони
+  // ИЗНОСНА фактура (EN серия): erpInvPrintHTML за нея НЕ връща HTML, а отваря
+  // печатния прозорец — това беше причината за „белия PDF". Тук се взема
+  // СЪЩИЯТ износен изглед като низ (returnHtml), без бутоните.
+  const ser = (typeof erpInvSeries !== "undefined" && erpInvSeries && erpInvSeries[o.seriesKey]) || null;
+  const en = ser ? ser.lang === "en" : String(o.seriesKey || "") === "1";
+  const html = (en && typeof erpInvPrintExport === "function")
+    ? erpInvPrintExport(o, { returnHtml: true })
+    : erpInvPrintHTML(o, true);   // само оригиналът, без бутони
+  if (!html || typeof html !== "string") throw new Error("печатният изглед не върна съдържание");
   const fr = document.createElement("iframe");
   // БЕЗ visibility:hidden — html2canvas рисува ПРАЗНО върху скрити елементи в
   // някои браузъри (причината за „белия PDF"). Крием го само извън екрана.
