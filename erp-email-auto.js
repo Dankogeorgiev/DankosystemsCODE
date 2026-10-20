@@ -129,7 +129,7 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent, clientKe
     btn.disabled = false; btn.textContent = "📤 Изпрати";
     if (r.ok) {
       if (clientKey) erpMailExtraSave(clientKey, extras);   // запомни доп. имейлите за клиента
-      res.innerHTML = '<div style="background:#dcfce7;color:#166534;padding:8px 10px;border-radius:8px">✓ Изпратено!</div>'; setTimeout(() => { close(); if (onSent) onSent(toV); }, 900);
+      res.innerHTML = '<div style="background:#dcfce7;color:#166534;padding:8px 10px;border-radius:8px">✓ Изпратено!</div>'; setTimeout(() => { close(); if (onSent) onSent(toV, { subject: subjV, text: textV, extras }); }, 900);
     } else {
       const why = erpMailExplain(r.error);
       res.innerHTML = `<div style="background:#fef2f2;color:#991b1b;padding:8px 10px;border-radius:8px">✗ ${escapeHtml(r.error)}${why ? `<br>👉 <b>${escapeHtml(why)}</b>` : ""}</div>`;
