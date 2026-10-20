@@ -111,6 +111,10 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent, clientKe
     ${html ? '<p class="hint" style="margin:6px 0 0">Писмото ще включи и оформена таблица с данните (HTML).</p>' : ""}
     <div id="mc-result" style="margin-top:8px"></div>
     <div class="erp-dialog-actions"><button class="btn" id="mc-cancel">Отказ</button><button class="btn btn-primary" id="mc-send">📤 Изпрати</button></div>`);
+  // По-голям прозорец (Данко, 20.10.2026): широк + просторно поле за писмото.
+  wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
+  const mcTxt = wrap.querySelector("#mc-text");
+  if (mcTxt) { mcTxt.rows = 14; mcTxt.style.minHeight = "260px"; }
   wrap.querySelector("#mc-cancel").addEventListener("click", close);
   wrap.querySelector("#mc-send").addEventListener("click", async () => {
     const btn = wrap.querySelector("#mc-send"); const res = wrap.querySelector("#mc-result");
