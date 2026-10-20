@@ -148,19 +148,51 @@ function erpLoadScript(src, globalName) {
     document.head.appendChild(s);
   });
 }
+/* Проверка „изцяло бял канвас": проби по 20 реда (по една лента на ред, после
+   стъпки по 60px). Погрешно бял PDF е по-лош от излишен втори рендер. */
+function erpPdfCanvasBlank(canvas) {
+  try {
+    if (!canvas || !canvas.width || !canvas.height) return true;
+    const ctx = canvas.getContext("2d");
+    const rows = 20, stepX = 60;
+    for (let i = 0; i < rows; i++) {
+      const y = Math.min(canvas.height - 1, Math.floor(canvas.height * (i + 0.5) / rows));
+      const line = ctx.getImageData(0, y, canvas.width, 1).data;
+      for (let x = 0; x < canvas.width; x += stepX) {
+        const p = x * 4;
+        if (line[p + 3] > 0 && (line[p] < 245 || line[p + 1] < 245 || line[p + 2] < 245)) return false;
+      }
+    }
+    return true;
+  } catch (e) { return false; }   // не блокирай при грешка — приеми, че има съдържание
+}
+
 async function erpInvPdfBase64(o) {
   if (typeof erpInvPrintHTML !== "function") throw new Error("Модул Фактуриране не е зареден.");
   await erpLoadScript("vendor-html2canvas.js?v=1", "html2canvas");
   await erpLoadScript("vendor-jspdf.js?v=1", "jspdf");
   const html = erpInvPrintHTML(o, true);   // само оригиналът, без бутони
   const fr = document.createElement("iframe");
-  fr.style.cssText = "position:fixed;left:-12000px;top:0;width:820px;height:1400px;visibility:hidden";
+  // БЕЗ visibility:hidden — html2canvas рисува ПРАЗНО върху скрити елементи в
+  // някои браузъри (причината за „белия PDF"). Крием го само извън екрана.
+  fr.style.cssText = "position:fixed;left:-12000px;top:0;width:820px;height:1400px;border:0";
   document.body.appendChild(fr);
   try {
     fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
-    await new Promise(r => setTimeout(r, 500));   // рендер + шрифтове + логото
-    const body = fr.contentDocument.body;
-    const canvas = await window.html2canvas(body, { scale: 2, backgroundColor: "#ffffff", logging: false });
+    const idoc = fr.contentDocument;
+    // Чакат се ИЗРИЧНО шрифтовете и всички изображения (логото) — не слепешком.
+    try { if (idoc.fonts && idoc.fonts.ready) await Promise.race([idoc.fonts.ready, new Promise(r => setTimeout(r, 2000))]); } catch (e) {}
+    await Promise.all([...idoc.images].filter(img => !img.complete).map(img => new Promise(r => { img.onload = img.onerror = r; setTimeout(r, 2500); })));
+    await new Promise(r => setTimeout(r, 150));
+    const body = idoc.body;
+    fr.style.height = Math.max(1400, (body.scrollHeight || 0) + 40) + "px";   // целият документ, без вътрешен скрол
+    let canvas = await window.html2canvas(body, { scale: 2, backgroundColor: "#ffffff", logging: false });
+    // Застраховка: изцяло бял канвас (закъснял рендер) → още един опит.
+    if (erpPdfCanvasBlank(canvas)) {
+      await new Promise(r => setTimeout(r, 1200));
+      canvas = await window.html2canvas(body, { scale: 2, backgroundColor: "#ffffff", logging: false });
+    }
+    if (erpPdfCanvasBlank(canvas)) throw new Error("рендерът върна празна страница — опитай още веднъж");
     const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4" });
     const pw = 210, margin = 8, iw = pw - margin * 2;
     const pageHpx = Math.floor((297 - margin * 2) * canvas.width / iw);   // A4 страница в px от канваса
@@ -256,6 +288,18 @@ async function erpMailInvoice(o) {
   } catch (e) { alert("⚠ PDF-ът не се генерира (" + (e.message || e) + ") — писмото ще тръгне без прикачен файл, с таблицата в тялото."); }
   erpMailComposeDialog({
     clientKey, extra, attachments,
+    // Изпратено ли е НАИСТИНА (Brevo потвърди) → бележи се на фактурата: кога
+    // и на кого. Списъкът във Фактуриране показва „✉ да" до Статус.
+    onSent: async toV => {
+      try {
+        o.emailedAt = new Date().toISOString(); o.emailedTo = toV || "";
+        if (o.id) await erpSaveInvoice(o);
+        const local = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).find(x => x.id === o.id);
+        if (local) { local.emailedAt = o.emailedAt; local.emailedTo = o.emailedTo; }
+        // Ако списъкът е отворен — опреснява се, за да светне „✉ да" веднага.
+        if (document.getElementById("inv-q") && typeof erpRenderInvoices === "function") erpRenderInvoices();
+      } catch (e) { console.warn("бележка за изпратена фактура:", e); }
+    },
     title: "✉ " + (k.label || "Фактура") + (o.docNo ? " № " + o.docNo : "") + " → клиента" + (en ? " (EN)" : ""),
     to: (invc && invc.email) || (rec && rec.email) || "",
     subject: en

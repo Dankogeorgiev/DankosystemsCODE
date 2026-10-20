@@ -286,10 +286,17 @@ async function erpRenderInvoices() {
     </div>
     <div class="pay-cards" id="inv-month-cards"></div>
     <table class="report-table erp-table">
-      <thead><tr><th>№</th><th>Тип</th><th>Клиент</th><th>Дата</th><th class="num">Сума</th><th>Вал.</th><th>Статус</th><th></th></tr></thead>
+      <thead><tr><th>№</th><th>Тип</th><th>Клиент</th><th>Дата</th><th class="num">Сума</th><th>Вал.</th><th>Статус</th><th title="Изпратена ли е фактурата по имейл на клиента">✉ Имейл</th><th></th></tr></thead>
       <tbody>${rows.map(o => {
         const t = erpInvTotals(o); const k = INV_KINDS[o.kind] || {};
         const status = o.status || (o.posted ? "издадена" : "чернова");
+        // ✉ до Статус (Данко, 20.10.2026): изпратена → зелено „да" с кога/на
+        // кого; издадена но НЕизпратена → бутон за директно изпращане.
+        const mailCell = o.emailedAt
+          ? `<span class="erp-co-status" style="background:#dcfce7;color:#166534" title="Изпратена на ${escapeAttr(o.emailedTo || "клиента")} · ${escapeAttr(new Date(o.emailedAt).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }))}">✉ да</span>`
+          : (o.posted && status !== "анулирана" && typeof erpMailInvoice === "function"
+            ? `<button class="btn btn-small inv-mail-row" data-id="${o.id}" title="НЕ е изпращана оттук — отваря готовото писмо до клиента с PDF-а прикачен">✉ Изпрати</button>`
+            : `<span class="erp-muted">—</span>`);
         return `<tr class="erp-clickable" data-id="${o.id}">
           <td data-label="№"><b>${escapeHtml(o.docNo || (o.cancelledNo ? "🚫 " + o.cancelledNo : "—"))}</b></td>
           <td data-label="Тип">${escapeHtml(k.label || o.kind)}</td>
@@ -298,8 +305,9 @@ async function erpRenderInvoices() {
           <td class="num" data-label="Сума">${erpInvMoney(t.total, erpInvCur(o))}</td>
           <td data-label="Вал.">${escapeHtml(erpInvCur(o))}</td>
           <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(status)}">${escapeHtml(status)}</span></td>
+          <td data-label="Имейл">${mailCell}</td>
           <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
-        </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Още няма документи. Натисни „+ Фактура".</td></tr>`}
+        </tr>`; }).join("") || `<tr><td colspan="9" class="report-empty">Още няма документи. Натисни „+ Фактура".</td></tr>`}
       </tbody>
     </table>
     <p class="hint">Складът се движи от <b>Продажби</b> (не оттук). Фактурата е документът. Етап 2 ще свърже двете за тест.</p>`;
@@ -334,6 +342,12 @@ async function erpRenderInvoices() {
   const fsBtn = document.getElementById("inv-from-sales");
   if (fsBtn) fsBtn.addEventListener("click", erpInvFromSalesDialog);
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenInvoice(Number(b.dataset.open)); }));
+  // „✉ Изпрати" направо от списъка — без да се отваря фактурата.
+  v.querySelectorAll(".inv-mail-row").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    const o = (erpInvoices || []).find(x => String(x.id) === String(b.dataset.id));
+    if (o && typeof erpMailInvoice === "function") erpMailInvoice(o);
+  }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenInvoice(Number(tr.dataset.id))));
 }
 
