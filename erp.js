@@ -554,6 +554,7 @@ function erpDispatchTab(tab) {
     case "cliprofiles": erpRenderClientProfiles(); break;
     case "payables":     erpRenderPayables(); break;
     case "receivables":  erpRenderReceivables(); break;
+    case "logistics":    if (typeof erpRenderLogistics === "function") erpRenderLogistics(); break;
     case "partners":     (typeof erpRenderCompanies === "function" ? erpRenderCompanies() : erpRenderPartners()); break;
     case "import":       erpRenderImport(); break;
     default:             erpRenderMaterials();
@@ -613,7 +614,7 @@ function erpInit() {
   if (finBtn) finBtn.addEventListener("click", () => { ERP.tab = "finance"; openErp(); });
   // 💼 Офис от основния екран: само офисните модули — производствената лента
   // (Заявки, Материали, Склад…) се скрива, за да не задръства екрана.
-  const OFFICE_TABS = ["invoices", "sales", "payables", "finance", "purchases", "receivables", "archive", "proformaco"];
+  const OFFICE_TABS = ["invoices", "sales", "payables", "finance", "purchases", "receivables", "archive", "proformaco", "logistics"];
   const offMain = document.getElementById("btn-office");
   if (offMain) offMain.addEventListener("click", () => {
     ERP.officeMode = true;
