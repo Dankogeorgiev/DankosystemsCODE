@@ -408,7 +408,14 @@ async function erpRenderLogistics() {
   try { if (typeof erpInvLoadSeries === "function") await erpInvLoadSeries(); } catch (e) {}
   try { if ((typeof CONTACTS === "undefined" || !CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad(); } catch (e) {}
   // Заявките + паспортите на клиентите: за 📦 Поръчки и кликаемите номера.
-  try { if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders(); } catch (e) {}
+  // Презареждат се, щом са по-стари от минута — нова заявка да излиза веднага.
+  try {
+    const stale = !window.LOGI_CO_AT || (Date.now() - window.LOGI_CO_AT > 60000);
+    if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList || stale)) {
+      await erpLoadCustomerOrders();
+      window.LOGI_CO_AT = Date.now();
+    }
+  } catch (e) {}
   try { if (typeof cliLoad === "function") await cliLoad(); } catch (e) {}
   await logiLoad(true);   // табът винаги показва (и после пише върху) актуалното
 
@@ -441,8 +448,11 @@ async function erpRenderLogistics() {
     </table>
     <p class="hint">Всяко изпратено запитване се помни: кога, до кого, по коя поръчка и за какъв товар. Като получиш оферта — напиши я в „Върната цена" (записва се веднага). Избереш ли фирма — „🚛 → Товар" прави товара по поръчката, а № на фактурата се връзва сам при издаването ѝ.</p>`;
   } else if (logiView === "orders") {
-    let cos = ((typeof erpCOList !== "undefined" && erpCOList) || []).filter(c => (c.status || "нова") !== "завършена");
+    // Като в Заявки: завършените се крият САМО без търсене. Търсиш ли —
+    // излиза ВСИЧКО (готовата за товарене поръчка често е „завършена").
+    let cos = ((typeof erpCOList !== "undefined" && erpCOList) || []).slice();
     if (q) cos = cos.filter(c => logiNorm([c.ourNo, c.clientNo, c.clientName, c.status, logiOrderAddr(c)].join(" ")).includes(q));
+    else cos = cos.filter(c => (c.status || "нова") !== "завършена");
     cos.sort((a, b) => String(a.deadline || "9999-99-99").localeCompare(String(b.deadline || "9999-99-99")));
     const today = new Date().toISOString().slice(0, 10);
     const trCell = c => {
@@ -477,9 +487,9 @@ async function erpRenderLogistics() {
             <button class="btn btn-small btn-primary lgo-load" data-oid="${escapeAttr(String(c.id))}" title="Нов товар по тази поръчка — № на фактурата ще дойде сам при издаването">🚛</button>
           </td>
         </tr>`;
-      }).join("") || `<tr><td colspan="8" class="report-empty">Няма активни поръчки (завършените се крият). Поръчките идват от Заявки — тук е всичко нужно за експедицията им.</td></tr>`}</tbody>
+      }).join("") || `<tr><td colspan="8" class="report-empty">${q ? "Нищо не отговаря на търсенето — то рови във ВСИЧКИ поръчки, и завършените." : "Няма активни поръчки (завършените се крият — потърси ги по номер или клиент и излизат)."}</td></tr>`}</tbody>
     </table>
-    <p class="hint">Всичко за експедицията на една поръчка е тук — без влизане в Склад/ЕРП: 👁 показва какво се товари (редове, палети, файлове, Стокова/Packing List/Палет опис), 📨 праща запитване с готов адрес и тегло, 🚛 отваря нов товар. Срок в червено = минал срок.</p>`;
+    <p class="hint">Всичко за експедицията на една поръчка е тук — без влизане в Склад/ЕРП: 👁 показва какво се товари (редове, палети, файлове, Стокова/Packing List/Палет опис), 📨 праща запитване с готов адрес и тегло, 🚛 отваря нов товар. Срок в червено = минал срок. Без търсене завършените се крият; при търсене излиза ВСИЧКО.</p>`;
   } else if (logiView === "dest") {
     let dests = logiDestinations();
     if (q) dests = dests.filter(d => logiNorm([d.client, d.consignee, d.addr, d.country].join(" ")).includes(q));
