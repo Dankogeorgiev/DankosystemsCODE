@@ -627,6 +627,7 @@ function erpInvClientProfile(name) {
     vatRate: last.vatRate != null ? last.vatRate : 20,
     seriesKey: last.seriesKey || "2",
     vatBasis: last.vatBasis || "",
+    payCond: last.payCond || "",   // условието за плащане (износ) — помни се по клиент
   };
 }
 // Прилага навиците на клиента върху ЧЕРНОВА (не пипа издадени).
@@ -638,6 +639,21 @@ function erpInvApplyClientProfile(o, prof) {
     if (!isNaN(d.getTime())) { d.setDate(d.getDate() + Number(prof.termDays)); o.dueDate = d.toISOString().slice(0, 10); }
   } else o.dueDate = "";
   if (prof.paymentMethod) o.paymentMethod = prof.paymentMethod;
+  // Условието за плащане (износ) на клиента — избрано веднъж, зарежда се само
+  // (Данко, 23.10.2026). Срокът и падежът се смятат по условието (вкл. EOM).
+  if (prof.payCond) {
+    o.payCond = prof.payCond;
+    const pc = (typeof INV_PAY_CONDITIONS !== "undefined" ? INV_PAY_CONDITIONS : []).find(x => x.key === prof.payCond);
+    if (pc && o.issueDate) {
+      o.termDays = pc.days;
+      const d = new Date(o.issueDate + "T00:00:00");
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + pc.days);
+        if (pc.eom) d.setMonth(d.getMonth() + 1, 0);
+        o.dueDate = d.toISOString().slice(0, 10);
+      }
+    }
+  }
   // Известието следва ОРИГИНАЛНАТА фактура, а не навиците на клиента —
   // иначе кредитно към износна фактура вземаше номер от вътрешната серия.
   const isNoteDoc = (o.kind === "credit" || o.kind === "debit");
