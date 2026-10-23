@@ -21,17 +21,17 @@ async function logiLoad(force) {
   try {
     const { data, error } = await sb.from("app_config").select("data").eq("id", "logistics_loads").maybeSingle();
     if (error) throw error;
-    LOGI = { loads: (data && data.data && data.data.loads) || [], inq: (data && data.data && data.data.inq) || [], __db: true };
+    LOGI = { loads: (data && data.data && data.data.loads) || [], inq: (data && data.data && data.data.inq) || [], wplan: (data && data.data && data.data.wplan) || [], __db: true };
   } catch (e) {
     // Неуспешен прочит НЕ се кешира като „празен регистър": запис върху такъв
     // обект би изтрил всички товари и запитвания. __db=false → logiSave отказва.
-    if (!LOGI) LOGI = { loads: [], inq: [], __db: false };
+    if (!LOGI) LOGI = { loads: [], inq: [], wplan: [], __db: false };
   }
   return LOGI;
 }
 async function logiSave() {
   if (!LOGI || !LOGI.__db) { alert("Логистиката не се зареди от базата (прекъсната връзка?). Нищо не е записано — презареди страницата и опитай пак."); return false; }
-  const { error } = await sb.from("app_config").upsert({ id: "logistics_loads", data: { loads: LOGI.loads || [], inq: LOGI.inq || [] }, updated_at: new Date().toISOString() });
+  const { error } = await sb.from("app_config").upsert({ id: "logistics_loads", data: { loads: LOGI.loads || [], inq: LOGI.inq || [], wplan: LOGI.wplan || [] }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис: " + error.message); return false; }
   return true;
 }
@@ -359,6 +359,43 @@ function logiPlanOf(c, plan) {
   if (!plan || !c) return null;
   return plan.byOrder.get(String(c.id)) || (c.ourNo ? plan.byNo.get(logiNorm(c.ourNo)) : null) || null;
 }
+/* ---- 🗓 План за товарене по седмици (Данко, 23.10.2026) ----
+   Работният транспортен план на Таня: за всяка седмица (от 43-та нататък) —
+   дестинация, клиент, № фактура, палети, транспортна фирма и лице за контакт.
+   Пази се в LOGI.wplan: [{ id, week (понеделник ISO), dest, client, invNo,
+   pallets, carrier, contact, orderId, at }]. */
+
+function logiMondayOf(d) {
+  const u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const mon = new Date(u.getTime() - ((u.getUTCDay() + 6) % 7) * 864e5);
+  const p = n => String(n).padStart(2, "0");
+  return `${mon.getUTCFullYear()}-${p(mon.getUTCMonth() + 1)}-${p(mon.getUTCDate())}`;
+}
+/* ISO номер на седмицата (43 за 19.10.2026) от понеделник „YYYY-MM-DD". */
+function logiWeekNum(mondayStr) {
+  const m = String(mondayStr || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return 0;
+  const thu = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 3));
+  const jan1 = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1));
+  return Math.ceil(((thu - jan1) / 864e5 + 1) / 7);
+}
+function logiWeekShift(mondayStr, weeks) {
+  const m = String(mondayStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + weeks * 7));
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+}
+let LOGI_WPLAN_MON = null;   // разглежданият понеделник (начало: текущата седмица)
+function logiWPlanNextId() { let m = 0; ((LOGI || {}).wplan || []).forEach(x => { if ((Number(x.id) || 0) > m) m = Number(x.id); }); return m + 1; }
+
+/* Записите от „🚚 План за седмицата" за ТОЧНО тази седмица (за 🔄 попълване). */
+async function logiPlanItemsFor(weekStr) {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "loading_plan").maybeSingle();
+    return ((data && data.data && data.data.items) || []).filter(x => String(x.week) === String(weekStr) && !x.carried);
+  } catch (e) { return []; }
+}
+
 /* „2026-10-26" (понеделник) → „26.10–01.11" за баджовете. */
 function logiWeekLabel(weekStr) {
   const m = String(weekStr || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -551,6 +588,38 @@ async function erpRenderLogistics() {
         : (!logiOrdersAll ? "Няма планирани товарения за тази седмица и напред. Планът се прави от „🚚 План за седмицата“ на основния екран — или виж „Всички активни“." : "Няма активни поръчки (завършените се крият — потърси ги по номер или клиент и излизат).")}</td></tr>`}</tbody>
     </table>
     <p class="hint">По подразбиране са само поръчките от „🚚 План за седмицата" — тази седмица и следващите планирани, подредени по седмицата на товаренето (🗓 в зелено; палетите/килата са планираните). 👁 показва какво се товари, 📨 праща запитване, 🚛 отваря товар. Търсенето вижда всички поръчки.</p>`;
+  } else if (logiView === "wplan") {
+    if (!LOGI_WPLAN_MON) LOGI_WPLAN_MON = logiMondayOf(new Date());
+    const mon = LOGI_WPLAN_MON;
+    let wrows = (LOGI.wplan || []).filter(x => x.week === mon);
+    if (q) wrows = wrows.filter(x => logiNorm([x.dest, x.client, x.invNo, x.carrier, x.contact].join(" ")).includes(q));
+    const carriers = [...new Set(logiCarriers().map(c => (c.company || "").trim()).filter(Boolean))];
+    const totPal = wrows.reduce((s, x) => s + (erpToNum(x.pallets) || 0), 0);
+    body = `
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <button class="btn btn-small" id="wp-prev" title="Предишната седмица">‹</button>
+      <b style="font-size:15px">Седмица ${logiWeekNum(mon)} · ${logiWeekLabel(mon)}</b>
+      <button class="btn btn-small" id="wp-next" title="Следващата седмица">›</button>
+      <button class="btn btn-small" id="wp-today" title="Връща към текущата седмица">Днес</button>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="wp-fill" title="Попълва редове от „🚚 План за седмицата“ за тази седмица: клиент, палети, дестинация; № фактура и превозвач идват от Товарите, ако ги има">🔄 От Плана за седмицата</button>
+      <button class="btn btn-small btn-primary" id="wp-add">+ Ред</button>
+    </div>
+    <table class="report-table erp-table">
+      <thead><tr><th>Дестинация</th><th>Клиент</th><th>№ Фактура</th><th class="num">Палети</th><th>Транспортна фирма</th><th>Лице за контакт</th><th></th></tr></thead>
+      <tbody>${wrows.map(x => `<tr>
+        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="dest" value="${escapeAttr(x.dest || "")}" placeholder="град, държава" style="width:100%;min-width:170px" /></td>
+        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="client" value="${escapeAttr(x.client || "")}" style="width:100%;min-width:140px" /></td>
+        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="invNo" value="${escapeAttr(x.invNo || "")}" placeholder="№ (щом я издадеш)" style="width:130px" /></td>
+        <td class="num"><input type="number" class="wp-f" data-id="${x.id}" data-f="pallets" value="${escapeAttr(x.pallets || "")}" min="0" style="width:72px;text-align:right" /></td>
+        <td><input type="text" class="wp-f wp-carrier" data-id="${x.id}" data-f="carrier" list="wp-carriers" value="${escapeAttr(x.carrier || "")}" placeholder="избери или пиши" style="width:100%;min-width:150px" /></td>
+        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="contact" value="${escapeAttr(x.contact || "")}" placeholder="име · телефон" style="width:100%;min-width:150px" /></td>
+        <td class="erp-row-actions"><button class="btn btn-small btn-danger wp-del" data-id="${x.id}" title="Изтрий реда">×</button></td>
+      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма редове за седмица ${logiWeekNum(mon)} (${logiWeekLabel(mon)}). „+ Ред“ добавя ръчно, „🔄 От Плана за седмицата“ попълва от планираните товарения.</td></tr>`}</tbody>
+      ${wrows.length ? `<tfoot><tr><td colspan="3" style="text-align:right"><b>ОБЩО:</b></td><td class="num"><b>${erpNum(totPal)} пал.</b></td><td colspan="3"></td></tr></tfoot>` : ""}
+    </table>
+    <datalist id="wp-carriers">${carriers.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
+    <p class="hint">Планът за товарене на седмицата: всяка промяна се записва ВЕДНАГА. Избереш ли транспортна фирма от списъка, лицето за контакт се попълва само̀ (от указателя, категория „Транспорт / логистика“). ‹ › местят седмицата — записите си стоят по седмици.</p>`;
   } else if (logiView === "dest") {
     let dests = logiDestinations();
     if (q) dests = dests.filter(d => logiNorm([d.client, d.consignee, d.addr, d.country].join(" ")).includes(q));
@@ -595,6 +664,7 @@ async function erpRenderLogistics() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small ${logiView === "orders" ? "btn-primary" : ""}" id="lgi-v-orders" title="Активните поръчки с всичко за експедицията — срок, производство, палети, адрес, документи">📦 Поръчки (${(((typeof erpCOList !== "undefined" && erpCOList) || []).filter(c => (c.status || "нова") !== "завършена")).length})</button>
+      <button class="btn btn-small ${logiView === "wplan" ? "btn-primary" : ""}" id="lgi-v-wplan" title="Планът за товарене по седмици: дестинация, клиент, фактура, палети, транспортна фирма и лице за контакт">🗓 План товарене</button>
       <button class="btn btn-small ${logiView === "dest" ? "btn-primary" : ""}" id="lgi-v-dest">🗺 Дестинации</button>
       <button class="btn btn-small ${logiView === "loads" ? "btn-primary" : ""}" id="lgi-v-loads">📜 Товари (${(LOGI.loads || []).length})</button>
       <button class="btn btn-small ${logiView === "inq" ? "btn-primary" : ""}" id="lgi-v-inq">📨 Запитвания (${(LOGI.inq || []).length})</button>
@@ -607,6 +677,7 @@ async function erpRenderLogistics() {
     ${body}`;
 
   v.querySelector("#lgi-v-orders").addEventListener("click", () => { logiView = "orders"; erpRenderLogistics(); });
+  v.querySelector("#lgi-v-wplan").addEventListener("click", () => { logiView = "wplan"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-dest").addEventListener("click", () => { logiView = "dest"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-loads").addEventListener("click", () => { logiView = "loads"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-inq").addEventListener("click", () => { logiView = "inq"; erpRenderLogistics(); });
@@ -669,6 +740,66 @@ async function erpRenderLogistics() {
     logiInquiry({ to: [d.consignee, d.addr].filter(Boolean).join(" — "), label: d.client, from: "Пловдив, България" });
   }));
 
+  if (logiView === "wplan") {
+    const findW = id => (LOGI.wplan || []).find(x => Number(x.id) === Number(id));
+    v.querySelector("#wp-prev").addEventListener("click", () => { LOGI_WPLAN_MON = logiWeekShift(LOGI_WPLAN_MON, -1); erpRenderLogistics(); });
+    v.querySelector("#wp-next").addEventListener("click", () => { LOGI_WPLAN_MON = logiWeekShift(LOGI_WPLAN_MON, 1); erpRenderLogistics(); });
+    v.querySelector("#wp-today").addEventListener("click", () => { LOGI_WPLAN_MON = logiMondayOf(new Date()); erpRenderLogistics(); });
+    v.querySelector("#wp-add").addEventListener("click", async () => {
+      LOGI.wplan = LOGI.wplan || [];
+      LOGI.wplan.push({ id: logiWPlanNextId(), week: LOGI_WPLAN_MON, dest: "", client: "", invNo: "", pallets: "", carrier: "", contact: "", at: new Date().toISOString() });
+      if (await logiSave()) erpRenderLogistics();
+    });
+    v.querySelectorAll(".wp-f").forEach(i => i.addEventListener("change", async () => {
+      const x = findW(i.dataset.id); if (!x) return;
+      x[i.dataset.f] = i.value.trim();
+      // Фирма от указателя → лицето за контакт се попълва само (ако е празно).
+      if (i.dataset.f === "carrier" && !x.contact) {
+        const hit = logiCarriers().find(c => logiNorm(c.company) === logiNorm(i.value));
+        if (hit) {
+          x.contact = [hit.contact_person, hit.phone].filter(Boolean).join(" · ");
+          const cEl = v.querySelector(`.wp-f[data-id="${x.id}"][data-f="contact"]`);
+          if (cEl) cEl.value = x.contact;
+        }
+      }
+      await logiSave();
+    }));
+    v.querySelectorAll(".wp-del").forEach(b => b.addEventListener("click", async () => {
+      const x = findW(b.dataset.id); if (!x) return;
+      if (!confirm(`Да изтрия ли реда за ${x.client || x.dest || "—"} от плана за товарене?`)) return;
+      LOGI.wplan = (LOGI.wplan || []).filter(y => Number(y.id) !== Number(x.id));
+      if (await logiSave()) erpRenderLogistics();
+    }));
+    v.querySelector("#wp-fill").addEventListener("click", async () => {
+      const items = await logiPlanItemsFor(LOGI_WPLAN_MON);
+      if (!items.length) { alert(`В „🚚 План за седмицата“ няма записи за седмица ${logiWeekNum(LOGI_WPLAN_MON)}.`); return; }
+      LOGI.wplan = LOGI.wplan || [];
+      const have = new Set(LOGI.wplan.filter(x => x.week === LOGI_WPLAN_MON).map(x => x.orderId ? "o:" + x.orderId : "c:" + logiNorm(x.client)));
+      let added = 0;
+      items.forEach(it => {
+        const key = it.orderId ? "o:" + it.orderId : "c:" + logiNorm(it.client);
+        if (have.has(key)) return;
+        have.add(key);
+        const co = it.orderId ? ((typeof erpCOList !== "undefined" && erpCOList) || []).find(c => String(c.id) === String(it.orderId)) : null;
+        const ld = it.orderId ? (LOGI.loads || []).find(l => String(l.orderId || "") === String(it.orderId)) : null;
+        const carrier = (ld && ld.carrier) || "";
+        const hit = carrier ? logiCarriers().find(c => logiNorm(c.company) === logiNorm(carrier)) : null;
+        LOGI.wplan.push({
+          id: logiWPlanNextId(), week: LOGI_WPLAN_MON,
+          dest: (ld && ld.dest) || (co ? logiOrderAddr(co) : ""),
+          client: it.client || (co && co.clientName) || "",
+          invNo: (ld && ld.invNo) || "",
+          pallets: erpToNum(it.pallets) || "",
+          carrier, contact: hit ? [hit.contact_person, hit.phone].filter(Boolean).join(" · ") : "",
+          orderId: it.orderId || null, at: new Date().toISOString(),
+        });
+        added++;
+      });
+      if (!added) { alert("Всичко планирано за седмицата вече е в плана за товарене."); return; }
+      if (await logiSave()) { alert(`✅ Добавени ${added} реда от Плана за седмицата.`); erpRenderLogistics(); }
+    });
+    return;
+  }
   if (logiView !== "loads") return;
   const findL = id => (LOGI.loads || []).find(x => Number(x.id) === Number(id));
   v.querySelector("#lgi-sync").addEventListener("click", async () => {
