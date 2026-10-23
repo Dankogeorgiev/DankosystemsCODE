@@ -51,8 +51,11 @@ function invNextNoFor(o) {
 }
 
 /* ---------- Серии / номерация ---------- */
-async function erpInvLoadSeries() {
-  if (erpInvSeries) return erpInvSeries;
+async function erpInvLoadSeries(force) {
+  // force=true: СВЕЖ прочит от базата — задължителен преди вземане на номер.
+  // Кешираната серия подведе Данко (23.10.2026): Григор издал 1000003100 от
+  // своята сесия, а чуждият кеш още сочеше next=3100 → сблъсък на номера.
+  if (erpInvSeries && !force) return erpInvSeries;
   let fixed = false;
   try {
     const { data } = await sb.from("app_config").select("data").eq("id", "invoice_series").maybeSingle();
@@ -1080,9 +1083,23 @@ async function erpInvIssue(o) {
   const btn = document.getElementById("inv-issue");
   if (btn) { btn.disabled = true; btn.textContent = "Издавам…"; }
   try {
-    await erpInvLoadSeries();
+    await erpInvLoadSeries(true);   // свежата серия, не сесийният кеш
     const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
     const isPf = o.kind === "proforma";
+    // Самолекуване: броячът се сверява с РЕАЛНО издадените номера в базата.
+    // Ако е изостанал (успореден кеш, стар инцидент) — прескача напред, а
+    // освободен номер, който междувременно е зает, отпада от предложенията.
+    if (!isPf) {
+      try {
+        const digit = String(o.seriesKey || "2").charAt(0);
+        const { data: taken } = await sb.from("invoices").select("doc_no").like("doc_no", digit + "%");
+        let maxNo = 0;
+        const used = new Set();
+        (taken || []).forEach(r => { if (!r.doc_no) return; used.add(String(r.doc_no)); const n = Number(r.doc_no); if (n > maxNo) maxNo = n; });
+        if (maxNo && Number(ser.next) <= maxNo) ser.next = maxNo + 1;
+        if ((ser.freed || []).length) ser.freed = (ser.freed || []).filter(x => !used.has(String(x)));
+      } catch (e) {}
+    }
     let useNo = "";
     if (isPf) {
       // Проформата взима номер от собствения си брояч — фактурните не се пипат.
@@ -1146,7 +1163,7 @@ async function erpInvCancel(o) {
     + `\nДокументът остава в списъка със статус „анулирана".`)) return;
   const reason = prompt("Основание за анулиране (влиза в документа):", o.cancelReason || "") || "";
   try {
-    await erpInvLoadSeries();
+    await erpInvLoadSeries(true);   // свежата серия — freed се пише върху актуалното
     const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
     if (no && !isPf) {           // проформените номера не влизат в оборот
       const freed = (ser.freed || []).map(String);
