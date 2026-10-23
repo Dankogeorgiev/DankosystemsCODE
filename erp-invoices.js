@@ -306,7 +306,7 @@ async function erpRenderInvoices() {
           <td data-label="Вал.">${escapeHtml(erpInvCur(o))}</td>
           <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(status)}">${escapeHtml(status)}</span></td>
           <td data-label="Имейл">${mailCell}</td>
-          <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+          <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button>${!o.posted ? `<button class="btn btn-small btn-danger inv-row-del" data-id="${o.id}" title="Изтрива черновата окончателно (черновите нямат номер — от серията нищо не се губи)">🗑</button>` : ""}</td>
         </tr>`; }).join("") || `<tr><td colspan="9" class="report-empty">Още няма документи. Натисни „+ Фактура".</td></tr>`}
       </tbody>
     </table>
@@ -348,7 +348,28 @@ async function erpRenderInvoices() {
     const o = (erpInvoices || []).find(x => String(x.id) === String(b.dataset.id));
     if (o && typeof erpMailInvoice === "function") erpMailInvoice(o);
   }));
+  // 🗑 чернова направо от списъка.
+  v.querySelectorAll(".inv-row-del").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    const o = (erpInvoices || []).find(x => String(x.id) === String(b.dataset.id));
+    if (o) erpInvDeleteDraft(o);
+  }));
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenInvoice(Number(tr.dataset.id))));
+}
+
+/* 🗑 Изтриване на ЧЕРНОВА (Данко, 23.10.2026): издадените не се трият —
+   те се анулират (номерът се освобождава). Черновата няма номер и не е
+   пипала продажби/вземания, затова се трие чисто. */
+async function erpInvDeleteDraft(o, afterList) {
+  if (!o) return;
+  if (o.posted) { alert("Издаден документ не се трие — анулира се с 🚫 (номерът се освобождава)."); return; }
+  const k = INV_KINDS[o.kind] || {};
+  if (!confirm(`🗑 Да изтрия ли черновата (${k.label || "документ"}${o.client && o.client.name ? " за " + o.client.name : ""})?\n\nИзтриването е окончателно. Черновата няма номер, така че от серията нищо не се губи.`)) return;
+  try {
+    if (o.id) { const { error } = await sb.from("invoices").delete().eq("id", o.id); if (error) throw error; }
+    await erpLoadInvoices();
+    erpRenderInvoices();
+  } catch (e) { alert("Грешка при изтриване: " + (e.message || e)); }
 }
 
 function erpOpenInvoice(id) {
@@ -634,6 +655,7 @@ async function erpInvForm(o) {
       ${o.posted ? '<button class="btn btn-small" id="inv-pdf" title="Сваля издадената фактура направо като PDF файл — без да минаваш през Печат">⤓ PDF</button>' : ""}
       <button class="btn btn-small" id="inv-fix" title="Отваря документа за ръчна поправка ПРЕДИ печат (номерът и статусът се запазват)">✎ Ръчна корекция</button>
       ${o.posted && o.status !== "анулирана" ? '<button class="btn btn-small btn-danger" id="inv-cancel" title="Анулира документа: вземането пада, продажбите се отвързват, а НОМЕРЪТ се освобождава и може да се даде на друг клиент">🚫 Анулирай</button>' : ""}
+      ${!o.posted && o.id ? '<button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива ЧЕРНОВАТА окончателно. Черновата няма номер — номерът се тегли чак при „Издай“, така че нищо не се губи от серията.">🗑 Изтрий черновата</button>' : ""}
       ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span>` : ""}
       ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
       ${o.posted && o.kind === "invoice" ? '<button class="btn btn-small" id="inv-make-credit" title="Ново кредитно известие по тази фактура (връщане/намаление)">➖ Кредитно</button><button class="btn btn-small" id="inv-make-debit" title="Ново дебитно известие по тази фактура (увеличение/допращане)">➕ Дебитно</button>' : ""}
@@ -897,6 +919,7 @@ async function erpInvForm(o) {
     else alert("Документът е отворен за редакция — поправи го и натисни Печат.");
   });
   const cnl = document.getElementById("inv-cancel"); if (cnl) cnl.addEventListener("click", () => erpInvCancel(o));
+  const ddel = document.getElementById("inv-del-draft"); if (ddel) ddel.addEventListener("click", () => erpInvDeleteDraft(o));
   const ml = document.getElementById("inv-mail"); if (ml) ml.addEventListener("click", () => erpMailInvoice(o));
   const sv = document.getElementById("inv-save"); if (sv) sv.addEventListener("click", () => erpInvSaveClick(o));
   const iss = document.getElementById("inv-issue"); if (iss) iss.addEventListener("click", () => erpInvIssue(o));
