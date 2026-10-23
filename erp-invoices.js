@@ -309,7 +309,7 @@ async function erpRenderInvoices() {
           <td data-label="Вал.">${escapeHtml(erpInvCur(o))}</td>
           <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(status)}">${escapeHtml(status)}</span></td>
           <td data-label="Имейл">${mailCell}</td>
-          <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button>${!o.posted ? `<button class="btn btn-small btn-danger inv-row-del" data-id="${o.id}" title="Изтрива черновата окончателно (черновите нямат номер — от серията нищо не се губи)">🗑</button>` : ""}</td>
+          <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button>${!o.posted || status === "анулирана" ? `<button class="btn btn-small btn-danger inv-row-del" data-id="${o.id}" title="${status === "анулирана" ? "Изтрива анулираната окончателно (номерът ѝ вече е освободен)" : "Изтрива черновата окончателно (черновите нямат номер — от серията нищо не се губи)"}">🗑</button>` : ""}</td>
         </tr>`; }).join("") || `<tr><td colspan="9" class="report-empty">Още няма документи. Натисни „+ Фактура".</td></tr>`}
       </tbody>
     </table>
@@ -360,14 +360,17 @@ async function erpRenderInvoices() {
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenInvoice(Number(tr.dataset.id))));
 }
 
-/* 🗑 Изтриване на ЧЕРНОВА (Данко, 23.10.2026): издадените не се трият —
-   те се анулират (номерът се освобождава). Черновата няма номер и не е
-   пипала продажби/вземания, затова се трие чисто. */
+/* 🗑 Изтриване на ЧЕРНОВА или АНУЛИРАНА (Данко, 23.10.2026): издадените
+   действащи не се трият — те се анулират (номерът се освобождава). Черновата
+   няма номер; анулираната вече е свалила вземането, отвързала продажбите и
+   освободила номера си — и двете се трият чисто. */
 async function erpInvDeleteDraft(o, afterList) {
   if (!o) return;
-  if (o.posted) { alert("Издаден документ не се трие — анулира се с 🚫 (номерът се освобождава)."); return; }
+  const isCancelled = o.status === "анулирана";
+  if (o.posted && !isCancelled) { alert("Издаден документ не се трие — анулира се с 🚫 (номерът се освобождава)."); return; }
   const k = INV_KINDS[o.kind] || {};
-  if (!confirm(`🗑 Да изтрия ли черновата (${k.label || "документ"}${o.client && o.client.name ? " за " + o.client.name : ""})?\n\nИзтриването е окончателно. Черновата няма номер, така че от серията нищо не се губи.`)) return;
+  const what = isCancelled ? `анулираната${o.cancelledNo ? " (беше № " + o.cancelledNo + ")" : ""}` : "черновата";
+  if (!confirm(`🗑 Да изтрия ли ${what} (${k.label || "документ"}${o.client && o.client.name ? " за " + o.client.name : ""})?\n\nИзтриването е окончателно. ${isCancelled ? "Номерът ѝ вече е освободен и ще се предложи при следващо издаване." : "Черновата няма номер, така че от серията нищо не се губи."}`)) return;
   try {
     if (o.id) { const { error } = await sb.from("invoices").delete().eq("id", o.id); if (error) throw error; }
     await erpLoadInvoices();
@@ -640,7 +643,7 @@ function erpInvApplyClientProfile(o, prof) {
 /* ---------- Форма ---------- */
 async function erpInvForm(o) {
   const v = erpView();
-  await erpInvLoadSeries();
+  await erpInvLoadSeries(true);   // свежа серия → полето „№ (който ще получи)" казва истината
   if (!erpInvoices) { try { await erpLoadInvoices(); } catch (e) {} }   // за профила на клиента (самообучение)
   // Еднократно прилагане на клиентския профил (напр. фактура от продажба без свой срок).
   if (o.__applyProfile && !o.posted) { erpInvApplyClientProfile(o, erpInvClientProfile(o.__applyProfile)); delete o.__applyProfile; }
@@ -659,7 +662,7 @@ async function erpInvForm(o) {
       <button class="btn btn-small" id="inv-fix" title="Отваря документа за ръчна поправка ПРЕДИ печат (номерът и статусът се запазват)">✎ Ръчна корекция</button>
       ${o.posted && o.status !== "анулирана" ? '<button class="btn btn-small btn-danger" id="inv-cancel" title="Анулира документа: вземането пада, продажбите се отвързват, а НОМЕРЪТ се освобождава и може да се даде на друг клиент">🚫 Анулирай</button>' : ""}
       ${!o.posted && o.id ? '<button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива ЧЕРНОВАТА окончателно. Черновата няма номер — номерът се тегли чак при „Издай“, така че нищо не се губи от серията.">🗑 Изтрий черновата</button>' : ""}
-      ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span>` : ""}
+      ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span><button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива анулираната окончателно — номерът ѝ вече е освободен">🗑 Изтрий</button>` : ""}
       ${typeof erpMailInvoice === "function" ? '<button class="btn btn-small" id="inv-mail" title="Изпраща фактурата по имейл на клиента (през Brevo)">✉ Изпрати на клиента</button>' : ""}
       ${o.posted && o.kind === "invoice" ? '<button class="btn btn-small" id="inv-make-credit" title="Ново кредитно известие по тази фактура (връщане/намаление)">➖ Кредитно</button><button class="btn btn-small" id="inv-make-debit" title="Ново дебитно известие по тази фактура (увеличение/допращане)">➕ Дебитно</button>' : ""}
       ${o.kind === "proforma" ? '<button class="btn btn-small btn-primary" id="inv-make-inv" title="Клиентът плати по проформата → издай истинската фактура: клиентът, редовете и условията се копират, ти само проверяваш и издаваш">🧾 Фактура от проформата</button>' : ""}
@@ -1092,12 +1095,17 @@ async function erpInvIssue(o) {
     if (!isPf) {
       try {
         const digit = String(o.seriesKey || "2").charAt(0);
-        const { data: taken } = await sb.from("invoices").select("doc_no").like("doc_no", digit + "%");
+        // Най-големите заети номера на серията (сорт по doc_no — еднаква дължина).
+        const { data: top } = await sb.from("invoices").select("doc_no").like("doc_no", digit + "%").order("doc_no", { ascending: false }).limit(20);
         let maxNo = 0;
-        const used = new Set();
-        (taken || []).forEach(r => { if (!r.doc_no) return; used.add(String(r.doc_no)); const n = Number(r.doc_no); if (n > maxNo) maxNo = n; });
+        (top || []).forEach(r => { const n = Number(r.doc_no); if (n > maxNo) maxNo = n; });
         if (maxNo && Number(ser.next) <= maxNo) ser.next = maxNo + 1;
-        if ((ser.freed || []).length) ser.freed = (ser.freed || []).filter(x => !used.has(String(x)));
+        // Освободен номер, който междувременно е зает — точна проверка по списъка.
+        if ((ser.freed || []).length) {
+          const { data: hit } = await sb.from("invoices").select("doc_no").in("doc_no", (ser.freed || []).map(String));
+          const used = new Set((hit || []).map(r => String(r.doc_no)));
+          ser.freed = (ser.freed || []).filter(x => !used.has(String(x)));
+        }
       } catch (e) {}
     }
     let useNo = "";
