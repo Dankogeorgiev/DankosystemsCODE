@@ -28,6 +28,13 @@ async function erpLoadInvoices() {
   erpInvoices = (data || []).map(r => ({ id: r.id, docNo: r.doc_no, posted: r.posted, ...(r.data || {}) }));
 }
 async function erpSaveInvoice(o) {
+  // ЧМР: мястото на разтоварване се взема ВИНАГИ от Получателя (Consignee),
+  // а без получател — от купувача (Данко, 23.10.2026).
+  try {
+    const cs = (o.consignee && (o.consignee.street || o.consignee.city)) ? o.consignee : (o.client || {});
+    const up = [cs.street, cs.city, cs.country].filter(Boolean).join(", ");
+    if (up) { o.transport = o.transport || {}; o.transport.unloadPlace = up; }
+  } catch (e) {}
   const data = { ...o }; delete data.id; delete data.posted; delete data.docNo; delete data.__editUnlocked;
   const row = { doc_no: o.docNo || null, kind: o.kind || "invoice", posted: !!o.posted, data, updated_at: new Date().toISOString() };
   if (o.id) { const { error } = await sb.from("invoices").update(row).eq("id", o.id); if (error) throw error; }
@@ -449,7 +456,7 @@ async function erpInvOpenFromSales(salesArr, kindOverride) {
     client: cl, clientId: s0.clientId || null,
     currency: s0.currency || "EUR",
     vatRate: (s0.vatRate != null && s0.vatRate !== "") ? Number(s0.vatRate) : (isExport ? 0 : 20),
-    vatBasis: (isExport && typeof INV_VAT_EXEMPT_EU !== "undefined") ? INV_VAT_EXEMPT_EU : "",
+    vatBasis: (isExport && typeof invVatBasisFor === "function") ? invVatBasisFor({ client: cl }) : "",
     paymentMethod: isExport ? "Bank transfer" : "по банка", termDays: 0, dueDate: "", note: "",
     refInvoice: null, refReason: "", lines, status: "чернова", posted: false,
     compiledBy: "",
@@ -651,6 +658,10 @@ async function erpInvForm(o) {
   const locked = !!o.posted && !o.__editUnlocked;
   const k = INV_KINDS[o.kind] || {};
   const isNote = o.kind === "credit" || o.kind === "debit";
+  // Износна серия (EN): транспортът е В САМАТА ФАКТУРА, над Купувач
+  // (Данко, 23.10.2026) — отделният диалог „✎ Транспорт" отпада за нея.
+  const enForm = (((erpInvSeries || {})[o.seriesKey]) || {}).lang === "en";
+  const tr0 = o.transport || {};
   const cur = erpInvCur(o);
   v.innerHTML = `
     <div class="erp-toolbar">
@@ -722,6 +733,25 @@ async function erpInvForm(o) {
       </div>` : ""}
       ${o.vatRate == 0 ? `<label class="erp-co-note">Основание за 0% ДДС <input type="text" id="inv-vatbasis" value="${escapeAttr(o.vatBasis || "")}" ${locked ? "disabled" : ""} placeholder="напр. чл. 28 ЗДДС (износ) / чл. 53 (ВОД)" /></label>` : ""}
 
+      ${enForm ? `
+      <h4 class="erp-group-head">🚚 Транспорт (влиза във фактурата, ЧМР и Packing List)</h4>
+      <div class="erp-co-grid">
+        <label>Условия на доставка (Incoterms) <select id="itr-incoterms">${["", ...(typeof INV_INCOTERMS !== "undefined" ? INV_INCOTERMS : [])].map(x => `<option value="${escapeAttr(x)}" ${String(tr0.incoterms || "") === x ? "selected" : ""}>${x || "—"}</option>`).join("")}</select></label>
+        <label>Превоз (Means of transport) <input type="text" id="itr-means" value="${escapeAttr(tr0.means || "")}" placeholder="by truck" /></label>
+        <label>Място на товарене <input type="text" id="itr-loadplace" value="${escapeAttr(tr0.loadPlace || "")}" placeholder="Plovdiv" /></label>
+        <label>Дата на експедиция <input type="date" id="itr-shipdate" value="${escapeAttr(tr0.shipDate || "")}" /></label>
+        <label>Дестинация (Destination) <input type="text" id="itr-dest" value="${escapeAttr(tr0.destination || "")}" placeholder="напр. Italy" /></label>
+        <label>Превозвач (Carrier) <input type="text" id="itr-carrier" value="${escapeAttr(tr0.carrier || "")}" placeholder="фирма превозвач" /></label>
+        <label>Камион № <input type="text" id="itr-vehicle" value="${escapeAttr(tr0.vehicleReg || "")}" placeholder="рег. номер + ремарке" /></label>
+        <label>Шофьор <input type="text" id="itr-driver" value="${escapeAttr(tr0.driver || "")}" /></label>
+        <label>Маршрут (Route) <input type="text" id="itr-route" value="${escapeAttr(tr0.route || "")}" placeholder="напр. BG-RO-HU-AT-IT" /></label>
+        <label>Митница (Customs) <input type="text" id="itr-customs" value="${escapeAttr(tr0.customs || "")}" placeholder="напр. DE004101" /></label>
+        <label>Бруто тегло, кг — РЪЧНО <input type="text" id="itr-kg" value="${escapeAttr(tr0.totalWeightKg || "")}" placeholder="празно = смята се" /></label>
+        <label>Палети/пакети (бр.) <input type="text" id="itr-packages" value="${escapeAttr(tr0.totalPackages || "")}" /></label>
+        <label>Тегло на 1 палет, кг <input type="text" id="itr-palletkg" value="${escapeAttr(tr0.palletKg != null ? tr0.palletKg : 20)}" /></label>
+        <label>Стока в ЧМР (Nature of goods) <input type="text" id="itr-goods" value="${escapeAttr(tr0.goodsNature || "")}" placeholder="SOFA BED MECHANISMS" /></label>
+      </div>
+      <p class="hint" style="margin:4px 0 10px">Транспортните полета се записват и СЛЕД издаване (попълни ги, щом уредиш камиона) — не пипат суми и номер. Мястото на разтоварване за ЧМР се взема САМО от „Получател на стоката (CONSIGNEE)" по-долу.</p>` : ""}
       <h4 class="erp-group-head">Купувач</h4>
       <div class="erp-co-grid">
         <label>Клиент <input type="text" id="inv-cname" list="inv-clients" value="${escapeAttr(o.client.name || "")}" ${locked ? "disabled" : ""} />
@@ -785,7 +815,7 @@ async function erpInvForm(o) {
       </div>
       <div class="erp-co-actions">
         ${typeof erpMailTransportInquiry === "function" ? '<button class="btn btn-small" id="inv-mail-transport" title="Запитване за транспорт до превозвач (маршрут/палети/тегло се попълват сами)">🚚 Запитване за транспорт</button>' : ""}
-        <button class="btn btn-small" id="inv-edit-transport" title="Транспортните данни (за ЧМР/Packing List) се попълват и СЛЕД издаване — не пипат суми и номер">✎ Транспорт</button>
+        ${enForm ? "" : '<button class="btn btn-small" id="inv-edit-transport" title="Транспортните данни (за ЧМР/Packing List) се попълват и СЛЕД издаване — не пипат суми и номер">✎ Транспорт</button>'}
         <button class="btn btn-small" id="inv-edit-pallets" title="Палетите (за Packing List/ЧМР) се попълват и СЛЕД издаване — не пипат суми и номер">✎ Палети (${(o.pallets || []).length})</button>
       </div>
       <p class="hint">Зелените се пълнят от <b>Опаковки</b> — Системата намира заявката по „Поръчка на клиента (Order No)" и взема кашоните, теглата и палетния план оттам. Сините се пълнят от <b>тази фактура</b> (+ „✎ Транспорт" за камиона и маршрута).</p>
@@ -954,6 +984,20 @@ async function erpInvForm(o) {
   // List — не пипат суми и номер. При заключена форма записват веднага.
   const lockedSave = async what => { try { await erpSaveInvoice(o); alert(what + " са записани по издадената фактура — документите (ЧМР, Packing List) ще ги ползват."); } catch (e2) { alert("Грешка при запис: " + (e2.message || e2)); } };
   const et = document.getElementById("inv-edit-transport"); if (et) et.addEventListener("click", () => erpInvTransportDialog(o, locked ? (() => lockedSave("🚚 Транспортните данни")) : undefined));
+  // 🚚 Транспортът в самата износна фактура: полетата пишат в o.transport;
+  // при ИЗДАДЕН документ промяната се записва веднага (тихо, без диалози).
+  const trSet = async (f, val) => {
+    o.transport = o.transport || {};
+    o.transport[f] = val;
+    if (locked || o.posted) { try { await erpSaveInvoice(o); } catch (e2) { alert("Транспортът не се записа: " + (e2.message || e2)); } }
+  };
+  [["itr-incoterms", "incoterms"], ["itr-means", "means"], ["itr-loadplace", "loadPlace"], ["itr-shipdate", "shipDate"],
+   ["itr-dest", "destination"], ["itr-carrier", "carrier"], ["itr-vehicle", "vehicleReg"], ["itr-driver", "driver"],
+   ["itr-route", "route"], ["itr-customs", "customs"], ["itr-kg", "totalWeightKg"], ["itr-packages", "totalPackages"],
+   ["itr-palletkg", "palletKg"], ["itr-goods", "goodsNature"]].forEach(([id, f]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("change", () => trSet(f, el.value.trim()));
+  });
   // Запитването минава през Логистиката: влиза в регистъра „Запитвания",
   // вързано към фактурата (или поръчката ѝ), с избор на превозвачи.
   const mt = document.getElementById("inv-mail-transport"); if (mt) mt.addEventListener("click", async () => {
@@ -1083,6 +1127,13 @@ async function erpInvIssue(o) {
     }
   }
   if (!confirm("Да издам ли документа и да взема номер от серията? След това не може да се редактира.")) return;
+  // Основание за 0% ДДС по държавата: ЕС (ВОД) → чл. 53, ал. 1; трета страна →
+  // чл. 28. Попълва се само ако полето е празно или е стандартният текст —
+  // ръчно написано основание НЕ се пипа.
+  if (Number(o.vatRate) === 0 && typeof invVatBasisFor === "function") {
+    const std = [INV_VAT_EXEMPT_EU, INV_VAT_EXEMPT_3RD, typeof INV_VAT_EXEMPT_OLD !== "undefined" ? INV_VAT_EXEMPT_OLD : ""].map(s => String(s).trim());
+    if (!o.vatBasis || std.includes(String(o.vatBasis).trim())) o.vatBasis = invVatBasisFor(o);
+  }
   const btn = document.getElementById("inv-issue");
   if (btn) { btn.disabled = true; btn.textContent = "Издавам…"; }
   try {
@@ -1960,7 +2011,7 @@ async function erpInvProformaFromOrder(orderId) {
     client: cl, clientId: o.clientId || null,
     currency: o.currency || "EUR",
     vatRate: isExport ? 0 : 20,
-    vatBasis: (isExport && typeof INV_VAT_EXEMPT_EU !== "undefined") ? INV_VAT_EXEMPT_EU : "",
+    vatBasis: (isExport && typeof invVatBasisFor === "function") ? invVatBasisFor({ client: cl }) : "",
     paymentMethod: isExport ? "Bank transfer" : "по банка", termDays: 0, dueDate: "",
     note: `Авансова проформа по заявка № ${o.ourNo || "—"}${o.clientNo ? " / " + o.clientNo : ""} — плащане ПРЕДИ производство.`,
     refInvoice: null, refReason: "", status: "чернова", posted: false, compiledBy: "",

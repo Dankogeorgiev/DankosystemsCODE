@@ -37,7 +37,12 @@ const INV_PAY_CONDITIONS = [
   { key: "30 days EOM", days: 30, eom: true },
   { key: "advanced payment", days: 0 },
 ];
-const INV_VAT_EXEMPT_EU = "Intra-Community supply of goods, exempt from VAT according to Art. 138(1) Directive 2006/112/EC";
+/* Основание за 0% ДДС (Данко, 23.10.2026): по държавата на получателя —
+   ЕС (ВОД) → чл. 53, ал. 1; трета страна (Швейцария, Сърбия, Англия…) → чл. 28. */
+const INV_VAT_EXEMPT_EU = "Non VAT reason:Article 53, para.1 of the Bulgarian VAT Act.";
+const INV_VAT_EXEMPT_3RD = "Non VAT reason:Article 28 of the Bulgarian VAT Act.";
+const INV_VAT_EXEMPT_OLD = "Intra-Community supply of goods, exempt from VAT according to Art. 138(1) Directive 2006/112/EC";
+function invVatBasisFor(o) { return invIsEU(o) ? INV_VAT_EXEMPT_EU : INV_VAT_EXEMPT_3RD; }
 // Държави, за които декларацията за произход носи маршрут + митница.
 const INV_DECL_ROUTE_COUNTRIES = ["сърбия", "serbia", "англия", "великобритания", "uk", "united kingdom", "england", "албания", "albania", "швейцария", "switzerland"];
 
@@ -56,6 +61,15 @@ function invSellerBlock(en) {
   const s = (typeof ERP_SELLER !== "undefined" && ERP_SELLER) || {};
   return `<b>${escapeHtml(s.name || "")}</b><br>ЕИК ${escapeHtml(s.eik || "")} · ${escapeHtml(s.vat || "")}<br>${escapeHtml(s.address || "")}<br>${escapeHtml(s.city || "")}<br>${escapeHtml(s.phone || "")}`;
 }
+/* Изпращачът (Данко Системс, EN) — за Packing List и износните документи. */
+function invSellerBlockEn() {
+  const s = (typeof ERP_SELLER_EN !== "undefined" && ERP_SELLER_EN) || {};
+  return `<b>${escapeHtml(s.name || "DANKO SYSTEMS Ltd")}</b><br>
+    ${escapeHtml([s.address, s.city, s.country].filter(Boolean).join(", "))}<br>
+    <b>VAT Number:</b> ${escapeHtml(s.vat || "")}
+    ${s.phone ? `<br>${escapeHtml(s.phone)}` : ""}${s.email ? `<br>${escapeHtml(s.email)}` : ""}`;
+}
+
 function invClientBlock(o, which) {
   // which: "buyer" (по подразбиране) или "consignee" (за износ адресите се различават)
   const c = (which === "consignee" && o.consignee && (o.consignee.name || o.consignee.street || o.consignee.city))
@@ -234,6 +248,19 @@ function erpInvPalletsDialog(o, onSave) {
   wrap.querySelector("#pl-save").addEventListener("click", () => { o.pallets = collect(); close(); if (typeof onSave === "function") onSave(); });
 }
 
+/* Стандартните български бележки → английски за износния печат (Данко,
+   23.10.2026: „всичко на английски"). Непознат текст минава както е написан. */
+function invNoteEn(note) {
+  return String(note || "")
+    .replace(/Авансова проформа по заявка №\s*/gi, "Advance proforma for order No ")
+    .replace(/По заявка №\s*/gi, "Order No ")
+    .replace(/\s*\/\s*клиентски №\s*/gi, " / customer ref ")
+    .replace(/—\s*плащане ПРЕДИ производство\.?/gi, "— advance payment before production.")
+    .replace(/Към проформа\s*/gi, "Based on proforma ")
+    .replace(/—\s*платено авансово\.?/gi, "— paid in advance.")
+    .replace(/Продажба №\s*/gi, "Sale No ");
+}
+
 /* ---------- ИЗНОСНА ФАКТУРА (EN, само ORIGINAL — по образеца от GenCloud) ---------- */
 function erpInvPrintExport(o, opts) {
   const s = ERP_SELLER_EN;
@@ -267,7 +294,7 @@ function erpInvPrintExport(o, opts) {
   const noteRef = (o.kind === "credit" || o.kind === "debit") && o.refInvoice
     ? `<div class="kv"><b>Based on Invoice:</b> ${escapeHtml(o.refInvoice.docNo || "")} / ${invFmtD(o.refInvoice.date)}${o.refReason ? ` · ${escapeHtml(o.refReason)}` : ""}</div>` : "";
   const vatLine = Number(o.vatRate) === 0
-    ? `<div class="vatline">${escapeHtml(o.vatBasis || INV_VAT_EXEMPT_EU)}</div>`
+    ? `<div class="vatline">${escapeHtml(o.vatBasis || invVatBasisFor(o))}</div>`
     : "";
   const body = `
     <div class="head">
@@ -287,7 +314,7 @@ function erpInvPrintExport(o, opts) {
       ${party("BUYER/IMPORTER", c)}
     </div>
     <div class="grid2">
-      <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tr.means || "by truck")}</b><br>Destination: <b>${escapeHtml(tr.destination || c.country || "")}</b></div>
+      <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tr.means || "by truck")}</b>${tr.vehicleReg ? `<br>Vehicle No: <b>${escapeHtml(tr.vehicleReg)}</b>` : ""}<br>Destination: <b>${escapeHtml(tr.destination || c.country || "")}</b></div>
       <div>Date of shipment:<br><b>${invFmtD(tr.shipDate || o.issueDate)}</b><br>Place of shipment:<br><b>${escapeHtml(tr.loadPlace || s.place)}</b><br>Date of tax event:<br><b>${invFmtD(o.taxDate || o.issueDate)}</b></div>
       <div>Conditions of delivery:<br><b>${escapeHtml(tr.incoterms || "")}</b><br>Payment condition:<br><b>${escapeHtml(o.payCond || (Number(o.termDays) > 0 ? o.termDays + " days from invoice" : ""))}</b><br>MATURITY DATE: <b>${invFmtD(o.dueDate)}</b><br>Currency: <b>${escapeHtml(cur)}</b></div>
     </div>
@@ -312,7 +339,7 @@ function erpInvPrintExport(o, opts) {
       </div>
     </div>
     ${vatLine}
-    ${o.note ? `<div class="kv">${escapeHtml(o.note)}</div>` : ""}
+    ${o.note ? `<div class="kv">${escapeHtml(invNoteEn(o.note))}</div>` : ""}
     <div class="bankbox">
       <div><b>Date of issue:</b> ${invFmtD(o.issueDate)}<br><b>Place of transaction:</b> ${escapeHtml(s.place)}</div>
       <div><b>IBAN:</b> ${escapeHtml(s.iban)}<br><b>BIC/SWIFT:</b> ${escapeHtml(s.bic)}<br><b>Bank:</b> ${escapeHtml(s.bank)}<br><br>
@@ -357,10 +384,13 @@ function erpInvPrintPackingEx(o) {
   const body = `
     <div class="head"><div><h1>PACKING LIST</h1></div>
       <div style="text-align:right">INVOICE № and date: <b>${escapeHtml(invDocRef(o))}</b>${o.orderRef ? `<br>Order No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}</div></div>
-    <div class="parties"><div class="party"><h3>Consignee:</h3>${invClientBlock(o, "consignee")}</div></div>
+    <div class="parties">
+      <div class="party"><h3>Shipper / Exporter:</h3>${invSellerBlockEn()}</div>
+      <div class="party"><h3>Consignee:</h3>${invClientBlock(o, "consignee")}</div>
+    </div>
     <div class="grid2">
-      <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tr.means || "by truck")}</b><br>Destination: <b>${escapeHtml(tr.destination || cons.country || "")}</b></div>
-      <div>Conditions of delivery:<br><b>${escapeHtml(tr.incoterms || "")}</b></div>
+      <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tr.means || "by truck")}</b>${tr.vehicleReg ? `<br>Vehicle No: <b>${escapeHtml(tr.vehicleReg)}</b>` : ""}<br>Destination: <b>${escapeHtml(tr.destination || cons.country || "")}</b></div>
+      <div>Conditions of delivery:<br><b>${escapeHtml(tr.incoterms || "")}</b>${tr.carrier ? `<br>Carrier:<br><b>${escapeHtml(tr.carrier)}</b>` : ""}</div>
       <div>Place of shipment:<br><b>${escapeHtml(tr.loadPlace || "Plovdiv")}</b><br>Date of shipment:<br><b>${invFmtD(tr.shipDate || o.issueDate || o.date)}</b></div>
     </div>
     <table>
