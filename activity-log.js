@@ -87,7 +87,7 @@ function actLabel(e) {
 }
 const ACT_NAMES = {
   "dankog@gmail.com": "Данко", "grigor.baykov@dankosystems.com": "Григор",
-  "office@dankosystems.com": "Кристина", "danko.orders@gmail.com": "Юлия",
+  "office@dankosystems.com": "Таня", "danko.orders@gmail.com": "Юлия",
 };
 function actName(email) {
   if (ACT_NAMES[email]) return ACT_NAMES[email];

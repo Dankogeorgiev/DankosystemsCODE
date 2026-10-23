@@ -730,7 +730,7 @@ async function erpInvForm(o) {
         <label>Валута <select id="inv-cur" ${locked ? "disabled" : ""}>${["EUR", "BGN"].map(c => `<option ${c === cur ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         <label>ДДС ставка % <select id="inv-vat" ${locked ? "disabled" : ""}>${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
         <label>Изготвил фактурата <input type="text" id="inv-compiled" list="inv-compiled-list" value="${escapeAttr(o.compiledBy || "")}" ${locked ? "disabled" : ""} placeholder="име на изготвилия" />
-          <datalist id="inv-compiled-list"><option value="Кристина Дончева"></option><option value="Данко Георгиев"></option><option value="Евгени Георгиев"></option><option value="Таня Илиева"></option></datalist></label>
+          <datalist id="inv-compiled-list"><option value="Таня Илиева"></option><option value="Данко Георгиев"></option><option value="Евгени Георгиев"></option><option value="Григор Байков"></option></datalist></label>
       </div>
       ${isNote ? `<div class="inv-note-ref">
         <b>Връзка към фактура (чл. 115 — задължително):</b>

@@ -15,7 +15,7 @@ const TODO_PEOPLE = {
   "grigor.baykov@dankosystems.com":  { cfg: "todo_grigor", name: "Григор",   boss: true },
   "miroslav.pilev@dankosystems.com": { cfg: "todo_miro",   name: "Миро",     boss: true },
   "danko.orders@gmail.com":          { cfg: "todo_julia",  name: "Юлия" },
-  "office@dankosystems.com":         { cfg: "todo_krisi",  name: "Кристина" },
+  "office@dankosystems.com":         { cfg: "todo_krisi",  name: "Таня" },   // Таня пое офиса (списъкът е същият конфиг)
 };
 function todoMe() {
   if (typeof MY_ACCESS === "undefined" || !MY_ACCESS || !MY_ACCESS.isAdmin) return null;

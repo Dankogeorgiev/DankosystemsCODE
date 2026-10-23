@@ -260,8 +260,8 @@ const AUTHOR_BY_EMAIL = {
   "miroslav.pilev@dankosystems.com": "Мирослав Пилев",
   "grigor.baykov@dankosystems.com": "Григор Байков",
   "angelov@dankosystems.com": "Веселин Ангелов",
-  "danko.orders@gmail.com": "Таня Илиева",
-  "office@dankosystems.com": "Кристина Дончева",
+  "danko.orders@gmail.com": "Юлия",
+  "office@dankosystems.com": "Таня Илиева",   // Таня пое офиса от Кристина (23.10.2026)
   "dankog@gmail.com": "Данко Георгиев",
 };
 function authorName() {
