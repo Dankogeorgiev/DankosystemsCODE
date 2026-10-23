@@ -662,6 +662,13 @@ async function erpInvForm(o) {
   // (Данко, 23.10.2026) — отделният диалог „✎ Транспорт" отпада за нея.
   const enForm = (((erpInvSeries || {})[o.seriesKey]) || {}).lang === "en";
   const tr0 = o.transport || {};
+  // Основание за 0% ДДС: празно, старото (Art. 138) или стандартно → смени се
+  // с актуалното по държавата (ЕС → чл. 53, трета страна → чл. 28). Ръчно
+  // написан различен текст НЕ се пипа. Старите чернови се оправят с отварянето.
+  if (!locked && Number(o.vatRate) === 0 && typeof invVatBasisFor === "function") {
+    const std = ["", INV_VAT_EXEMPT_EU, INV_VAT_EXEMPT_3RD, INV_VAT_EXEMPT_OLD].map(s => String(s).trim());
+    if (std.includes(String(o.vatBasis || "").trim())) o.vatBasis = invVatBasisFor(o);
+  }
   const cur = erpInvCur(o);
   v.innerHTML = `
     <div class="erp-toolbar">

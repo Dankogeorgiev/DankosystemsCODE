@@ -294,7 +294,7 @@ function erpInvPrintExport(o, opts) {
   const noteRef = (o.kind === "credit" || o.kind === "debit") && o.refInvoice
     ? `<div class="kv"><b>Based on Invoice:</b> ${escapeHtml(o.refInvoice.docNo || "")} / ${invFmtD(o.refInvoice.date)}${o.refReason ? ` · ${escapeHtml(o.refReason)}` : ""}</div>` : "";
   const vatLine = Number(o.vatRate) === 0
-    ? `<div class="vatline">${escapeHtml(o.vatBasis || invVatBasisFor(o))}</div>`
+    ? `<div class="vatline">${escapeHtml((o.vatBasis && String(o.vatBasis).trim() !== INV_VAT_EXEMPT_OLD) ? o.vatBasis : invVatBasisFor(o))}</div>`
     : "";
   const body = `
     <div class="head">

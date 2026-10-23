@@ -285,7 +285,7 @@ function erpMailInvoiceHtml(o) {
     <td style="border:1px solid #cbd5e1;padding:5px 7px;text-align:right">${erpInvMoney((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0), cur)}</td></tr>`).join("");
   const k = INV_KINDS[o.kind] || {};
   const vatLine = en && !t.vat
-    ? `<p style="margin:2px 0">${L.base}: <b>${erpInvMoney(t.base, cur)}</b> · ${L.vat} 0% — ${escapeHtml((typeof INV_VAT_EXEMPT_EU !== "undefined" && o.vatBasis) ? o.vatBasis : "Art. 138 (1) of VAT Act — Intra-Community supply")}</p>`
+    ? `<p style="margin:2px 0">${L.base}: <b>${erpInvMoney(t.base, cur)}</b> · ${L.vat} 0% — ${escapeHtml((o.vatBasis && (typeof INV_VAT_EXEMPT_OLD === "undefined" || String(o.vatBasis).trim() !== INV_VAT_EXEMPT_OLD)) ? o.vatBasis : (typeof invVatBasisFor === "function" ? invVatBasisFor(o) : o.vatBasis || ""))}</p>`
     : `<p style="margin:2px 0">${L.base}: <b>${erpInvMoney(t.base, cur)}</b> · ${L.vat} ${t.rate}%: <b>${erpInvMoney(t.vat, cur)}</b></p>`;
   return `
   <h2 style="color:#0f766e;margin:14px 0 4px">${escapeHtml(en ? (k.en || "INVOICE") : (k.bg || "ФАКТУРА"))} № ${escapeHtml(o.docNo || "")}</h2>
