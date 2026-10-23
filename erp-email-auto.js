@@ -91,9 +91,33 @@ async function erpMailExtraSave(clientKey, emails) {
   if (!k) return;
   try {
     const { data } = await sb.from("app_config").select("data").eq("id", "extra_mails").maybeSingle();
-    const by = (data && data.data && data.data.byClient) || {};
-    by[k] = emails;
-    await sb.from("app_config").upsert({ id: "extra_mails", data: { byClient: by }, updated_at: new Date().toISOString() });
+    const d = (data && data.data) || {};
+    d.byClient = d.byClient || {};
+    d.byClient[k] = emails;
+    await sb.from("app_config").upsert({ id: "extra_mails", data: d, updated_at: new Date().toISOString() });
+  } catch (e) {}
+}
+
+/* Последният имейл, на който е ПРАТЕНА фактура на този клиент (Данко,
+   23.10.2026): помни се и излиза сам в „До" при следващата фактура. */
+async function erpMailLastToGet(clientKey) {
+  const k = String(clientKey || "").trim().toLowerCase();
+  if (!k) return "";
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "extra_mails").maybeSingle();
+    return ((data && data.data && data.data.lastTo) || {})[k] || "";
+  } catch (e) { return ""; }
+}
+async function erpMailLastToSave(clientKey, toV) {
+  const k = String(clientKey || "").trim().toLowerCase();
+  const v = String(toV || "").trim();
+  if (!k || !v || !v.includes("@")) return;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "extra_mails").maybeSingle();
+    const d = (data && data.data) || {};
+    d.lastTo = d.lastTo || {};
+    d.lastTo[k] = v;
+    await sb.from("app_config").upsert({ id: "extra_mails", data: d, updated_at: new Date().toISOString() });
   } catch (e) {}
 }
 
@@ -289,6 +313,9 @@ async function erpMailInvoice(o) {
   // Запомнените допълнителни имейли на клиента + PDF на фактурата за прикачане.
   const clientKey = (o.client && o.client.name) || "";
   const extra = await erpMailExtraGet(clientKey);
+  // Последният ползван фактурен имейл на клиента е С ПРЕДИМСТВО — той е
+  // реалната практика (Данко, 23.10.2026); ролята/контактът са резерва.
+  const lastTo = await erpMailLastToGet(clientKey);
   let attachments = [];
   try {
     const b64 = await erpInvPdfBase64(o);
@@ -300,6 +327,8 @@ async function erpMailInvoice(o) {
     // и на кого. Списъкът във Фактуриране показва „✉ да" до Статус.
     onSent: async toV => {
       try {
+        // Имейлът се помни за клиента → излиза сам при следващата фактура.
+        try { await erpMailLastToSave(clientKey, toV); } catch (e2) {}
         o.emailedAt = new Date().toISOString(); o.emailedTo = toV || "";
         if (o.id) await erpSaveInvoice(o);
         const local = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).find(x => x.id === o.id);
@@ -309,7 +338,7 @@ async function erpMailInvoice(o) {
       } catch (e) { console.warn("бележка за изпратена фактура:", e); }
     },
     title: "✉ " + (k.label || "Фактура") + (o.docNo ? " № " + o.docNo : "") + " → клиента" + (en ? " (EN)" : ""),
-    to: (invc && invc.email) || (rec && rec.email) || "",
+    to: lastTo || (invc && invc.email) || (rec && rec.email) || "",
     subject: en
       ? `${(k.en || "Invoice").charAt(0) + (k.en || "Invoice").slice(1).toLowerCase()} No ${o.docNo || ""} — DANKO SYSTEMS Ltd.`
       : `${k.bg || "Фактура"} № ${o.docNo || ""} — ${(ERP_SELLER && ERP_SELLER.name) || "Данко Системс"}`,

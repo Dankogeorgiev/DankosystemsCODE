@@ -155,6 +155,15 @@ function applyAccess() {
   // 💼 Офис на началния екран — пълните админи (производството не го вижда).
   const offBtn = document.getElementById("btn-office");
   if (offBtn) offBtn.style.display = (MY_ACCESS.isAdmin && !MY_ACCESS.production) ? "" : "none";
+  // 🌸 Поздравът за Таня (office@) — вижда се до ✕, после се помни в браузъра.
+  const th = document.getElementById("tanya-hello");
+  if (th) {
+    const isTanya = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "office@dankosystems.com";
+    let seen = false; try { seen = localStorage.getItem("tanyaHelloClosed") === "1"; } catch (e) {}
+    th.hidden = !(isTanya && !seen);
+    const tx = document.getElementById("tanya-hello-x");
+    if (tx && !tx._wired) { tx._wired = true; tx.addEventListener("click", () => { th.hidden = true; try { localStorage.setItem("tanyaHelloClosed", "1"); } catch (e) {} }); }
+  }
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js),
   // БЕЗ тези с пълен офисен достъп: те ги имат в 💼 Офис (по Данко, 09.10.2026).
   const lvBtn = document.getElementById("btn-leaves-main");
