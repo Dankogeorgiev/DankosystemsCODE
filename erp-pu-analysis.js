@@ -133,9 +133,11 @@ async function puaClaudeCall(system, messages) {
    игнорира и Claude преработва. Данните стоят в първото (скрито) съобщение. */
 function puaChatMount(box, system, dataText) {
   const msgs = [];
+  // Логът скролва САМ (max-height), а полето за писане стои ВИНАГИ видимо
+  // под него — иначе дългият анализ го избутваше извън екрана (Пулс).
   box.innerHTML = `
-    <div id="pua-chat-log"></div>
-    <div class="erp-toolbar" style="margin:6px 0 0">
+    <div id="pua-chat-log" style="max-height:45vh;overflow:auto"></div>
+    <div class="erp-toolbar" style="margin:6px 0 10px">
       <input type="text" id="pua-chat-in" placeholder="💬 Кажи на Claude какво да има предвид / задай въпрос… (Enter)" style="flex:1;min-width:220px" />
       <button class="btn btn-small btn-primary" id="pua-chat-send" title="Изпраща уточнението — Claude отговаря, помнейки данните и разговора">↩ Изпрати</button>
     </div>`;
@@ -145,6 +147,7 @@ function puaChatMount(box, system, dataText) {
       ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 12px;margin:6px 0;font-size:13px">🙋 ${escapeHtml(m.content)}</div>`
       : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;margin:6px 0;white-space:pre-wrap;font-size:13.5px;line-height:1.55">🤖 ${escapeHtml(m.content)}</div>`).join("")
       + (busy ? `<div class="erp-loading">🤖 Claude пише…</div>` : "");
+    log.scrollTop = log.scrollHeight;   // най-новото винаги в полезрение
   };
   let busy = false;
   const send = async userText => {
