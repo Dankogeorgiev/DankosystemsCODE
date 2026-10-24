@@ -276,6 +276,7 @@ async function erpRenderPurchases() {
       <input type="search" id="pu-q" placeholder="🔎 № / доставчик / артикул / код… (Enter)" value="${escapeAttr(erpPuQuery)}" style="min-width:210px" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="pu-types" title="Разходите за месеца по вид (Метали, Ток, Транспорт…) + експорт за счетоводството">📊 Разходи по вид</button>
+      ${typeof erpPuAnalysisDialog === "function" ? '<button class="btn btn-small" id="pu-ai-analysis" title="Пълен анализ на разходите за период: по вид, металите в килограми с Ø €/кг, топ доставчици, по месеци — и коментар от Claude">🤖 Анализ (AI)</button>' : ""}
       <button class="btn btn-small" id="pu-code-hist" title="История на цените по код на артикул">💹 Цени по код</button>
       <button class="btn btn-small" id="pu-xls-all" title="Сваля ВСИЧКИ въведени покупни документи (фактури, стокови, кредитни) в Excel — платени и неплатени, от началото до днес">⤓ Excel (всички)</button>
       <button class="btn btn-small" id="pu-check" title="Всички фактури, въведени ДНЕС, със статус на плащането — и проверка дали отложените реално са в Задължения">🔎 Проверка</button>
@@ -302,6 +303,7 @@ async function erpRenderPurchases() {
   document.getElementById("pu-xls-acc").addEventListener("click", erpPuAccountingXls);
   document.getElementById("pu-check").addEventListener("click", erpPuCheckToday);
   document.getElementById("pu-types").addEventListener("click", erpPuTypesReport);
+  const puAn = document.getElementById("pu-ai-analysis"); if (puAn) puAn.addEventListener("click", erpPuAnalysisDialog);
   const aiBtn = document.getElementById("pu-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpPuAIStart);
   const impEl = document.getElementById("pu-import");
