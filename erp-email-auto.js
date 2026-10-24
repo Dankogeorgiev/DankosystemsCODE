@@ -131,6 +131,10 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent, clientKe
     <label>Тема <input type="text" id="mc-subject" value="${escapeAttr(subject || "")}" /></label>
     <label>Съобщение <textarea id="mc-text" rows="7">${escapeHtml(text || "")}</textarea></label>
     ${(attachments || []).length ? `<p class="hint" style="margin:6px 0 0">📎 Прикачен файл: <b>${(attachments || []).map(a => escapeHtml(a.name)).join(", ")}</b></p>` : ""}
+    <div style="margin:6px 0 0">
+      <label class="btn btn-small" style="cursor:pointer" title="Прикачи файлове от компютъра — подпечатано ЧМР, Packing List, снимки…">📎 Добави файл (ЧМР, Packing List…)<input type="file" id="mc-files" multiple hidden /></label>
+      <span id="mc-files-list" class="erp-muted" style="font-size:12px;margin-left:8px"></span>
+    </div>
     ${erpMailMyCc() ? `<p class="hint" style="margin:6px 0 0">📩 Копие ще получиш и ти: <b>${escapeHtml(erpMailMyCc())}</b></p>` : ""}
     ${html ? '<p class="hint" style="margin:6px 0 0">Писмото ще включи и оформена таблица с данните (HTML).</p>' : ""}
     <div id="mc-result" style="margin-top:8px"></div>
@@ -140,6 +144,30 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent, clientKe
   const mcTxt = wrap.querySelector("#mc-text");
   if (mcTxt) { mcTxt.rows = 14; mcTxt.style.minHeight = "260px"; }
   wrap.querySelector("#mc-cancel").addEventListener("click", close);
+  // 📎 Файлове от компютъра (Данко, 24.10.2026): ЧМР, Packing List и др. —
+  // четат се като base64 и заминават с писмото при „Изпрати".
+  const userFiles = [];
+  const filesInp = wrap.querySelector("#mc-files");
+  const filesList = wrap.querySelector("#mc-files-list");
+  const paintFiles = () => {
+    if (!filesList) return;
+    filesList.innerHTML = userFiles.map((f, i) =>
+      `<span style="white-space:nowrap">📄 ${escapeHtml(f.name)} <a data-frm="${i}" style="cursor:pointer;color:#dc2626" title="Махни файла">✕</a></span>`).join(" · ");
+    filesList.querySelectorAll("[data-frm]").forEach(a => a.addEventListener("click", () => { userFiles.splice(Number(a.dataset.frm), 1); paintFiles(); }));
+    const totalMb = userFiles.reduce((s, f) => s + (f.size || 0), 0) / 1048576;
+    if (totalMb > 8) filesList.innerHTML += ` <b style="color:#dc2626">⚠ ${totalMb.toFixed(1)} MB — писмото може да е твърде тежко (лимит ~10 MB)</b>`;
+  };
+  if (filesInp) filesInp.addEventListener("change", () => {
+    [...(filesInp.files || [])].forEach(f => {
+      const rd = new FileReader();
+      rd.onload = () => {
+        userFiles.push({ name: f.name, size: f.size, content: String(rd.result).split(",")[1] || "" });
+        paintFiles();
+      };
+      rd.readAsDataURL(f);
+    });
+    filesInp.value = "";
+  });
   wrap.querySelector("#mc-send").addEventListener("click", async () => {
     const btn = wrap.querySelector("#mc-send"); const res = wrap.querySelector("#mc-result");
     const toV = wrap.querySelector("#mc-to").value.trim();
@@ -149,7 +177,8 @@ function erpMailComposeDialog({ title, to, subject, html, text, onSent, clientKe
     if (!toV) { alert("Въведи имейл на получателя."); return; }
     btn.disabled = true; btn.textContent = "Изпращам…";
     const bodyHtml = html ? `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111"><p>${escapeHtml(textV).replace(/\n/g, "<br>")}</p>${html}</div>` : "";
-    const r = await erpMailSend({ to: [toV, ...extras], subject: subjV, text: textV, html: bodyHtml, direct: true, attachments });
+    const allAtt = [...(attachments || []), ...userFiles.map(f => ({ name: f.name, content: f.content }))];
+    const r = await erpMailSend({ to: [toV, ...extras], subject: subjV, text: textV, html: bodyHtml, direct: true, attachments: allAtt });
     btn.disabled = false; btn.textContent = "📤 Изпрати";
     if (r.ok) {
       if (clientKey) erpMailExtraSave(clientKey, extras);   // запомни доп. имейлите за клиента
