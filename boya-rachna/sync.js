@@ -97,6 +97,24 @@
   }
   window.paintSaveReport = saveReport;
 
+  // „Временен склад Боя" — отчитане по снимка (Версия 2). Всяко „БОЯДИСАНИ"
+  // добавя ред в общ списък 'paint_journal', независимо дали предходните
+  // операции (лазер/преси/абкант/заварки) са отчетени.
+  async function journalAdd(entry) {
+    if (!sbx || !ready) return false;
+    try {
+      const jid = "pj" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      const row = Object.assign({ jid: jid, line: "ръчна", ver: 2, by: (window.PAINT_USER || ""), at: new Date().toISOString() }, entry);
+      const { data } = await sbx.from("app_config").select("*").eq("id", "paint_journal").maybeSingle();
+      const list = (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
+      list.push(row);
+      const { error } = await sbx.from("app_config").upsert({ id: "paint_journal", data: { list }, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      return true;
+    } catch (e) { console.warn("Склад Боя: запис", e); return false; }
+  }
+  window.paintJournalAdd = journalAdd;
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 })();
