@@ -229,6 +229,8 @@ function erpNewSaleFromOrder(order) {
     clientVat: "", clientCity: "", clientStreet: "", clientCountry: "BG",
     date: today, taxDate: today, paymentMethod: "По банков път", currency: "EUR", vatRate: 20,
     note: order.ourNo ? ("По заявка №" + order.ourNo + (order.clientNo ? " / клиентски № " + order.clientNo : "")) : "",
+    // 🚚 Получателят от заявката върви с продажбата → после и с фактурата.
+    consignee: (order.consignee && (order.consignee.name || order.consignee.street || order.consignee.city)) ? JSON.parse(JSON.stringify(order.consignee)) : null,
     posted: false, lines, fromOrderId: order.id,
   });
 }

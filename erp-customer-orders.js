@@ -731,6 +731,17 @@ async function erpRenderCOForm(o) {
       </div>
       <label class="erp-co-note">Забележка <textarea id="co-note" rows="3" placeholder="специфични изисквания, договорки…">${escapeHtml(o.note || "")}</textarea></label>
 
+      <h4 class="erp-group-head">🚚 Получател на стоката (CONSIGNEE)</h4>
+      <p class="hint" style="margin:0 0 6px">Къде ще се разтоварва ТАЗИ заявка — един клиент често има 2–3 разтоварни адреса. Празно = самият купувач. Получателят върви по веригата: заявка → продажба → фактура (и ЧМР-то взема адреса оттук).</p>
+      <div class="erp-co-grid">
+        <label>Име <input type="text" id="co-cs-name" value="${escapeAttr((o.consignee || {}).name || "")}" placeholder="празно = купувача" /></label>
+        <label>Адрес <input type="text" id="co-cs-street" value="${escapeAttr((o.consignee || {}).street || "")}" /></label>
+        <label>Град <input type="text" id="co-cs-city" value="${escapeAttr((o.consignee || {}).city || "")}" /></label>
+        <label>Държава <input type="text" id="co-cs-country" value="${escapeAttr((o.consignee || {}).country || "")}" /></label>
+        <label>ДДС № <input type="text" id="co-cs-vat" value="${escapeAttr((o.consignee || {}).vat || "")}" /></label>
+        <label>Лице за контакт <input type="text" id="co-cs-person" value="${escapeAttr((o.consignee || {}).person || "")}" /></label>
+      </div>
+
       <h4 class="erp-group-head">📎 Файл на заявката</h4>
       <div class="erp-co-files">
         <div id="co-files-list">${erpCOFilesHtml(o)}</div>
@@ -778,6 +789,11 @@ async function erpRenderCOForm(o) {
   const bind = (id, key) => { const el = document.getElementById(id); el.addEventListener("input", () => { o[key] = el.value; }); };
   bind("co-ourno", "ourNo"); bind("co-clientno", "clientNo"); bind("co-date", "date");
   bind("co-deadline", "deadline"); bind("co-note", "note");
+  // 🚚 Получателят (Consignee) на тази заявка — върви към продажбата и фактурата.
+  ["name", "street", "city", "country", "vat", "person"].forEach(f => {
+    const el = document.getElementById("co-cs-" + f);
+    if (el) el.addEventListener("input", () => { o.consignee = o.consignee || {}; o.consignee[f] = el.value; });
+  });
   document.getElementById("co-client").addEventListener("input", e => {
     o.clientName = e.target.value;
     const m = clients.find(c => (c.company || "") === e.target.value);

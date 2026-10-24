@@ -453,6 +453,9 @@ async function erpInvOpenFromSales(salesArr, kindOverride) {
     kind: kindOverride || "invoice", seriesKey: isExport ? "1" : "2",
     issueDate: today, taxDate: today,
     orderRef: [...new Set(orderRefs)].join(", ") || ("Продажба № " + salesArr.map(s => s.saleNo || "—").join(", ")),
+    // 🚚 Получателят идва от ПРОДАЖБАТА (тя го носи от заявката) — не от
+    // историята на клиента: един клиент има по 2–3 разтоварни адреса.
+    consignee: (s0.consignee && (s0.consignee.name || s0.consignee.street || s0.consignee.city)) ? JSON.parse(JSON.stringify(s0.consignee)) : null,
     client: cl, clientId: s0.clientId || null,
     currency: s0.currency || "EUR",
     vatRate: (s0.vatRate != null && s0.vatRate !== "") ? Number(s0.vatRate) : (isExport ? 0 : 20),
@@ -637,7 +640,6 @@ function erpInvClientProfile(name) {
   };
   const lastNonEmpty = get => { for (const x of recent) { const v = get(x); if (v != null && String(v).trim() !== "") return v; } return ""; };
   const trPick = f => lastNonEmpty(x => (x.transport || {})[f]);
-  const csDoc = recent.find(x => x.consignee && (x.consignee.name || x.consignee.street || x.consignee.city));
   const transport = {};
   // Само КОНСТАНТИТЕ на клиента — не по-курсовите неща (камион, шофьор, дати).
   ["incoterms", "means", "loadPlace", "destination", "route", "customs", "goodsNature", "palletKg"].forEach(f => { const v = trPick(f); if (v !== "") transport[f] = v; });
@@ -653,7 +655,6 @@ function erpInvClientProfile(name) {
     payCond: mode(x => x.payCond) || "",
     tariffCode: lastNonEmpty(x => x.tariffCode) || "",
     compiledBy: lastNonEmpty(x => x.compiledBy) || "",
-    consignee: csDoc ? JSON.parse(JSON.stringify(csDoc.consignee)) : null,
     transport: Object.keys(transport).length ? transport : null,
     client: mine[0].client ? JSON.parse(JSON.stringify(mine[0].client)) : null,
   };
@@ -690,9 +691,10 @@ function erpInvApplyClientProfile(o, prof) {
   if (Number(prof.vatRate) === 0 && prof.vatBasis && !o.vatBasis) o.vatBasis = prof.vatBasis;
   // „Максимално информация" от последните фактури (Данко, 24.10.2026) —
   // попълват се само ПРАЗНИТЕ полета, нищо въведено не се презаписва:
-  // получателят (Consignee), транспортните константи, тарифен код, изготвил,
-  // и липсващи реквизити на клиента (ДДС/адрес) от последната фактура.
-  if (prof.consignee && !(o.consignee && (o.consignee.name || o.consignee.street || o.consignee.city))) o.consignee = JSON.parse(JSON.stringify(prof.consignee));
+  // транспортните константи, тарифен код, изготвил, и липсващи реквизити на
+  // клиента (ДДС/адрес). ПОЛУЧАТЕЛЯТ НАРОЧНО НЕ СЕ ЗАРЕЖДА от историята —
+  // клиентът има по 2–3 разтоварни адреса; Consignee идва от ЗАЯВКАТА по
+  // веригата заявка → продажба → фактура (Данко, 24.10.2026).
   if (prof.transport) {
     o.transport = o.transport || {};
     Object.entries(prof.transport).forEach(([f, v]) => {
@@ -2083,6 +2085,8 @@ async function erpInvProformaFromOrder(orderId) {
     note: `Авансова проформа по заявка № ${o.ourNo || "—"}${o.clientNo ? " / " + o.clientNo : ""} — плащане ПРЕДИ производство.`,
     refInvoice: null, refReason: "", status: "чернова", posted: false, compiledBy: "",
     fromOrderId: o.id, fromOrderNo: o.ourNo || "",
+    // 🚚 Получателят от заявката (разтоварният адрес за ТАЗИ пратка).
+    consignee: (o.consignee && (o.consignee.name || o.consignee.street || o.consignee.city)) ? JSON.parse(JSON.stringify(o.consignee)) : null,
     __applyProfile: o.clientName || "",
     lines: (o.lines || []).map(l => ({
       code: l.code || "", clientCode: l.clientCode || "", name: l.name || l.ourName || "",

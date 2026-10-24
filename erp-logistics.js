@@ -316,6 +316,9 @@ async function logiOrderLine(orderId) {
 /* Адресът на разтоварване: транспорта на заявката или паспорта на клиента
    (последният = най-новият адрес за доставка, събран от износните фактури). */
 function logiOrderAddr(c) {
+  // Получателят (Consignee) на самата заявка е С ПРЕДИМСТВО (Данко, 24.10.2026).
+  const cs = c && c.consignee;
+  if (cs && (cs.street || cs.city)) return [cs.name, [cs.street, cs.city, cs.country].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
   const tr = (c && c.transport) || {};
   if (tr.unloadPlace || tr.destination) return tr.unloadPlace || tr.destination;
   try {
