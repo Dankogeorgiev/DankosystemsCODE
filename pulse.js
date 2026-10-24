@@ -419,6 +419,7 @@ async function pulseMonthly(v) {
   const dash = n => Number(n) ? `<b>${eur(n)}</b>` : `<span class="erp-muted">—</span>`;
   const inp = (m, k, val, title) => `<input type="number" step="any" class="pum-in" data-m="${m}" data-k="${k}" value="${val ? val : ""}" placeholder="0" title="${title || ""}" style="width:96px;text-align:right" />`;
 
+  const aiData = [];   // числата на месеците — за „🤖 AI анализ" (Данко, 24.10.2026)
   const rows = months.map(m => {
     const man = manual[m] || {};
     const inv = invByMonth[m] || 0;
@@ -433,6 +434,7 @@ async function pulseMonthly(v) {
     // ДДС резултат на месеца: >0 → за внасяне (вади се), <0 → за възстановяване (добавя се).
     const vatDue = (vatOutByMonth[m] || 0) - (vatInByMonth[m] || 0);
     const result = salesT - pur - sal - osig - credits - other - vatDue;
+    aiData.push({ m, inv, c005, salesT, pur, sal, osig, credits, other, vatDue, result });
     return `<tr>
       <td><b>${mLabel(m)}</b></td>
       <td class="num">${dash(inv)}</td>
@@ -453,9 +455,11 @@ async function pulseMonthly(v) {
     <div class="erp-toolbar">
       <span class="erp-count">📅 Месечни резултати — всичко в EUR без ДДС</span>
       <span class="spacer"></span>
+      ${typeof puaAskClaude === "function" ? '<button class="btn btn-small" id="pum-ai" title="Claude анализира приходите, разходите и резултата по месеци: тенденции, губещи месеци, съотношения, препоръки">🤖 AI анализ</button>' : ""}
       <button class="btn btn-small btn-primary" id="pum-save">💾 Запази ръчните</button>
       <span class="save-status" id="pum-status"></span>
     </div>
+    <div id="pum-ai-out"></div>
     <div style="overflow:auto"><table class="report-table erp-table">
       <thead><tr>
         <th>Месец</th><th class="num" title="Издадени фактури без ДДС (+ДИ, −КИ, без проформи)">Фактури (авто)</th>
@@ -511,6 +515,17 @@ async function pulseMonthly(v) {
       if (val) manual[m].note = val; else delete manual[m].note;
     });
   };
+  // 🤖 AI анализ на месечните резултати (Данко, 24.10.2026): числата отиват
+  // при Claude през Edge функцията „assistant" — ключът не е в браузъра.
+  const aiBtn = v.querySelector("#pum-ai");
+  if (aiBtn) aiBtn.addEventListener("click", () => {
+    const box = v.querySelector("#pum-ai-out");
+    const txt = aiData.slice().reverse().map(x =>
+      `${x.m}: продажби ${Math.round(x.salesT)} (фактури ${Math.round(x.inv)}, 005/стокови ${Math.round(x.c005)}); покупки ${Math.round(x.pur)}; заплати ${Math.round(x.sal)}; осигуровки ${Math.round(x.osig)}; кредити ${Math.round(x.credits)}; други ${Math.round(x.other)}; ДДС ${Math.round(x.vatDue)}; РЕЗУЛТАТ ${Math.round(x.result)}`).join("\n");
+    const system = `Ти си финансовият директор-анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Получаваш месечните резултати в EUR без ДДС: продажби (фактури + 005/стокови), покупки, заплати, осигуровки, кредити, други разходи, ДДС за внасяне и РЕЗУЛТАТ. Дай кратък, конкретен анализ НА БЪЛГАРСКИ (10-15 изречения, с булети):
+1) Тенденцията на резултата — расте/пада и ЗАЩО (кои пера мърдат); 2) Губещите месеци — кое ги е потопило; 3) Съотношенията: (заплати+осигуровки)/продажби и покупки/продажби — движение и норма; 4) Аномалии и скокове; 5) 2-3 практични препоръки. Пиши стегнато, с числата от данните. Последният месец може да е незавършен — отбележи го, не го тълкувай като срив.`;
+    puaAskClaude(system, txt, box);
+  });
   v.querySelector("#pum-save").addEventListener("click", async () => {
     const st = v.querySelector("#pum-status"); st.textContent = "Записва…";
     collect();

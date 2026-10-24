@@ -110,19 +110,18 @@ function puaSummaryText(d) {
 Общо по месец: ${m}.`;
 }
 
-async function puaAiComment(d, box) {
-  box.innerHTML = `<div class="erp-loading">🤖 Claude анализира разходите…</div>`;
+/* Общият канал към Claude (Edge функцията „assistant" — ключът не е тук). */
+async function puaAskClaude(system, userText, box) {
+  box.innerHTML = `<div class="erp-loading">🤖 Claude анализира…</div>`;
   try {
     const cfg = window.DANKO_CONFIG || {};
     if (!cfg.SUPABASE_URL) throw new Error("Няма връзка с облака.");
     let token = cfg.SUPABASE_ANON_KEY;
     try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
-    const system = `Ти си финансовият анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Получаваш обобщение на ПОКУПКИТЕ (разходите) за период. Дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
-1) Най-големите пера и дяловете им; 2) Движението по месеци — расте/пада и къде; 3) Металите: количества и ДВИЖЕНИЕТО НА ЦЕНАТА €/кг по месеци (поскъпване/поевтиняване, с числа); 4) Аномалии и съмнителни скокове; 5) 2-3 практични препоръки (къде да се натисне за цена, какво да се следи). Пиши стегнато, с числата от данните. Без общи приказки.`;
     const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
       method: "POST",
       headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
-      body: JSON.stringify({ system, messages: [{ role: "user", content: puaSummaryText(d) }], max_tokens: 1600 }),
+      body: JSON.stringify({ system, messages: [{ role: "user", content: userText }], max_tokens: 1600 }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || j.error) throw new Error(j.error || ("HTTP " + res.status));
@@ -130,6 +129,12 @@ async function puaAiComment(d, box) {
   } catch (e) {
     box.innerHTML = `<div style="background:#fef2f2;color:#991b1b;border-radius:10px;padding:10px 12px">⚠ Коментарът не дойде: ${escapeHtml(e.message || String(e))}<br><span style="font-size:12px">Таблиците долу са пълни и без него. Ако Edge функцията „assistant" не е качена — виж ASSISTANT-SETUP.md.</span></div>`;
   }
+}
+
+function puaAiComment(d, box) {
+  const system = `Ти си финансовият анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Получаваш обобщение на ПОКУПКИТЕ (разходите) за период. Дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
+1) Най-големите пера и дяловете им; 2) Движението по месеци — расте/пада и къде; 3) Металите: количества и ДВИЖЕНИЕТО НА ЦЕНАТА €/кг по месеци (поскъпване/поевтиняване, с числа); 4) Аномалии и съмнителни скокове; 5) 2-3 практични препоръки (къде да се натисне за цена, какво да се следи). Пиши стегнато, с числата от данните. Без общи приказки.`;
+  return puaAskClaude(system, puaSummaryText(d), box);
 }
 
 async function erpPuAnalysisDialog() {
@@ -155,5 +160,115 @@ async function erpPuAnalysisDialog() {
     const out = wrap.querySelector("#pua-out");
     out.innerHTML = d.count ? puaRender(d) : `<p class="report-empty">Няма покупки в периода ${escapeHtml(from)} – ${escapeHtml(to)}.</p>`;
     if (d.count) puaAiComment(d, out.querySelector("#pua-ai"));
+  });
+}
+
+/* ================== 🤖 Анализ на ПРОДАЖБИТЕ (фактурите) ==================
+   По Данко, 24.10.2026: огледалният анализ — по клиенти, продукти, износ/
+   вътрешен пазар, по месеци + коментар от Claude. Гледат се ИЗДАДЕНИТЕ
+   фактури и известия (кредитните с минус); проформите и анулираните НЕ. */
+
+function invaCurK(o) { return (erpInvCur(o) === "BGN") ? 1 / PUA_BGN : 1; }
+
+function invaBuild(from, to) {
+  const rows = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).filter(o => {
+    if (!o.posted || o.kind === "proforma" || o.status === "анулирана") return false;
+    const m = String(o.issueDate || "").slice(0, 7);
+    return m && m >= from && m <= to;
+  });
+  const byClient = new Map(), byProduct = new Map(), byMonth = new Map(), bySeries = new Map();
+  let total = 0, vat = 0, credits = 0;
+  rows.forEach(o => {
+    const t = erpInvTotals(o);          // кредитните са с минус
+    const k = invaCurK(o);
+    const base = t.base * k;
+    total += base; vat += t.vat * k;
+    if (o.kind === "credit") credits += base;
+    const cn = (o.client && o.client.name) || "—";
+    const bc = byClient.get(cn) || { sum: 0, n: 0 }; bc.sum += base; bc.n++; byClient.set(cn, bc);
+    const m = String(o.issueDate || "").slice(0, 7);
+    byMonth.set(m, (byMonth.get(m) || 0) + base);
+    const sk = (typeof invSeriesOfInvoice === "function") ? invSeriesOfInvoice(o) : String(o.seriesKey || "2");
+    const lbl = sk === "1" ? "🌍 Износ" : (sk === "3" ? "📆 Месечни" : "🇧🇬 Вътрешен");
+    const bs = bySeries.get(lbl) || { sum: 0, n: 0 }; bs.sum += base; bs.n++; bySeries.set(lbl, bs);
+    const sign = o.kind === "credit" ? -1 : 1;
+    (o.lines || []).forEach(l => {
+      const key = (l.code ? l.code + " · " : "") + (l.name || "—");
+      const qty = (erpToNum(l.qty) || 0) * sign;
+      const eur = qty * (erpToNum(l.unitPrice) || 0) * k;
+      const bp = byProduct.get(key) || { qty: 0, eur: 0, n: 0 };
+      bp.qty += qty; bp.eur += eur; bp.n++;
+      byProduct.set(key, bp);
+    });
+  });
+  return { from, to, count: rows.length, total, vat, credits, byClient, byProduct, byMonth, bySeries };
+}
+
+function invaRender(d) {
+  const cliRows = [...d.byClient.entries()].sort((a, b) => b[1].sum - a[1].sum).slice(0, 15);
+  const prodRows = [...d.byProduct.entries()].sort((a, b) => b[1].eur - a[1].eur).slice(0, 15);
+  const monthRows = [...d.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const serRows = [...d.bySeries.entries()].sort((a, b) => b[1].sum - a[1].sum);
+  return `
+    <p style="margin:6px 0"><b>${d.count}</b> документа за периода · фактурирано <b>${puaF2(d.total)} EUR</b> без ДДС${d.credits ? ` · кредитни: <b>${puaF2(d.credits)}</b>` : ""}</p>
+    <div id="inva-ai" style="margin:8px 0"></div>
+    <h4 class="erp-group-head">Пазари</h4>
+    <table class="report-table erp-table"><thead><tr><th>Пазар</th><th class="num">Сума (EUR)</th><th class="num">Дял</th><th class="num">Фактури</th></tr></thead>
+      <tbody>${serRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${puaF2(x.sum)}</td><td class="num">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+    <h4 class="erp-group-head">Топ клиенти</h4>
+    <table class="report-table erp-table"><thead><tr><th>Клиент</th><th class="num">Сума (EUR)</th><th class="num">Дял</th><th class="num">Фактури</th></tr></thead>
+      <tbody>${cliRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${puaF2(x.sum)}</td><td class="num">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+    <h4 class="erp-group-head">Топ продукти</h4>
+    <table class="report-table erp-table"><thead><tr><th>Продукт</th><th class="num">Бройки</th><th class="num">Сума (EUR)</th><th class="num">Ø цена</th></tr></thead>
+      <tbody>${prodRows.map(([k, x]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${erpNum(Math.round(x.qty))}</td><td class="num">${puaF2(x.eur)}</td><td class="num">${x.qty ? puaF2(x.eur / x.qty) : "—"}</td></tr>`).join("")}</tbody></table>
+    <h4 class="erp-group-head">По месеци</h4>
+    <table class="report-table erp-table"><thead><tr><th>Месец</th><th class="num">Фактурирано (EUR)</th></tr></thead>
+      <tbody>${monthRows.map(([m, s]) => `<tr><td>${escapeHtml(m)}</td><td class="num">${puaF2(s)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function invaSummaryText(d) {
+  const c = [...d.byClient.entries()].sort((a, b) => b[1].sum - a[1].sum).slice(0, 10)
+    .map(([k, x]) => `${k}: ${Math.round(x.sum)} EUR (${x.n} ф-ри)`).join("; ");
+  const p = [...d.byProduct.entries()].sort((a, b) => b[1].eur - a[1].eur).slice(0, 12)
+    .map(([k, x]) => `${k}: ${Math.round(x.qty)} бр @ ${x.qty ? (x.eur / x.qty).toFixed(2) : "?"} = ${Math.round(x.eur)}`).join("; ");
+  const m = [...d.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, s]) => `${k}: ${Math.round(s)}`).join("; ");
+  const s = [...d.bySeries.entries()].map(([k, x]) => `${k}: ${Math.round(x.sum)} (${x.n})`).join("; ");
+  return `Период: ${d.from} до ${d.to}. Фактурирано: ${Math.round(d.total)} EUR без ДДС, ${d.count} документа. Кредитни известия: ${Math.round(d.credits)} EUR.
+Пазари: ${s}.
+Топ клиенти: ${c}.
+Топ продукти (бройки @ Ø цена = сума): ${p}.
+По месец: ${m}.`;
+}
+
+function invaAiComment(d, box) {
+  const system = `Ти си търговският анализатор на „Данко Системс" (металообработваща фирма, Пловдив — механизми за мека мебел, метални изделия). Получаваш обобщение на ПРОДАЖБИТЕ (издадените фактури) за период. Дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
+1) Концентрация по клиенти — кой носи оборота и колко е рискът от зависимост; 2) Движението по месеци — расте/пада, сезонност; 3) Износ срещу вътрешен пазар; 4) Продуктите — кои носят парите, къде Ø цената изглежда ниска; 5) Кредитните известия — нормални ли са; 6) 2-3 практични препоръки. Пиши стегнато, с числата от данните. Без общи приказки.`;
+  return puaAskClaude(system, invaSummaryText(d), box);
+}
+
+async function erpInvAnalysisDialog() {
+  try { if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices(); } catch (e) {}
+  try { if (typeof erpInvLoadSeries === "function") await erpInvLoadSeries(); } catch (e) {}
+  const now = new Date();
+  const toDef = now.toISOString().slice(0, 7);
+  const fromDef = String(now.getFullYear()) + "-01";
+  const { wrap, close } = erpDialog(`
+    <h3>🤖 Анализ на продажбите</h3>
+    <div class="erp-toolbar" style="margin:0 0 8px">
+      <label class="erp-inline">От <input type="month" id="inva-from" value="${fromDef}" /></label>
+      <label class="erp-inline">До <input type="month" id="inva-to" value="${toDef}" /></label>
+      <button class="btn btn-small btn-primary" id="inva-go">📊 Анализирай</button>
+    </div>
+    <div id="inva-out" style="max-height:62vh;overflow:auto"><p class="hint">Избери периода и натисни „📊 Анализирай" — таблиците излизат веднага, а Claude пише коментара отгоре. Проформите и анулираните не влизат; кредитните са с минус.</p></div>
+    <div class="erp-dialog-actions"><button class="btn" id="inva-close">Затвори</button></div>`);
+  try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
+  wrap.querySelector("#inva-close").addEventListener("click", close);
+  wrap.querySelector("#inva-go").addEventListener("click", () => {
+    const from = wrap.querySelector("#inva-from").value || fromDef;
+    const to = wrap.querySelector("#inva-to").value || toDef;
+    const d = invaBuild(from, to);
+    const out = wrap.querySelector("#inva-out");
+    out.innerHTML = d.count ? invaRender(d) : `<p class="report-empty">Няма издадени фактури в периода ${escapeHtml(from)} – ${escapeHtml(to)}.</p>`;
+    if (d.count) invaAiComment(d, out.querySelector("#inva-ai"));
   });
 }

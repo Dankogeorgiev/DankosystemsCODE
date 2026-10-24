@@ -283,6 +283,7 @@ async function erpRenderInvoices() {
       <span class="spacer"></span>
       ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
       <button class="btn btn-small" id="inv-report" title="Справка за период: вътрешни, външни и покупни фактури — с експорт">📊 Справка</button>
+      ${typeof erpInvAnalysisDialog === "function" ? '<button class="btn btn-small" id="inv-ai-analysis" title="Пълен анализ на продажбите за период: топ клиенти и продукти, износ/вътрешен, по месеци — и коментар от Claude">🤖 Анализ (AI)</button>' : ""}
       <button class="btn btn-small" id="inv-xls-acc" title="Месечен Excel за счетоводството: всички издадени фактури и известия към клиенти с пълните им данни + лист с всеки ред">📒 За счетоводството</button>
       <button class="btn btn-small" id="inv-series">⚙ Серии/номера</button>
       <button class="btn btn-small" id="inv-from-sales" title="Една фактура от една или няколко осчетоводени продажби (складът е изписан от тях)">📑 От продажби…</button>
@@ -335,6 +336,7 @@ async function erpRenderInvoices() {
   document.getElementById("inv-fstatus").addEventListener("change", e => { erpInvStatusFilter = e.target.value; erpRenderInvoices(); });
   document.getElementById("inv-series").addEventListener("click", erpInvSeriesDialog);
   document.getElementById("inv-report").addEventListener("click", erpInvReport);
+  const invAn = document.getElementById("inv-ai-analysis"); if (invAn) invAn.addEventListener("click", erpInvAnalysisDialog);
   const xa = document.getElementById("inv-xls-acc"); if (xa) xa.addEventListener("click", erpInvAccountingXls);
   const mt = document.getElementById("inv-mail-test"); if (mt) mt.addEventListener("click", erpMailDiag);
   const imEl = document.getElementById("inv-import");
