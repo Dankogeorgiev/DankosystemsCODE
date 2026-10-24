@@ -612,22 +612,50 @@ function invFindByNo(no) {
   return (erpInvoices || []).find(x => String(x.docNo || "").trim() === n) || null;
 }
 
+/* Навиците на клиента — АНАЛИЗ на последните 5 издадени фактури (Данко,
+   24.10.2026): най-честата стойност печели (при равенство — най-скорошната);
+   получателят (Consignee) и транспортните константи идват от последната
+   фактура, която ги има. Анулирани и известия не влизат в сметката. */
 function erpInvClientProfile(name) {
   const nm = String(name || "").trim().toLowerCase();
   if (!nm) return null;
-  const mine = (erpInvoices || []).filter(x => x.posted && x.client && String(x.client.name || "").trim().toLowerCase() === nm)
+  const mine = (erpInvoices || []).filter(x => x.posted && x.status !== "анулирана"
+    && (x.kind === "invoice" || x.kind === "proforma" || !x.kind)
+    && x.client && String(x.client.name || "").trim().toLowerCase() === nm)
     .sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
   if (!mine.length) return null;
-  const last = mine[0];
+  const recent = mine.slice(0, 5);
+  const mode = get => {   // най-честата непразна стойност от последните 5
+    const cnt = new Map(); let best = "", bestN = 0;
+    recent.forEach(x => {
+      const v = String(get(x) != null ? get(x) : "").trim();
+      if (v === "") return;
+      const n = (cnt.get(v) || 0) + 1; cnt.set(v, n);
+      if (n > bestN) { bestN = n; best = v; }
+    });
+    return best;
+  };
+  const lastNonEmpty = get => { for (const x of recent) { const v = get(x); if (v != null && String(v).trim() !== "") return v; } return ""; };
+  const trPick = f => lastNonEmpty(x => (x.transport || {})[f]);
+  const csDoc = recent.find(x => x.consignee && (x.consignee.name || x.consignee.street || x.consignee.city));
+  const transport = {};
+  // Само КОНСТАНТИТЕ на клиента — не по-курсовите неща (камион, шофьор, дати).
+  ["incoterms", "means", "loadPlace", "destination", "route", "customs", "goodsNature", "palletKg"].forEach(f => { const v = trPick(f); if (v !== "") transport[f] = v; });
+  const vatModeS = mode(x => x.vatRate != null ? String(x.vatRate) : "");
   return {
     count: mine.length,
-    termDays: Number(last.termDays) || 0,
-    paymentMethod: last.paymentMethod || "",
-    currency: last.currency || "EUR",
-    vatRate: last.vatRate != null ? last.vatRate : 20,
-    seriesKey: last.seriesKey || "2",
-    vatBasis: last.vatBasis || "",
-    payCond: last.payCond || "",   // условието за плащане (износ) — помни се по клиент
+    termDays: Number(mode(x => x.termDays)) || 0,
+    paymentMethod: mode(x => x.paymentMethod) || "",
+    currency: mode(x => x.currency) || "EUR",
+    vatRate: vatModeS !== "" ? Number(vatModeS) : 20,
+    seriesKey: mode(x => x.seriesKey) || "2",
+    vatBasis: lastNonEmpty(x => x.vatBasis) || "",
+    payCond: mode(x => x.payCond) || "",
+    tariffCode: lastNonEmpty(x => x.tariffCode) || "",
+    compiledBy: lastNonEmpty(x => x.compiledBy) || "",
+    consignee: csDoc ? JSON.parse(JSON.stringify(csDoc.consignee)) : null,
+    transport: Object.keys(transport).length ? transport : null,
+    client: mine[0].client ? JSON.parse(JSON.stringify(mine[0].client)) : null,
   };
 }
 // Прилага навиците на клиента върху ЧЕРНОВА (не пипа издадени).
@@ -660,6 +688,22 @@ function erpInvApplyClientProfile(o, prof) {
   if (isNoteDoc) return true;
   o.currency = prof.currency; o.vatRate = prof.vatRate; o.seriesKey = prof.seriesKey;
   if (Number(prof.vatRate) === 0 && prof.vatBasis && !o.vatBasis) o.vatBasis = prof.vatBasis;
+  // „Максимално информация" от последните фактури (Данко, 24.10.2026) —
+  // попълват се само ПРАЗНИТЕ полета, нищо въведено не се презаписва:
+  // получателят (Consignee), транспортните константи, тарифен код, изготвил,
+  // и липсващи реквизити на клиента (ДДС/адрес) от последната фактура.
+  if (prof.consignee && !(o.consignee && (o.consignee.name || o.consignee.street || o.consignee.city))) o.consignee = JSON.parse(JSON.stringify(prof.consignee));
+  if (prof.transport) {
+    o.transport = o.transport || {};
+    Object.entries(prof.transport).forEach(([f, v]) => {
+      if (v != null && String(v).trim() !== "" && (o.transport[f] == null || String(o.transport[f]).trim() === "")) o.transport[f] = v;
+    });
+  }
+  if (prof.tariffCode && !o.tariffCode) o.tariffCode = prof.tariffCode;
+  if (prof.compiledBy && !o.compiledBy) o.compiledBy = prof.compiledBy;
+  if (prof.client && o.client) {
+    ["eik", "vat", "city", "street", "country", "person"].forEach(f => { if (!o.client[f] && prof.client[f]) o.client[f] = prof.client[f]; });
+  }
   return true;
 }
 
