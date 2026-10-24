@@ -111,30 +111,65 @@ function puaSummaryText(d) {
 }
 
 /* Общият канал към Claude (Edge функцията „assistant" — ключът не е тук). */
-async function puaAskClaude(system, userText, box) {
-  box.innerHTML = `<div class="erp-loading">🤖 Claude анализира…</div>`;
-  try {
-    const cfg = window.DANKO_CONFIG || {};
-    if (!cfg.SUPABASE_URL) throw new Error("Няма връзка с облака.");
-    let token = cfg.SUPABASE_ANON_KEY;
-    try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
-    const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
-      body: JSON.stringify({ system, messages: [{ role: "user", content: userText }], max_tokens: 1600 }),
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok || j.error) throw new Error(j.error || ("HTTP " + res.status));
-    box.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:12px 14px;white-space:pre-wrap;font-size:13.5px;line-height:1.55"><b>🤖 Коментар на Claude</b>\n\n${escapeHtml(j.text || "(празен отговор)")}</div>`;
-  } catch (e) {
-    box.innerHTML = `<div style="background:#fef2f2;color:#991b1b;border-radius:10px;padding:10px 12px">⚠ Коментарът не дойде: ${escapeHtml(e.message || String(e))}<br><span style="font-size:12px">Таблиците долу са пълни и без него. Ако Edge функцията „assistant" не е качена — виж ASSISTANT-SETUP.md.</span></div>`;
-  }
+async function puaClaudeCall(system, messages) {
+  const cfg = window.DANKO_CONFIG || {};
+  if (!cfg.SUPABASE_URL) throw new Error("Няма връзка с облака.");
+  let token = cfg.SUPABASE_ANON_KEY;
+  try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
+  // Дълъг разговор: данните (първото съобщение) + последните ~11 реплики.
+  const trimmed = messages.length > 12 ? [messages[0], ...messages.slice(-11)] : messages;
+  const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
+    body: JSON.stringify({ system, messages: trimmed, max_tokens: 1600 }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || ("HTTP " + res.status));
+  return j.text || "(празен отговор)";
+}
+
+/* 💬 ЧАТ с Claude върху анализа (Данко, 24.10.2026): първият отговор е
+   коментарът, а отдолу Данко пише какво да се има предвид / какво да се
+   игнорира и Claude преработва. Данните стоят в първото (скрито) съобщение. */
+function puaChatMount(box, system, dataText) {
+  const msgs = [];
+  box.innerHTML = `
+    <div id="pua-chat-log"></div>
+    <div class="erp-toolbar" style="margin:6px 0 0">
+      <input type="text" id="pua-chat-in" placeholder="💬 Кажи на Claude какво да има предвид / задай въпрос… (Enter)" style="flex:1;min-width:220px" />
+      <button class="btn btn-small btn-primary" id="pua-chat-send" title="Изпраща уточнението — Claude отговаря, помнейки данните и разговора">↩ Изпрати</button>
+    </div>`;
+  const log = box.querySelector("#pua-chat-log");
+  const paint = busy => {
+    log.innerHTML = msgs.slice(1).map(m => m.role === "user"
+      ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 12px;margin:6px 0;font-size:13px">🙋 ${escapeHtml(m.content)}</div>`
+      : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;margin:6px 0;white-space:pre-wrap;font-size:13.5px;line-height:1.55">🤖 ${escapeHtml(m.content)}</div>`).join("")
+      + (busy ? `<div class="erp-loading">🤖 Claude пише…</div>` : "");
+  };
+  let busy = false;
+  const send = async userText => {
+    if (busy) return;
+    busy = true;
+    msgs.push({ role: "user", content: userText });
+    paint(true);
+    try { msgs.push({ role: "assistant", content: await puaClaudeCall(system, msgs) }); }
+    catch (e) { msgs.push({ role: "assistant", content: "⚠ Claude не отговори: " + (e.message || e) + "\n(Таблиците долу са пълни и без него. Опитай пак след минута.)" }); }
+    busy = false;
+    paint(false);
+  };
+  const inp = box.querySelector("#pua-chat-in");
+  const go = () => { const t = inp.value.trim(); if (!t) return; inp.value = ""; send(t); };
+  box.querySelector("#pua-chat-send").addEventListener("click", go);
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  // Данните + молбата за първия анализ (не се показват в чата).
+  send(dataText + "\n\nДай първоначалния анализ.");
 }
 
 function puaAiComment(d, box) {
-  const system = `Ти си финансовият анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Получаваш обобщение на ПОКУПКИТЕ (разходите) за период. Дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
-1) Най-големите пера и дяловете им; 2) Движението по месеци — расте/пада и къде; 3) Металите: количества и ДВИЖЕНИЕТО НА ЦЕНАТА €/кг по месеци (поскъпване/поевтиняване, с числа); 4) Аномалии и съмнителни скокове; 5) 2-3 практични препоръки (къде да се натисне за цена, какво да се следи). Пиши стегнато, с числата от данните. Без общи приказки.`;
-  return puaAskClaude(system, puaSummaryText(d), box);
+  const system = `Ти си финансовият анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Разговаряш с Данко (собственика) върху обобщение на ПОКУПКИТЕ (разходите) за период. Първо дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
+1) Най-големите пера и дяловете им; 2) Движението по месеци — расте/пада и къде; 3) Металите: количества и ДВИЖЕНИЕТО НА ЦЕНАТА €/кг по месеци (поскъпване/поевтиняване, с числа); 4) Аномалии и съмнителни скокове; 5) 2-3 практични препоръки (къде да се натисне за цена, какво да се следи). Пиши стегнато, с числата от данните. Без общи приказки.
+После отговаряй на уточненията му: ако каже нещо да се има предвид или да се игнорира — преработи анализа според това.`;
+  return puaChatMount(box, system, puaSummaryText(d));
 }
 
 async function erpPuAnalysisDialog() {
@@ -241,9 +276,10 @@ function invaSummaryText(d) {
 }
 
 function invaAiComment(d, box) {
-  const system = `Ти си търговският анализатор на „Данко Системс" (металообработваща фирма, Пловдив — механизми за мека мебел, метални изделия). Получаваш обобщение на ПРОДАЖБИТЕ (издадените фактури) за период. Дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
-1) Концентрация по клиенти — кой носи оборота и колко е рискът от зависимост; 2) Движението по месеци — расте/пада, сезонност; 3) Износ срещу вътрешен пазар; 4) Продуктите — кои носят парите, къде Ø цената изглежда ниска; 5) Кредитните известия — нормални ли са; 6) 2-3 практични препоръки. Пиши стегнато, с числата от данните. Без общи приказки.`;
-  return puaAskClaude(system, invaSummaryText(d), box);
+  const system = `Ти си търговският анализатор на „Данко Системс" (металообработваща фирма, Пловдив — механизми за мека мебел, метални изделия). Разговаряш с Данко (собственика) върху обобщение на ПРОДАЖБИТЕ (издадените фактури) за период. Първо дай кратък, конкретен коментар НА БЪЛГАРСКИ (10-15 изречения, с булети):
+1) Концентрация по клиенти — кой носи оборота и колко е рискът от зависимост; 2) Движението по месеци — расте/пада, сезонност; 3) Износ срещу вътрешен пазар; 4) Продуктите — кои носят парите, къде Ø цената изглежда ниска; 5) Кредитните известия — нормални ли са; 6) 2-3 практични препоръки. Пиши стегнато, с числата от данните. Без общи приказки.
+После отговаряй на уточненията му: ако каже нещо да се има предвид или да се игнорира — преработи анализа според това.`;
+  return puaChatMount(box, system, invaSummaryText(d));
 }
 
 async function erpInvAnalysisDialog() {
