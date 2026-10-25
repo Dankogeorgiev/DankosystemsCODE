@@ -149,7 +149,7 @@ const crmMockProvider = {
 
   async _start(mode, params) {
     const jobs = crmJobsLoad();
-    const want = Math.max(1, Math.min(8, Number(params.target_count) || 5));
+    const want = Math.max(1, Math.min(50, Number(params.target_count) || 5));
     let pool = CRM_MOCK.discoverPool.filter(p => !params.country || p.country === params.country);
     if (params.min_fit_score) pool = pool.filter(p => p.fitScore >= Number(params.min_fit_score));
     if (pool.length < want) pool = pool.concat(CRM_MOCK.discoverPool.filter(p => !pool.includes(p)));

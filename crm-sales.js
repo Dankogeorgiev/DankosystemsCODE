@@ -380,7 +380,7 @@ async function crmSearch(v) {
     ${mode === "full" || mode === "stage1" ? `
       <div class="crm-form">
         <label>Държава <input type="text" id="crm-country" placeholder="Germany" value="Germany" /></label>
-        <label>Брой компании <input type="number" id="crm-count" min="1" max="8" value="5" /></label>
+        <label>Брой компании <input type="number" id="crm-count" min="1" max="50" value="10" title="До 50 на търсене (Данко, 25.10.2026). Имай предвид: повече фирми = повече AI разход в n8n и повече чернови за преглед." /></label>
         <label>Минимален DANKO Fit Score <input type="number" id="crm-fit" min="0" max="100" value="80" /></label>
         <label style="grid-column:1/-1">Фокус индустрии <input type="text" id="crm-focus" value="industrial machinery, machine builders, industrial equipment manufacturers" /></label>
         <label style="grid-column:1/-1">Изключи индустрии <input type="text" id="crm-exclude" value="packaging machinery" /></label>
