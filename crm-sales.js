@@ -276,8 +276,16 @@ async function crmPipeline(v) {
     </div>`;
   v.querySelectorAll("[data-crmco]").forEach(el => el.addEventListener("click", () => crmCompanyDetail(el.dataset.crmco)));
   v.querySelectorAll("[data-crmrun]").forEach(tr => tr.addEventListener("click", () => crmRunDialog(tr.dataset.crmrun)));
-  if (runs.some(r => r.status === "RUNNING")) {
-    CRMS.pollTimer = setInterval(() => { if (CRMS.tab === "pipeline") crmPipeline(v); }, 4000);
+  // ⚠ УРОКЪТ ОТ 25.10.2026 (изгорелият n8n лимит): ВИНАГИ чисти стария таймер,
+  // ПРЕДИ да пуснеш нов — иначе всеки рендер трупа още един и става лавина
+  // (стотици опреснявания в минута). И веднъж на 30 сек е предостатъчно:
+  // прогресът на джоба бездруго идва от crm_jobs, не от CRM листа.
+  if (CRMS.pollTimer) { clearInterval(CRMS.pollTimer); CRMS.pollTimer = null; }
+  if (runs.some(r => r.status === "RUNNING" || r.status === "QUEUED")) {
+    CRMS.pollTimer = setInterval(() => {
+      if (CRMS.tab === "pipeline") crmPipeline(v);
+      else { clearInterval(CRMS.pollTimer); CRMS.pollTimer = null; }
+    }, 30000);
   }
 }
 

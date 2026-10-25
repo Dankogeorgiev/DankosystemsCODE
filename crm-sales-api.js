@@ -204,8 +204,9 @@ const crmMockProvider = {
    Пайплайните НЕ са свързани: старт в Production дава ясна грешка, БЕЗ тихо
    връщане към mock (иначе фалшиви данни ще минат за истински). */
 
-const CRM_PROD_CACHE = { at: 0, companies: null, meta: null };
-const CRM_PROD_TTL = 60000;   // 60 сек — Sheet-ът не се чука на всяко цъкане
+const CRM_PROD_CACHE = { at: 0, companies: null, meta: null, inflight: null, lastFetchAt: 0 };
+const CRM_PROD_TTL = 60000;        // 60 сек — Sheet-ът не се чука на всяко цъкане
+const CRM_PROD_MIN_GAP = 10000;    // твърд предпазител: НИКОГА под 10 сек между реални заявки
 function crmProdBust() { CRM_PROD_CACHE.at = 0; CRM_PROD_CACHE.companies = null; }
 
 async function crmBridge(action, payload) {
@@ -253,11 +254,25 @@ function crmFromApi(r) {
 
 const crmProdProvider = {
   async _companies() {
+    // ⚠ УРОКЪТ ОТ 25.10.2026: кешът САМ не стига — стотици успоредни извиквания
+    // минаваха проверката едновременно и всяко пускаше заявка (изгоря месечният
+    // лимит на n8n за 13 минути). Затова three защити една върху друга:
+    // 1) кеш 60 сек; 2) in-flight дедупликация — тече ли заявка, всички чакат
+    // НЕЯ; 3) твърд под от 10 сек между реални заявки — при нужда се връща
+    // старият кеш, но НОВА заявка не тръгва.
     if (CRM_PROD_CACHE.companies && Date.now() - CRM_PROD_CACHE.at < CRM_PROD_TTL) return CRM_PROD_CACHE.companies;
-    const j = await crmBridge("companies");
-    const list = (j.data || []).map(crmFromApi);
-    CRM_PROD_CACHE.companies = list; CRM_PROD_CACHE.meta = j.meta || null; CRM_PROD_CACHE.at = Date.now();
-    return list;
+    if (CRM_PROD_CACHE.inflight) return CRM_PROD_CACHE.inflight;
+    if (CRM_PROD_CACHE.companies && Date.now() - CRM_PROD_CACHE.lastFetchAt < CRM_PROD_MIN_GAP) return CRM_PROD_CACHE.companies;
+    CRM_PROD_CACHE.lastFetchAt = Date.now();
+    CRM_PROD_CACHE.inflight = (async () => {
+      try {
+        const j = await crmBridge("companies");
+        const list = (j.data || []).map(crmFromApi);
+        CRM_PROD_CACHE.companies = list; CRM_PROD_CACHE.meta = j.meta || null; CRM_PROD_CACHE.at = Date.now();
+        return list;
+      } finally { CRM_PROD_CACHE.inflight = null; }
+    })();
+    return CRM_PROD_CACHE.inflight;
   },
   meta() { return CRM_PROD_CACHE.meta; },
 
