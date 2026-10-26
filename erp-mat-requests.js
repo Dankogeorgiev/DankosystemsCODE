@@ -102,8 +102,9 @@ function matreqSupplierArts(sk, group) {
       const nm = String(l.article || l.name || "").trim();
       if (!nm || /^разход$/i.test(nm)) return;
       const ak = nm.toLowerCase();
-      const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", lastPriceEur: 0 };
+      const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", lastPriceEur: 0, mid: 0 };
       it.n++;
+      if (l.materialId && !it.mid) it.mid = Number(l.materialId);
       if (l.code) it.code = l.code;
       if (l.unit) it.unit = l.unit;
       if (!isCredit && String(o.date || "") >= String(it.last || "")) {
@@ -134,8 +135,9 @@ function matreqGroupArticles(group) {
       const nm = String(l.article || l.name || "").trim();
       if (!nm || /^разход$/i.test(nm)) return;
       const ak = nm.toLowerCase();
-      const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", supps: new Map() };
+      const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", supps: new Map(), mid: 0 };
       it.n++;
+      if (l.materialId && !it.mid) it.mid = Number(l.materialId);
       if (l.code) it.code = l.code;
       if (l.unit) it.unit = l.unit;
       const srec = it.supps.get(sk) || { name, last: "", priceEur: 0 };
@@ -181,6 +183,97 @@ function matreqSuppliersOfMaterials() {
   const out = new Map();
   by.forEach((m, mid) => out.set(mid, [...m.values()].sort((a, b) => String(b.last).localeCompare(String(a.last)))));
   return out;
+}
+
+/* ---------- 📝 Бележки по артикул (по Данко, 26.10) ----------
+   Ръчно описание „за къде се ползва" — пази се в app_config mat_notes по
+   ключ: materialId (ако артикулът е вързан към склада) или името. Записът
+   чете свежия ред и слива само своя ключ (никога цял кеш). */
+let MATREQ_NOTES = null;
+async function matreqNotesLoad(force) {
+  if (MATREQ_NOTES && !force) return MATREQ_NOTES;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_notes").maybeSingle();
+    MATREQ_NOTES = (data && data.data && data.data.byKey) || {};
+  } catch (e) { MATREQ_NOTES = MATREQ_NOTES || {}; }
+  return MATREQ_NOTES;
+}
+function matreqNoteKey(mid, article) { return mid ? "m" + mid : "a:" + String(article || "").trim().toLowerCase(); }
+function matreqNoteOf(mid, article) { const r = (MATREQ_NOTES || {})[matreqNoteKey(mid, article)]; return (r && r.note) || ""; }
+async function matreqNoteSave(key, note) {
+  try {
+    if (!key || typeof sb === "undefined" || !sb) return;
+    note = String(note || "").trim();
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "mat_notes").maybeSingle();
+    if (error) return;
+    const cur = (data && data.data) || {};
+    const byKey = cur.byKey || {};
+    if (note) byKey[key] = { note, updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "" };
+    else delete byKey[key];
+    const { error: e2 } = await sb.from("app_config").upsert({ id: "mat_notes", data: Object.assign({}, cur, { byKey }), updated_at: new Date().toISOString() });
+    if (!e2) MATREQ_NOTES = byKey;
+  } catch (e) { /* тихо */ }
+}
+
+/* ---------- 🧩 Къде се ползва материалът (от рецептите) ----------
+   direct: materialId → продуктите, в чиято рецепта влиза директно;
+   parents: възел → кой го влага. Изкачването дава крайните продукти. */
+function matreqMatUsage() {
+  const direct = new Map(), parents = new Map();
+  Object.entries((typeof ERP !== "undefined" && ERP.linesByProduct) || {}).forEach(([pid, lines]) => {
+    (lines || []).forEach(l => {
+      if (l.material_id) { const s = direct.get(Number(l.material_id)) || new Set(); s.add(Number(pid)); direct.set(Number(l.material_id), s); }
+      else if (l.child_product_id) { const s = parents.get(Number(l.child_product_id)) || new Set(); s.add(Number(pid)); parents.set(Number(l.child_product_id), s); }
+    });
+  });
+  return { direct, parents };
+}
+function matreqMatProducts(mid, usage) {
+  const seen = new Set(), out = new Set();
+  const walk = pid => {
+    if (seen.has(pid)) return; seen.add(pid);
+    const p = ((typeof ERP !== "undefined" && ERP.prodById) || {})[pid];
+    const par = usage.parents.get(pid);
+    if (p && !p.is_semifinished) out.add(pid);          // краен продукт
+    if (par && par.size) par.forEach(walk);
+    else if (p && p.is_semifinished) out.add(pid);      // възел, който никой не влага
+  };
+  (usage.direct.get(Number(mid)) || new Set()).forEach(walk);
+  return [...out].map(pid => ((typeof ERP !== "undefined" && ERP.prodById) || {})[pid]).filter(Boolean)
+    .sort((a, b) => String(a.code || a.name).localeCompare(String(b.code || b.name), "bg"));
+}
+/* Клетката „Ползва се в": до 3 продукта — изписани; повече → „🔁 серийно · N".
+   И двете са бутон към пълния списък. */
+function matreqUsageCell(mid, usage) {
+  if (!mid) return '<span class="erp-muted" title="Артикулът не е вързан към складов материал — няма как да се провери в рецептите">—</span>';
+  const prods = matreqMatProducts(mid, usage);
+  if (!prods.length) return '<span class="erp-muted" title="Не участва в нито една рецепта">—</span>';
+  const label = prods.length > 3 ? `🔁 серийно · ${prods.length}` : prods.map(p => escapeHtml(p.code || p.name)).join(", ");
+  return `<button type="button" class="btn btn-small mr-useinfo" data-mid="${mid}" title="Ползва се в ${prods.length} ${prods.length === 1 ? "продукт" : "продукта"} — клик за списъка">${label}</button>`;
+}
+function matreqUsageDialog(mid) {
+  const usage = matreqMatUsage();
+  const m = ((typeof ERP !== "undefined" && ERP.matById) || {})[mid] || {};
+  const prods = matreqMatProducts(mid, usage);
+  const direct = [...(usage.direct.get(Number(mid)) || new Set())]
+    .map(pid => ((typeof ERP !== "undefined" && ERP.prodById) || {})[pid]).filter(Boolean)
+    .sort((a, b) => String(a.code || a.name).localeCompare(String(b.code || b.name), "bg"));
+  const li = p => `<li><b>${escapeHtml(p.code || "")}</b> ${escapeHtml(p.name || "")}${p.is_semifinished ? ' <span class="erp-muted">(възел)</span>' : ""}</li>`;
+  const { wrap, close } = erpDialog(`
+    <h3>🧩 Къде се ползва</h3>
+    <p style="margin:4px 0"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")}${prods.length > 3 ? ` · <b>🔁 серийно</b> — в ${prods.length} продукта` : ""}</p>
+    <h4 class="erp-group-head">Директно в рецептата на (${direct.length})</h4>
+    <ul style="margin:4px 0 10px;max-height:24vh;overflow:auto">${direct.map(li).join("") || "<li class='erp-muted'>— няма</li>"}</ul>
+    <h4 class="erp-group-head">Стига до крайните продукти (${prods.length})</h4>
+    <ul style="margin:4px 0;max-height:28vh;overflow:auto">${prods.map(li).join("") || "<li class='erp-muted'>— няма</li>"}</ul>
+    <div class="erp-dialog-actions"><button class="btn" id="mu-close">Затвори</button></div>`);
+  wrap.querySelector("#mu-close").addEventListener("click", close);
+}
+
+/* Окабеляване на бележките (запис при промяна) и „🧩 Ползва се в" (диалог). */
+function matreqWireNotes(root) {
+  root.querySelectorAll(".mr-note").forEach(inp => inp.addEventListener("change", () => matreqNoteSave(inp.dataset.nk, inp.value)));
+  root.querySelectorAll(".mr-useinfo").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); matreqUsageDialog(Number(b.dataset.mid)); }));
 }
 
 /* Ръчно избран доставчик за даден материал (изгледът „Липсващи"): помни се
@@ -279,6 +372,7 @@ async function erpRenderMatRequests(keepCache) {
     }
     catch (e) { MATREQ_PU_ERR = e; }   // показва се в изгледа, с „Опитай пак"
     try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
+    try { await matreqNotesLoad(!keepCache); } catch (e) {}
   }
   const activeN = (MATREQ || []).filter(r => r.status !== "доставено").length;
   const view = MATREQ_NAV.view;
@@ -394,6 +488,7 @@ function matreqRenderGroupSuppliers(box, m) {
 function matreqRenderSupplier(box, rec) {
   const g = MATREQ_NAV.group, name = rec.name;
   const arts = matreqSupplierArts(MATREQ_NAV.supplier, g);
+  const usage = matreqMatUsage();
   box.innerHTML = `
     <div class="erp-toolbar" style="margin:0 0 6px">
       <button class="btn btn-small" id="mr-back-root">← Групи</button>
@@ -410,10 +505,12 @@ function matreqRenderSupplier(box, rec) {
     <div class="erp-toolbar" style="margin:0 0 4px"><input type="search" id="mr-aq" placeholder="търси артикул или код…" style="width:240px" /></div>
     <div style="max-height:56vh;overflow:auto">
     <table class="report-table erp-table" style="font-size:12.5px">
-      <thead><tr><th></th><th>Артикул</th><th>Код</th><th class="num">Пъти</th><th>Последно</th><th class="num cost-cell">Посл. цена (EUR)</th><th class="num">Поръчай</th></tr></thead>
+      <thead><tr><th></th><th>Артикул</th><th>Код</th><th>📝 Бележка</th><th>🧩 Ползва се в</th><th class="num">Пъти</th><th>Последно</th><th class="num cost-cell">Посл. цена (EUR)</th><th class="num">Поръчай</th></tr></thead>
       <tbody>${arts.map((i, bi) => `<tr data-mra="1">
         <td><input type="checkbox" class="mr-buy" data-bi="${bi}" /></td>
         <td>${escapeHtml(i.article)}</td><td class="t-code">${escapeHtml(i.code || "")}</td>
+        <td><input type="text" class="mr-note" data-nk="${escapeAttr(matreqNoteKey(i.mid, i.article))}" value="${escapeAttr(matreqNoteOf(i.mid, i.article))}" placeholder="за къде се ползва…" style="width:150px" title="Свободна бележка — запазва се сама" /></td>
+        <td>${matreqUsageCell(i.mid, usage)}</td>
         <td class="num">${i.n}</td><td>${matreqFmt(i.last)}</td>
         <td class="num cost-cell">${i.lastPriceEur ? matreqPrice(i.lastPriceEur) : ""}</td>
         <td class="num"><input type="number" class="mr-buyqty" data-bi="${bi}" min="0" step="any" style="width:76px" placeholder="${escapeAttr(i.unit || "бр.")}" /></td>
@@ -444,6 +541,7 @@ function matreqRenderSupplier(box, rec) {
     const cb = box.querySelector(`.mr-buy[data-bi="${inp.dataset.bi}"]`);
     if (cb && Number(inp.value) > 0) { cb.checked = true; cnt(); }
   }));
+  matreqWireNotes(box);
   box.querySelector("#mr-order").addEventListener("click", () => {
     const items = [...box.querySelectorAll(".mr-buy:checked")].map(cb => {
       const it = arts[Number(cb.dataset.bi)]; if (!it) return null;
@@ -468,6 +566,7 @@ function matreqRenderByMat(box) {
     return;
   }
   const arts = matreqGroupArticles(MATREQ_BM.group);
+  const usage = matreqMatUsage();
   const chips = [...MATREQ_GROUPS, MATREQ_NOGRP].map(g =>
     `<button class="btn btn-small ${g === MATREQ_BM.group ? "btn-primary" : ""}" data-bmg="${escapeAttr(g)}">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)}</button>`).join(" ");
   box.innerHTML = `
@@ -479,7 +578,7 @@ function matreqRenderByMat(box) {
     <p class="hint">Всички поръчвани артикули в „${escapeHtml(MATREQ_BM.group)}" от реалните покупки. Избери доставчика (най-скорошният е предизбран, с последната му цена в EUR), сложи бройка и 🛒 — заявката се отваря написана.</p>
     <div style="max-height:58vh;overflow:auto">
     <table class="report-table erp-table" style="font-size:12.5px">
-      <thead><tr><th>Артикул</th><th>Код</th><th class="num">Пъти</th><th>Последно</th><th>Доставчик</th><th class="num">Поръчай</th><th></th></tr></thead>
+      <thead><tr><th>Артикул</th><th>Код</th><th>📝 Бележка</th><th>🧩 Ползва се в</th><th class="num">Пъти</th><th>Последно</th><th>Доставчик</th><th class="num">Поръчай</th><th></th></tr></thead>
       <tbody id="mr-bm-rows"></tbody>
     </table>
     </div>`;
@@ -493,6 +592,8 @@ function matreqRenderByMat(box) {
     nEl.textContent = list.length ? `${list.length} артикула${list.length > 300 ? " (първите 300 — стесни с търсачката)" : ""}` : "няма съвпадения";
     tbody.innerHTML = shown.map((a, i) => `<tr>
       <td>${escapeHtml(a.article)}</td><td class="t-code">${escapeHtml(a.code || "")}</td>
+      <td><input type="text" class="mr-note" data-nk="${escapeAttr(matreqNoteKey(a.mid, a.article))}" value="${escapeAttr(matreqNoteOf(a.mid, a.article))}" placeholder="за къде се ползва…" style="width:140px" title="Свободна бележка — запазва се сама" /></td>
+      <td>${matreqUsageCell(a.mid, usage)}</td>
       <td class="num">${a.n}</td><td>${matreqFmt(a.last)}</td>
       <td><select class="bm-supp" data-i="${i}" style="max-width:200px">${a.supps.slice(0, 6).map((c, j) =>
         `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select></td>
@@ -506,6 +607,7 @@ function matreqRenderByMat(box) {
       const qty = erpToNum(qEl && qEl.value) || 1;
       erpMatReqCompose([{ code: a.code || "", name: a.article, qty, unit: a.unit || "бр." }], null, (sEl && sEl.value) || undefined);
     }));
+    matreqWireNotes(tbody);
   };
   paint();
   box.querySelector("#mr-bm-q").addEventListener("input", e => { MATREQ_BM.q = e.target.value; paint(); });

@@ -870,13 +870,13 @@ td.supp-colwhat { font-size: 12px; }
    нормални бутони — лентата застава вляво, без разделителния кант. */
 .erp-office-mode .erp-fin-tabs { border-left: none; padding-left: 18px; }
 
-/* В Офис режим (по Данко, 11.10.2026): всичките офисни бутони на ЕДИН ред,
-   разпънати да обхванат цялата му ширина, с по-едър шрифт. display:contents
-   слива двата .erp-fin-row реда в общия flex ред. */
-.erp-office-mode .erp-fin-tabs { flex-direction: row; flex-wrap: nowrap; width: 100%; gap: 10px; }
-.erp-office-mode .erp-fin-row { display: contents; }
-.erp-office-mode .erp-fin-tabs .btn { flex: 1 1 0; min-width: 0; font-size: 15px; padding: 10px 6px; text-align: center; }
-@media (max-width: 1100px) { .erp-office-mode .erp-fin-tabs { flex-wrap: wrap; } .erp-office-mode .erp-fin-tabs .btn { flex: 1 1 160px; } }
+/* В Офис режим (по Данко, 26.10.2026): бутоните на ДВА реда (станаха много
+   за един) — двата .erp-fin-row реда си остават редове, всеки разпънат на
+   цялата ширина, с по-едър шрифт. */
+.erp-office-mode .erp-fin-tabs { flex-direction: column; width: 100%; gap: 8px; }
+.erp-office-mode .erp-fin-row { display: flex; gap: 10px; }
+.erp-office-mode .erp-fin-row .btn { flex: 1 1 0; min-width: 0; font-size: 15px; padding: 10px 6px; text-align: center; }
+@media (max-width: 1100px) { .erp-office-mode .erp-fin-row { flex-wrap: wrap; } .erp-office-mode .erp-fin-row .btn { flex: 1 1 160px; } }
 
 /* 👥 Клиенти/Доставчици в Офис режим (Данко, 20.10.2026): бутонът в синята
    група се вижда САМО в Офис — в Склад/ЕРП той си стои в лявата лента. */
