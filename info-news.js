@@ -107,5 +107,8 @@ function infoInit() {
   btn.addEventListener("click", () => { modal.hidden = false; infoRender(); });
   const cls = document.getElementById("info-close");
   if (cls) cls.addEventListener("click", () => { modal.hidden = true; });
+  // ↻ Обнови (Данко, 26.10): чисти кеша и тегли наново качените промени.
+  const rf = document.getElementById("info-refresh");
+  if (rf) rf.addEventListener("click", () => { INFO_AUTO_CACHE = null; infoRender(); });
 }
 infoInit();

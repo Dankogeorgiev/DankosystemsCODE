@@ -97,7 +97,7 @@ function logiInquiry(preset) {
   const p = preset || {};
   const { wrap, close } = erpDialog(`
     <h3>📨 Запитване за транспорт</h3>
-    ${carriers.length ? `<p class="hint" style="margin:0 0 6px">Избери до кого — транспортните фирми от указателя (👥 Клиенти/Доставчици → 📇 Стар указател, категория „Транспорт / логистика"). Клик върху реда = отметка.</p>
+    ${carriers.length ? `<p class="hint" style="margin:0 0 6px">Избери до кого — транспортните фирми от указателя (👥 Клиенти/Доставчици, категория „Транспорт / логистика"). Клик върху реда = отметка.</p>
     <div style="max-height:56vh;overflow:auto;margin-bottom:8px">
     <table class="report-table erp-table" style="font-size:13px">
       <thead><tr><th class="pay-chk"><input type="checkbox" id="lgi-all" title="Избери всички" /></th><th>Фирма</th><th>Лице</th><th>Имейл</th></tr></thead>
@@ -109,7 +109,7 @@ function logiInquiry(preset) {
       </tr>`).join("")}</tbody>
     </table>
     </div>`
-      : `<p class="hint">В указателя няма контакти с категория „Транспорт / логистика" и имейл — добави ги в 👥 Клиенти/Доставчици → 📇 Стар указател, за да излизат тук. Можеш и да напишеш имейла на ръка в следващата стъпка.</p>`}
+      : `<p class="hint">В указателя няма контакти с категория „Транспорт / логистика" и имейл — добави ги в 👥 Клиенти/Доставчици („+ Нов контакт", категория „Транспорт / логистика"), за да излизат тук. Можеш и да напишеш имейла на ръка в следващата стъпка.</p>`}
     <div class="erp-dialog-actions"><button class="btn" id="lgi-cancel">Отказ</button><button class="btn btn-primary" id="lgi-go">Продължи към писмото →</button></div>`);
   try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
   // Клик по реда = отметка; „избери всички" горе вляво.

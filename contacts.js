@@ -656,7 +656,8 @@ function cInit() {
   const btn = document.getElementById("btn-contacts");
   if (!btn) return;
   // Бутонът на основния екран вече отваря обединения картон Клиенти/Доставчици
-  // (ЕРП → таб partners). Старият указател остава достъпен отвътре (📇 Стар указател).
+  // (ЕРП → таб partners); указателят е първият му изглед. Този прозорец остава
+  // само като формата за нов/редактиран контакт и за запитванията.
   btn.addEventListener("click", () => {
     if (typeof openErp === "function" && typeof ERP !== "undefined") { ERP.tab = "partners"; openErp(); }
     else openContacts();

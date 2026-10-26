@@ -234,8 +234,8 @@ function compRenderDirectory(v) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
       <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
-      <button class="btn btn-small" id="comp-oldc" title="Старият прозорец Контакти — пълната форма с всички полета">📇 Стар указател</button>
-      <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
+      <button class="btn btn-small" id="comp-newc" title="Нов запис в указателя — фирма, лице, телефон, имейл, категория, бележка">+ Нов контакт</button>
+      <button class="btn btn-small btn-primary" id="comp-add" title="Нова фирма с реквизити (за фактури/заявки)">+ Нов Клиент/Доставчик</button>
     </div>
     <table class="report-table erp-table">
       <thead><tr><th>Категория</th><th>Фирма</th><th>Лице за контакт</th><th>Телефон</th><th>Имейл</th><th>Бележка</th><th></th></tr></thead>
@@ -246,7 +246,7 @@ function compRenderDirectory(v) {
         <td>${escapeHtml(c.phone || "—")}</td>
         <td>${c.email ? `<a href="mailto:${escapeAttr(c.email)}">${escapeHtml(c.email)}</a>` : "—"}</td>
         <td class="c-notes">${escapeHtml(c.notes || "")}</td>
-        <td class="erp-row-actions"><button class="btn btn-small" data-cdir-edit="${c.id}" title="Редакция на контакта">✎</button></td>
+        <td class="erp-row-actions"><button class="btn btn-small" data-cdir-edit="${c.id}" title="Редакция на контакта">✎</button> <button class="btn btn-small btn-danger" data-cdir-del="${c.id}" title="Изтрива контакта от указателя">✕</button></td>
       </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма контакти по този филтър.</td></tr>`}</tbody>
     </table>`;
   v.querySelectorAll("[data-dircat]").forEach(b => b.addEventListener("click", () => { compDirCat = b.dataset.dircat; compQuery = ""; erpRenderCompanies(); }));
@@ -261,7 +261,12 @@ function compRenderDirectory(v) {
   v.querySelector("#comp-tab-all").addEventListener("click", () => toCards(""));
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
-  v.querySelector("#comp-oldc").addEventListener("click", () => { if (typeof openContacts === "function") openContacts(); });
+  v.querySelector("#comp-newc").addEventListener("click", () => {
+    if (typeof renderContactForm !== "function") return;
+    const m = document.getElementById("contacts-modal");
+    if (m) m.hidden = false;
+    renderContactForm(null);
+  });
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null, { kind: compKindF || undefined }));
   const editC = id => {
     const c = all.find(x => String(x.id) === String(id));
@@ -271,6 +276,15 @@ function compRenderDirectory(v) {
     renderContactForm(c);
   };
   v.querySelectorAll("[data-cdir-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); editC(b.dataset.cdirEdit); }));
+  v.querySelectorAll("[data-cdir-del]").forEach(b => b.addEventListener("click", async e => {
+    e.stopPropagation();
+    const c = all.find(x => String(x.id) === String(b.dataset.cdirDel)); if (!c) return;
+    if (!confirm(`Изтриване на контакта „${c.company || c.contact_person || ""}" от указателя?`)) return;
+    const { error } = await sb.from("contacts").delete().eq("id", c.id);
+    if (error) { alert("Грешка: " + error.message); return; }
+    if (typeof CONTACTS !== "undefined" && CONTACTS) CONTACTS = CONTACTS.filter(x => x.id !== c.id);
+    erpRenderCompanies();
+  }));
   v.querySelectorAll("tr[data-cdir]").forEach(tr => tr.addEventListener("click", e => { if (e.target.closest("button, a")) return; editC(tr.dataset.cdir); }));
   // Името на фирмата → картона ѝ (реквизити + паспорт на клиента/доставчика).
   v.querySelectorAll(".comp-openc").forEach(a => a.addEventListener("click", e => {
@@ -418,7 +432,6 @@ async function erpRenderCompanies() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
       <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
-      <button class="btn btn-small" id="comp-oldc" title="Старият указател Контакти — пълният списък с категории и бележки">📇 Стар указател</button>
       <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
     </div>
     <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити. Търсенето рови и в 🚚 адресите за доставка (Consignee от износните фактури).${delivNew ? ` <b style="color:#166534">🚚 Току-що попълних ${delivNew} адреса за доставка от фактурите.</b>` : ""}</p>
@@ -439,7 +452,6 @@ async function erpRenderCompanies() {
   v.querySelector("#comp-tab-all").addEventListener("click", () => { compKindF = ""; erpRenderCompanies(); });
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
-  v.querySelector("#comp-oldc").addEventListener("click", () => { if (typeof openContacts === "function") openContacts(); });
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null, { kind: compKindF || undefined }));
   v.querySelectorAll("[data-compopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCard(Number(b.dataset.compopen)); }));
   v.querySelectorAll("tr[data-comp]").forEach(tr => tr.addEventListener("click", () => compCard(Number(tr.dataset.comp))));
