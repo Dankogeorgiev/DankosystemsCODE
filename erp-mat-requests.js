@@ -41,7 +41,10 @@ const MATREQ_ICONS = { "Метали": "🔩", "Бои и цинк": "🎨", "К
 let MATREQ_NAV = { view: "folders", group: null, supplier: null };
 
 function matreqCanon(name) { return (typeof suppCanon === "function") ? suppCanon(name) : String(name || "").trim(); }
-function matreqSupKey(name) { return (typeof suppKey === "function") ? suppKey(name) : String(name || "").trim().replace(/\s+/g, " ").toLowerCase(); }
+/* По-грубо от suppKey: маха ВСИЧКО освен букви/цифри, за да се слеят
+   изписвания като „Ангел Стоилов - 96 АД" и „АНГЕЛ СТОИЛОВ-96 АД"
+   (различни интервали/тирета около същото име). Само за този екран. */
+function matreqSupKey(name) { return String(name || "").toLowerCase().replace(/[^0-9a-zа-яё]+/g, ""); }
 function matreqEurInt(n) { return Math.round(Number(n) || 0).toLocaleString("bg-BG"); }
 function matreqPrice(n) { return (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 4 }); }
 
@@ -112,6 +115,43 @@ function matreqSupplierArts(sk, group) {
     });
   });
   return [...arts.values()].sort((a, b) => b.n - a.n || String(b.last).localeCompare(String(a.last)));
+}
+
+/* Всички поръчвани артикули в дадена група — с доставчиците на всеки
+   (най-скорошният пръв, с последната му цена в EUR). За изгледа
+   „🔎 Търсене по материал": намираш материала → виждаш от кого е купуван
+   → 🛒 заявка. Същото чистене на шума като при артикулите по доставчик. */
+function matreqGroupArticles(group) {
+  const arts = new Map();
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    if (matreqDocGroup(o) !== group) return;
+    const name = matreqCanon(o.supplierName); if (!name) return;
+    const sk = matreqSupKey(name); if (!sk) return;
+    const isCredit = o.docType === "credit";
+    const cur = (typeof erpPuCur === "function") ? erpPuCur(o) : (o.currency || "EUR");
+    (o.lines || []).forEach(l => {
+      if (l.fromGoodsId) return;
+      const nm = String(l.article || l.name || "").trim();
+      if (!nm || /^разход$/i.test(nm)) return;
+      const ak = nm.toLowerCase();
+      const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", supps: new Map() };
+      it.n++;
+      if (l.code) it.code = l.code;
+      if (l.unit) it.unit = l.unit;
+      const srec = it.supps.get(sk) || { name, last: "", priceEur: 0 };
+      if (!isCredit && String(o.date || "") >= String(srec.last || "")) {
+        srec.last = o.date || "";
+        const pr = erpToNum(l.unitPrice) || 0;
+        if (pr) srec.priceEur = (cur === "BGN") ? pr / PU_EUR_BGN : pr;
+        if (String(o.date || "") > String(it.last || "")) it.last = o.date || "";
+      }
+      it.supps.set(sk, srec);
+      arts.set(ak, it);
+    });
+  });
+  return [...arts.values()]
+    .map(it => Object.assign({}, it, { supps: [...it.supps.values()].sort((a, b) => String(b.last).localeCompare(String(a.last))) }))
+    .sort((a, b) => b.n - a.n || String(b.last).localeCompare(String(a.last)));
 }
 
 /* Кой доставчик ни е доставял всеки складов материал (по покупните редове
@@ -199,10 +239,11 @@ async function matreqRememberEmail(name, email) {
 let MATREQ_PU_ERR = null;   // последната грешка при зареждане на Покупките
 async function erpRenderMatRequests(keepCache) {
   const v = erpView();
-  const needPurch = MATREQ_NAV.view === "folders" && (typeof erpPurchases === "undefined" || !erpPurchases);
+  const wantsPurch = MATREQ_NAV.view === "folders" || MATREQ_NAV.view === "bymat";
+  const needPurch = wantsPurch && (typeof erpPurchases === "undefined" || !erpPurchases);
   if (!keepCache || !MATREQ || needPurch) v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await matreqLoad(!keepCache);
-  if (MATREQ_NAV.view === "folders") {
+  if (wantsPurch) {
     MATREQ_PU_ERR = null;
     try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); }
     catch (e) { MATREQ_PU_ERR = e; }   // показва се в изгледа, с „Опитай пак"
@@ -215,6 +256,7 @@ async function erpRenderMatRequests(keepCache) {
       <button class="btn btn-small ${view === "folders" ? "btn-primary" : ""}" id="mr-v-fold" title="Групите материали като папки → доставчици → какво сме купували от всеки">📂 Доставчици по групи</button>
       <button class="btn btn-small ${view === "register" ? "btn-primary" : ""}" id="mr-v-reg" title="Регистърът на заявките — какво сме поискали и кога ще дойде">📋 Регистър на заявките${activeN ? ` (${activeN})` : ""}</button>
       <button class="btn btn-small ${view === "missing" ? "btn-primary" : ""}" id="mr-v-miss" title="Какво няма да стигне за пуснатите в производство заявки — с предложен доставчик и групова поръчка">⚠ Липсващи по заявки</button>
+      <button class="btn btn-small ${view === "bymat" ? "btn-primary" : ""}" id="mr-v-bymat" title="Намери материала по име/код → виж от кой доставчик е купуван → 🛒 заявка">🔎 Търсене по материал</button>
       <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="mr-new" title="Заявка на свободен текст — за доставчик или материал без история в Покупки">+ Нова заявка (свободна)</button>
     </div>
@@ -222,9 +264,11 @@ async function erpRenderMatRequests(keepCache) {
   v.querySelector("#mr-v-fold").addEventListener("click", () => { if (MATREQ_NAV.view !== "folders") { MATREQ_NAV.view = "folders"; erpRenderMatRequests(); } });
   v.querySelector("#mr-v-reg").addEventListener("click", () => { if (MATREQ_NAV.view !== "register") { MATREQ_NAV.view = "register"; erpRenderMatRequests(); } });
   v.querySelector("#mr-v-miss").addEventListener("click", () => { if (MATREQ_NAV.view !== "missing") { MATREQ_NAV.view = "missing"; erpRenderMatRequests(); } });
+  v.querySelector("#mr-v-bymat").addEventListener("click", () => { if (MATREQ_NAV.view !== "bymat") { MATREQ_NAV.view = "bymat"; erpRenderMatRequests(); } });
   v.querySelector("#mr-new").addEventListener("click", () => erpMatReqCompose([]));
   const box = v.querySelector("#mr-body");
   if (view === "folders") matreqRenderFolders(box);
+  else if (view === "bymat") matreqRenderByMat(box);
   else if (view === "missing") {
     if (typeof erpRenderMissingMaterials === "function") erpRenderMissingMaterials(box);
     else box.innerHTML = `<p class="erp-warn">Модулът „Липсващи материали" не е зареден.</p>`;
@@ -360,6 +404,65 @@ function matreqRenderSupplier(box, rec) {
     if (!items.length) { alert("Отметни поне един артикул (и бройка)."); return; }
     erpMatReqCompose(items, null, name);
   });
+}
+
+/* ---------- 🔎 Търсене по материал (под-изглед) ----------
+   Избираш група → всички поръчвани артикули в нея → търсиш по име/код →
+   доставчикът (с алтернативи и последна цена) → бройка → 🛒 заявка. */
+let MATREQ_BM = { group: "Метали", q: "" };
+function matreqRenderByMat(box) {
+  if (MATREQ_PU_ERR && (typeof erpPurchases === "undefined" || !erpPurchases)) {
+    box.innerHTML = `<div class="erp-error"><h3>Покупките не се заредиха</h3>
+      <p>${escapeHtml((MATREQ_PU_ERR && MATREQ_PU_ERR.message) || String(MATREQ_PU_ERR))}</p>
+      <button class="btn btn-small btn-primary" id="mr-pu-retry">↻ Опитай пак</button></div>`;
+    box.querySelector("#mr-pu-retry").addEventListener("click", () => erpRenderMatRequests());
+    return;
+  }
+  const arts = matreqGroupArticles(MATREQ_BM.group);
+  const chips = [...MATREQ_GROUPS, MATREQ_NOGRP].map(g =>
+    `<button class="btn btn-small ${g === MATREQ_BM.group ? "btn-primary" : ""}" data-bmg="${escapeAttr(g)}">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)}</button>`).join(" ");
+  box.innerHTML = `
+    <div class="erp-toolbar" style="margin:0 0 4px;flex-wrap:wrap">${chips}</div>
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <input type="search" id="mr-bm-q" placeholder="🔎 търси материал по име или код…" value="${escapeAttr(MATREQ_BM.q)}" autocomplete="off" style="min-width:260px" />
+      <span class="erp-count" id="mr-bm-n"></span>
+    </div>
+    <p class="hint">Всички поръчвани артикули в „${escapeHtml(MATREQ_BM.group)}" от реалните покупки. Избери доставчика (най-скорошният е предизбран, с последната му цена в EUR), сложи бройка и 🛒 — заявката се отваря написана.</p>
+    <div style="max-height:58vh;overflow:auto">
+    <table class="report-table erp-table" style="font-size:12.5px">
+      <thead><tr><th>Артикул</th><th>Код</th><th class="num">Пъти</th><th>Последно</th><th>Доставчик</th><th class="num">Поръчай</th><th></th></tr></thead>
+      <tbody id="mr-bm-rows"></tbody>
+    </table>
+    </div>`;
+  const tbody = box.querySelector("#mr-bm-rows");
+  const nEl = box.querySelector("#mr-bm-n");
+  let shown = [];   // артикулите на екрана, по индекс (за select/qty/🛒)
+  const paint = () => {
+    const q = MATREQ_BM.q.toLowerCase().trim();
+    const list = q ? arts.filter(a => (a.article + " " + a.code).toLowerCase().includes(q)) : arts;
+    shown = list.slice(0, 300);
+    nEl.textContent = list.length ? `${list.length} артикула${list.length > 300 ? " (първите 300 — стесни с търсачката)" : ""}` : "няма съвпадения";
+    tbody.innerHTML = shown.map((a, i) => `<tr>
+      <td>${escapeHtml(a.article)}</td><td class="t-code">${escapeHtml(a.code || "")}</td>
+      <td class="num">${a.n}</td><td>${matreqFmt(a.last)}</td>
+      <td><select class="bm-supp" data-i="${i}" style="max-width:200px">${a.supps.slice(0, 6).map((c, j) =>
+        `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select></td>
+      <td class="num"><input type="number" class="bm-qty" data-i="${i}" min="0" step="any" style="width:76px" placeholder="${escapeAttr(a.unit || "бр.")}" /></td>
+      <td><button class="btn btn-small btn-primary bm-buy" data-i="${i}" title="Заявка към избрания доставчик за този материал — отваря се попълнена">🛒</button></td>
+    </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Нищо в тази група${q ? " за това търсене" : ""}.</td></tr>`;
+    tbody.querySelectorAll(".bm-buy").forEach(b => b.addEventListener("click", () => {
+      const a = shown[Number(b.dataset.i)]; if (!a) return;
+      const sEl = tbody.querySelector(`.bm-supp[data-i="${b.dataset.i}"]`);
+      const qEl = tbody.querySelector(`.bm-qty[data-i="${b.dataset.i}"]`);
+      const qty = erpToNum(qEl && qEl.value) || 1;
+      erpMatReqCompose([{ code: a.code || "", name: a.article, qty, unit: a.unit || "бр." }], null, (sEl && sEl.value) || undefined);
+    }));
+  };
+  paint();
+  box.querySelector("#mr-bm-q").addEventListener("input", e => { MATREQ_BM.q = e.target.value; paint(); });
+  box.querySelectorAll("[data-bmg]").forEach(b => b.addEventListener("click", () => {
+    MATREQ_BM.group = b.dataset.bmg; MATREQ_BM.q = ""; erpRenderMatRequests(true);
+  }));
 }
 
 /* ---------- 📋 Регистърът на заявките (под-изглед) ---------- */
