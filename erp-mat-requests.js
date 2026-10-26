@@ -393,14 +393,49 @@ async function matreqMoveArt(mid, article, fromGroup, toGroup) {
 function matreqArtMoveSelect(idx, fromGroup) {
   const opts = [...MATREQ_GROUPS, MATREQ_NOGRP].filter(g => g !== fromGroup)
     .map(g => `<option value="${escapeAttr(g)}">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)}</option>`).join("");
-  return `<select class="mr-amove" data-ai="${idx}" title="Премести АРТИКУЛА в друга група — помни се (общо за всички), доставчикът сам се показва там" style="max-width:70px"><option value="">➡</option>${opts}</select>`;
+  // Транспортите от „Без група" (по Данко, 26.10): отиват в Логистика →
+  // 🧾 Фактури транспорт — това мести ДОКУМЕНТИТЕ (видът им разход).
+  const trans = `<optgroup label="Логистика · Фактури транспорт">
+    <option value="t:Транспорт износ">🚛 Транспорт износ</option>
+    <option value="t:Транспорт вътрешен">🚐 Транспорт вътрешен</option></optgroup>`;
+  return `<select class="mr-amove" data-ai="${idx}" title="Премести АРТИКУЛА в друга група (помни се, доставчикът сам се показва там) — или документите му към Логистика → Фактури транспорт" style="max-width:70px"><option value="">➡</option>${opts}${trans}</select>`;
+}
+/* Избран транспортен вид: документите от текущата група, съдържащи артикула,
+   получават вид „Транспорт износ/вътрешен" → отиват в Логистика →
+   🧾 Фактури транспорт. Доставчиците им се запомнят с този вид. */
+async function matreqMoveArtDocsToType(a, fromGroup, toType) {
+  const ak = String(a.article || "").toLowerCase();
+  const docs = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(o =>
+    matreqDocGroup(o) === fromGroup && (o.lines || []).some(l => matreqLineName(l).toLowerCase() === ak));
+  if (!docs.length) { alert("Няма документи с този артикул тук."); return false; }
+  if (!confirm(`${docs.length} ${docs.length === 1 ? "документ" : "документа"}, съдържащи „${a.article}", стават вид „${toType}" и отиват в Логистика → 🧾 Фактури транспорт.\n\nПромяната е ОБЩА (Покупки, анализите). Доставчиците им се запомнят с „${toType}" — новите им фактури ще го получават сами.`)) return false;
+  let ok = 0, fail = 0;
+  const sups = new Set();
+  for (const o of docs) {
+    try {
+      const { data, error } = await sb.from("purchases").select("data").eq("id", o.id).maybeSingle();
+      if (error || !data) { fail++; continue; }
+      const d = data.data || {};
+      d.expenseType = toType;
+      const { error: e2 } = await sb.from("purchases").update({ data: d, updated_at: new Date().toISOString() }).eq("id", o.id);
+      if (e2) { fail++; continue; }
+      o.expenseType = toType; ok++;
+      if (o.supplierName) sups.add(matreqCanon(o.supplierName));
+    } catch (e) { fail++; }
+  }
+  sups.forEach(n => matreqRememberGroup(n, toType));
+  try { SUPP_BOUGHT = null; } catch (e) {}
+  if (fail) alert(`⚠ Преместени ${ok}, неуспешни ${fail} — натисни „↻ Обнови" и опитай пак.`);
+  return ok > 0;
 }
 function matreqWireArtMove(root, arts, fromGroup, after) {
   root.querySelectorAll(".mr-amove").forEach(sel => sel.addEventListener("change", async () => {
     const to = sel.value; if (!to) return;
     const a = arts[Number(sel.dataset.ai)]; if (!a) { sel.value = ""; return; }
     sel.disabled = true;
-    const ok = await matreqMoveArt(a.mid, a.article, fromGroup, to);
+    const ok = to.indexOf("t:") === 0
+      ? await matreqMoveArtDocsToType(a, fromGroup, to.slice(2))   // към Логистика
+      : await matreqMoveArt(a.mid, a.article, fromGroup, to);
     sel.disabled = false; sel.value = "";
     if (ok) after();
   }));
@@ -538,6 +573,7 @@ async function erpRenderMatRequests(keepCache) {
       <button class="btn btn-small ${view === "register" ? "btn-primary" : ""}" id="mr-v-reg" title="Регистърът на заявките — какво сме поискали и кога ще дойде">📋 Регистър на заявките${activeN ? ` (${activeN})` : ""}</button>
       <button class="btn btn-small ${view === "missing" ? "btn-primary" : ""}" id="mr-v-miss" title="Какво няма да стигне за пуснатите в производство заявки — с предложен доставчик и групова поръчка">⚠ Липсващи по заявки</button>
       <button class="btn btn-small ${view === "bymat" ? "btn-primary" : ""}" id="mr-v-bymat" title="Намери материала по име/код → виж от кой доставчик е купуван → 🛒 заявка">🔎 Търсене по материал</button>
+      <button class="btn btn-small" id="mr-breakdown" title="Избери клиентска заявка → суровините за остатъка ѝ срещу наличното — какво трябва да се поръча">🧮 Разбивка по заявка</button>
       <span class="spacer"></span>
       <button class="btn btn-small" id="mr-refresh" title="Тегли наново покупките и заявките — нови материали и доставчици излизат веднага. Иначе екранът се обновява сам: при влизане, щом данните са по-стари от 4 часа.">↻ Обнови</button>
       <button class="btn btn-small btn-primary" id="mr-new" title="Заявка на свободен текст — за доставчик или материал без история в Покупки">+ Нова заявка (свободна)</button>
@@ -548,6 +584,10 @@ async function erpRenderMatRequests(keepCache) {
   v.querySelector("#mr-v-miss").addEventListener("click", () => { if (MATREQ_NAV.view !== "missing") { MATREQ_NAV.view = "missing"; erpRenderMatRequests(); } });
   v.querySelector("#mr-v-bymat").addEventListener("click", () => { if (MATREQ_NAV.view !== "bymat") { MATREQ_NAV.view = "bymat"; erpRenderMatRequests(); } });
   v.querySelector("#mr-new").addEventListener("click", () => erpMatReqCompose([]));
+  v.querySelector("#mr-breakdown").addEventListener("click", () => {
+    if (typeof erpReqOrderDialog === "function") erpReqOrderDialog();
+    else alert("Модулът Разбивка на нуждите не е зареден.");
+  });
   v.querySelector("#mr-refresh").addEventListener("click", () => {
     MATREQ_PU_AT = 0;                                     // следващият рендер тегли наново
     try { if (typeof erpPurchases !== "undefined") erpPurchases = null; } catch (e) {}

@@ -27,15 +27,16 @@ function erpReqOptions(q) {
 
 // Опции за падащото меню на заявките: само с продуктови редове; завършените
 // се крият (освен при търсене). Най-новите номера най-отгоре.
-function erpReqOrderOptions(q) {
+function erpReqOrderOptions(q, selId) {
   q = (q || "").toLowerCase().trim();
+  const chosen = (selId !== undefined && selId !== null) ? String(selId) : String(erpReqOrderId);
   const S = x => String(x == null ? "" : x);
   return ((typeof erpCOList !== "undefined" && erpCOList) || [])
     .filter(o => (o.lines || []).some(l => l.productId))
     .filter(o => q ? `${o.ourNo || ""} ${o.clientName || ""} ${o.status || ""}`.toLowerCase().includes(q) : (o.status || "нова") !== "завършена")
     .sort((a, b) => S(b.ourNo).localeCompare(S(a.ourNo), "bg", { numeric: true }))
     .slice(0, 300)
-    .map(o => `<option value="${o.id}" ${String(o.id) === String(erpReqOrderId) ? "selected" : ""}>${escapeHtml(`№${o.ourNo || "—"} · ${o.clientName || "—"} · ${o.status || "нова"}`)}</option>`)
+    .map(o => `<option value="${o.id}" ${String(o.id) === chosen ? "selected" : ""}>${escapeHtml(`№${o.ourNo || "—"} · ${o.clientName || "—"} · ${o.status || "нова"}`)}</option>`)
     .join("");
 }
 
@@ -118,6 +119,48 @@ async function erpComputeRequirements() {
    заявката (erpCOExplode): продукт → подвъзли → материали, умножено по
    количествата от редовете. Редове без продукт (свободен текст) и продукти
    без рецепта се изброяват отделно, за да не се подведе никой. */
+/* Сметката за една заявка (ползва се от таба И от диалога в Заявки за
+   материали): връща { rows, head }. */
+function erpReqBuildOrder(o) {
+  // Смята се за ОСТАТЪКА: поръчано − доставено (l.delivered, както в процента
+  // на заявката). Изцяло доставените редове не влизат, но се изброяват.
+  const left = l => { const q = erpToNum(l.qty) || 0; return Math.max(0, q - Math.min(Math.max(0, Number(l.delivered) || 0), q)); };
+  const lines = (o.lines || []).filter(l => l.productId && left(l) > 0);
+  const doneLines = (o.lines || []).filter(l => (l.productId || l.materialId) && (erpToNum(l.qty) || 0) > 0 && left(l) <= 0);
+  // Редове, които са директно МАТЕРИАЛ (без продукт) — влизат в нуждата 1:1.
+  const matLines = (o.lines || []).filter(l => !l.productId && l.materialId && left(l) > 0);
+  const skipped = (o.lines || []).filter(l => !l.productId && !l.materialId && String(l.name || l.code || "").trim());
+  const acc = {};
+  matLines.forEach(l => { acc[l.materialId] = (acc[l.materialId] || 0) + left(l); });
+  const rec = (pid, mult, anc) => {
+    (ERP.linesByProduct[pid] || []).forEach(l => {
+      if (l.material_id) acc[l.material_id] = (acc[l.material_id] || 0) + mult * (Number(l.quantity) || 1);
+      else if (l.child_product_id && !anc.has(l.child_product_id)) rec(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]));
+    });
+  };
+  const noRecipe = [];
+  lines.forEach(l => {
+    if (!(ERP.linesByProduct[l.productId] || []).length) { noRecipe.push(l); return; }
+    rec(l.productId, left(l), new Set([l.productId]));
+  });
+  const rows = Object.entries(acc).map(([mid, qty]) => {
+    const m = ERP.matById[mid] || ERP.matById[Number(mid)] || {};
+    return { material_id: Number(mid), name: (m.code ? m.code + " · " : "") + (m.name || ("материал № " + mid)), unit: m.unit || "", required: qty };
+  });
+  const baseName = l => { const p = (ERP.prodById || {})[l.productId] || {}; return `${p.code || l.code || ""} ${p.name || l.name || ""}`.trim(); };
+  const prodLabel = l => {
+    const q = erpToNum(l.qty) || 0, lf = left(l);
+    return `${baseName(l)} × ${erpNum(q)}` + (lf < q ? ` (доставени ${erpNum(q - lf)} → смятаме ${erpNum(lf)})` : "");
+  };
+  const head = `
+      <p style="margin:6px 0">📋 Заявка <b>№${escapeHtml(o.ourNo || "—")}</b> · ${escapeHtml(o.clientName || "—")} · ${escapeHtml(o.status || "нова")}</p>
+      <p class="hint" style="margin:0 0 4px">Смята се само за <b>остатъка</b> (поръчано − доставено). Изделия: ${lines.map(l => `<span class="mm-order">${escapeHtml(prodLabel(l))}</span>`).join(" ") || "—"}</p>
+      ${doneLines.length ? `<p class="hint" style="margin:4px 0">✅ Изцяло доставени (не влизат): ${doneLines.map(l => escapeHtml(`${baseName(l) || String(l.name || l.code || "")} × ${erpNum(erpToNum(l.qty) || 0)}`)).join(" · ")}</p>` : ""}
+      ${noRecipe.length ? `<p class="erp-warn" style="margin:4px 0">⚠ Без рецепта (не влизат в сметката): ${noRecipe.map(l => escapeHtml(prodLabel(l))).join(" · ")}</p>` : ""}
+      ${skipped.length ? `<p class="hint" style="margin:4px 0">ℹ Редове без продукт от номенклатурата (пропуснати): ${skipped.map(l => escapeHtml(String(l.name || l.code || ""))).join(" · ")}</p>` : ""}`;
+  return { rows, head };
+}
+
 async function erpComputeOrderRequirements() {
   if (erpReqBusy) return;
   const osel = document.getElementById("erp-req-order");
@@ -130,46 +173,50 @@ async function erpComputeOrderRequirements() {
     if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders();
     const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(erpReqOrderId));
     if (!o) { out.innerHTML = `<p class="erp-warn">Заявката не се намери — опресни екрана.</p>`; return; }
-    // Смята се за ОСТАТЪКА: поръчано − доставено (l.delivered, както в процента
-    // на заявката). Изцяло доставените редове не влизат, но се изброяват.
-    const left = l => { const q = erpToNum(l.qty) || 0; return Math.max(0, q - Math.min(Math.max(0, Number(l.delivered) || 0), q)); };
-    const lines = (o.lines || []).filter(l => l.productId && left(l) > 0);
-    const doneLines = (o.lines || []).filter(l => (l.productId || l.materialId) && (erpToNum(l.qty) || 0) > 0 && left(l) <= 0);
-    // Редове, които са директно МАТЕРИАЛ (без продукт) — влизат в нуждата 1:1.
-    const matLines = (o.lines || []).filter(l => !l.productId && l.materialId && left(l) > 0);
-    const skipped = (o.lines || []).filter(l => !l.productId && !l.materialId && String(l.name || l.code || "").trim());
-    const acc = {};
-    matLines.forEach(l => { acc[l.materialId] = (acc[l.materialId] || 0) + left(l); });
-    const rec = (pid, mult, anc) => {
-      (ERP.linesByProduct[pid] || []).forEach(l => {
-        if (l.material_id) acc[l.material_id] = (acc[l.material_id] || 0) + mult * (Number(l.quantity) || 1);
-        else if (l.child_product_id && !anc.has(l.child_product_id)) rec(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]));
-      });
-    };
-    const noRecipe = [];
-    lines.forEach(l => {
-      if (!(ERP.linesByProduct[l.productId] || []).length) { noRecipe.push(l); return; }
-      rec(l.productId, left(l), new Set([l.productId]));
-    });
-    erpReqRows = Object.entries(acc).map(([mid, qty]) => {
-      const m = ERP.matById[mid] || ERP.matById[Number(mid)] || {};
-      return { material_id: Number(mid), name: (m.code ? m.code + " · " : "") + (m.name || ("материал № " + mid)), unit: m.unit || "", required: qty };
-    });
-    const baseName = l => { const p = (ERP.prodById || {})[l.productId] || {}; return `${p.code || l.code || ""} ${p.name || l.name || ""}`.trim(); };
-    const prodLabel = l => {
-      const q = erpToNum(l.qty) || 0, lf = left(l);
-      return `${baseName(l)} × ${erpNum(q)}` + (lf < q ? ` (доставени ${erpNum(q - lf)} → смятаме ${erpNum(lf)})` : "");
-    };
-    erpReqHead = `
-      <p style="margin:6px 0">📋 Заявка <b>№${escapeHtml(o.ourNo || "—")}</b> · ${escapeHtml(o.clientName || "—")} · ${escapeHtml(o.status || "нова")}</p>
-      <p class="hint" style="margin:0 0 4px">Смята се само за <b>остатъка</b> (поръчано − доставено). Изделия: ${lines.map(l => `<span class="mm-order">${escapeHtml(prodLabel(l))}</span>`).join(" ") || "—"}</p>
-      ${doneLines.length ? `<p class="hint" style="margin:4px 0">✅ Изцяло доставени (не влизат): ${doneLines.map(l => escapeHtml(`${baseName(l) || String(l.name || l.code || "")} × ${erpNum(erpToNum(l.qty) || 0)}`)).join(" · ")}</p>` : ""}
-      ${noRecipe.length ? `<p class="erp-warn" style="margin:4px 0">⚠ Без рецепта (не влизат в сметката): ${noRecipe.map(l => escapeHtml(prodLabel(l))).join(" · ")}</p>` : ""}
-      ${skipped.length ? `<p class="hint" style="margin:4px 0">ℹ Редове без продукт от номенклатурата (пропуснати): ${skipped.map(l => escapeHtml(String(l.name || l.code || ""))).join(" · ")}</p>` : ""}`;
-    out.innerHTML = erpReqHead + (erpReqRows.length
-      ? erpReqTable(erpReqRows)
+    const r = erpReqBuildOrder(o);
+    erpReqRows = r.rows; erpReqHead = r.head;
+    out.innerHTML = r.head + (r.rows.length
+      ? erpReqTable(r.rows)
       : `<p class="report-empty">Нищо за смятане — заявката няма продуктови редове с рецепти.</p>`);
   } finally { erpReqBusy = false; }
+}
+
+/* 🧮 Диалогът „Разбивка по заявка" — пуска се и от Заявки за материали
+   (по Данко, 26.10): избираш заявка → какво е нужно за остатъка ѝ и
+   какво липсва, без да сменяш таба. */
+async function erpReqOrderDialog() {
+  try { if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded(); } catch (e) {}
+  try { if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders(); } catch (e) {}
+  let q = "", selId = null;
+  const { wrap, close } = erpDialog(`
+    <h3>🧮 Разбивка на нуждите по заявка</h3>
+    <div class="erp-toolbar" style="margin:0 0 8px">
+      <input type="search" id="rqd-q" placeholder="🔎 № или клиент…" style="min-width:220px" autocomplete="off" />
+      <select id="rqd-sel"><option value="">— избери заявка —</option></select>
+      <button class="btn btn-small btn-primary" id="rqd-go">Изчисли</button>
+    </div>
+    <div id="rqd-out" style="max-height:58vh;overflow:auto"><p class="hint">Избери заявка — виждаш суровините за ОСТАТЪКА ѝ срещу наличното в склада и какво трябва да се поръча.</p></div>
+    <div class="erp-dialog-actions"><button class="btn" id="rqd-close">Затвори</button></div>`);
+  try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
+  wrap.querySelector("#rqd-close").addEventListener("click", close);
+  const sel = wrap.querySelector("#rqd-sel");
+  const refill = () => { sel.innerHTML = `<option value="">— избери заявка —</option>` + erpReqOrderOptions(q, selId); };
+  refill();
+  wrap.querySelector("#rqd-q").addEventListener("input", e => {
+    q = e.target.value; refill();
+    const opts = [...sel.options].filter(x => x.value);
+    if (opts.length === 1) { sel.value = opts[0].value; selId = opts[0].value; }
+  });
+  sel.addEventListener("change", e => { selId = e.target.value || null; });
+  wrap.querySelector("#rqd-go").addEventListener("click", () => {
+    const out = wrap.querySelector("#rqd-out");
+    const id = sel.value || selId;
+    if (!id) { out.innerHTML = `<p class="erp-warn">Първо избери заявка (търси по № или клиент).</p>`; return; }
+    const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(id));
+    if (!o) { out.innerHTML = `<p class="erp-warn">Заявката не се намери.</p>`; return; }
+    const r = erpReqBuildOrder(o);
+    out.innerHTML = r.head + (r.rows.length ? erpReqTable(r.rows) : `<p class="report-empty">Нищо за смятане — заявката няма продуктови редове с рецепти.</p>`);
+  });
 }
 
 function erpReqTable(rows) {

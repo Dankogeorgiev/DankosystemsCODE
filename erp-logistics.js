@@ -732,6 +732,51 @@ async function erpRenderLogistics() {
       }).join("") || `<tr><td colspan="9" class="report-empty">Няма транспортни фактури — те идват от Покупки с вид разход „Транспорт износ / Транспорт вътрешен“ или от доставчик с категория „Транспорт / логистика“.</td></tr>`}</tbody>
     </table>
     <p class="hint">Попълни <b>Палети</b> (често се предлагат сами от текста) и <b>Дестинация</b> — записват се ВЕДНАГА и горе се сглобява сравнението: Ø цена на палет по дестинация и фирма. Получиш ли нова оферта, погледни реда на същата дестинация и я сравни.</p>`;
+  } else if (logiView === "tinv") {
+    // 🧾 Фактури транспорт (по Данко, 26.10): всяка покупка с вид „Транспорт
+    // износ/вътрешен" идва тук САМА (както Металите в папка Метали) —
+    // разделени, със суми, за следене на разходите. Отдолу: фактурите от
+    // превозвачи БЕЗ посочен вид — разнасят се с два бутона.
+    const f2 = n => (Math.round(n * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    let all = logiTransList().slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    if (q) all = all.filter(p => logiNorm([p.supplierName, p.invoiceNo, p.expenseType, logiTcostOf(p).dest, logiTransExtract(p).txt].join(" ")).includes(q));
+    const exp = all.filter(p => /износ/i.test(p.expenseType || ""));
+    const dom = all.filter(p => /вътрешен/i.test(p.expenseType || ""));
+    const untyped = all.filter(p => !/^транспорт/i.test(p.expenseType || ""));
+    const year = String(new Date().getFullYear());
+    const sect = (icon, title, rows) => {
+      const tot = rows.reduce((s2, p) => s2 + logiTransBase(p), 0);
+      const totY = rows.filter(p => String(p.date || "").indexOf(year) === 0).reduce((s2, p) => s2 + logiTransBase(p), 0);
+      return `
+      <h4 class="erp-group-head">${icon} ${title} — ${rows.length} фактури · <b>${f2(tot)} EUR</b> без ДДС${Math.abs(totY - tot) > 0.005 ? ` · за ${year} г.: ${f2(totY)} EUR` : ""}</h4>
+      <table class="report-table erp-table" style="margin-bottom:14px">
+        <thead><tr><th>Дата</th><th>№ Фактура</th><th>Транспортна фирма</th><th>Дестинация</th><th class="num">Сума без ДДС (EUR)</th><th>Редовете на фактурата</th></tr></thead>
+        <tbody>${rows.map(p => { const tc = logiTcostOf(p); const ex = logiTransExtract(p); return `<tr>
+          <td style="white-space:nowrap">${erpDMY(p.date) || "—"}</td>
+          <td><b>${escapeHtml(p.invoiceNo || "—")}</b></td>
+          <td>${escapeHtml(p.supplierName || "—")}</td>
+          <td>${escapeHtml(tc.dest || "")}</td>
+          <td class="num">${f2(logiTransBase(p))}</td>
+          <td class="erp-muted" style="max-width:340px;font-size:11.5px">${escapeHtml(ex.txt || "")}</td>
+        </tr>`; }).join("") || `<tr><td colspan="6" class="report-empty">Още няма фактури тук.</td></tr>`}</tbody>
+      </table>`;
+    };
+    body = `
+    <p class="hint" style="margin-top:0">Всяка покупка с вид разход <b>Транспорт износ</b> или <b>Транспорт вътрешен</b> идва тук сама — включително преместените от „Заявки за материали → Без група". Палети и дестинация се попълват в 📊 Анализ транспорт.</p>
+    ${sect("🚛", "Транспорт износ", exp)}
+    ${sect("🚐", "Транспорт вътрешен", dom)}
+    ${untyped.length ? `<h4 class="erp-group-head">🏷 От превозвачи, БЕЗ посочен вид (${untyped.length})</h4>
+    <p class="hint" style="margin:4px 0">Фактури от фирми с категория „Транспорт / логистика", но без вид разход — разнеси ги с бутоните (видът се записва в Покупки, общо за всички):</p>
+    <table class="report-table erp-table">
+      <thead><tr><th>Дата</th><th>№</th><th>Фирма</th><th class="num">Сума (EUR)</th><th>Редове</th><th></th></tr></thead>
+      <tbody>${untyped.map(p => { const ex = logiTransExtract(p); return `<tr>
+        <td style="white-space:nowrap">${erpDMY(p.date) || "—"}</td><td><b>${escapeHtml(p.invoiceNo || "—")}</b></td>
+        <td>${escapeHtml(p.supplierName || "—")}</td><td class="num">${f2(logiTransBase(p))}</td>
+        <td class="erp-muted" style="max-width:300px;font-size:11.5px">${escapeHtml(ex.txt || "")}</td>
+        <td class="erp-row-actions"><button class="btn btn-small lgi-settype" data-pid="${escapeAttr(String(p.id))}" data-t="Транспорт износ">🚛 износ</button>
+          <button class="btn btn-small lgi-settype" data-pid="${escapeAttr(String(p.id))}" data-t="Транспорт вътрешен">🚐 вътрешен</button></td>
+      </tr>`; }).join("")}</tbody>
+    </table>` : ""}`;
   } else if (logiView === "dest") {
     let dests = logiDestinations();
     if (q) dests = dests.filter(d => logiNorm([d.client, d.consignee, d.addr, d.country].join(" ")).includes(q));
@@ -781,6 +826,7 @@ async function erpRenderLogistics() {
       <button class="btn btn-small ${logiView === "loads" ? "btn-primary" : ""}" id="lgi-v-loads">📜 Товари (${(LOGI.loads || []).length})</button>
       <button class="btn btn-small ${logiView === "inq" ? "btn-primary" : ""}" id="lgi-v-inq">📨 Запитвания (${(LOGI.inq || []).length})</button>
       <button class="btn btn-small ${logiView === "trans" ? "btn-primary" : ""}" id="lgi-v-trans" title="Транспортните фактури от Покупки: дестинация, палети, цена на палет по фирма — за сравнение с нови оферти">📊 Анализ транспорт</button>
+      <button class="btn btn-small ${logiView === "tinv" ? "btn-primary" : ""}" id="lgi-v-tinv" title="Всички транспортни фактури от Покупки — Транспорт износ и Транспорт вътрешен поотделно, със суми за следене на разходите">🧾 Фактури транспорт</button>
       <input type="search" id="lgi-q" placeholder="🔎 поръчка / клиент / адрес / № фактура / превозвач… (Enter)" value="${escapeAttr(logiQ)}" style="min-width:250px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="lgi-inq" title="Свободно запитване за транспорт до избрани транспортни фирми">📨 Запитване за транспорт</button>
@@ -796,6 +842,31 @@ async function erpRenderLogistics() {
     try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
     erpRenderLogistics();
   });
+  v.querySelector("#lgi-v-tinv").addEventListener("click", async () => {
+    logiView = "tinv";
+    try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
+    erpRenderLogistics();
+  });
+  // 🏷 „Разнеси" от Фактури транспорт: видът се записва в purchases (свеж
+  // прочит преди записа) — промяната е обща; доставчикът се запомня с вида.
+  v.querySelectorAll(".lgi-settype").forEach(b => b.addEventListener("click", async () => {
+    const p0 = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).find(x => String(x.id) === String(b.dataset.pid));
+    const t = b.dataset.t;
+    if (!p0 || !t) return;
+    if (!confirm(`Фактура № ${p0.invoiceNo || "—"} на ${p0.supplierName || "—"} → вид „${t}"?\nПромяната е обща — вижда се и в Покупки, и в анализите.`)) return;
+    b.disabled = true;
+    try {
+      const { data, error } = await sb.from("purchases").select("data").eq("id", p0.id).maybeSingle();
+      if (error || !data) throw new Error((error && error.message) || "фактурата не се прочете");
+      const d = data.data || {};
+      d.expenseType = t;
+      const { error: e2 } = await sb.from("purchases").update({ data: d, updated_at: new Date().toISOString() }).eq("id", p0.id);
+      if (e2) throw e2;
+      p0.expenseType = t;
+      try { if (typeof matreqRememberGroup === "function") matreqRememberGroup(p0.supplierName, t); } catch (e) {}
+      erpRenderLogistics();
+    } catch (e) { alert("Не се записа: " + (e.message || e)); b.disabled = false; }
+  }));
   // 📊 Анализ: палети/дестинация по фактура — записват се веднага; сравнението
   // горе се преначертава чак когато редът е ПОПЪЛНЕН (да не губи фокуса).
   v.querySelectorAll(".tc-f").forEach(i => i.addEventListener("change", async () => {
