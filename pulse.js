@@ -492,15 +492,19 @@ async function pulseMonthly(v) {
       <thead><tr><th>Дата</th><th>Клиент</th><th class="num">Сума</th><th>Неплатено</th><th></th></tr></thead>
       <tbody>${(c005Store.list || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map(r => `
         <tr style="${r.unpaid ? "background:#fef2f2" : ""}">
-          <td>${escapeHtml(String(r.date || "").split("-").reverse().join("."))}</td>
-          <td><b>${escapeHtml(r.client || "")}</b></td>
-          <td class="num"><b>${eur(r.amount)}</b></td>
+          <td><input type="date" class="p5-f" data-id="${r.id}" data-f="date" value="${escapeAttr(r.date || "")}" style="width:135px" title="Датата се записва веднага при промяна" /></td>
+          <td><input type="text" class="p5-f" data-id="${r.id}" data-f="client" value="${escapeAttr(r.client || "")}" style="width:100%;min-width:140px;font-weight:700" title="Клиентът се записва веднага при промяна" /></td>
+          <td class="num"><input type="number" step="any" class="p5-f" data-id="${r.id}" data-f="amount" value="${escapeAttr(String(r.amount != null ? r.amount : ""))}" style="width:100px;text-align:right;font-weight:700" title="Сумата се записва веднага при промяна и сборът на месеца се преизчислява" /></td>
           <td><label class="erp-inline"><input type="checkbox" class="p5-up" data-id="${r.id}" ${r.unpaid ? "checked" : ""} /> ${r.unpaid ? `<b style="color:#b91c1c">не е платил</b>` : "платено"}</label></td>
-          <td><button class="btn btn-small p5-del" data-id="${r.id}" title="Маха записа от списъка — сумата ОСТАВА в месечния сбор">×</button></td>
+          <td><button class="btn btn-small btn-danger p5-del" data-id="${r.id}" title="Изтрива записа НАПЪЛНО — сумата ПАДА от месечния сбор">×</button></td>
         </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма записи — добави първия отгоре.</td></tr>`}
       </tbody>
     </table>
-    <p class="hint">Сборът за месеца влиза АВТОМАТИЧНО в колоната „005" горе. „×" чисти записа от списъка, но сумата му ОСТАВА в месечния сбор (продажбата се е случила). Отметката „неплатено" е за следене кой още дължи.</p>`;
+    ${Object.entries(c005Store.deleted || {}).filter(([, s]) => Number(s)).length ? `
+    <p style="margin:8px 0 2px"><b>🧹 Стари изчистени записи (влизат в сбора на месеца)</b> <span class="erp-muted" style="font-size:12px">— поправи сумата, ако вътре е влязла грешка; 0 я маха напълно</span></p>
+    <div class="erp-toolbar" style="margin:0 0 6px;flex-wrap:wrap">${Object.entries(c005Store.deleted || {}).filter(([, s]) => Number(s)).sort((a, b) => b[0].localeCompare(a[0])).map(([m, s]) => `
+      <label class="erp-inline">${escapeHtml(m)} <input type="number" step="any" class="p5-delfix" data-m="${escapeAttr(m)}" value="${escapeAttr(String(Math.round(Number(s) * 100) / 100))}" style="width:110px;text-align:right" /> €</label>`).join("")}</div>` : ""}
+    <p class="hint">Сборът за месеца влиза АВТОМАТИЧНО в колоната „005" горе. Датата, клиентът и сумата се поправят НАПРАВО в реда — записва се веднага. „×" изтрива записа НАПЪЛНО (сумата пада от сбора). Отметката „неплатено" е за следене кой още дължи.</p>`;
 
   const collect = () => {
     v.querySelectorAll(".pum-in").forEach(i => {
@@ -551,13 +555,28 @@ async function pulseMonthly(v) {
     const r = c005Store.list.find(x => String(x.id) === c.dataset.id);
     if (r) { r.unpaid = c.checked; await pulseC005Save(c005Store); pulseMonthly(v); }
   }));
+  // Поправка НА МЯСТО (Данко, 26.10.2026): дата/клиент/сума се записват при
+  // промяна и сборът на месеца се преизчислява веднага.
+  v.querySelectorAll(".p5-f").forEach(inp => inp.addEventListener("change", async () => {
+    const r = c005Store.list.find(x => String(x.id) === inp.dataset.id);
+    if (!r) return;
+    const f = inp.dataset.f;
+    r[f] = f === "amount" ? (Number(inp.value) || 0) : inp.value.trim();
+    if (await pulseC005Save(c005Store)) pulseMonthly(v);
+  }));
+  // Старите „изчистени" суми (навремето ✕ ги местеше тук) — вече се коригират.
+  v.querySelectorAll(".p5-delfix").forEach(inp => inp.addEventListener("change", async () => {
+    const m = inp.dataset.m;
+    const val = Number(inp.value) || 0;
+    if (val) c005Store.deleted[m] = val; else delete c005Store.deleted[m];
+    if (await pulseC005Save(c005Store)) pulseMonthly(v);
+  }));
   v.querySelectorAll(".p5-del").forEach(b => b.addEventListener("click", async () => {
     const i = c005Store.list.findIndex(x => String(x.id) === b.dataset.id);
     if (i < 0) return;
     const r = c005Store.list[i];
-    if (!confirm(`Махам записа „${r.client} — ${(Number(r.amount) || 0).toFixed(2)} €" от списъка.\nСумата ОСТАВА в месечния сбор 005. Продължавам?`)) return;
-    const m = String(r.date || "").slice(0, 7);
-    c005Store.deleted[m] = (Number(c005Store.deleted[m]) || 0) + (Number(r.amount) || 0);
+    // Данко, 26.10.2026: ✕ вече трие НАПЪЛНО — грешен запис пада и от сбора.
+    if (!confirm(`🗑 Изтривам записа „${r.client} — ${(Number(r.amount) || 0).toFixed(2)} €" НАПЪЛНО.\nСумата ПАДА от месечния сбор 005. Продължавам?`)) return;
     c005Store.list.splice(i, 1);
     if (await pulseC005Save(c005Store)) pulseMonthly(v);
   }));
