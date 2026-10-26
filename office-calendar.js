@@ -132,7 +132,7 @@ async function calRender() {
     const evs = (CAL_EVENTS || []).filter(e => calOccursOn(e, ds));
     cells += `<div class="cal-cell${ds === todayStr ? " cal-today" : ""}">
       <div class="cal-daynum">${d}</div>
-      ${evs.map(e => `<div class="cal-ev cal-ev-${e.type}" title="${escapeAttr(e.text + " · " + calEventLabel(e))}">${escapeHtml(e.text.length > 46 ? e.text.slice(0, 44) + "…" : e.text)}<span class="cal-del" data-caldel="${e.id}" title="Изтрий">×</span></div>`).join("")}
+      ${evs.map(e => `<div class="cal-ev cal-ev-${e.type}" data-calview="${e.id}" style="cursor:pointer" title="Клик = целият текст">${escapeHtml(e.text.length > 46 ? e.text.slice(0, 44) + "…" : e.text)}<span class="cal-del" data-caldel="${e.id}" title="Изтрий">×</span></div>`).join("")}
     </div>`;
   }
 
@@ -175,6 +175,18 @@ async function calRender() {
   };
   v.querySelectorAll('input[name="cal-type"]').forEach(r => r.addEventListener("change", paintExtra));
   paintExtra();
+  // Клик върху бележка → целият текст (Данко, 26.10.2026: „…" не се чете).
+  v.querySelectorAll("[data-calview]").forEach(el => el.addEventListener("click", ev0 => {
+    if (ev0.target.closest(".cal-del")) return;   // ×-то си е изтриване
+    const e = (CAL_EVENTS || []).find(x => String(x.id) === el.dataset.calview);
+    if (!e || typeof erpDialog !== "function") return;
+    const { wrap, close } = erpDialog(`
+      <h3>📅 Бележка</h3>
+      <p style="white-space:pre-wrap;font-size:15px;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px">${escapeHtml(e.text)}</p>
+      <p class="hint" style="margin:6px 0 0">Повторение: <b>${escapeHtml(calEventLabel(e))}</b></p>
+      <div class="erp-dialog-actions"><button class="btn" id="calv-close">Затвори</button></div>`);
+    wrap.querySelector("#calv-close").addEventListener("click", close);
+  }));
   v.querySelectorAll("[data-caldel]").forEach(x => x.addEventListener("click", async () => {
     const ev = (CAL_EVENTS || []).find(e => String(e.id) === x.dataset.caldel);
     if (!ev) return;
