@@ -273,17 +273,24 @@ function erpPuAIDraw() {
     </div>`;
   document.getElementById("pai-back").addEventListener("click", () => { if (confirm("Да се откажа? Черновата още не е създадена.")) erpRenderPurchases(); });
   document.getElementById("pai-confirm").addEventListener("click", erpPuAIConfirm);
-  // Видът разход по памет: първо от ПАСПОРТА на доставчика (запомня се при
-  // всеки запис на покупка и при „➡ премести"), после от историята му.
+  // Видът разход по памет: ПЪРВО по продуктите от фактурата (override на
+  // артикула / складовата група — продуктът определя категорията, не
+  // доставчикът), после паспортът на доставчика, накрая историята му.
   const paiEtypeFromMemory = async name => {
-    if (!name || s.expenseType) return;
+    if (s.expenseType) return;
     let et = "";
     try {
-      if (typeof suppLoad === "function") await suppLoad();
-      const rec = (typeof suppProfile === "function") ? suppProfile(name) : null;
-      et = (rec && rec.expenseType) || "";
+      if (typeof matreqGrpOvrLoad === "function") await matreqGrpOvrLoad();
+      if (typeof matreqGuessTypeFromLines === "function") et = matreqGuessTypeFromLines(s.rows) || "";
     } catch (e) {}
-    if (!et && typeof erpPuSupplierProfile === "function") { const p = erpPuSupplierProfile(name); et = (p && p.expenseType) || ""; }
+    if (!et && name) {
+      try {
+        if (typeof suppLoad === "function") await suppLoad();
+        const rec = (typeof suppProfile === "function") ? suppProfile(name) : null;
+        et = (rec && rec.expenseType) || "";
+      } catch (e) {}
+      if (!et && typeof erpPuSupplierProfile === "function") { const p = erpPuSupplierProfile(name); et = (p && p.expenseType) || ""; }
+    }
     if (et) { s.expenseType = et; const el = document.getElementById("pai-etype"); if (el) el.value = et; }
   };
   document.getElementById("pai-sup").addEventListener("input", e => {

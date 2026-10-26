@@ -69,10 +69,11 @@ async function erpSavePurchase(o) {
     if (error) throw error;
     o.id = ins.id;
   }
-  // Видът разход се ЗАПОМНЯ по доставчик (по Данко, 26.10): следващата му
-  // фактура — ръчна или AI — го получава сама (от паспорта). Тихо.
+  // Видът разход се ЗАПОМНЯ по доставчик САМО първия път (по Данко, 26.10:
+  // продуктът определя категорията, не доставчикът — при смесен доставчик
+  // паспортът не се мята от всяка фактура; ➡ преместването презаписва).
   try {
-    if (o.supplierName && o.expenseType && typeof matreqRememberGroup === "function") matreqRememberGroup(o.supplierName, o.expenseType);
+    if (o.supplierName && o.expenseType && typeof matreqRememberGroup === "function") matreqRememberGroup(o.supplierName, o.expenseType, true);
   } catch (e) {}
 }
 /* Доставчиците се кешират за 2 минути: формата се пре-рисува при всяка смяна

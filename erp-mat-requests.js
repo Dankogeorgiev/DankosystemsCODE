@@ -366,9 +366,38 @@ async function matreqMoveDocs(sk, fromGroup, toGroup) {
   if (fail) alert(`⚠ Преместени ${ok}, неуспешни ${fail}. Натисни „↻ Обнови" и опитай пак за останалите.`);
   return ok > 0;
 }
+/* Групата на един РЕД за предложението на вида: override на артикула →
+   складовата група на материала → groupName на реда. ПРОДУКТЪТ определя
+   категорията, не доставчикът (Данко, 26.10). */
+function matreqGroupOfLine(mid, article, lineGroupName) {
+  const r = (MATREQ_GRP_OVR || {})[matreqNoteKey(mid, article)];
+  if (r && r.group && MATREQ_GROUPS.includes(r.group)) return r.group;
+  const m = mid && (typeof ERP !== "undefined" && ERP.matById) ? ERP.matById[Number(mid)] : null;
+  const g = String((m && m.group_name) || lineGroupName || "").toLowerCase();
+  if (!g) return "";
+  return MATREQ_GROUPS.find(G => g === G.toLowerCase() || g.indexOf(G.toLowerCase()) === 0) || "";
+}
+/* Предложеният вид разход за документ С РЕДОВЕ: мнозинството от групите
+   на артикулите му (празно, ако нищо не се разпознава). */
+function matreqGuessTypeFromLines(lines) {
+  const cnt = {};
+  (lines || []).forEach(l => {
+    const nm = String((l && (l.article || l.name)) || "").trim();
+    if (!nm || /^разход$/i.test(nm)) return;
+    const g = matreqGroupOfLine(l.materialId, nm, l.groupName);
+    if (g) cnt[g] = (cnt[g] || 0) + 1;
+  });
+  let best = "", n = 0;
+  Object.entries(cnt).forEach(([g, c]) => { if (c > n) { best = g; n = c; } });
+  return best;
+}
+
 /* Преместването се ЗАПОМНЯ (по Данко): групата влиза в паспорта на
-   доставчика (expenseType) — нова покупка от него си я получава сама. */
-async function matreqRememberGroup(name, group) {
+   доставчика (expenseType) — нова покупка от него си я получава сама.
+   onlyIfEmpty=true (записът на покупка): пише се само ПЪРВИЯ път — при
+   смесени доставчици (крепежи + консумативи) паспортът не бива да се
+   мята от всяка фактура; изричното ➡ преместване презаписва. */
+async function matreqRememberGroup(name, group, onlyIfEmpty) {
   try {
     if (!String(name || "").trim() || !group || typeof sb === "undefined" || !sb) return;
     const canon = (typeof suppCanon === "function") ? suppCanon(name) : String(name).trim();
@@ -380,6 +409,7 @@ async function matreqRememberGroup(name, group) {
     const byKey = cur.byKey || {};
     const p = byKey[k];
     if (p && p.expenseType === group) return;
+    if (onlyIfEmpty && p && p.expenseType) return;
     byKey[k] = Object.assign({ name: canon }, p || {}, {
       expenseType: group,
       updatedAt: new Date().toISOString(),
