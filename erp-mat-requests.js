@@ -121,49 +121,72 @@ function matreqArtGroup(mid, article, docGroup) {
   if (r && r.group && (MATREQ_GROUPS.includes(r.group) || r.group === MATREQ_NOGRP)) return r.group;
   return docGroup;
 }
-/* ---------- ℹ Насоки за поръчки по група (по Данко, 26.10) ----------
-   Ръчен текст на всяка папка (какво/откъде/как се поръчва) — пази се в
-   app_config mat_group_info, свеж прочит + сливане само на своя ключ. */
-let MATREQ_GINFO = null;
-async function matreqGrpInfoLoad(force) {
-  if (MATREQ_GINFO && !force) return MATREQ_GINFO;
+/* ---------- 📝 Описание на доставчик (по Данко, 26.10) ----------
+   Ръчен текст след името на доставчика в списъка на групата — дълъг е,
+   затова в клетката стои съкратен, а при посочване излиза ЦЕЛИЯТ с едър
+   шрифт (плаващият прозорец mr-bigtip). Пази се по доставчик в app_config
+   mat_supplier_desc — свеж прочит + сливане само на своя ключ. */
+let MATREQ_SDESC = null;
+async function matreqSuppDescLoad(force) {
+  if (MATREQ_SDESC && !force) return MATREQ_SDESC;
   try {
-    const { data } = await sb.from("app_config").select("data").eq("id", "mat_group_info").maybeSingle();
-    MATREQ_GINFO = (data && data.data && data.data.byGroup) || {};
-  } catch (e) { MATREQ_GINFO = MATREQ_GINFO || {}; }
-  return MATREQ_GINFO;
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_supplier_desc").maybeSingle();
+    MATREQ_SDESC = (data && data.data && data.data.byKey) || {};
+  } catch (e) { MATREQ_SDESC = MATREQ_SDESC || {}; }
+  return MATREQ_SDESC;
 }
-function matreqGrpInfoOf(g) { const r = (MATREQ_GINFO || {})[g]; return (r && r.text) || ""; }
-async function matreqGrpInfoSave(g, text) {
+function matreqSuppDescOf(sk) { const r = (MATREQ_SDESC || {})[sk]; return (r && r.text) || ""; }
+async function matreqSuppDescSave(sk, name, text) {
   try {
-    if (!g || typeof sb === "undefined" || !sb) return false;
+    if (!sk || typeof sb === "undefined" || !sb) return false;
     text = String(text || "").trim();
-    const { data, error } = await sb.from("app_config").select("data").eq("id", "mat_group_info").maybeSingle();
-    if (error) { alert("Насоките не се записаха: " + error.message); return false; }
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "mat_supplier_desc").maybeSingle();
+    if (error) { alert("Описанието не се записа: " + error.message); return false; }
     const cur = (data && data.data) || {};
-    const byGroup = cur.byGroup || {};
-    if (text) byGroup[g] = { text, updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "" };
-    else delete byGroup[g];
-    const { error: e2 } = await sb.from("app_config").upsert({ id: "mat_group_info", data: Object.assign({}, cur, { byGroup }), updated_at: new Date().toISOString() });
-    if (e2) { alert("Насоките не се записаха: " + e2.message); return false; }
-    MATREQ_GINFO = byGroup;
+    const byKey = cur.byKey || {};
+    if (text) byKey[sk] = { text, name: name || "", updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "" };
+    else delete byKey[sk];
+    const { error: e2 } = await sb.from("app_config").upsert({ id: "mat_supplier_desc", data: Object.assign({}, cur, { byKey }), updated_at: new Date().toISOString() });
+    if (e2) { alert("Описанието не се записа: " + e2.message); return false; }
+    MATREQ_SDESC = byKey;
     return true;
   } catch (e) { return false; }
 }
-function matreqGrpInfoDialog(g, after) {
-  const r = (MATREQ_GINFO || {})[g] || {};
+function matreqSuppDescDialog(sk, name, after) {
+  const r = (MATREQ_SDESC || {})[sk] || {};
   const { wrap, close } = erpDialog(`
-    <h3>${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)} — ℹ насоки за поръчки</h3>
-    <p class="hint">Свободен текст — какво се поръчва оттук, от кого, на какви партиди, за какво да се внимава. Виждат го всички.</p>
-    <textarea id="mgi-text" rows="8" style="width:100%">${escapeHtml(r.text || "")}</textarea>
+    <h3>📝 ${escapeHtml(name)} — описание</h3>
+    <p class="hint">Свободен текст за този доставчик — какво поръчваме от него, условия, контакти, особености. Вижда се в списъка (и целият — при посочване с мишката).</p>
+    <textarea id="msd-text" rows="8" style="width:100%">${escapeHtml(r.text || "")}</textarea>
     ${r.updatedAt ? `<p class="erp-muted" style="font-size:11.5px;margin:4px 0 0">Последна промяна: ${matreqFmt(String(r.updatedAt).slice(0, 10))}${r.updatedBy ? " · " + escapeHtml(r.updatedBy) : ""}</p>` : ""}
-    <div class="erp-dialog-actions"><button class="btn" id="mgi-cancel">Отказ</button><button class="btn btn-primary" id="mgi-save">💾 Запази</button></div>`);
-  wrap.querySelector("#mgi-cancel").addEventListener("click", close);
-  wrap.querySelector("#mgi-save").addEventListener("click", async e => {
+    <div class="erp-dialog-actions"><button class="btn" id="msd-cancel">Отказ</button><button class="btn btn-primary" id="msd-save">💾 Запази</button></div>`);
+  wrap.querySelector("#msd-cancel").addEventListener("click", close);
+  wrap.querySelector("#msd-save").addEventListener("click", async e => {
     e.target.disabled = true;
-    const ok = await matreqGrpInfoSave(g, wrap.querySelector("#mgi-text").value);
+    const ok = await matreqSuppDescSave(sk, name, wrap.querySelector("#msd-text").value);
     e.target.disabled = false;
     if (ok) { close(); if (typeof after === "function") after(); }
+  });
+}
+/* Плаващият едър прозорец при посочване (елементи с data-bigtip). */
+function matreqBigTipWire(root) {
+  let tip = document.getElementById("mr-bigtip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "mr-bigtip";
+    tip.style.cssText = "position:fixed;z-index:99999;max-width:540px;background:#1e293b;color:#fff;font-size:16.5px;line-height:1.55;padding:12px 16px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:none;white-space:pre-wrap;pointer-events:none";
+    document.body.appendChild(tip);
+  }
+  root.querySelectorAll("[data-bigtip]").forEach(el => {
+    el.addEventListener("mouseenter", () => {
+      const t = el.dataset.bigtip; if (!t) return;
+      tip.textContent = t;
+      tip.style.display = "block";
+      const r = el.getBoundingClientRect();
+      tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 560)) + "px";
+      tip.style.top = Math.min(r.bottom + 6, window.innerHeight - 200) + "px";
+    });
+    el.addEventListener("mouseleave", () => { tip.style.display = "none"; });
   });
 }
 
@@ -722,7 +745,7 @@ async function erpRenderMatRequests(keepCache) {
     try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
     try { await matreqNotesLoad(!keepCache); } catch (e) {}
     try { await matreqGrpOvrLoad(!keepCache); } catch (e) {}
-    try { await matreqGrpInfoLoad(!keepCache); } catch (e) {}
+    try { await matreqSuppDescLoad(!keepCache); } catch (e) {}
   }
   const activeN = (MATREQ || []).filter(r => r.status !== "доставено").length;
   const view = MATREQ_NAV.view;
@@ -785,29 +808,19 @@ function matreqRenderGroupGrid(box, groups) {
     const m = groups.get(g);
     if (g === MATREQ_NOGRP && !m.size) return "";
     const docs = [...m.values()].reduce((s, r) => s + r.docs, 0);
-    const info = matreqGrpInfoOf(g);
-    return `<div style="position:relative">
-      <button type="button" class="btn" data-mrg="${escapeAttr(g)}" ${m.size ? "" : "disabled"}
-      style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 10px 24px;height:auto;white-space:normal;width:100%"
+    return `<button type="button" class="btn" data-mrg="${escapeAttr(g)}" ${m.size ? "" : "disabled"}
+      style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 10px;height:auto;white-space:normal"
       title="${m.size ? `${m.size} доставчици — клик за списъка` : "Още няма покупки от този вид"}">
       <span style="font-size:30px;line-height:1">${MATREQ_ICONS[g] || "📁"}</span>
       <b style="font-size:14px">${escapeHtml(g)}</b>
       <span class="erp-muted" style="font-size:12px">${m.size ? `${m.size} доставчици · ${docs} документа` : "няма покупки"}</span>
-      </button>
-      <button type="button" class="btn btn-small mr-ginfo" data-gi="${escapeAttr(g)}"
-        style="position:absolute;right:6px;bottom:6px;padding:1px 8px;border-radius:50%;font-size:12.5px;${info ? "background:#dbeafe;border-color:#93c5fd" : "opacity:.55"}"
-        title="${info ? escapeAttr(info) : "ℹ Насоки за поръчки — попълни ги (какво, от кого, на какви партиди)"}">ℹ</button>
-    </div>`;
+    </button>`;
   }).join("");
   box.innerHTML = `
     <p class="hint">Групите материали от Покупки като папки. Влез в папка → доставчиците ѝ и какво сме купували от всеки → отметни артикули → 🛒 заявката се пише сама. „${MATREQ_NOGRP}" събира ВСИЧКО извън материалните групи — фактури без вид разход И с вид като Ток/Други разходи (вкл. грешно класираните): колоната „Вид (Покупки)" показва какъв е сега, а ➡ разпределя. Транспортните са си в Логистика → 🧾 Фактури транспорт.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-top:6px">${cards}</div>`;
   box.querySelectorAll("[data-mrg]").forEach(b => b.addEventListener("click", () => {
     MATREQ_NAV.group = b.dataset.mrg; MATREQ_NAV.supplier = null; erpRenderMatRequests(true);
-  }));
-  box.querySelectorAll(".mr-ginfo").forEach(b => b.addEventListener("click", e => {
-    e.stopPropagation();
-    matreqGrpInfoDialog(b.dataset.gi, () => erpRenderMatRequests(true));
   }));
 }
 
@@ -818,34 +831,38 @@ function matreqRenderGroupSuppliers(box, m) {
     <div class="erp-toolbar" style="margin:0 0 6px">
       <button class="btn btn-small" id="mr-back-root">← Всички групи</button>
       <span class="erp-count">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)} — ${rows.length} доставчици</span>
-      <button class="btn btn-small mr-ginfo" data-gi="${escapeAttr(g)}" title="Насоките за поръчки на тази група — попълваш ги ти">ℹ Насоки</button>
       <span class="spacer"></span>
       <input type="search" id="mr-q" placeholder="търси доставчик…" style="width:200px" />
     </div>
-    ${matreqGrpInfoOf(g) ? `<p class="hint" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 10px;white-space:pre-wrap">ℹ ${escapeHtml(matreqGrpInfoOf(g))}</p>` : ""}
     <p class="hint">Клик върху доставчик → какво сме купували от него (с последни цени) и бърза заявка. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Доставчик</th>${g === MATREQ_NOGRP ? '<th>Вид (Покупки)</th>' : ""}<th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
+      <thead><tr><th>Доставчик</th><th>📝 Описание</th>${g === MATREQ_NOGRP ? '<th>Вид (Покупки)</th>' : ""}<th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
         <td><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
+        <td class="mr-sdesc" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" ${matreqSuppDescOf(r.sk) ? `data-bigtip="${escapeAttr(matreqSuppDescOf(r.sk))}"` : ""} title="Клик = редакция на описанието" style="cursor:pointer;max-width:240px">${matreqSuppDescOf(r.sk) ? `<span style="display:block;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px">${escapeHtml(matreqSuppDescOf(r.sk))}</span>` : '<span class="erp-muted" style="font-size:12px">— добави описание</span>'}</td>
         ${g === MATREQ_NOGRP ? `<td class="erp-muted" style="font-size:12px" title="Как са класирани документите му в Покупки сега">${escapeHtml([...(r.types || [])].join(", "))}</td>` : ""}
         <td class="num">${r.docs}</td>
         <td class="num cost-cell">${matreqEurInt(r.eur)}</td>
         <td>${matreqFmt(r.last)}</td>
         <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
-      </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
     </table>`;
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
-  box.querySelectorAll(".mr-ginfo").forEach(b => b.addEventListener("click", () => matreqGrpInfoDialog(b.dataset.gi, () => erpRenderMatRequests(true))));
   const q = box.querySelector("#mr-q");
   q.addEventListener("input", () => {
     const s = q.value.toLowerCase().trim();
     box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
   });
   box.querySelectorAll("[data-mrs]").forEach(el => el.addEventListener("click", e => {
-    if (el.tagName === "TR" && e.target.closest("button, select, .mr-pass")) return;
+    if (el.tagName === "TR" && e.target.closest("button, select, .mr-pass, .mr-sdesc")) return;
     MATREQ_NAV.supplier = el.dataset.mrs; erpRenderMatRequests(true);
   }));
+  // 📝 Описанието: клик = редакция; посочване = целият текст с едър шрифт.
+  box.querySelectorAll(".mr-sdesc").forEach(td => td.addEventListener("click", e => {
+    e.stopPropagation();
+    matreqSuppDescDialog(td.dataset.sk, td.dataset.name, () => erpRenderMatRequests(true));
+  }));
+  matreqBigTipWire(box);
   // 🏷 Паспортът на доставчика — направо от името (по Данко, 26.10).
   box.querySelectorAll(".mr-pass").forEach(a => a.addEventListener("click", e => {
     e.preventDefault(); e.stopPropagation();
