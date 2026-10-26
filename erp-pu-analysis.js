@@ -33,6 +33,10 @@ function puaBuild(from, to) {
     .filter(p => { const m = puaMonth(p); return m && m >= from && m <= to; });
   const byType = new Map(), byVendor = new Map(), byMonth = new Map();
   const metals = { kg: 0, eur: 0, byKind: new Map(), byMonth: new Map() };
+  // Складовите редове (с избран „Материал (склад)") — ТЕ влизат в склада,
+  // независимо от вида разход. Групираме ги по складова група, за да се
+  // види какво реално заприходяваме и дали нещо виси под грешен вид.
+  const stock = { lines: 0, eur: 0, byGroup: new Map(), nonMat: new Map(), typesWithStock: new Set() };
   let total = 0;
   rows.forEach(p => {
     const base = puaBase(p);
@@ -43,6 +47,27 @@ function puaBuild(from, to) {
     const bv = byVendor.get(vn) || { sum: 0, n: 0 }; bv.sum += base; bv.n++; byVendor.set(vn, bv);
     const m = puaMonth(p);
     byMonth.set(m, (byMonth.get(m) || 0) + base);
+    {
+      const k = puaK(p), sign = p.docType === "credit" ? -1 : 1;
+      const isMat = !!(p.expenseType && typeof erpPuTypeIsMat === "function" && erpPuTypeIsMat(p.expenseType));
+      (p.lines || []).forEach(l => {
+        if (!l.materialId) return;
+        const eur = (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0) * k * sign;
+        stock.lines++; stock.eur += eur; stock.typesWithStock.add(t);
+        const nm = l.article || l.name || "";
+        const g = l.groupName || "— без група";
+        const bg = stock.byGroup.get(g) || { n: 0, eur: 0, types: new Set(), ex: [] };
+        bg.n++; bg.eur += eur; bg.types.add(t);
+        if (nm && bg.ex.length < 3 && !bg.ex.includes(nm)) bg.ex.push(nm);
+        stock.byGroup.set(g, bg);
+        if (!isMat) {
+          const bn = stock.nonMat.get(t) || { n: 0, eur: 0, ex: [] };
+          bn.n++; bn.eur += eur;
+          if (nm && bn.ex.length < 3 && !bn.ex.includes(nm)) bn.ex.push(nm);
+          stock.nonMat.set(t, bn);
+        }
+      });
+    }
     // Металите в килограми — редовете на фактурите „Метали" с мерна единица кг/тон.
     if (p.expenseType === "Метали") {
       const k = puaK(p);
@@ -62,7 +87,7 @@ function puaBuild(from, to) {
       });
     }
   });
-  return { from, to, count: rows.length, total, byType, byVendor, byMonth, metals };
+  return { from, to, count: rows.length, total, byType, byVendor, byMonth, metals, stock };
 }
 
 function puaRender(d) {
@@ -71,12 +96,26 @@ function puaRender(d) {
   const monthRows = [...d.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const kindRows = [...d.metals.byKind.entries()].sort((a, b) => b[1].eur - a[1].eur);
   const mm = [...d.metals.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const sgRows = [...d.stock.byGroup.entries()].sort((a, b) => b[1].eur - a[1].eur);
+  const nmRows = [...d.stock.nonMat.entries()].sort((a, b) => b[1].n - a[1].n);
+  // Материални видове, по които ИМА фактури, но нито един ред не е минал
+  // през „Материал (склад)" — т.е. купеното не е влязло в наличностите.
+  const matIdle = (typeof PU_EXPENSE_TYPES !== "undefined" ? PU_EXPENSE_TYPES : [])
+    .filter(t => t.mat && d.byType.has(t.k) && !d.stock.typesWithStock.has(t.k)).map(t => t.k);
+  const stockHtml = d.stock.lines ? `
+    <h4 class="erp-group-head">📦 Какво влиза в склада (заприходявани редове)</h4>
+    <p style="margin:4px 0"><b>${d.stock.lines}</b> складови реда за <b>${puaF2(d.stock.eur)} EUR</b>. В склада влиза всеки ред, добавен с „Материал (склад)" — независимо от вида разход на фактурата.</p>
+    <table class="report-table erp-table"><thead><tr><th>Група (склад)</th><th class="num">Редове</th><th class="num">EUR</th><th>Вид разход</th><th>Примери</th></tr></thead>
+      <tbody>${sgRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${x.n}</td><td class="num">${puaF2(x.eur)}</td><td>${escapeHtml([...x.types].join(", "))}</td><td class="erp-muted">${escapeHtml(x.ex.join(" · "))}</td></tr>`).join("")}</tbody></table>
+    ${nmRows.length ? `<p style="margin:6px 0;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px">⚠ <b>Складови редове под НЕ-материален вид разход:</b><br>${nmRows.map(([k, x]) => `• <b>${escapeHtml(k)}</b> — ${x.n} реда (${puaF2(x.eur)} EUR)${x.ex.length ? ": " + escapeHtml(x.ex.join(" · ")) : ""}`).join("<br>")}<br><span class="erp-muted">Тези редове СА влезли в склада. Ако видът е верен, значи и той вкарва материали — кажи да го отбележим като материален (🧱).</span></p>` : `<p class="hint">Всички складови редове са под материалните видове (🧱). ✔</p>`}
+    ${matIdle.length ? `<p class="hint">ℹ Материални видове с фактури, но БЕЗ нито един складов ред в периода: <b>${escapeHtml(matIdle.join(", "))}</b> — редовете им са въведени като „разход/услуга" и НЕ са вдигнали наличности.</p>` : ""}` : "";
   return `
     <p style="margin:6px 0"><b>${d.count}</b> документа за периода · общо <b>${puaF2(d.total)} EUR</b> без ДДС</p>
     <div id="pua-ai" style="margin:8px 0"></div>
     <h4 class="erp-group-head">По вид разход</h4>
     <table class="report-table erp-table"><thead><tr><th>Вид</th><th class="num">Сума (EUR)</th><th class="num">Дял</th><th class="num">Фактури</th></tr></thead>
       <tbody>${typeRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${puaF2(x.sum)}</td><td class="num">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+    ${stockHtml}
     ${d.metals.kg ? `<h4 class="erp-group-head">Метали в килограми</h4>
     <p style="margin:4px 0">Общо <b>${erpNum(Math.round(d.metals.kg))} кг</b> за <b>${puaF2(d.metals.eur)} EUR</b> · Ø <b>${puaF2(d.metals.eur / d.metals.kg)} €/кг</b></p>
     <table class="report-table erp-table"><thead><tr><th>Подвид</th><th class="num">Кг</th><th class="num">EUR</th><th class="num">Ø €/кг</th></tr></thead>
@@ -102,10 +141,16 @@ function puaSummaryText(d) {
   const mk = [...d.metals.byKind.entries()].map(([k, x]) => `${k}: ${Math.round(x.kg)} кг @ ${x.kg ? (x.eur / x.kg).toFixed(2) : "?"} €/кг`).join("; ");
   const mm = [...d.metals.byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([k, x]) => `${k}: ${Math.round(x.kg)} кг @ ${x.kg ? (x.eur / x.kg).toFixed(2) : "?"}`).join("; ");
+  const sg = [...d.stock.byGroup.entries()].sort((a, b) => b[1].eur - a[1].eur).slice(0, 12)
+    .map(([k, x]) => `${k}: ${x.n} реда / ${Math.round(x.eur)} EUR (вид: ${[...x.types].join("+")})`).join("; ");
+  const nm = [...d.stock.nonMat.entries()]
+    .map(([k, x]) => `${k}: ${x.n} реда (${x.ex.join(", ")})`).join("; ");
   return `Период: ${d.from} до ${d.to}. Общо покупки: ${Math.round(d.total)} EUR без ДДС, ${d.count} документа.
 По вид: ${t}.
 Метали общо: ${Math.round(d.metals.kg)} кг за ${Math.round(d.metals.eur)} EUR (средно ${d.metals.kg ? (d.metals.eur / d.metals.kg).toFixed(2) : "?"} €/кг). По подвид: ${mk}.
 Метали по месец (кг @ €/кг): ${mm}.
+Складови (заприходявани) редове: ${d.stock.lines} за ${Math.round(d.stock.eur)} EUR. По складова група: ${sg || "няма"}.
+Складови редове под НЕ-материален вид разход: ${nm || "няма"}.
 Топ доставчици: ${v}.
 Общо по месец: ${m}.`;
 }
