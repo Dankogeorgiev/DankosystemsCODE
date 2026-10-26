@@ -77,9 +77,15 @@ function suppLabel(list, k) { const x = (list || []).find(i => i[0] === k); retu
 async function suppLoad() {
   if (SUPP_PROFILES) return SUPP_PROFILES;
   try {
-    const { data } = await sb.from("app_config").select("data").eq("id", "supplier_profiles").maybeSingle();
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "supplier_profiles").maybeSingle();
+    if (error) throw error;
     SUPP_PROFILES = { byKey: (data && data.data && data.data.byKey) || {}, aliases: (data && data.data && data.data.aliases) || {} };
-  } catch (e) { SUPP_PROFILES = { byKey: {}, aliases: {} }; }
+  } catch (e) {
+    // ПРОВАЛЪТ НЕ СЕ КЕШИРА: кеширан празен обект + запис на цял документ
+    // (suppSave) би изтрил всички паспорти. Връщаме временен празен обект,
+    // следващото извикване опитва наново.
+    return { byKey: {}, aliases: {} };
+  }
   // Паспортът на старото име минава към новото (ако новото няма свой).
   Object.entries(suppAliases()).forEach(([oldKey, canonName]) => {
     const ck = suppKey(canonName);

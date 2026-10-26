@@ -45,12 +45,21 @@ async function erpUpdateMissingBadge() {
   try { erpSetMissingBadge(await erpMissingMatCount()); } catch (e) {}
 }
 
-async function erpRenderMissingMaterials() {
-  const v = erpView();
+async function erpRenderMissingMaterials(box) {
+  // box: по избор — рендира се и ВЪТРЕ в таб „Заявки за материали" (изгледът
+  // „⚠ Липсващи по заявки"), не само в собствения си таб.
+  const v = box || erpView();
   v.innerHTML = `<p class="erp-loading">Проверявам материалите за пуснатите заявки…</p>`;
   // Пълно презареждане (не erpEnsureLoaded), за да е СВЕЖА наличността.
   try { await erpLoadAll(); }
   catch (e) { v.innerHTML = `<div class="erp-error"><h3>Грешка</h3><p>${escapeHtml(e.message || String(e))}</p></div>`; return; }
+  // Покупките — за предложението „Поръчай от…" (кой ни е доставял материала).
+  let mmSupp = new Map();
+  try {
+    if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases();
+    if (typeof suppLoad === "function") await suppLoad();
+    if (typeof matreqSuppliersOfMaterials === "function") mmSupp = matreqSuppliersOfMaterials();
+  } catch (e) { /* без предложения — екранът работи и така */ }
 
   // 1) Поточни задачи (носят source.materials на първата операция + source.orders).
   const tk = await erpSelectAll("tasks", "data", "data->source->>flow", "true");
@@ -103,6 +112,14 @@ async function erpRenderMissingMaterials() {
   const inTh = canIn ? "<th></th>" : "";
   // Отметка за избор → „Запитване към доставчик" (кол. по подразбиране: липсващото/до минимума).
   const chk = (r, qty) => `<td class="pay-chk"><input type="checkbox" class="mm-sel" data-mid="${r.mid}" data-qty="${qty}" /></td>`;
+  // „Поръчай от" — доставчиците, доставяли този материал (най-скорошният
+  // предизбран, с последната му цена). По избора става груповата поръчка.
+  const suppSel = r => {
+    const cands = mmSupp.get(Number(r.mid)) || [];
+    if (!cands.length) return `<span class="erp-muted" title="В Покупките няма ред с този материал — няма от кого да предложим">—</span>`;
+    return `<select class="mm-supp" data-mid="${r.mid}" style="max-width:180px" title="Кой да го достави — доставчиците, от които сме го купували (посл. цена в EUR)">${cands.slice(0, 6).map((c, i) =>
+      `<option value="${escapeAttr(c.name)}" ${i === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select>`;
+  };
   const shortRow = r => `
     <tr class="erp-below">
       ${chk(r, r.missing)}
@@ -112,6 +129,7 @@ async function erpRenderMissingMaterials() {
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Ще липсва"><span class="erp-warn">${erpNum(r.missing)} ⚠</span></td>
       <td data-label="Заявки">${ordersCell(r)}</td>
+      <td data-label="Поръчай от">${suppSel(r)}</td>
       ${inBtn(r)}
     </tr>`;
   const lowRow = r => `
@@ -123,6 +141,7 @@ async function erpRenderMissingMaterials() {
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Минимум">${erpNum(r.min)}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>
+      <td data-label="Поръчай от">${suppSel(r)}</td>
       ${inBtn(r)}
     </tr>`;
 
@@ -137,42 +156,52 @@ async function erpRenderMissingMaterials() {
       ${short.length ? `
         <h4 class="erp-group-head">⚠ Няма да стигнат</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th>${inTh}</tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th><th>Поръчай от</th>${inTh}</tr></thead>
           <tbody>${short.map(shortRow).join("")}</tbody>
         </table>`
         : `<p class="report-empty">✅ За оставащото рязане по пуснатите заявки има достатъчно материал.</p>`}
       ${low.length ? `
         <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th>${inTh}</tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th><th>Поръчай от</th>${inTh}</tr></thead>
           <tbody>${low.map(lowRow).join("")}</tbody>
         </table>` : ""}
-      <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Избери материали с отметките, за да пуснеш запитване към доставчик.</span></div>
+      <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Отметни материали — долу излиза по един бутон „🛒 Заявка" за всеки предложен доставчик.</span></div>
     `}`;
 
-  const rb = document.getElementById("mm-refresh"); if (rb) rb.addEventListener("click", erpRenderMissingMaterials);
+  const rb = v.querySelector("#mm-refresh"); if (rb) rb.addEventListener("click", () => erpRenderMissingMaterials(box));
   // 📥 Заприходи (само Данко) — отваря стандартния диалог „Движение" (входящ + цена).
   v.querySelectorAll("[data-mm-in]").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
     if (typeof erpMovementDialog === "function") erpMovementDialog(Number(b.dataset.mmIn));
   }));
-  // Избор с отметки → запитване към доставчик (влиза в регистъра „Заявки за материали").
-  const bar = document.getElementById("mm-reqbar");
+  // Избор с отметки → ГРУПОВА поръчка: избраните материали се събират по
+  // доставчика от „Поръчай от" и за всеки излиза отделен бутон „🛒 Заявка".
+  const bar = v.querySelector("#mm-reqbar");
   const updBar = () => {
     if (!bar) return;
     const sel = [...v.querySelectorAll(".mm-sel:checked")];
-    if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Избери материали с отметките, за да пуснеш запитване към доставчик.</span>`; return; }
+    if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Отметни материали — долу излиза по един бутон „🛒 Заявка" за всеки предложен доставчик.</span>`; return; }
+    const bySupp = new Map();
+    sel.forEach(c => {
+      const mid = Number(c.dataset.mid);
+      const m = ERP.matById[mid] || {};
+      const sEl = v.querySelector(`.mm-supp[data-mid="${mid}"]`);
+      const sup = (sEl && sEl.value) || "";
+      const arr = bySupp.get(sup) || [];
+      arr.push({ materialId: mid, code: m.code || "", name: m.name || "", unit: m.unit || "", qty: Math.ceil((Number(c.dataset.qty) || 0) * 100) / 100 });
+      bySupp.set(sup, arr);
+    });
+    const groups = [...bySupp.entries()].sort((a, b) => b[1].length - a[1].length);
     bar.innerHTML = `<span class="pay-sel-info">Избрани: <b>${sel.length}</b> материала</span>
       <span class="spacer"></span>
-      <button class="btn btn-small btn-primary" id="mm-sendreq">✉ Запитване към доставчик (${sel.length})</button>`;
-    bar.querySelector("#mm-sendreq").addEventListener("click", () => {
-      const items = sel.map(c => {
-        const m = ERP.matById[Number(c.dataset.mid)] || {};
-        return { materialId: Number(c.dataset.mid), code: m.code || "", name: m.name || "", unit: m.unit || "", qty: Math.ceil((Number(c.dataset.qty) || 0) * 100) / 100 };
-      });
-      if (typeof erpMatReqCompose === "function") erpMatReqCompose(items);
+      ${groups.map(([sup, items], i) => `<button class="btn btn-small btn-primary mm-sendgrp" data-gi="${i}" title="${sup ? `Заявката се отваря с попълнен доставчик, имейл и редовете: ${escapeAttr(items.map(x => x.code || x.name).join(", "))}` : "Избраните без доставчик — заявка със свободен избор"}">${sup ? `🛒 Заявка към ${escapeHtml(sup)} (${items.length})` : `✉ Запитване без доставчик (${items.length})`}</button>`).join(" ")}`;
+    bar.querySelectorAll(".mm-sendgrp").forEach(b => b.addEventListener("click", () => {
+      const g = groups[Number(b.dataset.gi)]; if (!g) return;
+      if (typeof erpMatReqCompose === "function") erpMatReqCompose(g[1], null, g[0] || undefined);
       else alert("Модул Заявки за материали не е зареден.");
-    });
+    }));
   };
   v.querySelectorAll(".mm-sel").forEach(c => c.addEventListener("change", updBar));
+  v.querySelectorAll(".mm-supp").forEach(s2 => s2.addEventListener("change", updBar));
 }

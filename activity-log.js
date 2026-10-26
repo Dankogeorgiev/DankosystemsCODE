@@ -77,7 +77,7 @@ const ACT_CFG_BG = [
   [/^todo|^danko_todo/, "To do"], [/^receivables/, "Вземания"], [/^payables/, "Задължения"],
   [/^pulse/, "Пулс"], [/^roles/, "Достъпи"], [/^cost/, "Разходи и ставки"],
   [/^pal_/, "Палетни описи"], [/^cal_|^calendar/, "Календар"], [/^leaves/, "Отпуски"],
-  [/^matreq|^inquir/, "Заявки за материали"], [/^rfq/, "Регистър RFQ"],
+  [/^mat_request|^matreq|^inquir/, "Заявки за материали"], [/^rfq/, "Регистър RFQ"],
   [/^client_profile|^supplier_profile|^partner/, "Клиенти/Доставчици"],
 ];
 function actLabel(e) {
