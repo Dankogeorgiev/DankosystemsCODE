@@ -1,9 +1,14 @@
 /* Данко Системс — „Заявки за материали" (снабдяване).
-   Регистър на всички запитвания/заявки към доставчици за материали: кой, кога,
-   какво е поискал, от кого, кога се очаква да дойде и докъде е стигнало
-   (запитване → поръчано → доставено). Пуска се от таб „Заявки за материали",
-   от „Липсващи материали по заявки" (избор с отметки) или от бутона на
-   началния екран. Клик върху ред = редакция (както при Заявките).
+   ДВА изгледа (по Данко, 26.10.2026):
+   1) 📂 Доставчици по групи — групите материали от Покупки като папки
+      (Метали, Бои и цинк, Крепежи, Пластмаси, Опаковки, Технически газове,
+      Заваръчно + „Без група" за старите фактури без вид). Папка → доставчиците
+      ѝ (от РЕАЛНИТЕ покупки) → какво сме купували от всеки (последна цена,
+      кога, колко пъти) → отметки → 🛒 готова заявка към доставчика.
+   2) 📋 Регистър на заявките — какво сме поискали, от кого, кога ще дойде
+      и докъде е стигнало (запитване → поръчано → доставено).
+   Пуска се от таб „Заявки за материали", от „Липсващи материали по заявки"
+   (избор с отметки) или от бутона на началния екран. Клик върху ред = редакция.
    Пази се в app_config id="mat_requests": { list:[...] }. */
 
 let MATREQ = null;
@@ -23,11 +28,284 @@ function matreqFmt(s) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2}
 
 const MATREQ_STATUSES = ["запитване", "поръчано", "доставено"];
 
-/* ---------- Регистърът (таб „Заявки за материали") ---------- */
+/* ---------- 📂 Доставчици по групи (данните) ----------
+   Папките са каноничните видове разход за МАТЕРИАЛИ от Покупки (внимание:
+   „Крепежи", не „Крепеж"). Покупка с друг вид (транспорт, ток…) не е материал
+   и не влиза в никоя папка; покупка БЕЗ вид отива по групата на редовете си
+   или в „Без група" — за да не изчезва история. */
+const MATREQ_GROUPS = ["Метали", "Бои и цинк", "Крепежи", "Пластмаси", "Опаковки", "Технически газове", "Заваръчно"];
+const MATREQ_NOGRP = "Без група";
+const MATREQ_ICONS = { "Метали": "🔩", "Бои и цинк": "🎨", "Крепежи": "🔧", "Пластмаси": "🧩", "Опаковки": "📦", "Технически газове": "💨", "Заваръчно": "⚡" };
+// Навигацията се помни в сесията — след запис на заявка оставаш където беше.
+let MATREQ_NAV = { view: "folders", group: null, supplier: null };
+
+function matreqCanon(name) { return (typeof suppCanon === "function") ? suppCanon(name) : String(name || "").trim(); }
+function matreqSupKey(name) { return (typeof suppKey === "function") ? suppKey(name) : String(name || "").trim().replace(/\s+/g, " ").toLowerCase(); }
+function matreqEurInt(n) { return Math.round(Number(n) || 0).toLocaleString("bg-BG"); }
+function matreqPrice(n) { return (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 4 }); }
+
+function matreqDocGroup(o) {
+  const t = o.expenseType || "";
+  if (MATREQ_GROUPS.includes(t)) return t;
+  if (t) return null;   // друг вид разход (услуга) — не е папка материали
+  for (const l of (o.lines || [])) {
+    const g = String(l.groupName || "").toLowerCase();
+    if (!g) continue;
+    const hit = MATREQ_GROUPS.find(G => g === G.toLowerCase() || g.indexOf(G.toLowerCase()) === 0);
+    if (hit) return hit;
+  }
+  return MATREQ_NOGRP;
+}
+
+/* група → Map(ключ на доставчик → { name, docs, eur, last }) от реалните покупки.
+   Стоковите разписки не влизат в оборота (парите идват с месечната фактура),
+   но се броят като документи и дават артикули. */
+function matreqFolderData() {
+  const groups = new Map();
+  [...MATREQ_GROUPS, MATREQ_NOGRP].forEach(g => groups.set(g, new Map()));
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    const g = matreqDocGroup(o); if (!g) return;
+    const name = matreqCanon(o.supplierName); if (!name) return;
+    const sk = matreqSupKey(name);
+    const m = groups.get(g);
+    const rec = m.get(sk) || { name, docs: 0, eur: 0, last: "" };
+    rec.docs++;
+    if (o.docType !== "goods") {
+      try {
+        const t = erpPuTotals(o);   // кредитните са с минус
+        rec.eur += ((typeof erpPuCur === "function" ? erpPuCur(o) : "EUR") === "BGN") ? t.base / PU_EUR_BGN : t.base;
+      } catch (e) {}
+    }
+    if (String(o.date || "") > rec.last) rec.last = o.date || "";
+    m.set(sk, rec);
+  });
+  return groups;
+}
+
+/* Какво сме купували от доставчик В тази група: артикул, код, колко пъти,
+   последна цена (EUR) и кога. Шумът се чисти: авто-редовете от покриващи
+   фактури (fromGoodsId), празни артикули и „разход" от импорта; кредитните
+   известия не дават „последна цена/дата" (връщане, не покупка). */
+function matreqSupplierArts(sk, group) {
+  const arts = new Map();
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    if (matreqSupKey(matreqCanon(o.supplierName)) !== sk) return;
+    if (matreqDocGroup(o) !== group) return;
+    const isCredit = o.docType === "credit";
+    const cur = (typeof erpPuCur === "function") ? erpPuCur(o) : (o.currency || "EUR");
+    (o.lines || []).forEach(l => {
+      if (l.fromGoodsId) return;
+      const nm = String(l.article || l.name || "").trim();
+      if (!nm || /^разход$/i.test(nm)) return;
+      const ak = nm.toLowerCase();
+      const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", lastPriceEur: 0 };
+      it.n++;
+      if (l.code) it.code = l.code;
+      if (l.unit) it.unit = l.unit;
+      if (!isCredit && String(o.date || "") >= String(it.last || "")) {
+        it.last = o.date || "";
+        const pr = erpToNum(l.unitPrice) || 0;
+        if (pr) it.lastPriceEur = (cur === "BGN") ? pr / PU_EUR_BGN : pr;
+      }
+      arts.set(ak, it);
+    });
+  });
+  return [...arts.values()].sort((a, b) => b.n - a.n || String(b.last).localeCompare(String(a.last)));
+}
+
+/* Контактът на доставчика за инфо-реда: Контакти → паспорт → партньори. */
+async function matreqSupInfo(el, name) {
+  if (!el) return;
+  let line = "";
+  try {
+    if (typeof CONTACTS !== "undefined") {
+      if ((!CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad();
+      const low = String(name).trim().toLowerCase();
+      const c = (CONTACTS || []).find(x => /^Доставчик/i.test(x.category || "") && String(x.company || "").trim().toLowerCase() === low);
+      if (c) line = `📇 ${escapeHtml(c.contact_person || "")}${c.phone ? " · ☎ " + escapeHtml(c.phone) : ""}${(c.email || c.invoice_email) ? " · ✉ " + escapeHtml(c.email || c.invoice_email) : ""}`;
+    }
+  } catch (e) {}
+  if (!line) {
+    const p = (typeof suppProfile === "function") ? suppProfile(name) : null;
+    if (p && (p.email || p.person || p.phone)) line = `🏷 ${escapeHtml(p.person || "")}${p.phone ? " · ☎ " + escapeHtml(p.phone) : ""}${p.email ? " · ✉ " + escapeHtml(p.email) : ""} <span class="erp-muted">(от паспорта на доставчика)</span>`;
+  }
+  if (!line && typeof erpPartnerEmail === "function") {
+    try { const r = await erpPartnerEmail("supplier", null, name); if (r && r.email) line = `✉ ${escapeHtml(r.email)} <span class="erp-muted">(от партньорите)</span>`; } catch (e) {}
+  }
+  el.innerHTML = line || `✉ <b class="erp-warn">Няма имейл за този доставчик никъде</b> — напиши го в заявката, ще се запомни в паспорта му за следващия път.`;
+}
+
+/* Ръчно въведен имейл в заявка → запомня се в паспорта на доставчика (само
+   ако там е празно — не пипаме въведеното от счетоводството). Тихо. */
+async function matreqRememberEmail(name, email) {
+  try {
+    if (!String(name || "").trim() || !String(email || "").trim()) return;
+    if (typeof suppLoad !== "function" || typeof sb === "undefined" || !sb) return;
+    await suppLoad();
+    const canon = suppCanon(name), k = suppKey(canon);
+    if (!k) return;
+    const p = SUPP_PROFILES.byKey[k];
+    if (p && p.email) return;
+    SUPP_PROFILES.byKey[k] = Object.assign({ name: canon }, p || {}, {
+      email: String(email).trim(),
+      updatedAt: new Date().toISOString(),
+      updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "",
+    });
+    await sb.from("app_config").upsert({ id: "supplier_profiles", data: { byKey: SUPP_PROFILES.byKey, aliases: SUPP_PROFILES.aliases || {} }, updated_at: new Date().toISOString() });
+  } catch (e) { /* тихо — паметта за имейла не бива да пречи на записа */ }
+}
+
+/* ---------- Табът (рутер): 📂 папки / 📋 регистър ---------- */
 async function erpRenderMatRequests() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await matreqLoad();
+  if (MATREQ_NAV.view === "folders") {
+    try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
+    try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
+  }
+  const activeN = (MATREQ || []).filter(r => r.status !== "доставено").length;
+  const fold = MATREQ_NAV.view === "folders";
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <button class="btn btn-small ${fold ? "btn-primary" : ""}" id="mr-v-fold" title="Групите материали като папки → доставчици → какво сме купували от всеки">📂 Доставчици по групи</button>
+      <button class="btn btn-small ${fold ? "" : "btn-primary"}" id="mr-v-reg" title="Регистърът на заявките — какво сме поискали и кога ще дойде">📋 Регистър на заявките${activeN ? ` (${activeN})` : ""}</button>
+      <span class="spacer"></span>
+      <button class="btn btn-small btn-primary" id="mr-new" title="Заявка на свободен текст — за доставчик или материал без история в Покупки">+ Нова заявка (свободна)</button>
+    </div>
+    <div id="mr-body"></div>`;
+  v.querySelector("#mr-v-fold").addEventListener("click", () => { if (MATREQ_NAV.view !== "folders") { MATREQ_NAV.view = "folders"; erpRenderMatRequests(); } });
+  v.querySelector("#mr-v-reg").addEventListener("click", () => { if (MATREQ_NAV.view !== "register") { MATREQ_NAV.view = "register"; erpRenderMatRequests(); } });
+  v.querySelector("#mr-new").addEventListener("click", () => erpMatReqCompose([]));
+  const box = v.querySelector("#mr-body");
+  if (fold) matreqRenderFolders(box); else matreqRenderRegister(box);
+}
+
+function matreqRenderFolders(box) {
+  const groups = matreqFolderData();
+  if (MATREQ_NAV.group && !groups.has(MATREQ_NAV.group)) { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; }
+  if (!MATREQ_NAV.group) return matreqRenderGroupGrid(box, groups);
+  const m = groups.get(MATREQ_NAV.group) || new Map();
+  if (MATREQ_NAV.supplier && !m.has(MATREQ_NAV.supplier)) MATREQ_NAV.supplier = null;
+  if (!MATREQ_NAV.supplier) return matreqRenderGroupSuppliers(box, m);
+  matreqRenderSupplier(box, m.get(MATREQ_NAV.supplier));
+}
+
+function matreqRenderGroupGrid(box, groups) {
+  const cards = [...MATREQ_GROUPS, MATREQ_NOGRP].map(g => {
+    const m = groups.get(g);
+    if (g === MATREQ_NOGRP && !m.size) return "";
+    const docs = [...m.values()].reduce((s, r) => s + r.docs, 0);
+    return `<button type="button" class="btn" data-mrg="${escapeAttr(g)}" ${m.size ? "" : "disabled"}
+      style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 10px;height:auto;white-space:normal"
+      title="${m.size ? `${m.size} доставчици — клик за списъка` : "Още няма покупки от този вид"}">
+      <span style="font-size:30px;line-height:1">${MATREQ_ICONS[g] || "📁"}</span>
+      <b style="font-size:14px">${escapeHtml(g)}</b>
+      <span class="erp-muted" style="font-size:12px">${m.size ? `${m.size} доставчици · ${docs} фактури` : "няма покупки"}</span>
+    </button>`;
+  }).join("");
+  box.innerHTML = `
+    <p class="hint">Групите материали от Покупки като папки. Влез в папка → доставчиците ѝ и какво сме купували от всеки → отметни артикули → 🛒 заявката се пише сама. „${MATREQ_NOGRP}" са стари/импортирани фактури без посочен вид разход.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-top:6px">${cards}</div>`;
+  box.querySelectorAll("[data-mrg]").forEach(b => b.addEventListener("click", () => {
+    MATREQ_NAV.group = b.dataset.mrg; MATREQ_NAV.supplier = null; erpRenderMatRequests();
+  }));
+}
+
+function matreqRenderGroupSuppliers(box, m) {
+  const g = MATREQ_NAV.group;
+  const rows = [...m.entries()].map(([sk, r]) => Object.assign({ sk }, r)).sort((a, b) => b.eur - a.eur || b.docs - a.docs);
+  box.innerHTML = `
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <button class="btn btn-small" id="mr-back-root">← Всички групи</button>
+      <span class="erp-count">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)} — ${rows.length} доставчици</span>
+      <span class="spacer"></span>
+      <input type="search" id="mr-q" placeholder="търси доставчик…" style="width:200px" />
+    </div>
+    <p class="hint">Клик върху доставчик → какво сме купували от него (с последни цени) и бърза заявка. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
+    <table class="report-table erp-table">
+      <thead><tr><th>Доставчик</th><th class="num">Фактури</th><th class="num">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
+        <td><b>${escapeHtml(r.name)}</b></td>
+        <td class="num">${r.docs}</td>
+        <td class="num">${matreqEurInt(r.eur)}</td>
+        <td>${matreqFmt(r.last)}</td>
+        <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
+      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
+    </table>`;
+  box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(); });
+  const q = box.querySelector("#mr-q");
+  q.addEventListener("input", () => {
+    const s = q.value.toLowerCase().trim();
+    box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
+  });
+  box.querySelectorAll("[data-mrs]").forEach(el => el.addEventListener("click", e => {
+    if (el.tagName === "TR" && e.target.closest("button")) return;
+    MATREQ_NAV.supplier = el.dataset.mrs; erpRenderMatRequests();
+  }));
+}
+
+function matreqRenderSupplier(box, rec) {
+  const g = MATREQ_NAV.group, name = rec.name;
+  const arts = matreqSupplierArts(MATREQ_NAV.supplier, g);
+  box.innerHTML = `
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <button class="btn btn-small" id="mr-back-root">← Групи</button>
+      <button class="btn btn-small" id="mr-back-grp">← ${escapeHtml(g)}</button>
+      <span class="erp-count">🏭 ${escapeHtml(name)}</span>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="mr-free-sup" title="Заявка на свободен текст към този доставчик — за материал, който още не сме купували от него">✉ Свободна заявка</button>
+      <button class="btn btn-small btn-primary" id="mr-order" title="Отваря заявката към доставчика с отметнатите артикули — писмото се пише само">🛒 Заявка за избраните (<span id="mr-ordcnt">0</span>)</button>
+    </div>
+    <p class="hint" id="mr-supinfo">⏳ …</p>
+    <p class="hint">${rec.docs} фактури в „${escapeHtml(g)}" · последно купено ${matreqFmt(rec.last)}. Отметни артикулите, сложи бройки и „🛒 Заявка за избраните" — доставчик, имейл и редове се попълват сами.</p>
+    ${arts.length ? `
+    <div class="erp-toolbar" style="margin:0 0 4px"><input type="search" id="mr-aq" placeholder="търси артикул или код…" style="width:240px" /></div>
+    <div style="max-height:56vh;overflow:auto">
+    <table class="report-table erp-table" style="font-size:12.5px">
+      <thead><tr><th></th><th>Артикул</th><th>Код</th><th class="num">Пъти</th><th>Последно</th><th class="num">Посл. цена (EUR)</th><th class="num">Поръчай</th></tr></thead>
+      <tbody>${arts.map((i, bi) => `<tr data-mra="1">
+        <td><input type="checkbox" class="mr-buy" data-bi="${bi}" /></td>
+        <td>${escapeHtml(i.article)}</td><td class="t-code">${escapeHtml(i.code || "")}</td>
+        <td class="num">${i.n}</td><td>${matreqFmt(i.last)}</td>
+        <td class="num">${i.lastPriceEur ? matreqPrice(i.lastPriceEur) : ""}</td>
+        <td class="num"><input type="number" class="mr-buyqty" data-bi="${bi}" min="0" step="any" style="width:76px" placeholder="${escapeAttr(i.unit || "бр.")}" /></td>
+      </tr>`).join("")}</tbody>
+    </table>
+    </div>` : `<p class="report-empty">Фактурите на този доставчик тук са без разбити редове — няма откъде да извадим артикули. Ползвай „✉ Свободна заявка".</p>`}`;
+  box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(); });
+  box.querySelector("#mr-back-grp").addEventListener("click", () => { MATREQ_NAV.supplier = null; erpRenderMatRequests(); });
+  box.querySelector("#mr-free-sup").addEventListener("click", () => erpMatReqCompose([], null, name));
+  matreqSupInfo(box.querySelector("#mr-supinfo"), name);
+  const aq = box.querySelector("#mr-aq");
+  if (aq) aq.addEventListener("input", () => {
+    const s = aq.value.toLowerCase().trim();
+    box.querySelectorAll("tr[data-mra]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
+  });
+  // Отметка + бройка → 🛒 заявка (същият похват като в паспорта на доставчика).
+  const cnt = () => { const el = box.querySelector("#mr-ordcnt"); if (el) el.textContent = box.querySelectorAll(".mr-buy:checked").length; };
+  box.querySelectorAll(".mr-buy").forEach(cb => cb.addEventListener("change", () => {
+    const q2 = box.querySelector(`.mr-buyqty[data-bi="${cb.dataset.bi}"]`);
+    if (cb.checked && q2 && !q2.value) q2.value = 1;
+    cnt();
+  }));
+  box.querySelectorAll(".mr-buyqty").forEach(inp => inp.addEventListener("input", () => {
+    const cb = box.querySelector(`.mr-buy[data-bi="${inp.dataset.bi}"]`);
+    if (cb && Number(inp.value) > 0) { cb.checked = true; cnt(); }
+  }));
+  box.querySelector("#mr-order").addEventListener("click", () => {
+    const items = [...box.querySelectorAll(".mr-buy:checked")].map(cb => {
+      const it = arts[Number(cb.dataset.bi)]; if (!it) return null;
+      const qEl = box.querySelector(`.mr-buyqty[data-bi="${cb.dataset.bi}"]`);
+      return { code: it.code || "", name: it.article, qty: Number(qEl && qEl.value) || 1, unit: it.unit || "бр." };
+    }).filter(Boolean);
+    if (!items.length) { alert("Отметни поне един артикул (и бройка)."); return; }
+    erpMatReqCompose(items, null, name);
+  });
+}
+
+/* ---------- 📋 Регистърът на заявките (под-изглед) ---------- */
+function matreqRenderRegister(box) {
   const today = matreqToday();
   const active = (MATREQ || []).filter(r => r.status !== "доставено").sort((a, b) => String(a.expected || "9999").localeCompare(b.expected || "9999"));
   const done = (MATREQ || []).filter(r => r.status === "доставено").sort((a, b) => String(b.arrivedAt || "").localeCompare(a.arrivedAt || "")).slice(0, 40);
@@ -55,17 +333,12 @@ async function erpRenderMatRequests() {
       </td></tr>`;
   };
 
-  v.innerHTML = `
-    <div class="erp-toolbar">
-      <span class="erp-count">📨 Заявки за материали — ${active.length} активни</span>
-      <span class="spacer"></span>
-      <button class="btn btn-small btn-primary" id="mr-new">+ Нова заявка към доставчик</button>
-    </div>
-    <p class="hint">Всички запитвания и заявки за материали на едно място — кой какво е поискал, кога и <b>кога ще дойде</b>. „⚠ закъснява" = очакваната дата е минала, а не е доставено. <b>Клик върху ред = редакция.</b> Пуска се и от „Липсващи материали по заявки" (с отметките).</p>
+  box.innerHTML = `
+    <p class="hint">Всички запитвания и заявки за материали на едно място — кой какво е поискал, кога и <b>кога ще дойде</b>. „⚠ закъснява" = очакваната дата е минала, а не е доставено. <b>Клик върху ред = редакция.</b> Пуска се и от „Липсващи материали по заявки" (с отметките) и от папките „Доставчици по групи".</p>
     <h4 class="erp-group-head">⏳ Активни (${active.length})</h4>
     <table class="report-table erp-table">
       <thead><tr><th>Дата</th><th>Доставчик</th><th>Материали</th><th>Статус</th><th>Очаква се</th><th>Забележка</th><th></th></tr></thead>
-      <tbody>${active.map(r => row(r, false)).join("") || `<tr><td colspan="7" class="report-empty">Няма активни заявки. Пусни от бутона горе или от Липсващи материали.</td></tr>`}</tbody>
+      <tbody>${active.map(r => row(r, false)).join("") || `<tr><td colspan="7" class="report-empty">Няма активни заявки. Пусни от „+ Нова заявка" горе, от папките или от Липсващи материали.</td></tr>`}</tbody>
     </table>
     ${done.length ? `<h4 class="erp-group-head">✅ Доставени (последните ${done.length})</h4>
     <table class="report-table erp-table">
@@ -73,33 +346,32 @@ async function erpRenderMatRequests() {
       <tbody>${done.map(r => row(r, true)).join("")}</tbody>
     </table>` : ""}`;
 
-  document.getElementById("mr-new").addEventListener("click", () => erpMatReqCompose([]));
   // Клик върху реда (извън бутоните) → редакция на заявката.
-  v.querySelectorAll("tr[data-mr-open]").forEach(tr => tr.addEventListener("click", e => {
+  box.querySelectorAll("tr[data-mr-open]").forEach(tr => tr.addEventListener("click", e => {
     if (e.target.closest("button")) return;
     const r = MATREQ.find(x => x.id === Number(tr.dataset.mrOpen)); if (!r) return;
     erpMatReqCompose(r.items || [], r);
   }));
-  v.querySelectorAll("[data-mr-ord]").forEach(b => b.addEventListener("click", async () => {
+  box.querySelectorAll("[data-mr-ord]").forEach(b => b.addEventListener("click", async () => {
     const r = MATREQ.find(x => x.id === Number(b.dataset.mrOrd)); if (!r) return;
     const d = prompt("Кога ще дойде? (ГГГГ-ММ-ДД):", r.expected || "");
     if (d === null) return;
     r.status = "поръчано"; r.expected = (d || "").trim();
     if (await matreqSave()) erpRenderMatRequests();
   }));
-  v.querySelectorAll("[data-mr-done]").forEach(b => b.addEventListener("click", async () => {
+  box.querySelectorAll("[data-mr-done]").forEach(b => b.addEventListener("click", async () => {
     const r = MATREQ.find(x => x.id === Number(b.dataset.mrDone)); if (!r) return;
     r.status = "доставено"; r.arrivedAt = matreqToday();
     if (await matreqSave()) erpRenderMatRequests();
   }));
-  v.querySelectorAll("[data-mr-exp]").forEach(b => b.addEventListener("click", async () => {
+  box.querySelectorAll("[data-mr-exp]").forEach(b => b.addEventListener("click", async () => {
     const r = MATREQ.find(x => x.id === Number(b.dataset.mrExp)); if (!r) return;
     const d = prompt("Очаквана дата на доставка (ГГГГ-ММ-ДД):", r.expected || "");
     if (d === null) return;
     r.expected = (d || "").trim();
     if (await matreqSave()) erpRenderMatRequests();
   }));
-  v.querySelectorAll("[data-mr-del]").forEach(b => b.addEventListener("click", async () => {
+  box.querySelectorAll("[data-mr-del]").forEach(b => b.addEventListener("click", async () => {
     const r = MATREQ.find(x => x.id === Number(b.dataset.mrDel)); if (!r) return;
     if (!confirm(`Да изтрия ли заявката към ${r.supplier || "—"} от ${matreqFmt(r.date)}?`)) return;
     MATREQ = MATREQ.filter(x => x.id !== r.id);
@@ -220,7 +492,8 @@ ${items.map(bullet).join("\n")}
     </div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
   // При избор на доставчик: имейл + инфо (лице, телефон, бележки) от КОНТАКТИ;
-  // ако го няма там — резервно от партньорите (Покупки).
+  // ако го няма там — от паспорта на доставчика (вкл. запомнен от стара
+  // заявка); накрая резервно от партньорите (Покупки).
   const applySupplier = async (name, keepEmail) => {
     const n = String(name || "").trim().toLowerCase();
     const info = wrap.querySelector("#mq-cinfo");
@@ -232,6 +505,15 @@ ${items.map(bullet).join("\n")}
       return;
     }
     info.textContent = "";
+    try {
+      if (typeof suppLoad === "function") await suppLoad();
+      const p = (typeof suppProfile === "function") ? suppProfile(name) : null;
+      if (p && p.email) {
+        if (!(keepEmail && wrap.querySelector("#mq-email").value) && !wrap.querySelector("#mq-email").value) wrap.querySelector("#mq-email").value = p.email;
+        info.innerHTML = `🏷 ${escapeHtml(p.person || "")}${p.phone ? " · ☎ " + escapeHtml(p.phone) : ""} <span class="erp-muted">(от паспорта на доставчика)</span>`;
+        return;
+      }
+    } catch (e) {}
     if (typeof erpPartnerEmail !== "function") return;
     const rec2 = await erpPartnerEmail("supplier", null, name);
     if (rec2 && rec2.email && !wrap.querySelector("#mq-email").value) wrap.querySelector("#mq-email").value = rec2.email;
@@ -262,8 +544,10 @@ ${items.map(bullet).join("\n")}
     items,
   });
   const saveRec = async (sent) => {
+    const c = collect();
+    matreqRememberEmail(c.supplier, c.supplierEmail);   // тихо — в паспорта, за следващия път
     if (edit) {
-      Object.assign(rec, collect());
+      Object.assign(rec, c);
       const st = wrap.querySelector("#mq-status");
       if (st) {
         rec.status = st.value;
@@ -278,7 +562,7 @@ ${items.map(bullet).join("\n")}
       id: matreqNextId(), date: matreqToday(), status: "запитване",
       sentBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "", sentAt: new Date().toISOString(),
       emailSent: !!sent,
-    }, collect()));
+    }, c));
     return matreqSave();
   };
   const refresh = () => { if (ERP.tab === "matreq") erpRenderMatRequests(); };
