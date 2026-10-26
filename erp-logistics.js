@@ -41,7 +41,8 @@ function logiNorm(s) { return String(s || "").toLowerCase().replace(/\s+/g, " ")
 /* Транспортните фирми от указателя (категория „Транспорт / логистика"). */
 function logiCarriers() {
   return ((typeof CONTACTS !== "undefined" && CONTACTS) || [])
-    .filter(c => /транспорт/i.test(c.category || "") && (c.email || "").includes("@"));
+    .filter(c => /транспорт/i.test(c.category || "") && (c.email || "").includes("@"))
+    .sort((a, b) => String(a.company || "").localeCompare(String(b.company || ""), "bg") || String(a.contact_person || "").localeCompare(String(b.contact_person || ""), "bg"));
 }
 
 /* Дестинациите: издадените НЕ-проформи с получател или износен клиент. */
@@ -96,11 +97,28 @@ function logiInquiry(preset) {
   const p = preset || {};
   const { wrap, close } = erpDialog(`
     <h3>📨 Запитване за транспорт</h3>
-    ${carriers.length ? `<p class="hint" style="margin:0 0 6px">Избери до кого (транспортните фирми от указателя, категория „Транспорт / логистика"):</p>
-    <div style="max-height:60vh;overflow:auto;margin-bottom:8px">${carriers.map((c, i) => `
-      <label style="display:block;padding:3px 0"><input type="checkbox" class="lgi-c" data-i="${i}" /> <b>${escapeHtml(c.company || "—")}</b> · ${escapeHtml(c.contact_person || "")} <span class="t-code">${escapeHtml(c.email)}</span></label>`).join("")}</div>`
-      : `<p class="hint">В указателя няма контакти с категория „Транспорт / логистика" и имейл — добави ги в Клиенти/Доставчици (📇 Стар указател), за да излизат тук. Можеш и да напишеш имейла на ръка в следващата стъпка.</p>`}
+    ${carriers.length ? `<p class="hint" style="margin:0 0 6px">Избери до кого — транспортните фирми от указателя (👥 Клиенти/Доставчици → 📇 Стар указател, категория „Транспорт / логистика"). Клик върху реда = отметка.</p>
+    <div style="max-height:56vh;overflow:auto;margin-bottom:8px">
+    <table class="report-table erp-table" style="font-size:13px">
+      <thead><tr><th class="pay-chk"><input type="checkbox" id="lgi-all" title="Избери всички" /></th><th>Фирма</th><th>Лице</th><th>Имейл</th></tr></thead>
+      <tbody>${carriers.map((c, i) => `<tr class="erp-clickable" data-ci="${i}">
+        <td class="pay-chk"><input type="checkbox" class="lgi-c" data-i="${i}" /></td>
+        <td><b>${escapeHtml(c.company || "—")}</b></td>
+        <td>${escapeHtml(c.contact_person || "")}${c.phone ? ` <span class="erp-muted">· ☎ ${escapeHtml(c.phone)}</span>` : ""}</td>
+        <td class="t-code">${escapeHtml(c.email)}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+    </div>`
+      : `<p class="hint">В указателя няма контакти с категория „Транспорт / логистика" и имейл — добави ги в 👥 Клиенти/Доставчици → 📇 Стар указател, за да излизат тук. Можеш и да напишеш имейла на ръка в следващата стъпка.</p>`}
     <div class="erp-dialog-actions"><button class="btn" id="lgi-cancel">Отказ</button><button class="btn btn-primary" id="lgi-go">Продължи към писмото →</button></div>`);
+  try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
+  // Клик по реда = отметка; „избери всички" горе вляво.
+  wrap.querySelectorAll("tr[data-ci]").forEach(tr => tr.addEventListener("click", e => {
+    if (e.target.tagName === "INPUT") return;
+    const cb = tr.querySelector(".lgi-c"); if (cb) cb.checked = !cb.checked;
+  }));
+  const allCb = wrap.querySelector("#lgi-all");
+  if (allCb) allCb.addEventListener("change", () => wrap.querySelectorAll(".lgi-c").forEach(cb => { cb.checked = allCb.checked; }));
   wrap.querySelector("#lgi-cancel").addEventListener("click", close);
   wrap.querySelector("#lgi-go").addEventListener("click", () => {
     const sel = [...wrap.querySelectorAll(".lgi-c:checked")].map(x => carriers[Number(x.dataset.i)]);

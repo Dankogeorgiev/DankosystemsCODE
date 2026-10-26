@@ -309,7 +309,6 @@ async function erpRenderCompanies() {
       <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
       <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
       <button class="btn btn-small" id="comp-oldc" title="Старият указател Контакти — пълният списък с категории и бележки">📇 Стар указател</button>
-      <button class="btn btn-small" id="comp-old" title="Старият изглед (директориите поотделно)">⚙ Стар изглед</button>
       <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
     </div>
     <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити. Търсенето рови и в 🚚 адресите за доставка (Consignee от износните фактури).${delivNew ? ` <b style="color:#166534">🚚 Току-що попълних ${delivNew} адреса за доставка от фактурите.</b>` : ""}</p>
@@ -330,7 +329,6 @@ async function erpRenderCompanies() {
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
   v.querySelector("#comp-oldc").addEventListener("click", () => { if (typeof openContacts === "function") openContacts(); });
-  v.querySelector("#comp-old").addEventListener("click", () => erpRenderPartners());
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null, { kind: compKindF || undefined }));
   v.querySelectorAll("[data-compopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCard(Number(b.dataset.compopen)); }));
   v.querySelectorAll("tr[data-comp]").forEach(tr => tr.addEventListener("click", () => compCard(Number(tr.dataset.comp))));
