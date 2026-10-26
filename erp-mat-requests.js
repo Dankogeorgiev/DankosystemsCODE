@@ -97,6 +97,24 @@ async function matreqGrpOvrSave(key, group) {
     return true;
   } catch (e) { return false; }
 }
+/* Batch: няколко артикула наведнъж → една група (един свеж прочит, един
+   запис — иначе N заявки и N презаписа на документа). */
+async function matreqGrpOvrSaveMany(keys, group) {
+  try {
+    keys = (keys || []).filter(Boolean);
+    if (!keys.length || !group || typeof sb === "undefined" || !sb) return false;
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "mat_group_overrides").maybeSingle();
+    if (error) { alert("Преместването не се записа: " + error.message); return false; }
+    const cur = (data && data.data) || {};
+    const byKey = cur.byKey || {};
+    const stamp = { updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "" };
+    keys.forEach(k => { byKey[k] = Object.assign({ group }, stamp); });
+    const { error: e2 } = await sb.from("app_config").upsert({ id: "mat_group_overrides", data: Object.assign({}, cur, { byKey }), updated_at: new Date().toISOString() });
+    if (e2) { alert("Преместването не се записа: " + e2.message); return false; }
+    MATREQ_GRP_OVR = byKey;
+    return true;
+  } catch (e) { return false; }
+}
 /* Групата на един ред: ръчният override на артикула е с предимство. */
 function matreqArtGroup(mid, article, docGroup) {
   const r = (MATREQ_GRP_OVR || {})[matreqNoteKey(mid, article)];
@@ -438,12 +456,14 @@ function matreqArtMoveSelect(idx, fromGroup) {
 /* Избран транспортен вид: документите от текущата група, съдържащи артикула,
    получават вид „Транспорт износ/вътрешен" → отиват в Логистика →
    🧾 Фактури транспорт. Доставчиците им се запомнят с този вид. */
-async function matreqMoveArtDocsToType(a, fromGroup, toType) {
-  const ak = String(a.article || "").toLowerCase();
+async function matreqMoveArtDocsToType(arts, fromGroup, toType) {
+  const list = Array.isArray(arts) ? arts : [arts];
+  const keys = new Set(list.map(a => String(a.article || "").toLowerCase()).filter(Boolean));
   const docs = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(o =>
-    matreqDocGroup(o) === fromGroup && (o.lines || []).some(l => matreqLineName(l).toLowerCase() === ak));
-  if (!docs.length) { alert("Няма документи с този артикул тук."); return false; }
-  if (!confirm(`${docs.length} ${docs.length === 1 ? "документ" : "документа"}, съдържащи „${a.article}", стават вид „${toType}" и отиват в Логистика → 🧾 Фактури транспорт.\n\nПромяната е ОБЩА (Покупки, анализите). Доставчиците им се запомнят с „${toType}" — новите им фактури ще го получават сами.`)) return false;
+    matreqDocGroup(o) === fromGroup && (o.lines || []).some(l => keys.has(matreqLineName(l).toLowerCase())));
+  if (!docs.length) { alert("Няма документи с тези артикули тук."); return false; }
+  const what = list.length === 1 ? `„${list[0].article}"` : `${list.length} отметнати артикула`;
+  if (!confirm(`${docs.length} ${docs.length === 1 ? "документ" : "документа"}, съдържащи ${what}, стават вид „${toType}" и отиват в Логистика → 🧾 Фактури транспорт.\n\nПромяната е ОБЩА (Покупки, анализите). Доставчиците им се запомнят с „${toType}" — новите им фактури ще го получават сами.`)) return false;
   let ok = 0, fail = 0;
   const sups = new Set();
   for (const o of docs) {
@@ -463,6 +483,15 @@ async function matreqMoveArtDocsToType(a, fromGroup, toType) {
   if (fail) alert(`⚠ Преместени ${ok}, неуспешни ${fail} — натисни „↻ Обнови" и опитай пак.`);
   return ok > 0;
 }
+/* ➡ Групово: ОТМЕТНАТИТЕ артикули наведнъж в избрана група (или
+   документите им към Фактури транспорт). По Данко, 26.10. */
+async function matreqMoveArtsBulk(list, fromGroup, to) {
+  if (!list.length) { alert("Отметни поне един артикул."); return false; }
+  if (to.indexOf("t:") === 0) return matreqMoveArtDocsToType(list, fromGroup, to.slice(2));
+  if (!confirm(`Да преместя ли ${list.length} отметнати артикула от „${fromGroup}" в „${to}"?\n\nПомни се ОБЩО (виждат го всички): всичките им редове — стари и бъдещи покупки — се водят в „${to}", а доставчиците им сами се показват там.`)) return false;
+  return matreqGrpOvrSaveMany(list.map(a => matreqNoteKey(a.mid, a.article)), to);
+}
+
 function matreqWireArtMove(root, arts, fromGroup, after) {
   root.querySelectorAll(".mr-amove").forEach(sel => sel.addEventListener("change", async () => {
     const to = sel.value; if (!to) return;
@@ -729,6 +758,11 @@ function matreqRenderSupplier(box, rec) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="mr-pass-btn" title="Паспортът на доставчика — четеш и коригираш (имейл, лице, условия, IBAN, какво купуваме)">🏷 Паспорт</button>
       <button class="btn btn-small" id="mr-free-sup" title="Заявка на свободен текст към този доставчик — за материал, който още не сме купували от него">✉ Свободна заявка</button>
+      <select id="mr-bulkmove" title="Премества ОТМЕТНАТИТЕ артикули наведнъж в избраната група (или документите им към Логистика → Фактури транспорт) — помни се общо">
+        <option value="">➡ Избраните в…</option>
+        ${[...MATREQ_GROUPS, MATREQ_NOGRP].filter(x => x !== g).map(x => `<option value="${escapeAttr(x)}">${MATREQ_ICONS[x] || "📁"} ${escapeHtml(x)}</option>`).join("")}
+        <optgroup label="Логистика · Фактури транспорт"><option value="t:Транспорт износ">🚛 Транспорт износ</option><option value="t:Транспорт вътрешен">🚐 Транспорт вътрешен</option></optgroup>
+      </select>
       <button class="btn btn-small btn-primary" id="mr-order" title="Отваря заявката към доставчика с отметнатите артикули — писмото се пише само">🛒 Заявка за избраните (<span id="mr-ordcnt">0</span>)</button>
     </div>
     <p class="hint" id="mr-supinfo">⏳ …</p>
@@ -759,6 +793,15 @@ function matreqRenderSupplier(box, rec) {
   });
   matreqWireMove(box, g, () => erpRenderMatRequests(true));      // резервата (фактури без редове)
   matreqWireArtMove(box, arts, g, () => erpRenderMatRequests(true));
+  const bulkEl = box.querySelector("#mr-bulkmove");
+  if (bulkEl) bulkEl.addEventListener("change", async () => {
+    const to = bulkEl.value; if (!to) return;
+    const sel = [...box.querySelectorAll(".mr-buy:checked")].map(cb => arts[Number(cb.dataset.bi)]).filter(Boolean);
+    bulkEl.disabled = true;
+    const ok = await matreqMoveArtsBulk(sel, g, to);
+    bulkEl.disabled = false; bulkEl.value = "";
+    if (ok) erpRenderMatRequests(true);
+  });
   matreqSupInfo(box.querySelector("#mr-supinfo"), name);
   const aq = box.querySelector("#mr-aq");
   if (aq) aq.addEventListener("input", () => {
