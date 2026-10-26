@@ -103,7 +103,7 @@ function logiInquiry(preset) {
       <thead><tr><th class="pay-chk"><input type="checkbox" id="lgi-all" title="Избери всички" /></th><th>Фирма</th><th>Лице</th><th>Имейл</th></tr></thead>
       <tbody>${carriers.map((c, i) => `<tr class="erp-clickable" data-ci="${i}">
         <td class="pay-chk"><input type="checkbox" class="lgi-c" data-i="${i}" /></td>
-        <td><b>${escapeHtml(c.company || "—")}</b></td>
+        <td><b>${escapeHtml(c.company || "—")}</b>${(c.scope || c.notes) ? `<div style="font-size:11.5px;color:#64748b;max-width:260px">${escapeHtml(c.scope || c.notes)}</div>` : ""}</td>
         <td>${escapeHtml(c.contact_person || "")}${c.phone ? ` <span class="erp-muted">· ☎ ${escapeHtml(c.phone)}</span>` : ""}</td>
         <td class="t-code">${escapeHtml(c.email)}</td>
       </tr>`).join("")}</tbody>
