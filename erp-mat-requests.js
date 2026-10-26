@@ -366,7 +366,7 @@ function matreqRenderGroupSuppliers(box, m) {
     <table class="report-table erp-table">
       <thead><tr><th>Доставчик</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
-        <td><b>${escapeHtml(r.name)}</b></td>
+        <td><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
         <td class="num">${r.docs}</td>
         <td class="num cost-cell">${matreqEurInt(r.eur)}</td>
         <td>${matreqFmt(r.last)}</td>
@@ -380,8 +380,14 @@ function matreqRenderGroupSuppliers(box, m) {
     box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
   });
   box.querySelectorAll("[data-mrs]").forEach(el => el.addEventListener("click", e => {
-    if (el.tagName === "TR" && e.target.closest("button")) return;
+    if (el.tagName === "TR" && e.target.closest("button, .mr-pass")) return;
     MATREQ_NAV.supplier = el.dataset.mrs; erpRenderMatRequests(true);
+  }));
+  // 🏷 Паспортът на доставчика — направо от името (по Данко, 26.10).
+  box.querySelectorAll(".mr-pass").forEach(a => a.addEventListener("click", e => {
+    e.preventDefault(); e.stopPropagation();
+    if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
+    suppForm(a.dataset.name, { refresh: () => erpRenderMatRequests(true) });
   }));
 }
 
@@ -394,6 +400,7 @@ function matreqRenderSupplier(box, rec) {
       <button class="btn btn-small" id="mr-back-grp">← ${escapeHtml(g)}</button>
       <span class="erp-count">🏭 ${escapeHtml(name)}</span>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="mr-pass-btn" title="Паспортът на доставчика — четеш и коригираш (имейл, лице, условия, IBAN, какво купуваме)">🏷 Паспорт</button>
       <button class="btn btn-small" id="mr-free-sup" title="Заявка на свободен текст към този доставчик — за материал, който още не сме купували от него">✉ Свободна заявка</button>
       <button class="btn btn-small btn-primary" id="mr-order" title="Отваря заявката към доставчика с отметнатите артикули — писмото се пише само">🛒 Заявка за избраните (<span id="mr-ordcnt">0</span>)</button>
     </div>
@@ -416,6 +423,10 @@ function matreqRenderSupplier(box, rec) {
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   box.querySelector("#mr-back-grp").addEventListener("click", () => { MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   box.querySelector("#mr-free-sup").addEventListener("click", () => erpMatReqCompose([], null, name));
+  box.querySelector("#mr-pass-btn").addEventListener("click", () => {
+    if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
+    suppForm(name, { refresh: () => erpRenderMatRequests(true) });
+  });
   matreqSupInfo(box.querySelector("#mr-supinfo"), name);
   const aq = box.querySelector("#mr-aq");
   if (aq) aq.addEventListener("input", () => {

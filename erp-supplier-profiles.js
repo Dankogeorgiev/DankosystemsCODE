@@ -406,11 +406,14 @@ function suppFormPrep(name) {
   return { key, p, pt };
 }
 
-function suppForm(name) {
+/* opts.refresh: кой екран да се опресни след запис/изтриване — паспортът се
+   отваря и от „Заявки за материали", където рендерът по подразбиране
+   (Паспорти доставчици) би нарисувал ЧУЖД екран в текущия таб. */
+function suppForm(name, opts) {
   const prep = suppFormPrep(name);
   const { wrap, close } = erpDialog(suppFormHtml(name, prep, false));
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide");
-  suppFormWire(wrap, name, prep, close, {});
+  suppFormWire(wrap, name, prep, close, opts || {});
 }
 
 function suppFormHtml(name, prep, embed) {
@@ -531,7 +534,7 @@ function suppFormWire(wrap, name, prep, close, opts) {
     SUPP_PROFILES.aliases = SUPP_PROFILES.aliases || {};
     SUPP_PROFILES.aliases[key] = target;
     SUPP_BOUGHT = null;   // агрегатите се преизчисляват
-    if (await suppSave()) { close(); if (embed && typeof erpRenderCompanies === "function") erpRenderCompanies(); else erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); if (embed && typeof erpRenderCompanies === "function") erpRenderCompanies(); else if (opts && opts.refresh) opts.refresh(); else erpRenderSupplierProfiles(); }
   });
   const af = wrap.querySelector("#sp-autofill");
   if (af) af.addEventListener("click", () => {
@@ -574,7 +577,7 @@ function suppFormWire(wrap, name, prep, close, opts) {
   if (del) del.addEventListener("click", async () => {
     if (!confirm(`Да изтрия ли паспорта на „${name}"?`)) return;
     delete SUPP_PROFILES.byKey[key];
-    if (await suppSave()) { close(); suppUpdateBadge(); if (!embed) erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); suppUpdateBadge(); if (!embed) (opts && opts.refresh ? opts.refresh() : erpRenderSupplierProfiles()); }
   });
   wrap.querySelector("#sp-save").addEventListener("click", async () => {
     // При вграден паспорт Идентификацията не е на екрана (вижда се в реквизитите
@@ -598,7 +601,7 @@ function suppFormWire(wrap, name, prep, close, opts) {
     };
     SUPP_PROFILES.byKey = SUPP_PROFILES.byKey || {};
     SUPP_PROFILES.byKey[key] = rec;
-    if (await suppSave()) { close(); suppUpdateBadge(); if (!embed) erpRenderSupplierProfiles(); }
+    if (await suppSave()) { close(); suppUpdateBadge(); if (!embed) (opts && opts.refresh ? opts.refresh() : erpRenderSupplierProfiles()); }
   });
 }
 
