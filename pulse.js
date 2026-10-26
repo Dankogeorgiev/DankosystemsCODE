@@ -420,32 +420,48 @@ async function pulseMonthly(v) {
   const inp = (m, k, val, title) => `<input type="number" step="any" class="pum-in" data-m="${m}" data-k="${k}" value="${val ? val : ""}" placeholder="0" title="${title || ""}" style="width:96px;text-align:right" />`;
 
   const aiData = [];   // числата на месеците — за „🤖 AI анализ" (Данко, 24.10.2026)
+  // Ръчна КОРЕКЦИЯ на всяка авто-колона (Данко, 26.10.2026): празно поле =
+  // авто-стойността (стои като подсказка); напишеш ли число — ТО влиза в
+  // сметките, а отдолу се вижда „авто: X", за да личи намесата. Изчистиш ли
+  // полето — връща се на авто.
+  const ovVal = (man, k, auto) => {
+    const raw = man[k];
+    return (raw === undefined || raw === null || raw === "") ? auto : Number(raw) || 0;
+  };
+  const ovCell = (m, k, man, auto, title) => {
+    const has = !(man[k] === undefined || man[k] === null || man[k] === "");
+    return `<input type="number" step="any" class="pum-in" data-m="${m}" data-k="${k}" value="${has ? escapeAttr(String(man[k])) : ""}" placeholder="${escapeAttr((Math.round(auto * 100) / 100).toFixed(2))}" title="${escapeAttr(title)}" style="width:96px;text-align:right${has ? ";border-color:#f59e0b;font-weight:700" : ""}" />${has ? `<div class="erp-muted" style="font-size:10.5px" title="Автоматичната стойност — изчисти полето, за да се върне">авто: ${eur(auto)}</div>` : ""}`;
+  };
   const rows = months.map(m => {
     const man = manual[m] || {};
-    const inv = invByMonth[m] || 0;
+    const invA = invByMonth[m] || 0;
     const c005 = (c005ByMonth[m] || 0) + (Number(man.c005) || 0);
-    const salesT = inv + c005;
-    const pur = purByMonth[m] || 0;
-    const sal = salByMonth[m] || 0;
+    const purA = purByMonth[m] || 0;
+    const salA = salByMonth[m] || 0;
     const osigAuto = osigByMonth[m] || 0;
-    const osig = osigAuto || Number(man.osig) || 0;
+    const vatA = (vatOutByMonth[m] || 0) - (vatInByMonth[m] || 0);   // >0 → за внасяне
+    // Стойностите В СМЕТКИТЕ: ръчната корекция печели, иначе автото.
+    const inv = ovVal(man, "ovInv", invA);
+    const pur = ovVal(man, "ovPur", purA);
+    const sal = ovVal(man, "ovSal", salA);
+    const osig = ovVal(man, "ovOsig", osigAuto || Number(man.osig) || 0);
+    const vatDue = ovVal(man, "ovVat", vatA);
     const credits = Number(man.credits) || 0;
     const other = Number(man.other) || 0;
-    // ДДС резултат на месеца: >0 → за внасяне (вади се), <0 → за възстановяване (добавя се).
-    const vatDue = (vatOutByMonth[m] || 0) - (vatInByMonth[m] || 0);
+    const salesT = inv + c005;
     const result = salesT - pur - sal - osig - credits - other - vatDue;
     aiData.push({ m, inv, c005, salesT, pur, sal, osig, credits, other, vatDue, result });
     return `<tr>
       <td><b>${mLabel(m)}</b></td>
-      <td class="num">${dash(inv)}</td>
-      <td class="num" title="Сборът от регистъра „Стокови/005" отдолу (включително изтрити записи)">${dash(c005)}</td>
+      <td class="num">${ovCell(m, "ovInv", man, invA, "Фактурите (авто) — напиши число само ако искаш да КОРИГИРАШ месеца на ръка; празно = автоматичното")}</td>
+      <td class="num" title="Сборът от регистъра „Стокови/005" отдолу — поправя се ТАМ (редовете и 🧹 старите)">${dash(c005)}</td>
       <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
-      <td class="num">${dash(pur)}</td>
-      <td class="num">${dash(sal)}</td>
-      <td class="num">${osigAuto ? `${dash(osigAuto)} <span class="erp-muted" title="От Ведомостта (Месечен отчет)">🤖</span>` : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
+      <td class="num">${ovCell(m, "ovPur", man, purA, "Разходите от Покупки (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
+      <td class="num">${ovCell(m, "ovSal", man, salA, "Заплатите от Месечния отчет (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
+      <td class="num">${osigAuto ? ovCell(m, "ovOsig", man, osigAuto, "Осигуровките от Ведомостта (авто) — напиши число за ръчна корекция; празно = автоматичното") : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
       <td class="num">${inp(m, "credits", man.credits, "Вноски по кредити за месеца, €")}</td>
       <td class="num">${inp(m, "other", man.other, "Други разходи за месеца (извън Покупките), €")}</td>
-      <td class="num" title="${vatDue >= 0 ? "ДДС за внасяне — вади се от резултата" : "ДДС за възстановяване — добавя се към резултата"}">${(vatOutByMonth[m] || vatInByMonth[m]) ? `<b style="color:${vatDue >= 0 ? "#b91c1c" : "#166534"}">${vatDue >= 0 ? "−" : "+"}${eur(Math.abs(vatDue))}</b>` : `<span class="erp-muted">—</span>`}</td>
+      <td class="num">${ovCell(m, "ovVat", man, vatA, "ДДС резултатът (авто): положително = за внасяне (вади се), отрицателно = за възстановяване (добавя се). Напиши число за ръчна корекция; празно = автоматичното")}</td>
       <td class="num" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
       <td><input type="text" class="pum-note" data-m="${m}" value="${escapeAttr(man.note || "")}" placeholder="бележка…" style="width:200px" /></td>
     </tr>`;
@@ -509,8 +525,14 @@ async function pulseMonthly(v) {
   const collect = () => {
     v.querySelectorAll(".pum-in").forEach(i => {
       const m = i.dataset.m, k = i.dataset.k;
-      const val = Number(String(i.value).replace(",", ".")) || 0;
       manual[m] = manual[m] || {};
+      if (k.startsWith("ov")) {
+        // Корекция на авто-колона: празно поле = връщане на автото; 0 е ВАЛИДНА стойност.
+        const raw = String(i.value).trim().replace(",", ".");
+        if (raw === "") delete manual[m][k]; else manual[m][k] = Number(raw) || 0;
+        return;
+      }
+      const val = Number(String(i.value).replace(",", ".")) || 0;
       if (val) manual[m][k] = val; else delete manual[m][k];
     });
     v.querySelectorAll(".pum-note").forEach(i => {
