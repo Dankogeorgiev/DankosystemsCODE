@@ -15,6 +15,8 @@
 let COMP_DIR = null;           // { links, roles }
 let compQuery = "";
 let compKindF = "customer";    // подтаб: customer | supplier | "" (всички)
+let compMode = "dir";          // dir = указателят (начален, по Данко 26.10) | cards = картоните
+let compDirCat = "";           // активната категория-чип в указателя
 let COMP_ACTIVE = false;       // кой изглед е на екрана: обединеният или старият
 
 function compNorm(s) { return String(s || "").toLowerCase().replace(/х/g, "x").replace(/["'„“”.,\-–—()]/g, " ").replace(/\s+/g, " ").trim(); }
@@ -187,12 +189,119 @@ function compTradeFor(p) {
 }
 
 /* ---------- Списъкът ---------- */
+/* 📇 Указателят като НАЧАЛЕН изглед на таба (по Данко, 26.10): категориите
+   като цветни чипове (точно като в стария прозорец), ПОД тях лентата с
+   инструментите, после контактите. Данните са СЪЩАТА таблица contacts —
+   клик по ред/✎ отваря познатата форма на указателя. Бутоните Клиенти/
+   Доставчици/Всички водят към картоните на фирмите (новия изглед). */
+function compRenderDirectory(v) {
+  const all = (typeof CONTACTS !== "undefined" && CONTACTS) || [];
+  const col = cat => (typeof catColor === "function") ? catColor(cat) : "#475569";
+  const grp = cat => (typeof catGroup === "function") ? catGroup(cat) : "Други";
+  const cats = (typeof allCategories === "function") ? allCategories() : [...new Set(all.map(c => c.category).filter(Boolean))];
+  const counts = {};
+  all.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
+  const groups = { "Доставчици": [], "Клиенти": [], "Други": [] };
+  cats.forEach(cat => (groups[grp(cat)] || groups["Други"]).push(cat));
+  const chip = cat => `<button class="cat-chip ${compDirCat === cat ? "active" : ""}" data-dircat="${escapeAttr(cat)}" style="background:${col(cat)}">${escapeHtml(cat)} (${counts[cat] || 0})</button>`;
+  let bar = `<div class="cat-allrow" style="margin-bottom:6px"><button class="cat-chip ${compDirCat === "" ? "active" : ""}" data-dircat="" style="background:#475569">Всички (${all.length})</button></div><div class="cat-groups">`;
+  ["Доставчици", "Клиенти", "Други"].forEach(g => {
+    if (!groups[g].length) return;
+    const colsN = groups[g].length > 6 ? 3 : (groups[g].length > 3 ? 2 : 1);
+    bar += `<div class="cat-col"><div class="cat-col-title">${g}</div><div class="cat-col-chips" style="grid-template-columns:repeat(${colsN},minmax(116px,1fr))">${groups[g].map(chip).join("")}</div></div>`;
+  });
+  bar += `</div>`;
+  // Търсене по думи, отвсякъде — същото като в стария указател.
+  const cNorm = s2 => String(s2 || "").toLowerCase().replace(/х/g, "x").replace(/е/g, "e").replace(/а/g, "a").replace(/о/g, "o").replace(/с/g, "c").replace(/р/g, "p");
+  const words = cNorm(compQuery).split(/\s+/).filter(Boolean);
+  const rows = all.filter(c => {
+    if (!words.length && compDirCat && c.category !== compDirCat) return false;
+    if (words.length) {
+      const hay = cNorm(`${c.company} ${c.contact_person} ${c.phone} ${c.email} ${c.scope} ${c.notes} ${c.category}`);
+      if (!words.every(w => hay.includes(w))) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.company || "").localeCompare(b.company || "", "bg"));
+  v.innerHTML = `
+    ${bar}
+    <div class="erp-toolbar" style="margin:10px 0 8px">
+      <span class="erp-count">📇 ${rows.length} контакта</span>
+      <button class="btn btn-small" id="comp-tab-cli" title="Картоните на клиентите — реквизити, хора с роли, какво търгуваме">👤 Клиенти</button>
+      <button class="btn btn-small" id="comp-tab-sup" title="Картоните на доставчиците">🏭 Доставчици</button>
+      <button class="btn btn-small" id="comp-tab-all" title="Всички картони, вкл. фирмите само от указателя">Всички</button>
+      <input type="search" id="comp-q" placeholder="🔎 фирма / контакт / бележка… (Enter)" value="${escapeAttr(compQuery)}" style="width:250px;flex:0 0 auto" autocomplete="off" />
+      <button class="btn btn-small" id="comp-go">🔎</button>
+      <span class="spacer"></span>
+      <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
+      <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
+      <button class="btn btn-small" id="comp-oldc" title="Старият прозорец Контакти — пълната форма с всички полета">📇 Стар указател</button>
+      <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
+    </div>
+    <table class="report-table erp-table">
+      <thead><tr><th>Категория</th><th>Фирма</th><th>Лице за контакт</th><th>Телефон</th><th>Имейл</th><th>Бележка</th><th></th></tr></thead>
+      <tbody>${rows.map(c => `<tr class="erp-clickable" data-cdir="${c.id}" title="Клик = редакция на контакта">
+        <td><span class="cat-badge" style="background:${c.category ? col(c.category) : "#94a3b8"};color:#fff">${escapeHtml(c.category || "—")}</span></td>
+        <td><a href="#" class="comp-openc" data-cid="${c.id}" title="Отваря картона на фирмата — реквизити, паспорт на клиента/доставчика, хора, търгувано"><strong>${escapeHtml(c.company || "—")}</strong></a>${c.no_price_increase ? ' <span class="np-flag" title="Не пускаме увеличение">⚠</span>' : ""}${c.scope ? `<div class="c-scope">${escapeHtml(c.scope)}</div>` : ""}</td>
+        <td>${escapeHtml(c.contact_person || "—")}</td>
+        <td>${escapeHtml(c.phone || "—")}</td>
+        <td>${c.email ? `<a href="mailto:${escapeAttr(c.email)}">${escapeHtml(c.email)}</a>` : "—"}</td>
+        <td class="c-notes">${escapeHtml(c.notes || "")}</td>
+        <td class="erp-row-actions"><button class="btn btn-small" data-cdir-edit="${c.id}" title="Редакция на контакта">✎</button></td>
+      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма контакти по този филтър.</td></tr>`}</tbody>
+    </table>`;
+  v.querySelectorAll("[data-dircat]").forEach(b => b.addEventListener("click", () => { compDirCat = b.dataset.dircat; compQuery = ""; erpRenderCompanies(); }));
+  const go = () => { compQuery = (v.querySelector("#comp-q") || {}).value || ""; erpRenderCompanies(); };
+  const qEl = v.querySelector("#comp-q");
+  qEl.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+  qEl.addEventListener("search", () => { if (!qEl.value) go(); });
+  v.querySelector("#comp-go").addEventListener("click", go);
+  const toCards = kind => { compMode = "cards"; compKindF = kind; erpRenderCompanies(); };
+  v.querySelector("#comp-tab-cli").addEventListener("click", () => toCards("customer"));
+  v.querySelector("#comp-tab-sup").addEventListener("click", () => toCards("supplier"));
+  v.querySelector("#comp-tab-all").addEventListener("click", () => toCards(""));
+  v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
+  v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
+  v.querySelector("#comp-oldc").addEventListener("click", () => { if (typeof openContacts === "function") openContacts(); });
+  v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null, { kind: compKindF || undefined }));
+  const editC = id => {
+    const c = all.find(x => String(x.id) === String(id));
+    if (!c || typeof renderContactForm !== "function") return;
+    const m = document.getElementById("contacts-modal");
+    if (m) m.hidden = false;
+    renderContactForm(c);
+  };
+  v.querySelectorAll("[data-cdir-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); editC(b.dataset.cdirEdit); }));
+  v.querySelectorAll("tr[data-cdir]").forEach(tr => tr.addEventListener("click", e => { if (e.target.closest("button, a")) return; editC(tr.dataset.cdir); }));
+  // Името на фирмата → картона ѝ (реквизити + паспорт на клиента/доставчика).
+  v.querySelectorAll(".comp-openc").forEach(a => a.addEventListener("click", e => {
+    e.preventDefault(); e.stopPropagation();
+    const c = all.find(x => String(x.id) === String(a.dataset.cid)); if (!c) return;
+    // compLoose връща МАСИВ от думи — сравняваме ги като низ.
+    const loose = n => (typeof compLoose === "function") ? compLoose(n || "").join(" ") : String(n || "").toLowerCase().trim();
+    const linkId = (typeof COMP_DIR !== "undefined" && COMP_DIR && COMP_DIR.links) ? COMP_DIR.links[String(c.id)] : null;
+    let pt = linkId ? ((typeof erpPartners !== "undefined" && erpPartners) || []).find(x => x.id === linkId) : null;
+    const key = loose(c.company);
+    if (!pt && key) pt = ((typeof erpPartners !== "undefined" && erpPartners) || []).find(x => loose(x.name) === key) || null;
+    if (pt) { compCard(pt.id); return; }
+    // Фирма само от указателя → мини-картонът ѝ (с „➕ Създай реквизити").
+    window.COMP_ORPH = window.COMP_ORPH || new Map();
+    const ok = key || String(c.id);
+    if (!window.COMP_ORPH.get(ok)) window.COMP_ORPH.set(ok, { key: ok, name: c.company || "—", kind: "", cts: all.filter(x => loose(x.company) === ok) });
+    compCardOrphan(ok);
+  }));
+}
+
 async function erpRenderCompanies() {
   COMP_ACTIVE = true;
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   try { if (typeof erpPartners === "undefined" || !erpPartners) await erpLoadPartners(); } catch (e) { try { await erpLoadPartners(); } catch (e2) {} }
   try { if ((typeof CONTACTS === "undefined" || !CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad(); } catch (e) {}
+  if (compMode === "dir") {
+    try { if (typeof cSeedIfNeeded === "function") await cSeedIfNeeded(); } catch (e) {}
+    try { await compDirLoad(); } catch (e) {}
+    return compRenderDirectory(v);
+  }
   try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
   try { if ((typeof erpPurchases === "undefined" || !erpPurchases) && typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}
   try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
@@ -300,6 +409,7 @@ async function erpRenderCompanies() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count">${list.length + orphans.length} фирми${orphans.length ? ` (${orphans.length} само от указателя)` : ""}${hiddenOrph ? ` · още ${hiddenOrph} без тип → Всички` : ""}</span>
+      <button class="btn btn-small" id="comp-dirview" title="Указателят с категориите — началният изглед на таба">📇 Указател</button>
       <button class="btn btn-small ${compKindF === "customer" ? "btn-primary" : ""}" id="comp-tab-cli">👤 Клиенти</button>
       <button class="btn btn-small ${compKindF === "supplier" ? "btn-primary" : ""}" id="comp-tab-sup">🏭 Доставчици</button>
       <button class="btn btn-small ${compKindF === "" ? "btn-primary" : ""}" id="comp-tab-all" title="Всички заедно, вкл. фирмите от указателя без определен тип">Всички</button>
@@ -323,6 +433,7 @@ async function erpRenderCompanies() {
     qEl.addEventListener("search", () => { if (!qEl.value) doSearch(); });
   }
   v.querySelector("#comp-go").addEventListener("click", doSearch);
+  v.querySelector("#comp-dirview").addEventListener("click", () => { compMode = "dir"; erpRenderCompanies(); });
   v.querySelector("#comp-tab-cli").addEventListener("click", () => { compKindF = "customer"; erpRenderCompanies(); });
   v.querySelector("#comp-tab-sup").addEventListener("click", () => { compKindF = "supplier"; erpRenderCompanies(); });
   v.querySelector("#comp-tab-all").addEventListener("click", () => { compKindF = ""; erpRenderCompanies(); });
