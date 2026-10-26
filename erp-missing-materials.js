@@ -113,12 +113,14 @@ async function erpRenderMissingMaterials(box) {
   // Отметка за избор → „Запитване към доставчик" (кол. по подразбиране: липсващото/до минимума).
   const chk = (r, qty) => `<td class="pay-chk"><input type="checkbox" class="mm-sel" data-mid="${r.mid}" data-qty="${qty}" /></td>`;
   // „Поръчай от" — доставчиците, доставяли този материал (най-скорошният
-  // предизбран, с последната му цена). По избора става груповата поръчка.
+  // предизбран, с последната му цена) + 🛒 за ДИРЕКТНА поръчка само на този
+  // ред (по Данко, 26.10). Отметките + лентата долу остават за груповите.
+  const buy1 = r => `<button class="btn btn-small btn-primary mm-buy1" data-mid="${r.mid}" title="Директна заявка за този материал — отваря се попълнена (доставчик, имейл, количество)">🛒</button>`;
   const suppSel = r => {
     const cands = mmSupp.get(Number(r.mid)) || [];
-    if (!cands.length) return `<span class="erp-muted" title="В Покупките няма ред с този материал — няма от кого да предложим">—</span>`;
-    return `<select class="mm-supp" data-mid="${r.mid}" style="max-width:180px" title="Кой да го достави — доставчиците, от които сме го купували (посл. цена в EUR)">${cands.slice(0, 6).map((c, i) =>
-      `<option value="${escapeAttr(c.name)}" ${i === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select>`;
+    if (!cands.length) return `<span class="erp-muted" title="В Покупките няма ред с този материал — няма от кого да предложим">—</span> ${buy1(r)}`;
+    return `<span style="display:inline-flex;gap:4px;align-items:center"><select class="mm-supp" data-mid="${r.mid}" style="max-width:180px" title="Кой да го достави — доставчиците, от които сме го купували (посл. цена в EUR)">${cands.slice(0, 6).map((c, i) =>
+      `<option value="${escapeAttr(c.name)}" ${i === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select>${buy1(r)}</span>`;
   };
   const shortRow = r => `
     <tr class="erp-below">
@@ -204,4 +206,15 @@ async function erpRenderMissingMaterials(box) {
   };
   v.querySelectorAll(".mm-sel").forEach(c => c.addEventListener("change", updBar));
   v.querySelectorAll(".mm-supp").forEach(s2 => s2.addEventListener("change", updBar));
+  // 🛒 Директна поръчка на ЕДИН ред: избраният доставчик от „Поръчай от" +
+  // количеството по подразбиране (липсващото / до минимума).
+  v.querySelectorAll(".mm-buy1").forEach(b => b.addEventListener("click", () => {
+    const mid = Number(b.dataset.mid);
+    const m = ERP.matById[mid] || {};
+    const sEl = v.querySelector(`.mm-supp[data-mid="${mid}"]`);
+    const cEl = v.querySelector(`.mm-sel[data-mid="${mid}"]`);
+    const qty = Math.ceil((Number(cEl && cEl.dataset.qty) || 0) * 100) / 100 || 1;
+    if (typeof erpMatReqCompose !== "function") { alert("Модул Заявки за материали не е зареден."); return; }
+    erpMatReqCompose([{ materialId: mid, code: m.code || "", name: m.name || "", unit: m.unit || "", qty }], null, (sEl && sEl.value) || undefined);
+  }));
 }
