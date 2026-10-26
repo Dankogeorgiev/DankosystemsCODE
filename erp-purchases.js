@@ -475,8 +475,20 @@ async function erpRenderPurchaseForm(o) {
   const pd = document.getElementById("pu-paiddate"); if (pd) pd.addEventListener("input", () => o.paidDate = pd.value);
   document.getElementById("pu-supplier").addEventListener("input", e => { o.supplierName = e.target.value; const m = suppliers.find(s => s.name === e.target.value); o.supplierId = m ? m.id : null; });
   // Самообучение: при избор на познат доставчик — попълва плащане/валута/ДДС от историята + показва честите артикули.
-  document.getElementById("pu-supplier").addEventListener("change", e => {
+  document.getElementById("pu-supplier").addEventListener("change", async e => {
     const prof = erpPuSupplierProfile(e.target.value);
+    // 🏦 IBAN-ът на ИЗБРАНИЯ доставчик излиза веднага от паспорта му (Данко,
+    // 26.10.2026): веднъж въведен на ръка или разчетен с AI — помни се там.
+    // Смяната на доставчик СМЕНЯ (или чисти) IBAN-а — да не остане сметката
+    // на предишния и парите да тръгнат натам.
+    try {
+      if (typeof suppLoad === "function") await suppLoad();
+      const rec = (typeof SUPP_PROFILES !== "undefined" && SUPP_PROFILES)
+        ? (SUPP_PROFILES.byKey || {})[suppKey(typeof suppCanon === "function" ? suppCanon(e.target.value) : e.target.value)] : null;
+      o.supplierIban = (rec && rec.iban) || "";
+      const ibEl = document.getElementById("pu-iban");
+      if (ibEl) ibEl.value = o.supplierIban;
+    } catch (e2) { console.warn("IBAN от паспорта:", e2); }
     if (prof && erpPuApplyProfile(o, prof)) erpRenderPurchaseForm(o);
   });
   document.getElementById("pu-pay").addEventListener("change", e => { o.payStatus = e.target.value; erpPuApplyPay(o); erpRenderPurchaseForm(o); });
