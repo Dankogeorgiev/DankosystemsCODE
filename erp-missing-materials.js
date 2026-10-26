@@ -60,6 +60,22 @@ async function erpRenderMissingMaterials(box) {
     if (typeof suppLoad === "function") await suppLoad();
     if (typeof matreqSuppliersOfMaterials === "function") mmSupp = matreqSuppliersOfMaterials();
   } catch (e) { /* без предложения — екранът работи и така */ }
+  // Запомнените ръчни избори (материал → доставчик) — излизат първи.
+  let mmPrefs = {};
+  try { if (typeof matreqSuppPrefs === "function") mmPrefs = await matreqSuppPrefs(); } catch (e) {}
+  // Всички познати доставчици — за „Въведи доставчик" (datalist).
+  const mmAllSupps = new Set();
+  try { ((typeof erpLoadSuppliers === "function" && await erpLoadSuppliers()) || []).forEach(s2 => { const n = String(s2.name || "").trim(); if (n) mmAllSupps.add(n); }); } catch (e) {}
+  try {
+    if (typeof CONTACTS !== "undefined") {
+      if ((!CONTACTS || !CONTACTS.length) && typeof cLoad === "function") await cLoad();
+      (CONTACTS || []).filter(c => /^Доставчик/i.test(c.category || "")).forEach(c => { const n = String(c.company || "").trim(); if (n) mmAllSupps.add(n); });
+    }
+  } catch (e) {}
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    const n = (typeof matreqCanon === "function") ? matreqCanon(o.supplierName) : String(o.supplierName || "").trim();
+    if (n) mmAllSupps.add(n);
+  });
 
   // 1) Поточни задачи (носят source.materials на първата операция + source.orders).
   const tk = await erpSelectAll("tasks", "data", "data->source->>flow", "true");
@@ -112,15 +128,22 @@ async function erpRenderMissingMaterials(box) {
   const inTh = canIn ? "<th></th>" : "";
   // Отметка за избор → „Запитване към доставчик" (кол. по подразбиране: липсващото/до минимума).
   const chk = (r, qty) => `<td class="pay-chk"><input type="checkbox" class="mm-sel" data-mid="${r.mid}" data-qty="${qty}" /></td>`;
-  // „Поръчай от" — доставчиците, доставяли този материал (най-скорошният
-  // предизбран, с последната му цена) + 🛒 за ДИРЕКТНА поръчка само на този
-  // ред (по Данко, 26.10). Отметките + лентата долу остават за груповите.
+  // „Поръчай от" (отделна колона) — доставчиците, доставяли този материал
+  // (запомненият/най-скорошният предизбран, с последната му цена); без
+  // история → „Въведи доставчик" от списъка с всички (запомня се за
+  // следващия път). 🛒 е в СВОЯ колона — директна поръчка на реда.
   const buy1 = r => `<button class="btn btn-small btn-primary mm-buy1" data-mid="${r.mid}" title="Директна заявка за този материал — отваря се попълнена (доставчик, имейл, количество)">🛒</button>`;
   const suppSel = r => {
-    const cands = mmSupp.get(Number(r.mid)) || [];
-    if (!cands.length) return `<span class="erp-muted" title="В Покупките няма ред с този материал — няма от кого да предложим">—</span> ${buy1(r)}`;
-    return `<span style="display:inline-flex;gap:4px;align-items:center"><select class="mm-supp" data-mid="${r.mid}" style="max-width:180px" title="Кой да го достави — доставчиците, от които сме го купували (посл. цена в EUR)">${cands.slice(0, 6).map((c, i) =>
-      `<option value="${escapeAttr(c.name)}" ${i === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select>${buy1(r)}</span>`;
+    let cands = (mmSupp.get(Number(r.mid)) || []).slice(0, 6);
+    const pref = mmPrefs[String(r.mid)] && mmPrefs[String(r.mid)].name;
+    if (pref) {
+      const i = cands.findIndex(c => c.name === pref);
+      if (i > 0) cands.unshift(cands.splice(i, 1)[0]);
+      else if (i === -1) cands.unshift({ name: pref, priceEur: 0, manual: true });
+    }
+    if (!cands.length) return `<input type="text" class="mm-supin" data-mid="${r.mid}" list="mm-supdl" placeholder="Въведи доставчик…" style="max-width:190px" title="Избери от списъка или напиши — запомня се и следващия път излиза сам" autocomplete="off" />`;
+    return `<select class="mm-supp" data-mid="${r.mid}" style="max-width:190px" title="Кой да го достави — доставчиците, от които сме го купували (посл. цена в EUR); избереш ли друг, се запомня">${cands.map((c, i) =>
+      `<option value="${escapeAttr(c.name)}" ${i === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.manual ? " · запомнен" : (c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : "")}</option>`).join("")}</select>`;
   };
   const shortRow = r => `
     <tr class="erp-below">
@@ -132,6 +155,7 @@ async function erpRenderMissingMaterials(box) {
       <td class="num" data-label="Ще липсва"><span class="erp-warn">${erpNum(r.missing)} ⚠</span></td>
       <td data-label="Заявки">${ordersCell(r)}</td>
       <td data-label="Поръчай от">${suppSel(r)}</td>
+      <td data-label="Поръчка">${buy1(r)}</td>
       ${inBtn(r)}
     </tr>`;
   const lowRow = r => `
@@ -144,6 +168,7 @@ async function erpRenderMissingMaterials(box) {
       <td class="num" data-label="Минимум">${erpNum(r.min)}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>
       <td data-label="Поръчай от">${suppSel(r)}</td>
+      <td data-label="Поръчка">${buy1(r)}</td>
       ${inBtn(r)}
     </tr>`;
 
@@ -158,16 +183,17 @@ async function erpRenderMissingMaterials(box) {
       ${short.length ? `
         <h4 class="erp-group-head">⚠ Няма да стигнат</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th><th>Поръчай от</th>${inTh}</tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th><th>Поръчай от</th><th></th>${inTh}</tr></thead>
           <tbody>${short.map(shortRow).join("")}</tbody>
         </table>`
         : `<p class="report-empty">✅ За оставащото рязане по пуснатите заявки има достатъчно материал.</p>`}
       ${low.length ? `
         <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th><th>Поръчай от</th>${inTh}</tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th><th>Поръчай от</th><th></th>${inTh}</tr></thead>
           <tbody>${low.map(lowRow).join("")}</tbody>
         </table>` : ""}
+      <datalist id="mm-supdl">${[...mmAllSupps].sort((a, b) => a.localeCompare(b, "bg")).map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
       <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Отметни материали — долу излиза по един бутон „🛒 Заявка" за всеки предложен доставчик.</span></div>
     `}`;
 
@@ -188,8 +214,7 @@ async function erpRenderMissingMaterials(box) {
     sel.forEach(c => {
       const mid = Number(c.dataset.mid);
       const m = ERP.matById[mid] || {};
-      const sEl = v.querySelector(`.mm-supp[data-mid="${mid}"]`);
-      const sup = (sEl && sEl.value) || "";
+      const sup = rowSupp(mid);
       const arr = bySupp.get(sup) || [];
       arr.push({ materialId: mid, code: m.code || "", name: m.name || "", unit: m.unit || "", qty: Math.ceil((Number(c.dataset.qty) || 0) * 100) / 100 });
       bySupp.set(sup, arr);
@@ -204,17 +229,26 @@ async function erpRenderMissingMaterials(box) {
       else alert("Модул Заявки за материали не е зареден.");
     }));
   };
+  // Избраният доставчик на реда: от падащото ИЛИ от „Въведи доставчик".
+  const rowSupp = mid => {
+    const el = v.querySelector(`.mm-supp[data-mid="${mid}"]`) || v.querySelector(`.mm-supin[data-mid="${mid}"]`);
+    return ((el && el.value) || "").trim();
+  };
   v.querySelectorAll(".mm-sel").forEach(c => c.addEventListener("change", updBar));
-  v.querySelectorAll(".mm-supp").forEach(s2 => s2.addEventListener("change", updBar));
+  // Смяна/въвеждане на доставчик → запомня се за материала (следващия път
+  // излиза пръв) и групите долу се преправят.
+  v.querySelectorAll(".mm-supp, .mm-supin").forEach(s2 => s2.addEventListener("change", () => {
+    if (typeof matreqSuppPrefSave === "function") matreqSuppPrefSave(s2.dataset.mid, s2.value);
+    updBar();
+  }));
   // 🛒 Директна поръчка на ЕДИН ред: избраният доставчик от „Поръчай от" +
   // количеството по подразбиране (липсващото / до минимума).
   v.querySelectorAll(".mm-buy1").forEach(b => b.addEventListener("click", () => {
     const mid = Number(b.dataset.mid);
     const m = ERP.matById[mid] || {};
-    const sEl = v.querySelector(`.mm-supp[data-mid="${mid}"]`);
     const cEl = v.querySelector(`.mm-sel[data-mid="${mid}"]`);
     const qty = Math.ceil((Number(cEl && cEl.dataset.qty) || 0) * 100) / 100 || 1;
     if (typeof erpMatReqCompose !== "function") { alert("Модул Заявки за материали не е зареден."); return; }
-    erpMatReqCompose([{ materialId: mid, code: m.code || "", name: m.name || "", unit: m.unit || "", qty }], null, (sEl && sEl.value) || undefined);
+    erpMatReqCompose([{ materialId: mid, code: m.code || "", name: m.name || "", unit: m.unit || "", qty }], null, rowSupp(mid) || undefined);
   }));
 }

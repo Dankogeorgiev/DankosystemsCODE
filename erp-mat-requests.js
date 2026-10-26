@@ -183,6 +183,29 @@ function matreqSuppliersOfMaterials() {
   return out;
 }
 
+/* Ръчно избран доставчик за даден материал (изгледът „Липсващи"): помни се
+   в app_config mat_supplier_prefs и следващия път излиза пръв/предложен.
+   Записът чете свежия ред и слива само своя ключ (никога цял кеш). */
+async function matreqSuppPrefs() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_supplier_prefs").maybeSingle();
+    return (data && data.data && data.data.byMat) || {};
+  } catch (e) { return {}; }
+}
+async function matreqSuppPrefSave(mid, name) {
+  try {
+    mid = String(mid || ""); name = String(name || "").trim();
+    if (!mid || !name || typeof sb === "undefined" || !sb) return;
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "mat_supplier_prefs").maybeSingle();
+    if (error) return;
+    const cur = (data && data.data) || {};
+    const byMat = cur.byMat || {};
+    if (byMat[mid] && byMat[mid].name === name) return;
+    byMat[mid] = { name, updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "" };
+    await sb.from("app_config").upsert({ id: "mat_supplier_prefs", data: Object.assign({}, cur, { byMat }), updated_at: new Date().toISOString() });
+  } catch (e) { /* тихо */ }
+}
+
 /* Контактът на доставчика за инфо-реда: Контакти → паспорт → партньори. */
 async function matreqSupInfo(el, name) {
   if (!el) return;
