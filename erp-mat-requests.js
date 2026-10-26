@@ -258,17 +258,25 @@ async function matreqRememberEmail(name, email) {
 
 /* ---------- Табът (рутер): 📂 папки / 📋 регистър / ⚠ липсващи ----------
    keepCache=true (навигация из папките) рисува мигновено от паметта;
-   без него (влизане в таба, смяна на изглед, след запис) тегли наново. */
+   без него (влизане в таба, смяна на изглед, след запис) тегли наново.
+   СВЕЖЕСТ (по Данко, 26.10): покупките за този екран се извличат наново
+   при влизане, щом са по-стари от 4 часа — новите материали и доставчици
+   излизат сами всеки ден, без да се прави нищо. ↻ ги тегли веднага. */
 let MATREQ_PU_ERR = null;   // последната грешка при зареждане на Покупките
+let MATREQ_PU_AT = 0;       // кога този екран последно е теглил покупките
+const MATREQ_PU_TTL = 4 * 60 * 60 * 1000;
 async function erpRenderMatRequests(keepCache) {
   const v = erpView();
   const wantsPurch = MATREQ_NAV.view === "folders" || MATREQ_NAV.view === "bymat";
-  const needPurch = wantsPurch && (typeof erpPurchases === "undefined" || !erpPurchases);
+  const puStale = !keepCache && (!MATREQ_PU_AT || Date.now() - MATREQ_PU_AT > MATREQ_PU_TTL);
+  const needPurch = wantsPurch && ((typeof erpPurchases === "undefined" || !erpPurchases) || puStale);
   if (!keepCache || !MATREQ || needPurch) v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await matreqLoad(!keepCache);
   if (wantsPurch) {
     MATREQ_PU_ERR = null;
-    try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); }
+    try {
+      if (typeof erpLoadPurchases === "function" && needPurch) { await erpLoadPurchases(); MATREQ_PU_AT = Date.now(); }
+    }
     catch (e) { MATREQ_PU_ERR = e; }   // показва се в изгледа, с „Опитай пак"
     try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
   }
@@ -281,6 +289,7 @@ async function erpRenderMatRequests(keepCache) {
       <button class="btn btn-small ${view === "missing" ? "btn-primary" : ""}" id="mr-v-miss" title="Какво няма да стигне за пуснатите в производство заявки — с предложен доставчик и групова поръчка">⚠ Липсващи по заявки</button>
       <button class="btn btn-small ${view === "bymat" ? "btn-primary" : ""}" id="mr-v-bymat" title="Намери материала по име/код → виж от кой доставчик е купуван → 🛒 заявка">🔎 Търсене по материал</button>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="mr-refresh" title="Тегли наново покупките и заявките — нови материали и доставчици излизат веднага. Иначе екранът се обновява сам: при влизане, щом данните са по-стари от 4 часа.">↻ Обнови</button>
       <button class="btn btn-small btn-primary" id="mr-new" title="Заявка на свободен текст — за доставчик или материал без история в Покупки">+ Нова заявка (свободна)</button>
     </div>
     <div id="mr-body"></div>`;
@@ -289,6 +298,12 @@ async function erpRenderMatRequests(keepCache) {
   v.querySelector("#mr-v-miss").addEventListener("click", () => { if (MATREQ_NAV.view !== "missing") { MATREQ_NAV.view = "missing"; erpRenderMatRequests(); } });
   v.querySelector("#mr-v-bymat").addEventListener("click", () => { if (MATREQ_NAV.view !== "bymat") { MATREQ_NAV.view = "bymat"; erpRenderMatRequests(); } });
   v.querySelector("#mr-new").addEventListener("click", () => erpMatReqCompose([]));
+  v.querySelector("#mr-refresh").addEventListener("click", () => {
+    MATREQ_PU_AT = 0;                                     // следващият рендер тегли наново
+    try { if (typeof erpPurchases !== "undefined") erpPurchases = null; } catch (e) {}
+    try { SUPP_BOUGHT = null; } catch (e) {}              // агрегатите да се преизчислят
+    erpRenderMatRequests();
+  });
   const box = v.querySelector("#mr-body");
   if (view === "folders") matreqRenderFolders(box);
   else if (view === "bymat") matreqRenderByMat(box);
