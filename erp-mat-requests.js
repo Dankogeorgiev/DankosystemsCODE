@@ -53,7 +53,11 @@ function matreqPrice(n) { return (Number(n) || 0).toLocaleString("bg-BG", { mini
 function matreqDocGroup(o) {
   const t = o.expenseType || "";
   if (MATREQ_GROUPS.includes(t)) return t;
-  if (t) return null;   // друг вид разход (услуга) — не е папка материали
+  if (/^транспорт/i.test(t)) return null;   // домът им е Логистика → 🧾 Фактури транспорт
+  // Вид ИЗВЪН материалните групи (Ток, Други разходи, Инвестиции… вкл.
+  // ГРЕШНО класираните) → „Без група", за да не изчезва нищо (Данко, 26.10):
+  // колоната „Вид (Покупки)" показва какъв е сега, а ➡ го разпределя.
+  if (t) return MATREQ_NOGRP;
   for (const l of (o.lines || [])) {
     const g = String(l.groupName || "").toLowerCase();
     if (!g) continue;
@@ -125,7 +129,8 @@ function matreqFolderData() {
     const seenG = new Set();
     const touch = (g, eur) => {
       const m = groups.get(g); if (!m) return;
-      const rec = m.get(sk) || { name, docs: 0, eur: 0, last: "" };
+      const rec = m.get(sk) || { name, docs: 0, eur: 0, last: "", types: new Set() };
+      rec.types.add(o.expenseType || "— без вид");
       if (!seenG.has(g)) {
         seenG.add(g); rec.docs++;
         if (o.docType !== "credit" && String(o.date || "") > rec.last) rec.last = o.date || "";   // връщане ≠ покупка
@@ -635,7 +640,7 @@ function matreqRenderGroupGrid(box, groups) {
     </button>`;
   }).join("");
   box.innerHTML = `
-    <p class="hint">Групите материали от Покупки като папки. Влез в папка → доставчиците ѝ и какво сме купували от всеки → отметни артикули → 🛒 заявката се пише сама. „${MATREQ_NOGRP}" са стари/импортирани фактури без посочен вид разход.</p>
+    <p class="hint">Групите материали от Покупки като папки. Влез в папка → доставчиците ѝ и какво сме купували от всеки → отметни артикули → 🛒 заявката се пише сама. „${MATREQ_NOGRP}" събира ВСИЧКО извън материалните групи — фактури без вид разход И с вид като Ток/Други разходи (вкл. грешно класираните): колоната „Вид (Покупки)" показва какъв е сега, а ➡ разпределя. Транспортните са си в Логистика → 🧾 Фактури транспорт.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-top:6px">${cards}</div>`;
   box.querySelectorAll("[data-mrg]").forEach(b => b.addEventListener("click", () => {
     MATREQ_NAV.group = b.dataset.mrg; MATREQ_NAV.supplier = null; erpRenderMatRequests(true);
@@ -654,14 +659,15 @@ function matreqRenderGroupSuppliers(box, m) {
     </div>
     <p class="hint">Клик върху доставчик → какво сме купували от него (с последни цени) и бърза заявка. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Доставчик</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
+      <thead><tr><th>Доставчик</th>${g === MATREQ_NOGRP ? '<th>Вид (Покупки)</th>' : ""}<th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
         <td><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
+        ${g === MATREQ_NOGRP ? `<td class="erp-muted" style="font-size:12px" title="Как са класирани документите му в Покупки сега">${escapeHtml([...(r.types || [])].join(", "))}</td>` : ""}
         <td class="num">${r.docs}</td>
         <td class="num cost-cell">${matreqEurInt(r.eur)}</td>
         <td>${matreqFmt(r.last)}</td>
         <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
-      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
     </table>`;
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   const q = box.querySelector("#mr-q");
