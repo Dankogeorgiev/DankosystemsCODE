@@ -63,27 +63,89 @@ function matreqDocGroup(o) {
   return MATREQ_NOGRP;
 }
 
-/* група → Map(ключ на доставчик → { name, docs, eur, last }) от реалните покупки.
-   Стоковите разписки не влизат в оборота (парите идват с месечната фактура),
-   но се броят като документи и дават артикули. */
+/* ---------- ➡ Групата на АРТИКУЛА (по Данко, 26.10) ----------
+   Единицата за местене е артикулът, не доставчикът: преместен веднъж,
+   артикулът се помни (app_config mat_group_overrides, ключ = materialId
+   или името — като бележките) и всичките му редове — стари и бъдещи —
+   се водят в новата група. Доставчикът „сам се премества": показва се
+   във всяка папка, където има артикули. */
+let MATREQ_GRP_OVR = null;
+async function matreqGrpOvrLoad(force) {
+  if (MATREQ_GRP_OVR && !force) return MATREQ_GRP_OVR;
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_group_overrides").maybeSingle();
+    MATREQ_GRP_OVR = (data && data.data && data.data.byKey) || {};
+  } catch (e) { MATREQ_GRP_OVR = MATREQ_GRP_OVR || {}; }
+  return MATREQ_GRP_OVR;
+}
+async function matreqGrpOvrSave(key, group) {
+  try {
+    if (!key || typeof sb === "undefined" || !sb) return false;
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "mat_group_overrides").maybeSingle();
+    if (error) { alert("Преместването не се записа: " + error.message); return false; }
+    const cur = (data && data.data) || {};
+    const byKey = cur.byKey || {};
+    if (group) byKey[key] = { group, updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "" };
+    else delete byKey[key];
+    const { error: e2 } = await sb.from("app_config").upsert({ id: "mat_group_overrides", data: Object.assign({}, cur, { byKey }), updated_at: new Date().toISOString() });
+    if (e2) { alert("Преместването не се записа: " + e2.message); return false; }
+    MATREQ_GRP_OVR = byKey;
+    return true;
+  } catch (e) { return false; }
+}
+/* Групата на един ред: ръчният override на артикула е с предимство. */
+function matreqArtGroup(mid, article, docGroup) {
+  const r = (MATREQ_GRP_OVR || {})[matreqNoteKey(mid, article)];
+  if (r && r.group && (MATREQ_GROUPS.includes(r.group) || r.group === MATREQ_NOGRP)) return r.group;
+  return docGroup;
+}
+/* Ползваем ред (общият шумов филтър): без авто-редовете от покриващи
+   фактури, без празни имена и без „разход" от импорта. */
+function matreqLineName(l) {
+  if (l.fromGoodsId) return "";
+  const nm = String(l.article || l.name || "").trim();
+  if (!nm || /^разход$/i.test(nm)) return "";
+  return nm;
+}
+
+/* група → Map(ключ на доставчик → { name, docs, eur, last }) от реалните
+   покупки — ПО РЕДОВЕ: всеки артикул брои за СВОЯТА група (override или
+   групата на документа), затова смесена фактура праща доставчика в няколко
+   папки. Документ без ползваеми редове се брои цял в групата си. Стоковите
+   разписки не влизат в оборота (парите идват с месечната фактура). */
 function matreqFolderData() {
   const groups = new Map();
   [...MATREQ_GROUPS, MATREQ_NOGRP].forEach(g => groups.set(g, new Map()));
   ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
-    const g = matreqDocGroup(o); if (!g) return;
+    const dg = matreqDocGroup(o);
     const name = matreqCanon(o.supplierName); if (!name) return;
-    const sk = matreqSupKey(name);
-    const m = groups.get(g);
-    const rec = m.get(sk) || { name, docs: 0, eur: 0, last: "" };
-    rec.docs++;
-    if (o.docType !== "goods") {
-      try {
-        const t = erpPuTotals(o);   // кредитните са с минус
-        rec.eur += ((typeof erpPuCur === "function" ? erpPuCur(o) : "EUR") === "BGN") ? t.base / PU_EUR_BGN : t.base;
-      } catch (e) {}
+    const sk = matreqSupKey(name); if (!sk) return;
+    const k = ((typeof erpPuCur === "function" ? erpPuCur(o) : "EUR") === "BGN") ? 1 / PU_EUR_BGN : 1;
+    const sign = o.docType === "credit" ? -1 : 1;
+    const seenG = new Set();
+    const touch = (g, eur) => {
+      const m = groups.get(g); if (!m) return;
+      const rec = m.get(sk) || { name, docs: 0, eur: 0, last: "" };
+      if (!seenG.has(g)) {
+        seenG.add(g); rec.docs++;
+        if (o.docType !== "credit" && String(o.date || "") > rec.last) rec.last = o.date || "";   // връщане ≠ покупка
+      }
+      if (o.docType !== "goods") rec.eur += eur;
+      m.set(sk, rec);
+    };
+    let anyLine = false;
+    (o.lines || []).forEach(l => {
+      const nm = matreqLineName(l); if (!nm) return;
+      const lg = matreqArtGroup(l.materialId, nm, dg); if (!lg) return;
+      anyLine = true;
+      touch(lg, (erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0) * k * sign);
+    });
+    if (!anyLine && dg) {
+      // документ без разбити/ползваеми редове → целият в групата на документа
+      let base = 0;
+      try { base = erpPuTotals(o).base * k; } catch (e) {}
+      touch(dg, base);
     }
-    if (o.docType !== "credit" && String(o.date || "") > rec.last) rec.last = o.date || "";   // връщане ≠ покупка
-    m.set(sk, rec);
   });
   return groups;
 }
@@ -96,13 +158,12 @@ function matreqSupplierArts(sk, group) {
   const arts = new Map();
   ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
     if (matreqSupKey(matreqCanon(o.supplierName)) !== sk) return;
-    if (matreqDocGroup(o) !== group) return;
+    const dg = matreqDocGroup(o);
     const isCredit = o.docType === "credit";
     const cur = (typeof erpPuCur === "function") ? erpPuCur(o) : (o.currency || "EUR");
     (o.lines || []).forEach(l => {
-      if (l.fromGoodsId) return;
-      const nm = String(l.article || l.name || "").trim();
-      if (!nm || /^разход$/i.test(nm)) return;
+      const nm = matreqLineName(l); if (!nm) return;
+      if (matreqArtGroup(l.materialId, nm, dg) !== group) return;   // групата на РЕДА
       const ak = nm.toLowerCase();
       const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", lastPriceEur: 0, mid: 0 };
       it.n++;
@@ -127,15 +188,14 @@ function matreqSupplierArts(sk, group) {
 function matreqGroupArticles(group) {
   const arts = new Map();
   ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
-    if (matreqDocGroup(o) !== group) return;
+    const dg = matreqDocGroup(o);
     const name = matreqCanon(o.supplierName); if (!name) return;
     const sk = matreqSupKey(name); if (!sk) return;
     const isCredit = o.docType === "credit";
     const cur = (typeof erpPuCur === "function") ? erpPuCur(o) : (o.currency || "EUR");
     (o.lines || []).forEach(l => {
-      if (l.fromGoodsId) return;
-      const nm = String(l.article || l.name || "").trim();
-      if (!nm || /^разход$/i.test(nm)) return;
+      const nm = matreqLineName(l); if (!nm) return;
+      if (matreqArtGroup(l.materialId, nm, dg) !== group) return;   // групата на РЕДА
       const ak = nm.toLowerCase();
       const it = arts.get(ak) || { article: nm, code: "", unit: l.unit || "", n: 0, last: "", supps: new Map(), mid: 0 };
       it.n++;
@@ -325,7 +385,29 @@ async function matreqRememberGroup(name, group) {
   } catch (e) { /* тихо */ }
 }
 
-/* Падащото „➡ премести в…" — общо за списъка с доставчици и изгледа на един. */
+/* ➡ Преместване на АРТИКУЛ (основният път): запис в mat_group_overrides. */
+async function matreqMoveArt(mid, article, fromGroup, toGroup) {
+  if (!confirm(`Да преместя ли артикула „${article}" от „${fromGroup}" в „${toGroup}"?\n\nПомни се ОБЩО (виждат го всички): всичките му редове — стари и бъдещи покупки — се водят в „${toGroup}", а доставчиците му сами се показват там.`)) return false;
+  return matreqGrpOvrSave(matreqNoteKey(mid, article), toGroup);
+}
+function matreqArtMoveSelect(idx, fromGroup) {
+  const opts = [...MATREQ_GROUPS, MATREQ_NOGRP].filter(g => g !== fromGroup)
+    .map(g => `<option value="${escapeAttr(g)}">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)}</option>`).join("");
+  return `<select class="mr-amove" data-ai="${idx}" title="Премести АРТИКУЛА в друга група — помни се (общо за всички), доставчикът сам се показва там" style="max-width:70px"><option value="">➡</option>${opts}</select>`;
+}
+function matreqWireArtMove(root, arts, fromGroup, after) {
+  root.querySelectorAll(".mr-amove").forEach(sel => sel.addEventListener("change", async () => {
+    const to = sel.value; if (!to) return;
+    const a = arts[Number(sel.dataset.ai)]; if (!a) { sel.value = ""; return; }
+    sel.disabled = true;
+    const ok = await matreqMoveArt(a.mid, a.article, fromGroup, to);
+    sel.disabled = false; sel.value = "";
+    if (ok) after();
+  }));
+}
+
+/* Падащото „➡ премести в…" (ДОКУМЕНТИТЕ на доставчик) — остава само като
+   резерва за фактури БЕЗ разбити редове, където няма артикули за местене. */
 function matreqMoveSelect(sk, fromGroup, cls) {
   const opts = [...MATREQ_GROUPS].filter(g => g !== fromGroup)
     .map(g => `<option value="${escapeAttr(g)}">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)}</option>`).join("");
@@ -446,6 +528,7 @@ async function erpRenderMatRequests(keepCache) {
     catch (e) { MATREQ_PU_ERR = e; }   // показва се в изгледа, с „Опитай пак"
     try { if (typeof suppLoad === "function") await suppLoad(); } catch (e) {}
     try { await matreqNotesLoad(!keepCache); } catch (e) {}
+    try { await matreqGrpOvrLoad(!keepCache); } catch (e) {}
   }
   const activeN = (MATREQ || []).filter(r => r.status !== "доставено").length;
   const view = MATREQ_NAV.view;
@@ -531,15 +614,14 @@ function matreqRenderGroupSuppliers(box, m) {
     </div>
     <p class="hint">Клик върху доставчик → какво сме купували от него (с последни цени) и бърза заявка. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Доставчик</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th>➡ Премести</th><th></th></tr></thead>
+      <thead><tr><th>Доставчик</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
         <td><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
         <td class="num">${r.docs}</td>
         <td class="num cost-cell">${matreqEurInt(r.eur)}</td>
         <td>${matreqFmt(r.last)}</td>
-        <td>${matreqMoveSelect(r.sk, g, "mr-move")}</td>
         <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
-      </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
     </table>`;
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   const q = box.querySelector("#mr-q");
@@ -551,7 +633,6 @@ function matreqRenderGroupSuppliers(box, m) {
     if (el.tagName === "TR" && e.target.closest("button, select, .mr-pass")) return;
     MATREQ_NAV.supplier = el.dataset.mrs; erpRenderMatRequests(true);
   }));
-  matreqWireMove(box, g, () => erpRenderMatRequests(true));
   // 🏷 Паспортът на доставчика — направо от името (по Данко, 26.10).
   box.querySelectorAll(".mr-pass").forEach(a => a.addEventListener("click", e => {
     e.preventDefault(); e.stopPropagation();
@@ -570,7 +651,6 @@ function matreqRenderSupplier(box, rec) {
       <button class="btn btn-small" id="mr-back-grp">← ${escapeHtml(g)}</button>
       <span class="erp-count">🏭 ${escapeHtml(name)}</span>
       <span class="spacer"></span>
-      ${matreqMoveSelect(MATREQ_NAV.supplier, g, "mr-move")}
       <button class="btn btn-small" id="mr-pass-btn" title="Паспортът на доставчика — четеш и коригираш (имейл, лице, условия, IBAN, какво купуваме)">🏷 Паспорт</button>
       <button class="btn btn-small" id="mr-free-sup" title="Заявка на свободен текст към този доставчик — за материал, който още не сме купували от него">✉ Свободна заявка</button>
       <button class="btn btn-small btn-primary" id="mr-order" title="Отваря заявката към доставчика с отметнатите артикули — писмото се пише само">🛒 Заявка за избраните (<span id="mr-ordcnt">0</span>)</button>
@@ -581,7 +661,7 @@ function matreqRenderSupplier(box, rec) {
     <div class="erp-toolbar" style="margin:0 0 4px"><input type="search" id="mr-aq" placeholder="търси артикул или код…" style="width:240px" /></div>
     <div style="max-height:56vh;overflow:auto">
     <table class="report-table erp-table" style="font-size:12.5px">
-      <thead><tr><th></th><th>Артикул</th><th>Код</th><th>📝 Бележка</th><th>🧩 Ползва се в</th><th class="num">Пъти</th><th>Последно</th><th class="num cost-cell">Посл. цена (EUR)</th><th class="num">Поръчай</th></tr></thead>
+      <thead><tr><th></th><th>Артикул</th><th>Код</th><th>📝 Бележка</th><th>🧩 Ползва се в</th><th class="num">Пъти</th><th>Последно</th><th class="num cost-cell">Посл. цена (EUR)</th><th class="num">Поръчай</th><th title="Премести артикула в друга група">➡</th></tr></thead>
       <tbody>${arts.map((i, bi) => `<tr data-mra="1">
         <td><input type="checkbox" class="mr-buy" data-bi="${bi}" /></td>
         <td>${escapeHtml(i.article)}</td><td class="t-code">${escapeHtml(i.code || "")}</td>
@@ -590,9 +670,10 @@ function matreqRenderSupplier(box, rec) {
         <td class="num">${i.n}</td><td>${matreqFmt(i.last)}</td>
         <td class="num cost-cell">${i.lastPriceEur ? matreqPrice(i.lastPriceEur) : ""}</td>
         <td class="num"><input type="number" class="mr-buyqty" data-bi="${bi}" min="0" step="any" style="width:76px" placeholder="${escapeAttr(i.unit || "бр.")}" /></td>
+        <td>${matreqArtMoveSelect(bi, g)}</td>
       </tr>`).join("")}</tbody>
     </table>
-    </div>` : `<p class="report-empty">Фактурите на този доставчик тук са без разбити редове — няма откъде да извадим артикули. Ползвай „✉ Свободна заявка".</p>`}`;
+    </div>` : `<p class="report-empty">Фактурите на този доставчик тук са без разбити редове — няма артикули за местене. Ползвай „✉ Свободна заявка", а за прекласифициране премести ДОКУМЕНТИТЕ: ${matreqMoveSelect(MATREQ_NAV.supplier, g, "mr-move")}</p>`}`;
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   box.querySelector("#mr-back-grp").addEventListener("click", () => { MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   box.querySelector("#mr-free-sup").addEventListener("click", () => erpMatReqCompose([], null, name));
@@ -600,7 +681,8 @@ function matreqRenderSupplier(box, rec) {
     if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
     suppForm(name, { refresh: () => erpRenderMatRequests(true) });
   });
-  matreqWireMove(box, g, () => erpRenderMatRequests(true));
+  matreqWireMove(box, g, () => erpRenderMatRequests(true));      // резервата (фактури без редове)
+  matreqWireArtMove(box, arts, g, () => erpRenderMatRequests(true));
   matreqSupInfo(box.querySelector("#mr-supinfo"), name);
   const aq = box.querySelector("#mr-aq");
   if (aq) aq.addEventListener("input", () => {
@@ -655,7 +737,7 @@ function matreqRenderByMat(box) {
     <p class="hint">Всички поръчвани артикули в „${escapeHtml(MATREQ_BM.group)}" от реалните покупки. Избери доставчика (най-скорошният е предизбран, с последната му цена в EUR), сложи бройка и 🛒 — заявката се отваря написана.</p>
     <div style="max-height:58vh;overflow:auto">
     <table class="report-table erp-table" style="font-size:12.5px">
-      <thead><tr><th>Артикул</th><th>Код</th><th>📝 Бележка</th><th>🧩 Ползва се в</th><th class="num">Пъти</th><th>Последно</th><th>Доставчик</th><th class="num">Поръчай</th><th></th></tr></thead>
+      <thead><tr><th>Артикул</th><th>Код</th><th>📝 Бележка</th><th>🧩 Ползва се в</th><th class="num">Пъти</th><th>Последно</th><th>Доставчик</th><th class="num">Поръчай</th><th></th><th title="Премести артикула в друга група">➡</th></tr></thead>
       <tbody id="mr-bm-rows"></tbody>
     </table>
     </div>`;
@@ -676,7 +758,8 @@ function matreqRenderByMat(box) {
         `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}</option>`).join("")}</select></td>
       <td class="num"><input type="number" class="bm-qty" data-i="${i}" min="0" step="any" style="width:76px" placeholder="${escapeAttr(a.unit || "бр.")}" /></td>
       <td><button class="btn btn-small btn-primary bm-buy" data-i="${i}" title="Заявка към избрания доставчик за този материал — отваря се попълнена">🛒</button></td>
-    </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Нищо в тази група${q ? " за това търсене" : ""}.</td></tr>`;
+      <td>${matreqArtMoveSelect(i, MATREQ_BM.group)}</td>
+    </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Нищо в тази група${q ? " за това търсене" : ""}.</td></tr>`;
     tbody.querySelectorAll(".bm-buy").forEach(b => b.addEventListener("click", () => {
       const a = shown[Number(b.dataset.i)]; if (!a) return;
       const sEl = tbody.querySelector(`.bm-supp[data-i="${b.dataset.i}"]`);
@@ -685,6 +768,7 @@ function matreqRenderByMat(box) {
       erpMatReqCompose([{ code: a.code || "", name: a.article, qty, unit: a.unit || "бр." }], null, (sEl && sEl.value) || undefined);
     }));
     matreqWireNotes(tbody);
+    matreqWireArtMove(tbody, shown, MATREQ_BM.group, () => erpRenderMatRequests(true));
   };
   paint();
   box.querySelector("#mr-bm-q").addEventListener("input", e => { MATREQ_BM.q = e.target.value; paint(); });
