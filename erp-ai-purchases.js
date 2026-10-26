@@ -273,14 +273,25 @@ function erpPuAIDraw() {
     </div>`;
   document.getElementById("pai-back").addEventListener("click", () => { if (confirm("Да се откажа? Черновата още не е създадена.")) erpRenderPurchases(); });
   document.getElementById("pai-confirm").addEventListener("click", erpPuAIConfirm);
+  // Видът разход по памет: първо от ПАСПОРТА на доставчика (запомня се при
+  // всеки запис на покупка и при „➡ премести"), после от историята му.
+  const paiEtypeFromMemory = async name => {
+    if (!name || s.expenseType) return;
+    let et = "";
+    try {
+      if (typeof suppLoad === "function") await suppLoad();
+      const rec = (typeof suppProfile === "function") ? suppProfile(name) : null;
+      et = (rec && rec.expenseType) || "";
+    } catch (e) {}
+    if (!et && typeof erpPuSupplierProfile === "function") { const p = erpPuSupplierProfile(name); et = (p && p.expenseType) || ""; }
+    if (et) { s.expenseType = et; const el = document.getElementById("pai-etype"); if (el) el.value = et; }
+  };
   document.getElementById("pai-sup").addEventListener("input", e => {
     s.supName = e.target.value; const m = s.suppliers.find(x => x.name === e.target.value); s.supId = m ? m.id : null;
-    // Познат доставчик → предложи вида разход от историята му (ако още не е избран).
-    if (m && !s.expenseType && typeof erpPuSupplierProfile === "function") {
-      const p = erpPuSupplierProfile(m.name);
-      if (p && p.expenseType) { s.expenseType = p.expenseType; const el = document.getElementById("pai-etype"); if (el) el.value = p.expenseType; }
-    }
+    if (m) paiEtypeFromMemory(m.name);
   });
+  // AI често е разпознал доставчика сам — паметта да сработи и без ръчен избор.
+  if (s.supName) paiEtypeFromMemory(s.supName);
   document.getElementById("pai-no").addEventListener("input", e => { s.invoiceNo = e.target.value; erpPuAIDupCheck(); });
   erpPuAIDupCheck();
   document.getElementById("pai-date").addEventListener("input", e => s.date = e.target.value);

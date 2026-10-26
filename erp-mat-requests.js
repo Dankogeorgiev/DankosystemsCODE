@@ -272,6 +272,77 @@ function matreqUsageDialog(mid) {
   wrap.querySelector("#mu-close").addEventListener("click", close);
 }
 
+/* ---------- ➡ Преместване в друга група (по Данко, 26.10) ----------
+   Старите/грешно класифицирани покупки се разнасят по местата си: видът
+   разход (data.expenseType) се сменя НАПРАВО в purchases — промяната е
+   обща (виждат я всички: Покупки, анализите, папките). Всеки документ се
+   чете свеж точно преди записа, за да не затрием чужда редакция. */
+async function matreqMoveDocs(sk, fromGroup, toGroup) {
+  const docs = ((typeof erpPurchases !== "undefined" && erpPurchases) || [])
+    .filter(o => matreqSupKey(matreqCanon(o.supplierName)) === sk && matreqDocGroup(o) === fromGroup);
+  if (!docs.length) { alert("Няма документи за преместване."); return false; }
+  const name = matreqCanon(docs[0].supplierName);
+  if (!confirm(`Да преместя ли ${docs.length} ${docs.length === 1 ? "документ" : "документа"} на „${name}" от „${fromGroup}" в „${toGroup}"?\n\nВидът разход им става „${toGroup}" — промяната е ОБЩА (виждат я всички в офиса) и важи и в Покупки, и в анализите. Доставчикът се запомня с тази група — новите му покупки ще я получават сами.`)) return false;
+  let ok = 0, fail = 0;
+  for (const o of docs) {
+    try {
+      const { data, error } = await sb.from("purchases").select("data").eq("id", o.id).maybeSingle();
+      if (error || !data) { fail++; continue; }
+      const d = data.data || {};
+      d.expenseType = toGroup;
+      const { error: e2 } = await sb.from("purchases").update({ data: d, updated_at: new Date().toISOString() }).eq("id", o.id);
+      if (e2) { fail++; continue; }
+      o.expenseType = toGroup;   // и в паметта — папките се преправят веднага
+      ok++;
+    } catch (e) { fail++; }
+  }
+  try { SUPP_BOUGHT = null; } catch (e) {}   // агрегатите по доставчик да се преизчислят
+  if (ok) matreqRememberGroup(name, toGroup);   // тихо — за следващите покупки
+  if (fail) alert(`⚠ Преместени ${ok}, неуспешни ${fail}. Натисни „↻ Обнови" и опитай пак за останалите.`);
+  return ok > 0;
+}
+/* Преместването се ЗАПОМНЯ (по Данко): групата влиза в паспорта на
+   доставчика (expenseType) — нова покупка от него си я получава сама. */
+async function matreqRememberGroup(name, group) {
+  try {
+    if (!String(name || "").trim() || !group || typeof sb === "undefined" || !sb) return;
+    const canon = (typeof suppCanon === "function") ? suppCanon(name) : String(name).trim();
+    const k = (typeof suppKey === "function") ? suppKey(canon) : String(canon).toLowerCase();
+    if (!k) return;
+    const { data, error } = await sb.from("app_config").select("data").eq("id", "supplier_profiles").maybeSingle();
+    if (error) return;
+    const cur = (data && data.data) || {};
+    const byKey = cur.byKey || {};
+    const p = byKey[k];
+    if (p && p.expenseType === group) return;
+    byKey[k] = Object.assign({ name: canon }, p || {}, {
+      expenseType: group,
+      updatedAt: new Date().toISOString(),
+      updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || "",
+    });
+    const { error: e2 } = await sb.from("app_config").upsert({ id: "supplier_profiles", data: Object.assign({}, cur, { byKey }), updated_at: new Date().toISOString() });
+    if (!e2 && typeof SUPP_PROFILES !== "undefined" && SUPP_PROFILES) SUPP_PROFILES.byKey = byKey;
+  } catch (e) { /* тихо */ }
+}
+
+/* Падащото „➡ премести в…" — общо за списъка с доставчици и изгледа на един. */
+function matreqMoveSelect(sk, fromGroup, cls) {
+  const opts = [...MATREQ_GROUPS].filter(g => g !== fromGroup)
+    .map(g => `<option value="${escapeAttr(g)}">${MATREQ_ICONS[g] || "📁"} ${escapeHtml(g)}</option>`).join("");
+  return `<select class="${cls}" data-mv-sk="${escapeAttr(sk)}" title="Премества ВСИЧКИ документи на доставчика от тази група в избраната — за старите/грешно класифицираните. Промяната е обща.">
+    <option value="">➡ премести в…</option>${opts}</select>`;
+}
+function matreqWireMove(root, fromGroup, after) {
+  root.querySelectorAll("[data-mv-sk]").forEach(sel => sel.addEventListener("change", async e => {
+    e.stopPropagation();
+    const to = sel.value; if (!to) return;
+    sel.disabled = true;
+    const moved = await matreqMoveDocs(sel.dataset.mvSk, fromGroup, to);
+    sel.disabled = false; sel.value = "";
+    if (moved) after();
+  }));
+}
+
 /* Окабеляване на бележките (запис при промяна) и „🧩 Ползва се в" (диалог). */
 function matreqWireNotes(root) {
   root.querySelectorAll(".mr-note").forEach(inp => inp.addEventListener("change", () => matreqNoteSave(inp.dataset.nk, inp.value)));
@@ -460,14 +531,15 @@ function matreqRenderGroupSuppliers(box, m) {
     </div>
     <p class="hint">Клик върху доставчик → какво сме купували от него (с последни цени) и бърза заявка. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
     <table class="report-table erp-table">
-      <thead><tr><th>Доставчик</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
+      <thead><tr><th>Доставчик</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th>➡ Премести</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
         <td><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
         <td class="num">${r.docs}</td>
         <td class="num cost-cell">${matreqEurInt(r.eur)}</td>
         <td>${matreqFmt(r.last)}</td>
+        <td>${matreqMoveSelect(r.sk, g, "mr-move")}</td>
         <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
-      </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="6" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
     </table>`;
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   const q = box.querySelector("#mr-q");
@@ -476,9 +548,10 @@ function matreqRenderGroupSuppliers(box, m) {
     box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
   });
   box.querySelectorAll("[data-mrs]").forEach(el => el.addEventListener("click", e => {
-    if (el.tagName === "TR" && e.target.closest("button, .mr-pass")) return;
+    if (el.tagName === "TR" && e.target.closest("button, select, .mr-pass")) return;
     MATREQ_NAV.supplier = el.dataset.mrs; erpRenderMatRequests(true);
   }));
+  matreqWireMove(box, g, () => erpRenderMatRequests(true));
   // 🏷 Паспортът на доставчика — направо от името (по Данко, 26.10).
   box.querySelectorAll(".mr-pass").forEach(a => a.addEventListener("click", e => {
     e.preventDefault(); e.stopPropagation();
@@ -497,6 +570,7 @@ function matreqRenderSupplier(box, rec) {
       <button class="btn btn-small" id="mr-back-grp">← ${escapeHtml(g)}</button>
       <span class="erp-count">🏭 ${escapeHtml(name)}</span>
       <span class="spacer"></span>
+      ${matreqMoveSelect(MATREQ_NAV.supplier, g, "mr-move")}
       <button class="btn btn-small" id="mr-pass-btn" title="Паспортът на доставчика — четеш и коригираш (имейл, лице, условия, IBAN, какво купуваме)">🏷 Паспорт</button>
       <button class="btn btn-small" id="mr-free-sup" title="Заявка на свободен текст към този доставчик — за материал, който още не сме купували от него">✉ Свободна заявка</button>
       <button class="btn btn-small btn-primary" id="mr-order" title="Отваря заявката към доставчика с отметнатите артикули — писмото се пише само">🛒 Заявка за избраните (<span id="mr-ordcnt">0</span>)</button>
@@ -526,6 +600,7 @@ function matreqRenderSupplier(box, rec) {
     if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
     suppForm(name, { refresh: () => erpRenderMatRequests(true) });
   });
+  matreqWireMove(box, g, () => erpRenderMatRequests(true));
   matreqSupInfo(box.querySelector("#mr-supinfo"), name);
   const aq = box.querySelector("#mr-aq");
   if (aq) aq.addEventListener("input", () => {

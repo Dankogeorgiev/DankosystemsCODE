@@ -69,6 +69,11 @@ async function erpSavePurchase(o) {
     if (error) throw error;
     o.id = ins.id;
   }
+  // Видът разход се ЗАПОМНЯ по доставчик (по Данко, 26.10): следващата му
+  // фактура — ръчна или AI — го получава сама (от паспорта). Тихо.
+  try {
+    if (o.supplierName && o.expenseType && typeof matreqRememberGroup === "function") matreqRememberGroup(o.supplierName, o.expenseType);
+  } catch (e) {}
 }
 /* Доставчиците се кешират за 2 минути: формата се пре-рисува при всяка смяна
    на плащане/вид/валута и без кеш всяко цъкане чакаше заявка към базата. */
@@ -487,6 +492,7 @@ async function erpRenderPurchaseForm(o) {
   // Самообучение: при избор на познат доставчик — попълва плащане/валута/ДДС от историята + показва честите артикули.
   document.getElementById("pu-supplier").addEventListener("change", async e => {
     const prof = erpPuSupplierProfile(e.target.value);
+    let etFromPass = false;
     // 🏦 IBAN-ът на ИЗБРАНИЯ доставчик излиза веднага от паспорта му (Данко,
     // 26.10.2026): веднъж въведен на ръка или разчетен с AI — помни се там.
     // Смяната на доставчик СМЕНЯ (или чисти) IBAN-а — да не остане сметката
@@ -498,8 +504,11 @@ async function erpRenderPurchaseForm(o) {
       o.supplierIban = (rec && rec.iban) || "";
       const ibEl = document.getElementById("pu-iban");
       if (ibEl) ibEl.value = o.supplierIban;
+      // Видът разход от паспорта (помни се и при „➡ премести" в Заявки за
+      // материали) — попълва се само ако още не е избран.
+      if (rec && rec.expenseType && !o.expenseType) { o.expenseType = rec.expenseType; etFromPass = true; }
     } catch (e2) { console.warn("IBAN от паспорта:", e2); }
-    if (prof && erpPuApplyProfile(o, prof)) erpRenderPurchaseForm(o);
+    if ((prof && erpPuApplyProfile(o, prof)) || etFromPass) erpRenderPurchaseForm(o);
   });
   document.getElementById("pu-pay").addEventListener("change", e => { o.payStatus = e.target.value; erpPuApplyPay(o); erpRenderPurchaseForm(o); });
   const curEur = document.getElementById("pu-cur-eur");
