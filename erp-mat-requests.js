@@ -625,13 +625,22 @@ async function matreqMoveSuppliers(list, fromGroup, to) {
   let totArts = 0;
   list.forEach(x => {
     const arts = matreqSupplierArts(x.sk, fromGroup);
-    if (!arts.length) { noArts.push(x.name); return; }
+    if (!arts.length) { noArts.push(x); return; }
     totArts += arts.length;
     arts.forEach(a => { const k = matreqMoveKey(x.sk, a.mid, a.article); keys.push(k); nameOf[k] = a.article || ""; });
   });
-  if (!keys.length) { alert("Маркираните нямат разбити артикули тук — отвори доставчика и премести документите му (падащото в празния изглед)."); return false; }
-  if (!confirm(`Да преместя ли ${list.length} ${list.length === 1 ? "доставчик" : "доставчици"} — общо ${totArts} артикула — от „${fromGroup}" в „${to}"?\n\nМестят се САМО техните артикули от тази група (точково, при никой друг нищо не мърда). Помни се и за бъдещите им покупки.${noArts.length ? `\nБез редове (остават тук): ${noArts.join(", ")}.` : ""}`)) return false;
-  return matreqGrpOvrSaveMany(keys, to, nameOf);
+  // Доставчик БЕЗ разбити редове също се мести (по Данко, 27.10): документите
+  // му от тази група сменят вида си — и „се знае къде ходи за в бъдеще".
+  const parts = [];
+  if (keys.length) parts.push(`${totArts} артикула се местят точково (само при тези доставчици)`);
+  if (noArts.length) parts.push(`${noArts.length} ${noArts.length === 1 ? "доставчик е" : "доставчици са"} без разбити редове — документите им от „${fromGroup}" стават вид „${to}"`);
+  if (!confirm(`Да преместя ли ${list.length} ${list.length === 1 ? "доставчик" : "доставчици"} от „${fromGroup}" в „${to}"?\n\n${parts.join("; ")}. Доставчиците се запомнят с „${to}" — новите им фактури отиват там сами.`)) return false;
+  let any = false;
+  if (keys.length && await matreqGrpOvrSaveMany(keys, to, nameOf)) any = true;
+  for (const x of noArts) { if (await matreqMoveDocs(x.sk, fromGroup, to, true)) any = true; }
+  // Изрично местене на доставчик → групата влиза в паспорта му (презаписва).
+  list.forEach(x => { try { matreqRememberGroup(x.name, to); } catch (e) {} });
+  return any;
 }
 
 /* suppsOf(a) казва при КОИ доставчици важи преместването: в изгледа на
