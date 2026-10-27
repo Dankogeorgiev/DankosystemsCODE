@@ -1660,8 +1660,13 @@ function renderTasks() {
     });
     const clients = Object.keys(clientOrders).sort((a, b) => a.localeCompare(b, "bg"));
     clientSel.innerHTML = `<option value="">Всички клиенти</option>` + clients.map(c => {
-      const nos = [...clientOrders[c]].filter(Boolean);
-      const label = c + (nos.length ? ` (№${nos.join(", №")})` : "");
+      const nos = [...clientOrders[c]].filter(Boolean)
+        .map(n => String(n).replace(/\s*за склад$/i, ""));   // „102743 за склад" → „102743"
+      // Етикетът се реже до 5 номера: иначе „ЗА СКЛАД" събира десетки
+      // „№… за склад" в ЕДНА опция и гигантското меню чупи целия екран
+      // на цеховите компютри (оплакване от 27.10.2026).
+      const shown = nos.slice(0, 5);
+      const label = c + (nos.length ? ` (№${shown.join(", №")}${nos.length > shown.length ? ` … и още ${nos.length - shown.length}` : ""})` : "");
       return `<option value="${escapeAttr(c)}" ${c === cur ? "selected" : ""}>${escapeHtml(label)}</option>`;
     }).join("");
     clientFilter = clientSel.value;
