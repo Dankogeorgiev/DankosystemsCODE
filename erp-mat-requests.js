@@ -789,7 +789,7 @@ async function erpRenderMatRequests(keepCache) {
       <button class="btn btn-small ${view === "bymat" ? "btn-primary" : ""}" id="mr-v-bymat" title="Намери материала по име/код → виж от кой доставчик е купуван → 🛒 заявка">🔎 Търсене по материал</button>
       <button class="btn btn-small ${view === "breakdown" ? "btn-primary" : ""}" id="mr-breakdown" title="Избери клиентска заявка → суровините за остатъка ѝ срещу наличното — какво трябва да се поръча">🧮 Разбивка по заявка</button>
       <span class="spacer"></span>
-      <button class="btn btn-small" id="mr-refresh" title="Тегли наново покупките и заявките — нови материали и доставчици излизат веднага. Иначе екранът се обновява сам: при влизане, щом данните са по-стари от 4 часа.">↻ Обнови</button>
+      <button class="btn btn-small" id="mr-refresh" title="Проверява за НОВИ фактури и доставчици и казва какво е намерил. Твоята подредба (преместеното и скритото) НЕ се пипа — тя е записана в облака.">↻ Обнови</button>
       <button class="btn btn-small btn-primary" id="mr-new" title="Заявка на свободен текст — за доставчик или материал без история в Покупки">+ Нова заявка (свободна)</button>
     </div>
     <div id="mr-body"></div>`;
@@ -799,11 +799,30 @@ async function erpRenderMatRequests(keepCache) {
   v.querySelector("#mr-v-bymat").addEventListener("click", () => { if (MATREQ_NAV.view !== "bymat") { MATREQ_NAV.view = "bymat"; erpRenderMatRequests(); } });
   v.querySelector("#mr-new").addEventListener("click", () => erpMatReqCompose([]));
   v.querySelector("#mr-breakdown").addEventListener("click", () => { if (MATREQ_NAV.view !== "breakdown") { MATREQ_NAV.view = "breakdown"; erpRenderMatRequests(); } });
-  v.querySelector("#mr-refresh").addEventListener("click", () => {
+  v.querySelector("#mr-refresh").addEventListener("click", async () => {
+    // Снимка ПРЕДИ: кои доставчици са по групите и колко документа има.
+    // Подредбата на Данко е в облака и обновяването НЕ я пипа — тук само
+    // проверяваме и ДОКЛАДВАМЕ кое е новото.
+    let before = null;
+    try {
+      const g0 = matreqFolderData();
+      before = { sups: new Map(), docs: (((typeof erpPurchases !== "undefined" && erpPurchases) || []).length) };
+      g0.forEach(m => m.forEach((r, sk) => before.sups.set(sk, r.name)));
+    } catch (e) {}
     MATREQ_PU_AT = 0;                                     // следващият рендер тегли наново
     try { if (typeof erpPurchases !== "undefined") erpPurchases = null; } catch (e) {}
     try { SUPP_BOUGHT = null; } catch (e) {}              // агрегатите да се преизчислят
-    erpRenderMatRequests();
+    await erpRenderMatRequests();
+    try {
+      if (!before) return;
+      const g1 = matreqFolderData();
+      const fresh = [];
+      g1.forEach((m, g) => m.forEach((r, sk) => { if (!before.sups.has(sk)) fresh.push(`${r.name} → ${MATREQ_ICONS[g] || "📁"} ${g}`); }));
+      const newDocs = (((typeof erpPurchases !== "undefined" && erpPurchases) || []).length) - before.docs;
+      alert(fresh.length
+        ? `✅ Обновено. НОВИ доставчици (${fresh.length}):\n• ${fresh.slice(0, 15).join("\n• ")}${fresh.length > 15 ? `\n…и още ${fresh.length - 15}` : ""}${newDocs > 0 ? `\nНови документи: ${newDocs}.` : ""}\n\nТвоята подредба не е пипната.`
+        : `✅ Обновено. Няма нови доставчици${newDocs > 0 ? ` (нови документи: ${newDocs})` : ""}. Твоята подредба не е пипната.`);
+    } catch (e) {}
   });
   const box = v.querySelector("#mr-body");
   if (view === "folders") matreqRenderFolders(box);
