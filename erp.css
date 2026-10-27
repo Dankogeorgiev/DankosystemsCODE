@@ -882,3 +882,23 @@ td.supp-colwhat { font-size: 12px; }
    група се вижда САМО в Офис — в Склад/ЕРП той си стои в лявата лента. */
 .erp-office-only { display: none; }
 .erp-office-mode .erp-office-only { display: inline-block; }
+
+/* 🎨 Заявки за материали — цветни зони в списъка доставчици (Данко, 27.10):
+   всяка кликаема колона със свой нюанс, за да личи какво прави кликът.
+   Синьо = името → паспорта; жълто = описанието → редакция / целият текст;
+   зелено = числата и „Отвори" → какво сме купували от доставчика.
+   Нюансите са съвсем леки (по Данко: „да не са фрапиращи") — съвсем блед фон,
+   тънка цветна линия под заглавието, лекичко потъмняване при посочване. */
+.mr-c-pass { background: #f6faff; }
+.mr-c-desc { background: #fffdf4; }
+.mr-c-buy { background: #f6fcf8; }
+th.mr-c-pass { background: #eff6ff; color: #1e40af; border-bottom: 2px solid #bfdbfe; }
+th.mr-c-desc { background: #fffbeb; color: #92400e; border-bottom: 2px solid #fde68a; }
+th.mr-c-buy { background: #f0fdf4; color: #166534; border-bottom: 2px solid #bbf7d0; }
+.report-table tbody tr:hover td.mr-c-pass { background: #e8f1fe; }
+.report-table tbody tr:hover td.mr-c-desc { background: #fdf6dd; }
+.report-table tbody tr:hover td.mr-c-buy { background: #e7f8ee; }
+.mr-legend b { border-radius: 6px; padding: 1px 7px; white-space: nowrap; font-weight: 600; }
+.mr-legend .mr-l-pass { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.mr-legend .mr-l-desc { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.mr-legend .mr-l-buy { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }

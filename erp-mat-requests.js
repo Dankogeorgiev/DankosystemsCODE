@@ -897,19 +897,19 @@ function matreqRenderGroupSuppliers(box, m) {
       <span class="spacer"></span>
       <input type="search" id="mr-q" placeholder="търси доставчик…" style="width:200px" />
     </div>
-    <p class="hint">Клик върху доставчик → какво сме купували от него (с последни цени) и бърза заявка. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
+    <p class="hint mr-legend">Цветът показва какво прави кликът: <b class="mr-l-pass">🏷 името → паспорта</b> · <b class="mr-l-desc">📝 описанието → клик = редакция, посочване = целият текст</b> · <b class="mr-l-buy">🛒 зеленото → какво сме купували (с последни цени) и бърза заявка</b>. Сумите са без ДДС, в EUR; стоковите разписки не влизат в оборота (парите идват с месечната фактура).</p>
     <table class="report-table erp-table">
-      <thead><tr><th class="pay-chk"><input type="checkbox" id="mr-sall" title="Маркирай всички (видимите)" /></th><th>Доставчик</th><th>📝 Описание</th>${g === MATREQ_NOGRP ? '<th>Вид (Покупки)</th>' : ""}<th class="num" title="Колко различни артикула държат доставчика в тази група — посочи за имената">Артикули</th><th class="num">Документи</th><th class="num cost-cell">Оборот (EUR)</th><th>Последно купено</th><th></th></tr></thead>
+      <thead><tr><th class="pay-chk"><input type="checkbox" id="mr-sall" title="Маркирай всички (видимите)" /></th><th class="mr-c-pass">🏷 Доставчик</th><th class="mr-c-desc">📝 Описание</th>${g === MATREQ_NOGRP ? '<th class="mr-c-buy">Вид (Покупки)</th>' : ""}<th class="num mr-c-buy" title="Колко различни артикула държат доставчика в тази група — посочи за имената">Артикули</th><th class="num mr-c-buy">Документи</th><th class="num cost-cell mr-c-buy">Оборот (EUR)</th><th class="mr-c-buy">Последно купено</th><th class="mr-c-buy"></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
         <td class="pay-chk"><input type="checkbox" class="mr-ssel" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" title="Маркирай за „➡ Маркираните в…" — мести доставчика с всичките му артикули тук" /></td>
-        <td><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
-        <td class="mr-sdesc" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" ${matreqSuppDescOf(r.sk) ? `data-bigtip="${escapeAttr(matreqSuppDescOf(r.sk))}"` : ""} title="Клик = редакция на описанието" style="cursor:pointer;max-width:240px">${matreqSuppDescOf(r.sk) ? `<span style="display:block;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px">${escapeHtml(matreqSuppDescOf(r.sk))}</span>` : '<span class="erp-muted" style="font-size:12px">— добави описание</span>'}</td>
-        ${g === MATREQ_NOGRP ? `<td class="erp-muted" style="font-size:12px" title="Как са класирани документите му в Покупки сега">${escapeHtml([...(r.types || [])].join(", "))}</td>` : ""}
-        <td class="num" ${r.arts && r.arts.size ? `data-bigtip="${escapeAttr([...r.arts].slice(0, 12).join("\n") + (r.arts.size > 12 ? "\n…и още " + (r.arts.size - 12) : ""))}"` : ""}>${(r.arts && r.arts.size) || "—"}</td>
-        <td class="num">${r.docs}</td>
-        <td class="num cost-cell">${matreqEurInt(r.eur)}</td>
-        <td>${matreqFmt(r.last)}</td>
-        <td class="erp-row-actions"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
+        <td class="mr-c-pass"><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
+        <td class="mr-sdesc mr-c-desc" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" ${matreqSuppDescOf(r.sk) ? `data-bigtip="${escapeAttr(matreqSuppDescOf(r.sk))}"` : ""} title="Клик = редакция на описанието" style="cursor:pointer;max-width:240px">${matreqSuppDescOf(r.sk) ? `<span style="display:block;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px">${escapeHtml(matreqSuppDescOf(r.sk))}</span>` : '<span class="erp-muted" style="font-size:12px">— добави описание</span>'}</td>
+        ${g === MATREQ_NOGRP ? `<td class="erp-muted mr-c-buy" style="font-size:12px" title="Как са класирани документите му в Покупки сега">${escapeHtml([...(r.types || [])].join(", "))}</td>` : ""}
+        <td class="num mr-c-buy" ${r.arts && r.arts.size ? `data-bigtip="${escapeAttr([...r.arts].slice(0, 12).join("\n") + (r.arts.size > 12 ? "\n…и още " + (r.arts.size - 12) : ""))}"` : ""}>${(r.arts && r.arts.size) || "—"}</td>
+        <td class="num mr-c-buy">${r.docs}</td>
+        <td class="num cost-cell mr-c-buy">${matreqEurInt(r.eur)}</td>
+        <td class="mr-c-buy">${matreqFmt(r.last)}</td>
+        <td class="erp-row-actions mr-c-buy"><button class="btn btn-small btn-primary" data-mrs="${escapeAttr(r.sk)}">Отвори →</button></td>
       </tr>`).join("") || `<tr><td colspan="9" class="report-empty">Няма доставчици с покупки в тази група.</td></tr>`}</tbody>
     </table>`;
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
