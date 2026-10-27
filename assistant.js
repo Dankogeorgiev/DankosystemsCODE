@@ -10,12 +10,47 @@ let asstBusy = false;
 const ASST_SYSTEM = `Ти си асистентът на „СИСТЕМАТА" — вътрешният софтуер на фирма Данко Системс (металообработване). Помагаш на служителите, докато работят.
 Отговаряй кратко, ясно и на български. Ако въпросът е „как се прави нещо" — обясни стъпките в СИСТЕМАТА. Ако е за конкретни данни — ползвай раздела „Текущи данни" по-долу; ако ги нямаш там, кажи честно и посочи къде в СИСТЕМАТА се виждат.
 Никога не показвай заплати, маржове и себестойности — те са само за офиса.
+При въпрос „кой доставя / откъде купуваме / кой е доставчикът на X" търси в раздел „Снабдяване" (ръчните описания на доставчици, паспортите и указателя) и отговори direct с името, телефона/имейла, ако ги има. Търси и по част от думата.
 Основни модули: „+ Нова мостра/поръчка", Заявки от клиенти (в Склад/ЕРП), Склад/ЕРП (материали, рецепти, покупки, продажби), Цехове (производство — всеки служител отчита бройка и време на своята операция), Производствен отчет, Планиране, Финанси (само за офиса).
 Производството върви ПОСЛЕДОВАТЕЛНО: пуска се от бутона „Пусни в производство" в заявката; при сложни изделия всички възли тръгват наведнъж, а всяка следваща операция се появява автоматично, след като предната е отчетена в цеха.`;
+
+// Снабдяването: ръчните описания на доставчици (Заявки за материали),
+// паспортите и указателят — за въпроси „кой доставя X". Кешира се 5 мин,
+// за да не тежи на всяко съобщение.
+let ASST_SUPP_CACHE = null, ASST_SUPP_AT = 0;
+async function asstSupplySnapshot() {
+  if (ASST_SUPP_CACHE !== null && Date.now() - ASST_SUPP_AT < 5 * 60 * 1000) return ASST_SUPP_CACHE;
+  const parts = [];
+  const cut = (x, n) => { x = String(x || "").replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n - 1) + "…" : x; };
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_supplier_desc").maybeSingle();
+    const byKey = (data && data.data && data.data.byKey) || {};
+    const rows = Object.entries(byKey).filter(([, v]) => v && v.text)
+      .map(([k, v]) => `- ${v.name || k}: ${cut(v.text, 180)}`);
+    if (rows.length) parts.push("Ръчни описания на доставчици (от Заявки за материали):\n" + rows.slice(0, 80).join("\n"));
+  } catch (e) {}
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "supplier_profiles").maybeSingle();
+    const byKey = (data && data.data && data.data.byKey) || {};
+    const rows = Object.values(byKey).filter(pp => pp && (pp.whatWeBuy || pp.expenseType || pp.email || pp.phone))
+      .map(pp => `- ${pp.name}: ${[pp.expenseType, cut(pp.whatWeBuy, 120), pp.person, pp.phone, pp.email].filter(Boolean).join(" · ")}`);
+    if (rows.length) parts.push("Паспорти на доставчици (какво купуваме, контакт):\n" + rows.slice(0, 80).join("\n"));
+  } catch (e) {}
+  try {
+    const { data } = await sb.from("contacts").select("data").limit(500);
+    const rows = (data || []).map(r => r.data || {}).filter(c => c.company && (c.scope || c.notes))
+      .map(c => `- ${c.company} (${c.category || "—"})${c.contact_person ? " · " + c.contact_person : ""}${c.phone ? " · " + c.phone : ""}${c.email ? " · " + c.email : ""}: ${cut([c.scope, c.notes].filter(Boolean).join(" · "), 150)}`);
+    if (rows.length) parts.push("Указател Контакти (фирма · категория · лице · какво/бележка):\n" + rows.slice(0, 150).join("\n"));
+  } catch (e) {}
+  ASST_SUPP_CACHE = parts.length ? "[Снабдяване]\n" + parts.join("\n\n") : "";
+  ASST_SUPP_AT = Date.now();
+  return ASST_SUPP_CACHE;
+}
 
 // Компактна снимка на оперативните данни (без финанси).
 async function asstSnapshot() {
   const parts = [];
+  try { const sup = await asstSupplySnapshot(); if (sup) parts.push(sup); } catch (e) {}
   try {
     const { data } = await sb.from("customer_orders").select("data").order("updated_at", { ascending: false }).limit(100);
     const open = (data || []).map(r => r.data || {}).filter(o => (o.status || "нова") !== "завършена");

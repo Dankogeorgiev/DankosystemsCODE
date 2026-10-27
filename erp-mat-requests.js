@@ -964,6 +964,7 @@ function matreqRenderSupplier(box, rec) {
       <button class="btn btn-small btn-primary" id="mr-order" title="Отваря заявката към доставчика с отметнатите артикули — писмото се пише само">🛒 Заявка за избраните (<span id="mr-ordcnt">0</span>)</button>
     </div>
     <p class="hint" id="mr-supinfo">⏳ …</p>
+    ${matreqSuppDescOf(MATREQ_NAV.supplier) ? `<p class="hint mr-sdesc" data-sk="${escapeAttr(MATREQ_NAV.supplier)}" data-name="${escapeAttr(name)}" data-bigtip="${escapeAttr(matreqSuppDescOf(MATREQ_NAV.supplier))}" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 10px;cursor:pointer" title="Клик = редакция">📝 ${escapeHtml(matreqSuppDescOf(MATREQ_NAV.supplier))}</p>` : `<p class="hint mr-sdesc" data-sk="${escapeAttr(MATREQ_NAV.supplier)}" data-name="${escapeAttr(name)}" style="cursor:pointer" title="Клик = добави описание">📝 <span class="erp-muted">— добави описание на доставчика</span></p>`}
     <p class="hint">${rec.docs} документа в „${escapeHtml(g)}" · последно купено ${matreqFmt(rec.last)}. Отметни артикулите, сложи бройки и „🛒 Заявка за избраните" — доставчик, имейл и редове се попълват сами.</p>
     ${arts.length ? `
     <div class="erp-toolbar" style="margin:0 0 4px"><input type="search" id="mr-aq" placeholder="търси артикул или код…" style="width:240px" /></div>
@@ -985,6 +986,8 @@ function matreqRenderSupplier(box, rec) {
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   box.querySelector("#mr-back-grp").addEventListener("click", () => { MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   box.querySelector("#mr-free-sup").addEventListener("click", () => erpMatReqCompose([], null, name));
+  box.querySelectorAll(".mr-sdesc").forEach(el => el.addEventListener("click", () => matreqSuppDescDialog(el.dataset.sk, el.dataset.name, () => erpRenderMatRequests(true))));
+  matreqBigTipWire(box);
   box.querySelector("#mr-pass-btn").addEventListener("click", () => {
     if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
     suppForm(name, { refresh: () => erpRenderMatRequests(true) });
