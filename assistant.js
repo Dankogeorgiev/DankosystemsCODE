@@ -10,7 +10,9 @@ let asstBusy = false;
 const ASST_SYSTEM = `Ти си асистентът на „СИСТЕМАТА" — вътрешният софтуер на фирма Данко Системс (металообработване). Помагаш на служителите, докато работят.
 Отговаряй кратко, ясно и на български. Ако въпросът е „как се прави нещо" — обясни стъпките в СИСТЕМАТА. Ако е за конкретни данни — ползвай раздела „Текущи данни" по-долу; ако ги нямаш там, кажи честно и посочи къде в СИСТЕМАТА се виждат.
 Никога не показвай заплати, маржове и себестойности — те са само за офиса.
-При въпрос „кой доставя / откъде купуваме / кой е доставчикът на X" търси в раздел „Снабдяване" — ръчните описания на доставчици, паспортите, указателя И списъка „Какво сме купували по доставчици" (реалните артикули от Покупките) — и отговори директно с името, телефона/имейла, ако ги има. Търси и по част от думата, без да различаваш главни/малки букви.
+При въпрос „кой доставя / откъде купуваме / кой е доставчикът на X" търси в раздел „Снабдяване и клиенти" — ръчните описания на доставчици, паспортите, указателя И списъка „Какво сме купували по доставчици" (реалните артикули от Покупките) — и отговори директно с името, телефона/имейла, ако ги има.
+ПРАВИЛА ЗА ТЪРСЕНЕТО: 1) Ръчните описания на доставчици са думите на самия екип — те имат НАЙ-ВИСОК приоритет; ако описание споменава търсеното, предпочети този доставчик пред паспорти и история и цитирай описанието. 2) Търси ПРИБЛИЗИТЕЛНО: по част от думата, без главни/малки, и толерирай правописни разлики и разместени букви (напр. „Мениджмънт" ≈ „Менинджмънт", „Тип Тое" ≈ „ТипТое") — имената в данните често са писани на ръка. 3) Прегледай ВСИЧКИ редове, не спирай на първото прилично съвпадение; ако кандидатите са няколко, изброй ги с източника им (описание / паспорт / покупки).
+При въпрос „кой клиент купува X / какво купува (поръчва) клиент Y / какво сме продавали на Y" търси в списъка „Какво са купували клиентите от нас", в паспортите на клиенти и в указателя — със същите правила.
 Основни модули: „+ Нова мостра/поръчка", Заявки от клиенти (в Склад/ЕРП), Склад/ЕРП (материали, рецепти, покупки, продажби), Цехове (производство — всеки служител отчита бройка и време на своята операция), Производствен отчет, Планиране, Финанси (само за офиса).
 Производството върви ПОСЛЕДОВАТЕЛНО: пуска се от бутона „Пусни в производство" в заявката; при сложни изделия всички възли тръгват наведнъж, а всяка следваща операция се появява автоматично, след като предната е отчетена в цеха.`;
 
@@ -26,8 +28,8 @@ async function asstSupplySnapshot() {
     const { data } = await sb.from("app_config").select("data").eq("id", "mat_supplier_desc").maybeSingle();
     const byKey = (data && data.data && data.data.byKey) || {};
     const rows = Object.entries(byKey).filter(([, v]) => v && v.text)
-      .map(([k, v]) => `- ${v.name || k}: ${cut(v.text, 180)}`);
-    if (rows.length) parts.push("Ръчни описания на доставчици (от Заявки за материали):\n" + rows.slice(0, 80).join("\n"));
+      .map(([k, v]) => `- ${v.name || k}: ${cut(v.text, 300)}`);
+    if (rows.length) parts.push("Ръчни описания на доставчици (от Заявки за материали — с НАЙ-ВИСОК приоритет):\n" + rows.slice(0, 120).join("\n"));
   } catch (e) {}
   try {
     const { data } = await sb.from("app_config").select("data").eq("id", "supplier_profiles").maybeSingle();
@@ -55,6 +57,47 @@ async function asstSupplySnapshot() {
       .map(([n, s]) => `- ${n}: ${[...s].slice(0, 15).join(", ")}${s.size > 15 ? " …" : ""}`);
     if (rows.length) parts.push("Какво сме купували по доставчици (артикулите от Покупките):\n" + rows.slice(0, 150).join("\n"));
   } catch (e) {}
+  // Клиентите: какво са купували от нас — изделията от продажбите И от
+  // заявките (по Данко, 27.10 — асистентът да чете артикулите и по клиенти).
+  try {
+    const byCl = new Map();
+    const addDoc = (clientName, lines) => {
+      const name = String(clientName || "").trim(); if (!name) return;
+      const k = name.toLowerCase().replace(/\s+/g, " ");
+      let rec = byCl.get(k); if (!rec) { rec = { name, arts: new Set() }; byCl.set(k, rec); }
+      (lines || []).forEach(l => {
+        const nm = String((l && (l.name || l.clientName)) || "").trim();
+        if (nm) rec.arts.add(cut(nm, 60));
+      });
+    };
+    if (typeof erpSelectAll === "function") {
+      try { const { data } = await erpSelectAll("sales", "data"); (data || []).forEach(r => { const d = (r && r.data) || {}; addDoc(d.clientName, d.lines); }); } catch (e) {}
+      try { const { data } = await erpSelectAll("customer_orders", "data"); (data || []).forEach(r => { const d = (r && r.data) || {}; addDoc(d.clientName, d.lines); }); } catch (e) {}
+    }
+    const rows = [...byCl.values()].filter(r => r.arts.size)
+      .map(r => `- ${r.name}: ${[...r.arts].slice(0, 15).join(", ")}${r.arts.size > 15 ? " …" : ""}`);
+    if (rows.length) parts.push("Какво са купували клиентите от нас (изделия от продажби и заявки):\n" + rows.slice(0, 150).join("\n"));
+  } catch (e) {}
+  // Паспортите на клиенти — ръчното знание (чести грешки, условия, уроци).
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "client_profiles").maybeSingle();
+    const byKey = (data && data.data && data.data.byKey) || {};
+    const trWho = { we: "ние организираме", they: "клиентът идва", forwarder: "спедитор", courier: "куриер" };
+    const rows = Object.values(byKey).map(p => {
+      if (!p || !p.name) return "";
+      const q = p.quality || {}, t = p.trade || {}, tr = p.transport || {};
+      const bits = [
+        q.mistakes ? "чести грешки: " + cut(q.mistakes, 100) : "",
+        (p.claims && p.claims.typical) ? "типични рекламации: " + cut(p.claims.typical, 80) : "",
+        t.term ? "условия: " + cut(t.term, 60) : "",
+        tr.who ? "транспорт: " + (trWho[tr.who] || cut(tr.who, 40)) : "",
+        p.orderChannel ? "поръчва през: " + cut(p.orderChannel, 60) : "",
+        (p.lessons && p.lessons.length) ? p.lessons.length + " записани урока" : "",
+      ].filter(Boolean);
+      return bits.length ? `- ${p.name}: ${bits.join(" · ")}` : "";
+    }).filter(Boolean);
+    if (rows.length) parts.push("Паспорти на клиенти (ръчното знание):\n" + rows.slice(0, 60).join("\n"));
+  } catch (e) {}
   // Ръчните бележки по артикули („за къде се използва") от Заявки за материали.
   try {
     const { data } = await sb.from("app_config").select("data").eq("id", "mat_notes").maybeSingle();
@@ -77,7 +120,7 @@ async function asstSupplySnapshot() {
       .map(c => `- ${c.company} (${c.category || "—"})${c.contact_person ? " · " + c.contact_person : ""}${c.phone ? " · " + c.phone : ""}${c.email ? " · " + c.email : ""}: ${cut([c.scope, c.notes].filter(Boolean).join(" · "), 150)}`);
     if (rows.length) parts.push("Указател Контакти (фирма · категория · лице · какво/бележка):\n" + rows.slice(0, 150).join("\n"));
   } catch (e) {}
-  ASST_SUPP_CACHE = parts.length ? "[Снабдяване]\n" + parts.join("\n\n") : "";
+  ASST_SUPP_CACHE = parts.length ? "[Снабдяване и клиенти]\n" + parts.join("\n\n") : "";
   ASST_SUPP_AT = Date.now();
   return ASST_SUPP_CACHE;
 }
