@@ -898,7 +898,7 @@ th.mr-c-buy { background: #f0fdf4; color: #166534; border-bottom: 2px solid #bbf
 .report-table tbody tr:hover td.mr-c-pass { background: #e8f1fe; }
 .report-table tbody tr:hover td.mr-c-desc { background: #fdf6dd; }
 .report-table tbody tr:hover td.mr-c-buy { background: #e7f8ee; }
-.mr-legend b { border-radius: 6px; padding: 1px 7px; white-space: nowrap; font-weight: 600; }
+.mr-legend b { display: inline-block; max-width: 100%; border-radius: 6px; padding: 1px 7px; font-weight: 600; }
 .mr-legend .mr-l-pass { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
 .mr-legend .mr-l-desc { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 .mr-legend .mr-l-buy { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }

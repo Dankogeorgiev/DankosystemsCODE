@@ -901,8 +901,8 @@ function matreqRenderGroupSuppliers(box, m) {
     <table class="report-table erp-table">
       <thead><tr><th class="pay-chk"><input type="checkbox" id="mr-sall" title="Маркирай всички (видимите)" /></th><th class="mr-c-pass">🏷 Доставчик</th><th class="mr-c-desc">📝 Описание</th>${g === MATREQ_NOGRP ? '<th class="mr-c-buy">Вид (Покупки)</th>' : ""}<th class="num mr-c-buy" title="Колко различни артикула държат доставчика в тази група — посочи за имената">Артикули</th><th class="num mr-c-buy">Документи</th><th class="num cost-cell mr-c-buy">Оборот (EUR)</th><th class="mr-c-buy">Последно купено</th><th class="mr-c-buy"></th></tr></thead>
       <tbody>${rows.map(r => `<tr class="erp-clickable" data-mrs="${escapeAttr(r.sk)}" title="Клик = артикулите на доставчика">
-        <td class="pay-chk"><input type="checkbox" class="mr-ssel" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" title="Маркирай за „➡ Маркираните в…" — мести доставчика с всичките му артикули тук" /></td>
-        <td class="mr-c-pass"><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}" title="Отваря паспорта на доставчика — четеш и коригираш (имейл, лице, условия, IBAN…)"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
+        <td class="pay-chk"><input type="checkbox" class="mr-ssel" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" title="Маркирай за „➡ Маркираните в…“ — мести доставчика с всичките му артикули тук" /></td>
+        <td class="mr-c-pass mr-passcell" title="Клик = паспорта на доставчика (четеш и коригираш: имейл, лице, условия, IBAN…)"><a href="#" class="mr-pass" data-name="${escapeAttr(r.name)}"><b>${escapeHtml(r.name)}</b> 🏷</a></td>
         <td class="mr-sdesc mr-c-desc" data-sk="${escapeAttr(r.sk)}" data-name="${escapeAttr(r.name)}" ${matreqSuppDescOf(r.sk) ? `data-bigtip="${escapeAttr(matreqSuppDescOf(r.sk))}"` : ""} title="Клик = редакция на описанието" style="cursor:pointer;max-width:240px">${matreqSuppDescOf(r.sk) ? `<span style="display:block;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px">${escapeHtml(matreqSuppDescOf(r.sk))}</span>` : '<span class="erp-muted" style="font-size:12px">— добави описание</span>'}</td>
         ${g === MATREQ_NOGRP ? `<td class="erp-muted mr-c-buy" style="font-size:12px" title="Как са класирани документите му в Покупки сега">${escapeHtml([...(r.types || [])].join(", "))}</td>` : ""}
         <td class="num mr-c-buy" ${r.arts && r.arts.size ? `data-bigtip="${escapeAttr([...r.arts].slice(0, 12).join("\n") + (r.arts.size > 12 ? "\n…и още " + (r.arts.size - 12) : ""))}"` : ""}>${(r.arts && r.arts.size) || "—"}</td>
@@ -919,7 +919,7 @@ function matreqRenderGroupSuppliers(box, m) {
     box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
   });
   box.querySelectorAll("[data-mrs]").forEach(el => el.addEventListener("click", e => {
-    if (el.tagName === "TR" && e.target.closest("button, select, input, .mr-pass, .mr-sdesc")) return;
+    if (el.tagName === "TR" && e.target.closest("button, select, input, .mr-pass, .mr-passcell, .mr-sdesc")) return;
     MATREQ_NAV.supplier = el.dataset.mrs; erpRenderMatRequests(true);
   }));
   const sall = box.querySelector("#mr-sall");
@@ -945,8 +945,15 @@ function matreqRenderGroupSuppliers(box, m) {
   }));
   matreqBigTipWire(box);
   // 🏷 Паспортът на доставчика — направо от името (по Данко, 26.10).
+  // Кликаема е ЦЯЛАТА синя клетка (не само линкът) — да не лъже цветът.
   box.querySelectorAll(".mr-pass").forEach(a => a.addEventListener("click", e => {
     e.preventDefault(); e.stopPropagation();
+    if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
+    suppForm(a.dataset.name, { refresh: () => erpRenderMatRequests(true) });
+  }));
+  box.querySelectorAll("td.mr-passcell").forEach(td => td.addEventListener("click", e => {
+    e.stopPropagation();
+    const a = td.querySelector(".mr-pass"); if (!a) return;
     if (typeof suppForm !== "function") { alert("Модулът Паспорти доставчици не е зареден."); return; }
     suppForm(a.dataset.name, { refresh: () => erpRenderMatRequests(true) });
   }));
