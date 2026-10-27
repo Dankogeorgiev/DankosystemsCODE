@@ -10,7 +10,7 @@ let asstBusy = false;
 const ASST_SYSTEM = `Ти си асистентът на „СИСТЕМАТА" — вътрешният софтуер на фирма Данко Системс (металообработване). Помагаш на служителите, докато работят.
 Отговаряй кратко, ясно и на български. Ако въпросът е „как се прави нещо" — обясни стъпките в СИСТЕМАТА. Ако е за конкретни данни — ползвай раздела „Текущи данни" по-долу; ако ги нямаш там, кажи честно и посочи къде в СИСТЕМАТА се виждат.
 Никога не показвай заплати, маржове и себестойности — те са само за офиса.
-При въпрос „кой доставя / откъде купуваме / кой е доставчикът на X" търси в раздел „Снабдяване" (ръчните описания на доставчици, паспортите и указателя) и отговори direct с името, телефона/имейла, ако ги има. Търси и по част от думата.
+При въпрос „кой доставя / откъде купуваме / кой е доставчикът на X" търси в раздел „Снабдяване" — ръчните описания на доставчици, паспортите, указателя И списъка „Какво сме купували по доставчици" (реалните артикули от Покупките) — и отговори директно с името, телефона/имейла, ако ги има. Търси и по част от думата, без да различаваш главни/малки букви.
 Основни модули: „+ Нова мостра/поръчка", Заявки от клиенти (в Склад/ЕРП), Склад/ЕРП (материали, рецепти, покупки, продажби), Цехове (производство — всеки служител отчита бройка и време на своята операция), Производствен отчет, Планиране, Финанси (само за офиса).
 Производството върви ПОСЛЕДОВАТЕЛНО: пуска се от бутона „Пусни в производство" в заявката; при сложни изделия всички възли тръгват наведнъж, а всяка следваща операция се появява автоматично, след като предната е отчетена в цеха.`;
 
@@ -35,6 +35,41 @@ async function asstSupplySnapshot() {
     const rows = Object.values(byKey).filter(pp => pp && (pp.whatWeBuy || pp.expenseType || pp.email || pp.phone))
       .map(pp => `- ${pp.name}: ${[pp.expenseType, cut(pp.whatWeBuy, 120), pp.person, pp.phone, pp.email].filter(Boolean).join(" · ")}`);
     if (rows.length) parts.push("Паспорти на доставчици (какво купуваме, контакт):\n" + rows.slice(0, 80).join("\n"));
+  } catch (e) {}
+  // Артикулите от Покупките: какво реално сме купували от всеки доставчик
+  // (по Данко, 27.10 — асистентът да чете и въведените артикули).
+  try {
+    if ((typeof erpPurchases === "undefined" || !erpPurchases) && typeof erpLoadPurchases === "function") await erpLoadPurchases();
+    const docs = (typeof erpPurchases !== "undefined" && erpPurchases) || [];
+    if (typeof matreqGrpOvrLoad === "function") { try { await matreqGrpOvrLoad(); } catch (e) {} } // за скритите служебни редове
+    const canon = n => (typeof matreqCanon === "function") ? matreqCanon(n) : String(n || "").trim();
+    const lname = l => (typeof matreqLineName === "function") ? matreqLineName(l)
+      : String((l && !l.fromGoodsId && (l.article || l.name)) || "").trim();
+    const bySup = new Map();
+    docs.forEach(o => {
+      const name = canon(o.supplierName); if (!name) return;
+      let set = bySup.get(name); if (!set) { set = new Set(); bySup.set(name, set); }
+      (o.lines || []).forEach(l => { const nm = lname(l); if (nm) set.add(cut(nm, 60)); });
+    });
+    const rows = [...bySup.entries()].filter(([, s]) => s.size)
+      .map(([n, s]) => `- ${n}: ${[...s].slice(0, 15).join(", ")}${s.size > 15 ? " …" : ""}`);
+    if (rows.length) parts.push("Какво сме купували по доставчици (артикулите от Покупките):\n" + rows.slice(0, 150).join("\n"));
+  } catch (e) {}
+  // Ръчните бележки по артикули („за къде се използва") от Заявки за материали.
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_notes").maybeSingle();
+    const byKey = (data && data.data && data.data.byKey) || {};
+    const nameOf = k => {
+      if (k.startsWith("a:")) return k.slice(2);
+      const m = /^m(\d+)$/.exec(k);
+      if (m && typeof ERP !== "undefined" && ERP.matById && ERP.matById[Number(m[1])]) {
+        const mm = ERP.matById[Number(m[1])]; return String(mm.name || mm.code || "").trim();
+      }
+      return "";
+    };
+    const rows = Object.entries(byKey).filter(([, v]) => v && v.note)
+      .map(([k, v]) => { const n = nameOf(k); return n ? `- ${n}: ${cut(v.note, 150)}` : ""; }).filter(Boolean);
+    if (rows.length) parts.push("Ръчни бележки по артикули (за какво се ползват):\n" + rows.slice(0, 100).join("\n"));
   } catch (e) {}
   try {
     const { data } = await sb.from("contacts").select("data").limit(500);
