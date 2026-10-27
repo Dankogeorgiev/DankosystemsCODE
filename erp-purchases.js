@@ -21,7 +21,7 @@ const PU_EXPENSE_TYPES = [
   { k: "Крепежи", mat: true },
   { k: "Технически газове" },
   { k: "Заваръчно" },
-  { k: "Абразиви за шлайфане" },
+  { k: "Абразиви и Рязане" },
   { k: "Инструменти за машини" },
   { k: "Консумативи за производство" },
   { k: "Пластмаси", mat: true },
@@ -35,7 +35,11 @@ const PU_EXPENSE_TYPES = [
   { k: "Други услуги" },
   { k: "Други разходи" },
 ];
-function erpPuTypeIsMat(t) { const x = PU_EXPENSE_TYPES.find(e => e.k === t); return !!(x && x.mat); }
+/* Преименувани видове: старият запис в документите се чете като новия
+   (данните не се пипат). „Абразиви за шлайфане" → „Абразиви и Рязане". */
+const PU_TYPE_ALIASES = { "Абразиви за шлайфане": "Абразиви и Рязане" };
+function erpPuTypeCanon(t) { return PU_TYPE_ALIASES[t] || t || ""; }
+function erpPuTypeIsMat(t) { const x = PU_EXPENSE_TYPES.find(e => e.k === erpPuTypeCanon(t)); return !!(x && x.mat); }
 /* Иконата на вида — същата като папката му в Заявки за материали
    (MATREQ_ICONS); видове без папка пазят 🧱 за материалните. */
 function erpPuTypeIcon(t) {
@@ -451,7 +455,7 @@ async function erpRenderPurchaseForm(o) {
              <button type="button" class="btn btn-small" id="pu-cur-eur" title="Разделя цените по редовете на 1.95583 и сменя валутата на EUR">⇄ Превърни в EUR</button>`
           : `<select id="pu-cur" disabled title="Всички покупки се водят в евро"><option selected>EUR</option></select>`}</label>
         <label>ДДС ставка % <select id="pu-vat">${["20", "9", "0"].map(r => `<option value="${r}" ${Number(r) === Number(o.vatRate) ? "selected" : ""}>${r}%</option>`).join("")}</select></label>
-        <label>Вид разход <select id="pu-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === o.expenseType ? "selected" : ""}>${erpPuTypeIcon(t)}${escapeHtml(t.k)}</option>`).join("")}</select></label>
+        <label>Вид разход <select id="pu-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === erpPuTypeCanon(o.expenseType) ? "selected" : ""}>${erpPuTypeIcon(t)}${escapeHtml(t.k)}</option>`).join("")}</select></label>
         <label>IBAN на доставчика <input type="text" id="pu-iban" value="${escapeAttr(o.supplierIban || "")}" placeholder="BG… — отива в паспорта и в Задължения" /></label>
       </div>
       ${o.docType === "goods"
