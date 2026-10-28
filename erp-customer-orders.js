@@ -691,6 +691,80 @@ function erpOpenCO(id) {
   if (o) erpRenderCOForm(JSON.parse(JSON.stringify(o)));
 }
 
+/* ---------- Получателят (Consignee): предложения от събраното ----------
+   Фактурите (вкл. данните за ЧМР) и старите заявки на клиента вече пазят
+   получателите му — при избор на клиент формата предлага познатите адреси
+   (по Данко, 28.10). Най-скорошният е пръв; брои се колко пъти е ползван. */
+function erpCOConsKey(cs) { return [cs.name, cs.street, cs.city, cs.country].map(x => String(x || "").trim().toLowerCase()).join("¦"); }
+async function erpCOConsCandidates(clientName) {
+  const nrm = s => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const cl = nrm(clientName);
+  if (!cl) return [];
+  try { if ((typeof erpInvoices === "undefined" || !erpInvoices) && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
+  const found = new Map();   // key -> { cs, count, last, src }
+  const add = (cs, date, src) => {
+    if (!cs || !(cs.name || cs.street || cs.city)) return;
+    const k = erpCOConsKey(cs);
+    let r = found.get(k);
+    if (!r) { r = { cs: { ...cs }, count: 0, last: "", src }; found.set(k, r); }
+    r.count++;
+    if (String(date || "") > r.last) { r.last = String(date || ""); r.src = src; }
+  };
+  ((typeof erpInvoices !== "undefined" && erpInvoices) || []).forEach(x => {
+    if (nrm(x.client && x.client.name) !== cl) return;
+    add(x.consignee, x.issueDate, "фактура");
+  });
+  (erpCOList || []).forEach(x => {
+    if (nrm(x.clientName) !== cl) return;
+    add(x.consignee, x.date, "заявка");
+  });
+  return [...found.values()].sort((a, b) => b.last.localeCompare(a.last) || b.count - a.count).slice(0, 6);
+}
+// Рисува чиповете с предложения и — САМО при НОВА заявка с изцяло празен,
+// непипан получател — попълва най-скорошния автоматично, с ясна бележка.
+// Стара заявка никога не се попълва сама (иначе „Запази" би записал
+// получател, който никой не е въвеждал).
+const ERP_CO_CS_TOUCHED = new WeakSet();   // пипнато на ръка → никакво авто
+const ERP_CO_CS_AUTO = new WeakMap();      // какво Е авто-попълнено → сменяемо при друг клиент
+async function erpCOConsSugg(o) {
+  const box = document.getElementById("co-cs-sugg");
+  if (!box) return;
+  const myReq = (box.dataset.req = String(Date.now()));
+  const list = await erpCOConsCandidates(o.clientName);
+  if (box.dataset.req !== myReq || !document.getElementById("co-cs-sugg")) return;   // формата е презаредена
+  const fill = cs => {
+    o.consignee = { name: cs.name || "", street: cs.street || "", city: cs.city || "", country: cs.country || "", vat: cs.vat || "", person: cs.person || "" };
+    ["name", "street", "city", "country", "vat", "person"].forEach(f => {
+      const el = document.getElementById("co-cs-" + f); if (el) el.value = o.consignee[f] || "";
+    });
+  };
+  const setCs = cs => {   // от чип / изчисти: съзнателен избор — спира авто-то
+    ERP_CO_CS_TOUCHED.add(o); ERP_CO_CS_AUTO.delete(o);
+    fill(cs);
+  };
+  const empty = !["name", "street", "city", "country", "vat", "person"].some(f => String((o.consignee || {})[f] || "").trim());
+  // „Още е авто": стойностите са точно каквито ги попълнихме сами → при смяна
+  // на клиента се подменят с неговия получател (или се чистят), без да лепнат.
+  const stillAuto = ERP_CO_CS_AUTO.has(o) && ERP_CO_CS_AUTO.get(o) === erpCOConsKey(o.consignee || {});
+  const canAuto = !o.id && !o.posted && !ERP_CO_CS_TOUCHED.has(o) && (empty || stillAuto);
+  let auto = "";
+  if (canAuto && list.length) {
+    fill(list[0].cs);
+    ERP_CO_CS_AUTO.set(o, erpCOConsKey(o.consignee));
+    auto = `<span class="co-cs-auto">⚡ Попълнено от последната ${escapeHtml(list[0].src)} (${erpDMY(list[0].last)}) — смени от предложенията или коригирай полетата.</span>`;
+  } else if (canAuto && !empty && !list.length) {
+    fill({}); ERP_CO_CS_AUTO.delete(o);   // новият клиент няма познати получатели
+  }
+  box.innerHTML = list.length ? `
+    <span class="erp-muted" style="font-size:12px">📍 Познати получатели на клиента:</span>
+    ${list.map((r, i) => `<button type="button" class="co-cs-chip" data-ci="${i}" title="${escapeAttr([r.cs.name, r.cs.street, r.cs.city, r.cs.country, r.cs.vat, r.cs.person].filter(Boolean).join("\n") + `\n(${r.count}× · последно ${erpDMY(r.last)} · от ${r.src})`)}">${escapeHtml([r.cs.name, r.cs.city].filter(Boolean).join(" · ") || r.cs.street || "—")}${r.count > 1 ? ` <small>×${r.count}</small>` : ""}</button>`).join("")}
+    <button type="button" class="co-cs-chip co-cs-clear" title="Изчиства получателя — празно = самият купувач">✕ изчисти</button>
+    ${auto}` : "";
+  box.querySelectorAll(".co-cs-chip[data-ci]").forEach(b => b.addEventListener("click", () => setCs(list[Number(b.dataset.ci)].cs)));
+  const clr = box.querySelector(".co-cs-clear");
+  if (clr) clr.addEventListener("click", () => setCs({}));
+}
+
 /* ---------- Форма / детайл ---------- */
 async function erpRenderCOForm(o) {
   const v = erpView();
@@ -733,6 +807,7 @@ async function erpRenderCOForm(o) {
 
       <h4 class="erp-group-head">🚚 Получател на стоката (CONSIGNEE)</h4>
       <p class="hint" style="margin:0 0 6px">Къде ще се разтоварва ТАЗИ заявка — един клиент често има 2–3 разтоварни адреса. Празно = самият купувач. Получателят върви по веригата: заявка → продажба → фактура (и ЧМР-то взема адреса оттук).</p>
+      <div class="co-cs-sugg" id="co-cs-sugg"></div>
       <div class="erp-co-grid">
         <label>Име <input type="text" id="co-cs-name" value="${escapeAttr((o.consignee || {}).name || "")}" placeholder="празно = купувача" /></label>
         <label>Адрес <input type="text" id="co-cs-street" value="${escapeAttr((o.consignee || {}).street || "")}" /></label>
@@ -792,14 +867,23 @@ async function erpRenderCOForm(o) {
   // 🚚 Получателят (Consignee) на тази заявка — върви към продажбата и фактурата.
   ["name", "street", "city", "country", "vat", "person"].forEach(f => {
     const el = document.getElementById("co-cs-" + f);
-    if (el) el.addEventListener("input", () => { o.consignee = o.consignee || {}; o.consignee[f] = el.value; });
+    if (el) el.addEventListener("input", () => {
+      o.consignee = o.consignee || {}; o.consignee[f] = el.value;
+      ERP_CO_CS_TOUCHED.add(o);   // ръчно пипнато → авто-попълването спира
+    });
   });
+  let csSuggT = null;
   document.getElementById("co-client").addEventListener("input", e => {
     o.clientName = e.target.value;
     const m = clients.find(c => (c.company || "") === e.target.value);
     o.clientId = m ? m.id : null;
     if (m && erpCOFillPrices(o)) erpCORefreshLines(o);   // авто-цени за клиента
+    // 🚚 Предложенията за получател се опресняват, щом името съвпадне с клиент
+    // (или спреш да пишеш) — фактурите се зареждат веднъж и после е мигновено.
+    clearTimeout(csSuggT);
+    csSuggT = setTimeout(() => { erpCOConsSugg(o); }, m ? 0 : 500);
   });
+  erpCOConsSugg(o);   // и при отваряне на формата
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
   const cliInfo = document.getElementById("co-cli-info");
   if (cliInfo) cliInfo.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(o.clientName); });
