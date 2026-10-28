@@ -21,11 +21,18 @@ let erpInvSeries = null;
 let erpInvKindFilter = "", erpInvQuery = "", erpInvStatusFilter = "";
 
 /* ---------- Зареждане / запис ---------- */
+// Паралелните викания споделят ЕДНО зареждане (иначе отварянето на заявка
+// пускаше два пълни прочита на цялата таблица едновременно — 28.10.2026).
+let ERP_INV_LOADP = null;
 async function erpLoadInvoices() {
-  const { data, error } = await erpSelectAll("invoices", "*");
-  if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-  if (error) throw error;
-  erpInvoices = (data || []).map(r => ({ id: r.id, docNo: r.doc_no, posted: r.posted, ...(r.data || {}) }));
+  if (ERP_INV_LOADP) return ERP_INV_LOADP;
+  ERP_INV_LOADP = (async () => {
+    const { data, error } = await erpSelectAll("invoices", "*");
+    if (!error) (data || []).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    if (error) throw error;
+    erpInvoices = (data || []).map(r => ({ id: r.id, docNo: r.doc_no, posted: r.posted, ...(r.data || {}) }));
+  })().finally(() => { ERP_INV_LOADP = null; });
+  return ERP_INV_LOADP;
 }
 async function erpSaveInvoice(o) {
   // ЧМР: мястото на разтоварване се взема ВИНАГИ от Получателя (Consignee),

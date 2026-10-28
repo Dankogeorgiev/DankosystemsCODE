@@ -708,7 +708,10 @@ async function erpCOConsCandidates(clientName) {
     let r = found.get(k);
     if (!r) { r = { cs: { ...cs }, count: 0, last: "", src }; found.set(k, r); }
     r.count++;
-    if (String(date || "") > r.last) { r.last = String(date || ""); r.src = src; }
+    // Само ISO дати влизат в класацията — крив стринг (напр. от AI-разчетена
+    // заявка) иначе „печели" най-скорошното място и влиза в HTML-а.
+    const d = /^\d{4}-\d{2}-\d{2}/.test(String(date || "")) ? String(date).slice(0, 10) : "";
+    if (d > r.last) { r.last = d; r.src = src; }
   };
   ((typeof erpInvoices !== "undefined" && erpInvoices) || []).forEach(x => {
     if (nrm(x.client && x.client.name) !== cl) return;
@@ -726,12 +729,16 @@ async function erpCOConsCandidates(clientName) {
 // получател, който никой не е въвеждал).
 const ERP_CO_CS_TOUCHED = new WeakSet();   // пипнато на ръка → никакво авто
 const ERP_CO_CS_AUTO = new WeakMap();      // какво Е авто-попълнено → сменяемо при друг клиент
+let ERP_CO_CS_REQ = 0;
 async function erpCOConsSugg(o) {
   const box = document.getElementById("co-cs-sugg");
-  if (!box) return;
-  const myReq = (box.dataset.req = String(Date.now()));
+  // Лентата е вързана за КОНКРЕТНАТА заявка (box.__o се слага при рендера):
+  // закъснял таймер/заявка от предишна форма не бива да пише в чуждата.
+  if (!box || box.__o !== o) return;
+  const myReq = (box.dataset.req = String(++ERP_CO_CS_REQ));
   const list = await erpCOConsCandidates(o.clientName);
-  if (box.dataset.req !== myReq || !document.getElementById("co-cs-sugg")) return;   // формата е презаредена
+  // След await: все още ли ТОЗИ box е на екрана и моя ли е заявката?
+  if (document.getElementById("co-cs-sugg") !== box || box.dataset.req !== myReq) return;
   const fill = cs => {
     o.consignee = { name: cs.name || "", street: cs.street || "", city: cs.city || "", country: cs.country || "", vat: cs.vat || "", person: cs.person || "" };
     ["name", "street", "city", "country", "vat", "person"].forEach(f => {
@@ -746,12 +753,15 @@ async function erpCOConsSugg(o) {
   // „Още е авто": стойностите са точно каквито ги попълнихме сами → при смяна
   // на клиента се подменят с неговия получател (или се чистят), без да лепнат.
   const stillAuto = ERP_CO_CS_AUTO.has(o) && ERP_CO_CS_AUTO.get(o) === erpCOConsKey(o.consignee || {});
-  const canAuto = !o.id && !o.posted && !ERP_CO_CS_TOUCHED.has(o) && (empty || stillAuto);
+  // Авто се пълни НОВА празна заявка; а вече авто-попълненото (stillAuto) се
+  // подменя при смяна на клиента и СЛЕД първото „Запази" (o.id се появява,
+  // но стойностите доказуемо са си наши, не човешки).
+  const canAuto = !o.posted && !ERP_CO_CS_TOUCHED.has(o) && ((empty && !o.id) || stillAuto);
   let auto = "";
   if (canAuto && list.length) {
     fill(list[0].cs);
     ERP_CO_CS_AUTO.set(o, erpCOConsKey(o.consignee));
-    auto = `<span class="co-cs-auto">⚡ Попълнено от последната ${escapeHtml(list[0].src)} (${erpDMY(list[0].last)}) — смени от предложенията или коригирай полетата.</span>`;
+    auto = `<span class="co-cs-auto">⚡ Попълнено от последната ${escapeHtml(list[0].src)}${list[0].last ? ` (${escapeHtml(erpDMY(list[0].last))})` : ""} — смени от предложенията или коригирай полетата.</span>`;
   } else if (canAuto && !empty && !list.length) {
     fill({}); ERP_CO_CS_AUTO.delete(o);   // новият клиент няма познати получатели
   }
@@ -883,7 +893,9 @@ async function erpRenderCOForm(o) {
     clearTimeout(csSuggT);
     csSuggT = setTimeout(() => { erpCOConsSugg(o); }, m ? 0 : 500);
   });
-  erpCOConsSugg(o);   // и при отваряне на формата
+  const csBox = document.getElementById("co-cs-sugg");
+  if (csBox) csBox.__o = o;   // лентата е на ТАЗИ заявка — чужди закъснели викания се игнорират
+  erpCOConsSugg(o);           // и при отваряне на формата
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
   const cliInfo = document.getElementById("co-cli-info");
   if (cliInfo) cliInfo.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(o.clientName); });
