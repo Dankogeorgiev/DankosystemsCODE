@@ -506,6 +506,20 @@ async function pulseMonthly(v) {
         <th>Бележки</th>
       </tr></thead>
       <tbody>${rows}</tbody>
+      <tfoot>${(() => {
+        // ОБЩО под колоните (по Данко, 29.10.2026) — сборът на видимите месеци.
+        const t = aiData.reduce((a, x) => {
+          ["inv", "c005", "salesT", "pur", "sal", "osig", "credits", "other", "vatDue", "result"].forEach(k => { a[k] = (a[k] || 0) + (Number(x[k]) || 0); });
+          return a;
+        }, {});
+        const td = (n, extra) => `<td class="num" style="font-weight:700;${extra || ""}">${eur(n)}</td>`;
+        return `<tr style="border-top:2px solid #94a3b8;background:#f8fafc">
+          <td><b>ОБЩО (${aiData.length} месеца)</b></td>
+          ${td(t.inv)}${td(t.c005)}${td(t.salesT, "background:#e0f2fe")}${td(t.pur)}${td(t.sal)}${td(t.osig)}${td(t.credits)}${td(t.other)}${td(t.vatDue)}
+          <td class="num" style="background:${t.result >= 0 ? "#dcfce7" : "#fee2e2"}"><b style="color:${t.result >= 0 ? "#166534" : "#b91c1c"};font-size:15px">${eur(t.result)}</b></td>
+          <td></td>
+        </tr>`;
+      })()}</tfoot>
     </table></div>
     <p class="hint"><b>Фактури, Разходи, Заплати и ДДС</b> се смятат сами: фактурите без ДДС (КИ с минус, без проформи); разходите = всички Покупки без ДДС; заплатите = „ОБЩО получено" от Месечния отчет; ДДС ± = ДДС продажби − ДДС покупки (червено − за внасяне, зелено + за възстановяване). <b>Осигуровки</b> идват от Ведомостта (🤖); без ведомост — ръчно поле. <b>005</b> идва от регистъра отдолу; <b>Кредити / Други разходи / Бележки</b> са ръчни. <b>Резултат = ОБЩО продажби − Разходи − Заплати − Осигуровки − Кредити − Други разходи ± ДДС.</b> Влизат само документите, въведени в Системата.</p>
 
