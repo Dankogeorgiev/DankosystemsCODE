@@ -316,8 +316,22 @@ async function pulseMonthly(v) {
   const lineNet = arr => (arr || []).reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
   const eur = n => (Number(n) || 0).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 
-  // Месеците от юли 2026 (началото на пълните данни) до текущия, най-новият отгоре.
-  const PULSE_M_START = "2026-07";
+  // 📜 Историята преди юли 2026 — пренесена от ексела на Данко (29.10.2026),
+  // EUR. Числата влизат като „авто" стойности на тези месеци: празно поле =
+  // тези числа, а ръчна корекция ги надписва както при всички месеци.
+  // В бележката стоят оригиналните тотали от ексела; перата му не сумират
+  // точно до тотала (разлики до 400 €), затова Резултатът е по формулата.
+  const PULSE_HISTORY = {
+    "2026-01": { inv: 218000, pur: 118000, sal: 41000, osig: 17400, credits: 16900, note: "от ексела: приходи 218 000 / разходи 193 000" },
+    "2026-02": { inv: 258000, pur: 128000, sal: 41000, osig: 17400, credits: 16900, note: "от ексела: приходи 258 000 / разходи 203 000" },
+    "2026-03": { inv: 251000, pur: 135000, sal: 42000, osig: 19500, credits: 16900, note: "от ексела: приходи 251 000 / разходи 213 500" },
+    "2026-04": { inv: 195000, pur: 101000, sal: 45000, osig: 21500, credits: 16900, note: "от ексела: приходи 195 000 / разходи 184 000" },
+    "2026-05": { inv: 196000, pur: 110000, sal: 47000, osig: 20500, credits: 16900, note: "от ексела: приходи 196 000 / разходи 194 000" },
+    "2026-06": { inv: 220000, pur: 125000, sal: 47000, osig: 20500, credits: 16900, note: "от ексела: приходи 220 000 / разходи 209 400" },
+  };
+  // Месеците: от юли 2026 са пълните данни от документите; януари–юни 2026
+  // е историята от ексела (горе). Най-новият отгоре.
+  const PULSE_M_START = "2026-01";
   const months = [];
   const now = new Date();
   for (let i = 0; i < 36; i++) {
@@ -434,11 +448,12 @@ async function pulseMonthly(v) {
   };
   const rows = months.map(m => {
     const man = manual[m] || {};
-    const invA = invByMonth[m] || 0;
+    const hist = PULSE_HISTORY[m] || null;   // 📜 месец от ексела (преди Системата)
+    const invA = invByMonth[m] || (hist && hist.inv) || 0;
     const c005 = (c005ByMonth[m] || 0) + (Number(man.c005) || 0);
-    const purA = purByMonth[m] || 0;
-    const salA = salByMonth[m] || 0;
-    const osigAuto = osigByMonth[m] || 0;
+    const purA = purByMonth[m] || (hist && hist.pur) || 0;
+    const salA = salByMonth[m] || (hist && hist.sal) || 0;
+    const osigAuto = osigByMonth[m] || (hist && hist.osig) || 0;
     const vatA = (vatOutByMonth[m] || 0) - (vatInByMonth[m] || 0);   // >0 → за внасяне
     // Стойностите В СМЕТКИТЕ: ръчната корекция печели, иначе автото.
     const inv = ovVal(man, "ovInv", invA);
@@ -446,24 +461,24 @@ async function pulseMonthly(v) {
     const sal = ovVal(man, "ovSal", salA);
     const osig = ovVal(man, "ovOsig", osigAuto || Number(man.osig) || 0);
     const vatDue = ovVal(man, "ovVat", vatA);
-    const credits = Number(man.credits) || 0;
+    const credits = Number(man.credits) || (hist && hist.credits) || 0;
     const other = Number(man.other) || 0;
     const salesT = inv + c005;
     const result = salesT - pur - sal - osig - credits - other - vatDue;
     aiData.push({ m, inv, c005, salesT, pur, sal, osig, credits, other, vatDue, result });
     return `<tr>
-      <td><b>${mLabel(m)}</b></td>
+      <td><b>${mLabel(m)}</b>${hist ? ' <span title="История, пренесена от ексела — отпреди Системата. Числата се коригират ръчно като всички; празно поле = числото от ексела.">📜</span>' : ""}</td>
       <td class="num">${ovCell(m, "ovInv", man, invA, "Фактурите (авто) — напиши число само ако искаш да КОРИГИРАШ месеца на ръка; празно = автоматичното")}</td>
       <td class="num" title="Сборът от регистъра „Стокови/005" отдолу — поправя се ТАМ (редовете и 🧹 старите)">${dash(c005)}</td>
       <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
       <td class="num">${ovCell(m, "ovPur", man, purA, "Разходите от Покупки (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
       <td class="num">${ovCell(m, "ovSal", man, salA, "Заплатите от Месечния отчет (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
       <td class="num">${osigAuto ? ovCell(m, "ovOsig", man, osigAuto, "Осигуровките от Ведомостта (авто) — напиши число за ръчна корекция; празно = автоматичното") : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
-      <td class="num">${inp(m, "credits", man.credits, "Вноски по кредити за месеца, €")}</td>
+      <td class="num">${inp(m, "credits", man.credits !== undefined ? man.credits : (hist ? hist.credits : ""), "Вноски по кредити за месеца, €")}</td>
       <td class="num">${inp(m, "other", man.other, "Други разходи за месеца (извън Покупките), €")}</td>
       <td class="num">${ovCell(m, "ovVat", man, vatA, "ДДС резултатът (авто): положително = за внасяне (вади се), отрицателно = за възстановяване (добавя се). Напиши число за ръчна корекция; празно = автоматичното")}</td>
       <td class="num" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
-      <td><input type="text" class="pum-note" data-m="${m}" value="${escapeAttr(man.note || "")}" placeholder="бележка…" style="width:200px" /></td>
+      <td><input type="text" class="pum-note" data-m="${m}" value="${escapeAttr(man.note || (hist && hist.note) || "")}" placeholder="бележка…" style="width:200px" /></td>
     </tr>`;
   }).join("");
 
