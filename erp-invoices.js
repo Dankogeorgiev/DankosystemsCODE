@@ -749,6 +749,7 @@ async function erpInvForm(o) {
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
       ${o.posted ? '<button class="btn btn-small" id="inv-pdf" title="Сваля издадената фактура направо като PDF файл — без да минаваш през Печат">⤓ PDF</button>' : ""}
       <button class="btn btn-small" id="inv-fix" title="Отваря документа за ръчна поправка ПРЕДИ печат (номерът и статусът се запазват)">✎ Ръчна корекция</button>
+      ${o.posted && o.status !== "анулирана" && o.kind !== "proforma" ? '<button class="btn btn-small" id="inv-renum" title="Сменя номера на издадения документ (при объркани номера). Проверява дали новият е свободен; ако е зает — предлага РАЗМЯНА между двата документа. Оправя и вземането, продажбите и товарите в Логистика.">🔢 Смени номера</button>' : ""}
       ${o.posted && o.status !== "анулирана" ? '<button class="btn btn-small btn-danger" id="inv-cancel" title="Анулира документа: вземането пада, продажбите се отвързват, а НОМЕРЪТ се освобождава и може да се даде на друг клиент">🚫 Анулирай</button>' : ""}
       ${!o.posted && o.id ? '<button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива ЧЕРНОВАТА окончателно. Черновата няма номер — номерът се тегли чак при „Издай“, така че нищо не се губи от серията.">🗑 Изтрий черновата</button>' : ""}
       ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span><button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива анулираната окончателно — номерът ѝ вече е освободен">🗑 Изтрий</button>` : ""}
@@ -766,8 +767,9 @@ async function erpInvForm(o) {
         <label>Серия
           <select id="inv-series" ${locked ? "disabled" : ""}>${Object.entries(erpInvSeries).map(([sk, x]) => `<option value="${sk}" ${sk === o.seriesKey ? "selected" : ""}>${escapeHtml(sk + ". " + x.label)}</option>`).join("")}</select></label>
         <label>${o.posted ? "№ на документа" : "№ (който ще получи)"}
-          <input type="text" id="inv-nextno" class="inv-nextno" readonly value="${escapeAttr(o.posted ? (o.docNo || "") : invNextNoFor(o))}" />
-          ${!o.posted && o.kind === "proforma" ? '<span class="erp-muted" style="font-size:11px">Проформата има собствена номерация — не взима фактурен номер.</span>' : ""}</label>
+          <input type="text" id="inv-nextno" class="inv-nextno" readonly value="${escapeAttr(o.posted ? (o.docNo || "") : invNextNoFor(o))}" title="${o.posted ? "" : "Ориентировъчен — реалният номер се тегли чак при „Издай“. Няколко чернови: номера взема тази, която се издаде ПЪРВА."}" />
+          ${!o.posted && o.kind === "proforma" ? '<span class="erp-muted" style="font-size:11px">Проформата има собствена номерация — не взима фактурен номер.</span>' : ""}
+          ${!o.posted && o.kind !== "proforma" ? '<span class="erp-muted" style="font-size:11px">Ориентировъчен: номерът се тегли при „Издай". Ако междувременно се издаде друга фактура, тя взема този номер, а черновата — следващия.</span>' : ""}</label>
         <label>Тип
           <select id="inv-kind" ${locked ? "disabled" : ""}>${Object.entries(INV_KINDS).map(([kk, x]) => `<option value="${kk}" ${kk === o.kind ? "selected" : ""}>${x.label}</option>`).join("")}</select></label>
         <label>Дата на издаване <input type="date" id="inv-date" value="${escapeAttr(o.issueDate || "")}" ${locked ? "disabled" : ""} /></label>
@@ -1033,6 +1035,7 @@ async function erpInvForm(o) {
     else alert("Документът е отворен за редакция — поправи го и натисни Печат.");
   });
   const cnl = document.getElementById("inv-cancel"); if (cnl) cnl.addEventListener("click", () => erpInvCancel(o));
+  const rnm = document.getElementById("inv-renum"); if (rnm) rnm.addEventListener("click", () => erpInvRenumber(o));
   const ddel = document.getElementById("inv-del-draft"); if (ddel) ddel.addEventListener("click", () => erpInvDeleteDraft(o));
   const ml = document.getElementById("inv-mail"); if (ml) ml.addEventListener("click", () => erpMailInvoice(o));
   const sv = document.getElementById("inv-save"); if (sv) sv.addEventListener("click", () => erpInvSaveClick(o));
@@ -1214,6 +1217,7 @@ async function erpInvIssue(o) {
   }
   const btn = document.getElementById("inv-issue");
   if (btn) { btn.disabled = true; btn.textContent = "Издавам…"; }
+  let issued = false;   // номерът е ВЗЕТ (фактурата е записана с него)
   try {
     await erpInvLoadSeries(true);   // свежата серия, не сесийният кеш
     const ser = erpInvSeries[o.seriesKey] || erpInvSeries["2"];
@@ -1252,11 +1256,19 @@ async function erpInvIssue(o) {
     }
     o.posted = true; o.status = "издадена";
     await erpSaveInvoice(o);              // уникалният индекс ще хване евентуален дублат
+    issued = true;                        // оттук нататък номерът е на документа
     if (isPf) ser.pfNext = invPfNext(ser) + 1;
     else if (useNo) ser.freed = (ser.freed || []).filter(x => String(x) !== useNo);
     else ser.next = Math.floor(Number(ser.next) || 0) + 1;
-    await erpInvSaveSeries();
-    await erpLoadInvoices();
+    // Провал СЛЕД взетия номер не бива да „връща" документа в чернова:
+    // инцидентът от 29.10 — при грешка тук повторното „Издай" изгаряше
+    // номер (3108/3109 останаха дупки, а фактурата излезе с 3110).
+    // Серията се само-лекува при следващото издаване, затова само предупреждаваме.
+    try { await erpInvSaveSeries(); } catch (e) {
+      console.warn("серията не се записа — само-лекуването ще навакса при следващото издаване", e);
+      alert(`Документът Е ИЗДАДЕН с № ${o.docNo} — номерът е запазен.\nСамо броячът на серията не се записа; при следващото издаване се сверява сам с базата. НЕ натискай „Издай" пак.`);
+    }
+    try { await erpLoadInvoices(); } catch (e) {}
     // Издадената фактура става вземане от клиента (проформата не влиза).
     try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(o); } catch (e) {}
     // Цените от фактурата попълват ценовата листа на клиента (авто).
@@ -1276,9 +1288,112 @@ async function erpInvIssue(o) {
     // Автоматично предлага изпращане на фактурата по имейл (готово писмо, 1 клик).
     try { if (typeof erpMailInvoice === "function") erpMailInvoice(o); } catch (e) {}
   } catch (e) {
+    if (issued) {
+      // Документът Е издаден — само нещо след издаването се запъна.
+      if (btn) { btn.disabled = false; btn.textContent = "📤 Издай (вземи номер)"; }
+      alert(`Документът Е ИЗДАДЕН с № ${o.docNo} — номерът е запазен.\nСамо опресняването след издаването удари грешка: ${e.message || e}\nПрезареди екрана; НЕ натискай „Издай" пак.`);
+      return;
+    }
     o.posted = false; o.status = "чернова"; o.docNo = null;
     if (btn) { btn.disabled = false; btn.textContent = "📤 Издай (вземи номер)"; }
     alert("Грешка при издаване: " + (e.message || e) + "\n(Ако номерът вече съществува — смени следващия номер в Серии.)");
+  }
+}
+
+/* ---------- 🔢 Смяна на номера на ИЗДАДЕН документ ----------
+   За объркани номера (30.10.2026: чернова изчакала, междувременно друга
+   фактура взела „нейния" номер). Проверява новия номер в базата; ако е
+   ЗАЕТ — предлага РАЗМЯНА между двата документа (в 3 стъпки, заради
+   уникалния индекс). Оправя всичко, вързано по номер: вземането,
+   продажбите „От продажби…", товарите в Логистика и серията
+   (освободен стар номер / прибран брояч). */
+async function erpInvRenumber(o) {
+  if (!o || !o.posted || !o.docNo) { alert("Преномерира се само ИЗДАДЕН документ с номер."); return; }
+  if (o.kind === "proforma") { alert("Проформата не се преномерира — има собствена номерация."); return; }
+  const oldNo = String(o.docNo);
+  const input = prompt(`Нов номер за документа (сега № ${oldNo}):`, oldNo);
+  if (input == null) return;
+  const newNo = String(input).trim();
+  if (newNo === oldNo) return;
+  if (!/^\d{6,}$/.test(newNo)) { alert("Номерът е само цифри, напр. 1000003108."); return; }
+  if (newNo.charAt(0) !== oldNo.charAt(0)
+    && !confirm(`Номер ${newNo} е от серия ${newNo.charAt(0)}…, а документът е от серия ${oldNo.charAt(0)}…\nНаистина ли?`)) return;
+  // Свеж прочит: свободен ли е новият номер?
+  let other = null;
+  try {
+    const { data } = await sb.from("invoices").select("id,doc_no,posted,kind,data").eq("doc_no", newNo).maybeSingle();
+    if (data && data.id !== o.id) other = { id: data.id, posted: data.posted, kind: data.kind, docNo: data.doc_no, ...(data.data || {}) };
+  } catch (e) { alert("Не успях да проверя номера: " + (e.message || e)); return; }
+  if (other) {
+    if (!confirm(`Номер ${newNo} е ЗАЕТ от ${(INV_KINDS[other.kind] || {}).label || "документ"} на „${(other.client && other.client.name) || "—"}" (${erpDMY(other.issueDate) || "—"}).\n\nДа РАЗМЕНЯ ли номерата?\n• Този документ → № ${newNo}\n• „${(other.client && other.client.name) || "—"}" → № ${oldNo}`)) return;
+  } else if (!confirm(`Сменям № ${oldNo} → № ${newNo}.\nСтарият номер се освобождава за следваща фактура.\nПродължавам?`)) return;
+  try {
+    if (other) {   // размяна — уникалният индекс не позволява наведнъж
+      o.docNo = null; await erpSaveInvoice(o);
+      other.docNo = oldNo; await erpSaveInvoice(other);
+      o.docNo = newNo; await erpSaveInvoice(o);
+    } else {
+      o.docNo = newNo; await erpSaveInvoice(o);
+    }
+    // Серията: новият номер излиза от „освободените"; при чиста смяна
+    // старият се връща в оборот (прибран брояч или в освободените).
+    try {
+      await erpInvLoadSeries(true);
+      const ser = erpInvSeries[o.seriesKey] || erpInvSeries[oldNo.charAt(0)] || erpInvSeries["2"];
+      if (ser) {
+        ser.freed = (ser.freed || []).map(String).filter(x => x !== newNo);
+        if (!other) {
+          if (Number(oldNo) + 1 === Math.floor(Number(ser.next) || 0)) ser.next = Number(oldNo);
+          else if (Number(oldNo) < Math.floor(Number(ser.next) || 0) && !ser.freed.includes(oldNo)) { ser.freed.push(oldNo); ser.freed.sort((a, b) => Number(a) - Number(b)); }
+        }
+        if (Number(newNo) >= Math.floor(Number(ser.next) || 0)) ser.next = Number(newNo) + 1;
+        await erpInvSaveSeries();
+      }
+    } catch (e) { console.warn("серията не се обнови при преномерирането", e); }
+    // Препратките по номер — и за двата документа при размяна.
+    const fixRefs = async inv => {
+      try { if (typeof erpRecvSyncFromInvoice === "function") await erpRecvSyncFromInvoice(inv); } catch (e) {}
+      try {   // платеното вземане sync-ът не го пипа — номерът се оправя направо
+        if (typeof RECEIVABLES !== "undefined" && typeof erpRecvSave === "function") {
+          const p = (RECEIVABLES || []).find(x => x.srcInvoiceId === inv.id && x.paid && x.invoiceNo !== inv.docNo);
+          if (p) { p.invoiceNo = inv.docNo; await erpRecvSave(); }
+        }
+      } catch (e) {}
+      try { if ((inv.fromSaleIds || []).length) await erpInvMarkSalesInvoiced(inv); } catch (e) {}
+    };
+    await fixRefs(o);
+    if (other) await fixRefs(other);
+    // Логистика: товарите сменят номера си (при размяна — кръстосано).
+    try {
+      if (typeof logiLoad === "function" && typeof logiSave === "function" && typeof LOGI !== "undefined") {
+        await logiLoad(true);
+        const nrm = x => (typeof logiNorm === "function") ? logiNorm(x) : String(x || "").trim().toLowerCase();
+        let n = 0;
+        (LOGI.loads || []).forEach(l => {
+          if (!l.invNo) return;
+          if (nrm(l.invNo) === nrm(oldNo)) { l.invNo = newNo; n++; }
+          else if (other && nrm(l.invNo) === nrm(newNo)) { l.invNo = oldNo; n++; }
+        });
+        if (n) await logiSave();
+      }
+    } catch (e) {}
+    try { await erpLoadInvoices(); } catch (e) {}
+    alert(other
+      ? `✓ Номерата са РАЗМЕНЕНИ:\n• този документ е № ${newNo}\n• „${(other.client && other.client.name) || "—"}" е № ${oldNo}\nВземанията, продажбите и товарите са оправени и за двата.`
+      : `✓ Документът вече е № ${newNo}.\nСтарият № ${oldNo} е свободен — следващото издаване ще го вземе/предложи.`);
+    erpInvForm(JSON.parse(JSON.stringify((erpInvoices || []).find(x => x.id === o.id) || o)));
+  } catch (e) {
+    // Размяна, спряла по средата: документът може да е без номер — връщаме го.
+    let fixed = "";
+    if (other && !o.docNo) {
+      try { o.docNo = newNo; await erpSaveInvoice(o); fixed = `Документът получи № ${newNo} (размяната довърши).`; }
+      catch (e2) {
+        try { o.docNo = oldNo; await erpSaveInvoice(o); fixed = `Документът си върна № ${oldNo}.`; }
+        catch (e3) { o.docNo = null; }
+      }
+    }
+    alert("Грешка при смяната на номера: " + (e.message || e) + (fixed ? "\n" + fixed : "\n⚠ Провери документа — може да е останал БЕЗ номер."));
+    try { await erpLoadInvoices(); } catch (e2) {}
   }
 }
 
