@@ -749,7 +749,6 @@ async function erpInvForm(o) {
       <button class="btn btn-small" id="inv-print">🖨 Печат</button>
       ${o.posted ? '<button class="btn btn-small" id="inv-pdf" title="Сваля издадената фактура направо като PDF файл — без да минаваш през Печат">⤓ PDF</button>' : ""}
       <button class="btn btn-small" id="inv-fix" title="Отваря документа за ръчна поправка ПРЕДИ печат (номерът и статусът се запазват)">✎ Ръчна корекция</button>
-      ${o.posted && o.status !== "анулирана" && o.kind !== "proforma" ? '<button class="btn btn-small" id="inv-renum" title="Сменя номера на издадения документ (при объркани номера). Проверява дали новият е свободен; ако е зает — предлага РАЗМЯНА между двата документа. Оправя и вземането, продажбите и товарите в Логистика.">🔢 Смени номера</button>' : ""}
       ${o.posted && o.status !== "анулирана" ? '<button class="btn btn-small btn-danger" id="inv-cancel" title="Анулира документа: вземането пада, продажбите се отвързват, а НОМЕРЪТ се освобождава и може да се даде на друг клиент">🚫 Анулирай</button>' : ""}
       ${!o.posted && o.id ? '<button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива ЧЕРНОВАТА окончателно. Черновата няма номер — номерът се тегли чак при „Издай“, така че нищо не се губи от серията.">🗑 Изтрий черновата</button>' : ""}
       ${o.status === "анулирана" ? `<span class="erp-count erp-warn">🚫 АНУЛИРАНА${o.cancelledNo ? " (беше № " + escapeHtml(o.cancelledNo) + ")" : ""}</span><button class="btn btn-small btn-danger" id="inv-del-draft" title="Изтрива анулираната окончателно — номерът ѝ вече е освободен">🗑 Изтрий</button>` : ""}
@@ -1035,7 +1034,6 @@ async function erpInvForm(o) {
     else alert("Документът е отворен за редакция — поправи го и натисни Печат.");
   });
   const cnl = document.getElementById("inv-cancel"); if (cnl) cnl.addEventListener("click", () => erpInvCancel(o));
-  const rnm = document.getElementById("inv-renum"); if (rnm) rnm.addEventListener("click", () => erpInvRenumber(o));
   const ddel = document.getElementById("inv-del-draft"); if (ddel) ddel.addEventListener("click", () => erpInvDeleteDraft(o));
   const ml = document.getElementById("inv-mail"); if (ml) ml.addEventListener("click", () => erpMailInvoice(o));
   const sv = document.getElementById("inv-save"); if (sv) sv.addEventListener("click", () => erpInvSaveClick(o));
@@ -1301,9 +1299,12 @@ async function erpInvIssue(o) {
 }
 
 /* ---------- 🔢 Смяна на номера на ИЗДАДЕН документ ----------
-   За объркани номера (30.10.2026: чернова изчакала, междувременно друга
-   фактура взела „нейния" номер). Проверява новия номер в базата; ако е
-   ЗАЕТ — предлага РАЗМЯНА между двата документа (в 3 стъпки, заради
+   БЕЗ БУТОН В ЕКРАНИТЕ — по Данко (30.10.2026): опцията е опасна за
+   всекидневна употреба. Стои само като АВАРИЕН инструмент: при нов
+   инцидент с объркани номера се вика от конзолата на браузъра —
+   отвори фактурата и напиши:  erpInvRenumber(последно отворената o)
+   (или временно се връща бутонът). Проверява новия номер в базата; ако
+   е ЗАЕТ — предлага РАЗМЯНА между двата документа (в 3 стъпки, заради
    уникалния индекс). Оправя всичко, вързано по номер: вземането,
    продажбите „От продажби…", товарите в Логистика и серията
    (освободен стар номер / прибран брояч). */
