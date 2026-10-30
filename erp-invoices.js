@@ -289,6 +289,7 @@ async function erpRenderInvoices() {
         <select id="inv-fstatus"><option value="">Всички</option>${["чернова", "издадена", "платена", "анулирана", "сторнирана"].map(s => `<option ${s === erpInvStatusFilter ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <span class="spacer"></span>
       ${typeof erpMailDiag === "function" ? '<button class="btn btn-small" id="inv-mail-test" title="Тест на имейл настройката (Brevo)">✉ Тест имейл</button>' : ""}
+      <button class="btn btn-small" id="inv-pdf-sel" title="Сваля ОТМЕТНАТИТЕ документи като отделни PDF файлове — по един файл на фактура. Ако браузърът попита „Да се изтеглят ли няколко файла?" — разреши веднъж.">⤓ PDF избрани (<span id="inv-selcnt">0</span>)</button>
       <button class="btn btn-small" id="inv-report" title="Справка за период: вътрешни, външни и покупни фактури — с експорт">📊 Справка</button>
       ${typeof erpInvAnalysisDialog === "function" ? '<button class="btn btn-small" id="inv-ai-analysis" title="Пълен анализ на продажбите за период: топ клиенти и продукти, износ/вътрешен, по месеци — и коментар от Claude">🤖 Анализ (AI)</button>' : ""}
       <button class="btn btn-small" id="inv-xls-acc" title="Месечен Excel за счетоводството: всички издадени фактури и известия към клиенти с пълните им данни + лист с всеки ред">📒 За счетоводството</button>
@@ -304,7 +305,7 @@ async function erpRenderInvoices() {
     </div>
     <div class="pay-cards" id="inv-month-cards"></div>
     <table class="report-table erp-table">
-      <thead><tr><th>№</th><th>Тип</th><th>Клиент</th><th>Дата</th><th class="num">Сума</th><th>Вал.</th><th>Статус</th><th title="Изпратена ли е фактурата по имейл на клиента">✉ Имейл</th><th></th></tr></thead>
+      <thead><tr><th class="pay-chk"><input type="checkbox" id="inv-sall" title="Маркирай всички видими издадени — за „⤓ PDF избрани“" /></th><th>№</th><th>Тип</th><th>Клиент</th><th>Дата</th><th class="num">Сума</th><th>Вал.</th><th>Статус</th><th title="Изпратена ли е фактурата по имейл на клиента">✉ Имейл</th><th></th></tr></thead>
       <tbody>${rows.map(o => {
         const t = erpInvTotals(o); const k = INV_KINDS[o.kind] || {};
         const status = o.status || (o.posted ? "издадена" : "чернова");
@@ -316,6 +317,7 @@ async function erpRenderInvoices() {
             ? `<button class="btn btn-small inv-mail-row" data-id="${o.id}" title="НЕ е изпращана оттук — отваря готовото писмо до клиента с PDF-а прикачен">✉ Изпрати</button>`
             : `<span class="erp-muted">—</span>`);
         return `<tr class="erp-clickable" data-id="${o.id}">
+          <td class="pay-chk">${o.posted && status !== "анулирана" ? `<input type="checkbox" class="inv-sel" data-id="${o.id}" title="Маркирай за „⤓ PDF избрани“ — всяка фактура в отделен PDF файл" />` : ""}</td>
           <td data-label="№"><b>${escapeHtml(o.docNo || (o.cancelledNo ? "🚫 " + o.cancelledNo : "—"))}</b></td>
           <td data-label="Тип">${escapeHtml(k.label || o.kind)}</td>
           <td data-label="Клиент">${escapeHtml((o.client && o.client.name) || "")}</td>
@@ -325,7 +327,7 @@ async function erpRenderInvoices() {
           <td data-label="Статус"><span class="erp-co-status s-${escapeAttr(status)}">${escapeHtml(status)}</span></td>
           <td data-label="Имейл">${mailCell}</td>
           <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button>${!o.posted || status === "анулирана" ? `<button class="btn btn-small btn-danger inv-row-del" data-id="${o.id}" title="${status === "анулирана" ? "Изтрива анулираната окончателно (номерът ѝ вече е освободен)" : "Изтрива черновата окончателно (черновите нямат номер — от серията нищо не се губи)"}">🗑</button>` : ""}</td>
-        </tr>`; }).join("") || `<tr><td colspan="9" class="report-empty">Още няма документи. Натисни „+ Фактура".</td></tr>`}
+        </tr>`; }).join("") || `<tr><td colspan="10" class="report-empty">Още няма документи. Натисни „+ Фактура".</td></tr>`}
       </tbody>
     </table>
     <p class="hint">Складът се движи от <b>Продажби</b> (не оттук). Фактурата е документът. Етап 2 ще свърже двете за тест.</p>`;
@@ -373,7 +375,36 @@ async function erpRenderInvoices() {
     const o = (erpInvoices || []).find(x => String(x.id) === String(b.dataset.id));
     if (o) erpInvDeleteDraft(o);
   }));
-  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenInvoice(Number(tr.dataset.id))));
+  v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", e => {
+    if (e.target.closest(".inv-sel, #inv-sall, .pay-chk")) return;   // отметката не отваря фактурата
+    erpOpenInvoice(Number(tr.dataset.id));
+  }));
+  // ⤓ Групово PDF (Данко, 30.10.2026): отметни фактури → всяка в отделен
+  // PDF файл, един след друг (както единичното „⤓ PDF" във фактурата).
+  const selCnt = () => v.querySelectorAll(".inv-sel:checked").length;
+  const updSel = () => { const el = document.getElementById("inv-selcnt"); if (el) el.textContent = selCnt(); };
+  v.querySelectorAll(".inv-sel").forEach(cb => cb.addEventListener("change", updSel));
+  const sAll = document.getElementById("inv-sall");
+  if (sAll) sAll.addEventListener("change", () => {
+    v.querySelectorAll(".inv-sel").forEach(cb => { cb.checked = sAll.checked; });
+    updSel();
+  });
+  const pdfSel = document.getElementById("inv-pdf-sel");
+  if (pdfSel) pdfSel.addEventListener("click", async () => {
+    const ids = [...v.querySelectorAll(".inv-sel:checked")].map(cb => cb.dataset.id);
+    if (!ids.length) { alert("Първо отметни фактурите (квадратчетата вляво на всеки ред).\nМожеш да отметнеш всички наведнъж от квадратчето в заглавния ред."); return; }
+    if (typeof erpInvPdfDownload !== "function") { alert("PDF модулът не е зареден — презареди страницата."); return; }
+    pdfSel.disabled = true;
+    for (let i = 0; i < ids.length; i++) {
+      const o = (erpInvoices || []).find(x => String(x.id) === String(ids[i]));
+      if (!o) continue;
+      pdfSel.textContent = `⤓ PDF ${i + 1} от ${ids.length}…`;
+      try { await erpInvPdfDownload(o, null); } catch (e) { alert(`PDF за № ${o.docNo || "?"} не се получи: ` + (e.message || e)); }
+      await new Promise(r => setTimeout(r, 350));   // файловете тръгват един по един
+    }
+    pdfSel.disabled = false;
+    pdfSel.innerHTML = `⤓ PDF избрани (<span id="inv-selcnt">${selCnt()}</span>)`;
+  });
 }
 
 /* 🗑 Изтриване на ЧЕРНОВА или АНУЛИРАНА (Данко, 23.10.2026): издадените
