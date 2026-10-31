@@ -928,10 +928,12 @@ th.mr-c-buy { background: #f0fdf4; color: #166534; border-bottom: 2px solid #bbf
 .oprep-t th, .oprep-t td { border: 1px solid #cbd5e1; padding: 4px 8px; font-size: 13px; text-align: left; }
 .oprep-t th { background: #f1f5f9; }
 
-/* 🚛 „Върху другите" (Опаковки): бутончето свети, когато редът се качва
-   върху чуждите палети, вместо да прави свой. */
-.pko-ride { margin-left: 4px; padding: 4px 7px; }
-.pko-ride-on { background: #dbeafe; border-color: #2563eb; color: #1e40af; }
+/* 🚛/мерни единици (Опаковки): компактни контроли, подравнени колони —
+   широките селекти разпъваха таблицата (Данко, 01.11). */
+.pko-ride { margin-left: 4px; font-size: 12px; padding: 4px 3px; }
+.pko-unit { width: 84px; margin-left: 4px; font-size: 12px; padding: 4px 3px; }
+.pko-box { max-width: 136px; }
+.pko-addbox { max-width: 130px !important; }
 
 /* 📱 Папките на Заявки от клиенти (телефон): клиент → заявки */
 .co-mob-folders { display: flex; flex-direction: column; gap: 8px; }

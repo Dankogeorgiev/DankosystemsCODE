@@ -449,7 +449,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
-          <td class="num"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:76px" />
+          <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:62px" />
             <select class="pko-unit" data-i="${i}" title="Мерната единица: при „к-т ×2" (ляв + десен) кашоните, бройките и килограмите се смятат върху двойното">
               <option value="1" ${(st.unitMult || 1) === 1 ? "selected" : ""}>броя</option>
               <option value="2" ${st.unitMult === 2 ? "selected" : ""}>к-та ×2</option>
@@ -459,7 +459,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:130px" placeholder="Малък / Плик / Връзка…" title="Вид опаковка — избери от списъка или опиши свободно (нестандартна)" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td><input type="text" class="pko-addbox" data-i="${i}" value="${escapeAttr(st.addBox || "")}" style="width:150px" placeholder="${c.rest ? escapeAttr("1 кашон × " + erpNum(c.rest) + " бр.") : "непълен кашон…"}" title="Непълният кашон (остатъкът) — опиши го както го правите: вид кашон и бройка" /></td>
-          <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:64px" title="Може и дробно число (напр. 7,5 кашона на палет)" ${st.rideOn ? "disabled" : ""} /><select class="pko-ride" data-i="${i}" title="🚛 Дребното (пликове, връзки тръби) не прави свой палет — качва се ВЪРХУ избрания от вече генерираните палети">
+          <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:64px" title="Може и дробно число (напр. 7,5 кашона на палет)" ${st.rideOn ? "disabled" : ""} /><select class="pko-ride" data-i="${i}" style="max-width:136px" title="🚛 Дребното (пликове, връзки тръби) не прави свой палет — качва се ВЪРХУ избрания от вече генерираните палети">
             <option value="0">—</option>
             ${Array.from({ length: Math.max(rideMax, 1) }, (_, k) => `<option value="${k + 1}" ${st.rideOn === k + 1 ? "selected" : ""}>🚛 върху палет ${k + 1}</option>`).join("")}
           </select></td>
