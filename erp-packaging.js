@@ -99,8 +99,8 @@ async function erpRenderPackaging() {
     <p class="hint">Как се опакова всяко изделие <b>за всеки клиент</b>. Оттук Придружаващите документи (Packing List, Стокова разписка, Палет опис) вземат теглото на брой, кашоните и палетите. Едно изделие може да има различна опаковка за различни клиенти.</p>
     <table class="report-table erp-table">
       <thead><tr>
-        <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид кашон</th><th>Размер кашон</th><th>Нест. опаковка</th>
-        <th class="num">бр/кашон</th><th class="num">кг/брой</th><th class="num">кг/кашон</th><th class="num">кашони/палет</th>
+        <th>Наш код</th><th>Клиент</th><th>Име по клиента / № чертеж</th><th>Вид опаковка</th><th>Размер</th><th>Нест. опаковка</th>
+        <th class="num">бр/опаковка</th><th class="num">кг/брой</th><th class="num">кг/опаковка</th><th class="num">опаковки/палет</th>
         <th>Аксесоари на палета</th><th></th>
       </tr></thead>
       <tbody id="pack-tbody"></tbody>
@@ -132,13 +132,13 @@ function erpPackFillRows() {
     <td data-label="Наш код">${p.code ? `<b>${escapeHtml(p.code)}</b>` : '<span class="pack-nocode" title="Записът чака да се попълни нашият код — дотогава не влиза в придружаващите документи">⚠ без код</span>'}</td>
     <td data-label="Клиент">${escapeHtml(p.clientName || "— (за всички)")}</td>
     <td data-label="Име по клиента">${escapeHtml(p.clientProductName || "")}</td>
-    <td data-label="Вид кашон">${escapeHtml(p.boxType || "")}</td>
+    <td data-label="Вид опаковка">${escapeHtml(p.boxType || "")}</td>
     <td data-label="Размер кашон">${escapeHtml(p.boxSize || "")}</td>
     <td data-label="Нест. опаковка">${escapeHtml(p.nonStdPacking || "")}</td>
-    <td class="num" data-label="бр/кашон">${n(p.piecesPerBox)}</td>
+    <td class="num" data-label="бр/опаковка">${n(p.piecesPerBox)}</td>
     <td class="num" data-label="кг/брой">${n(p.kgPerPiece)}</td>
-    <td class="num" data-label="кг/кашон">${n(p.kgPerBox)}</td>
-    <td class="num" data-label="кашони/палет">${n(p.boxesPerPallet)}</td>
+    <td class="num" data-label="кг/опаковка">${n(p.kgPerBox)}</td>
+    <td class="num" data-label="опаковки/палет">${n(p.boxesPerPallet)}</td>
     <td data-label="Аксесоари">${escapeHtml(p.accessories || "")}</td>
     <td class="erp-row-actions"><button class="btn btn-small" data-edit="${p.id}">✎</button> <button class="btn btn-small btn-danger" data-del="${p.id}">×</button></td>
   </tr>`).join("") || `<tr><td colspan="12" class="report-empty">Няма опаковки. Натисни „+ Нова опаковка".</td></tr>`;
@@ -157,7 +157,7 @@ function erpPackForm(rec) {
       <label>Наш код (може празно — попълва се после) <input type="text" id="pk-code" list="pack-codes" value="${escapeAttr(r.code || "")}" placeholder="напр. 30..." /></label>
       <label>Клиент <input type="text" id="pk-client" list="pack-clients" value="${escapeAttr(r.clientName || "")}" placeholder="празно = за всички клиенти" /></label>
       <label>Име по клиента / № чертеж <input type="text" id="pk-cpname" value="${escapeAttr(r.clientProductName || "")}" placeholder="както клиента поръчва" /></label>
-      <label>Вид кашон <input type="text" id="pk-boxtype" list="pack-boxlist" value="${escapeAttr(r.boxType || "")}" placeholder="Малък / Среден / Голям / МПК 85 / Тава…" /></label>
+      <label>Вид опаковка <input type="text" id="pk-boxtype" list="pack-boxlist" value="${escapeAttr(r.boxType || "")}" placeholder="Малък / Среден / Голям / МПК 85 / Тава…" /></label>
       <label>Размер кашон <input type="text" id="pk-boxsize" value="${escapeAttr(r.boxSize || "")}" placeholder="напр. 600×400×300" /></label>
       <label>Нест. опаковка <input type="text" id="pk-nonstd" value="${escapeAttr(r.nonStdPacking || "")}" placeholder="напр. на тави, насипно, вързано…" /></label>
       <label>Броя в кашон <input type="number" id="pk-ppb" step="1" min="0" value="${escapeAttr(String(r.piecesPerBox ?? ""))}" /></label>
@@ -433,7 +433,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
-        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид кашон</th><th>Нест. опаковка</th><th class="num">брой кашон/опаковка</th><th>Кашон добавка</th><th class="num">Кашони на палет</th><th class="num">Кашони</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
+        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид опаковка</th><th>Нест. опаковка</th><th class="num">брой в опаковка</th><th>Добавка</th><th class="num">опаковки на палет</th><th class="num">Опаковки</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
@@ -455,7 +455,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       </table>
       <div class="costk-stats">
         <span>Сума на палетите: <b id="pko-palsum">${palletsUp}</b><span class="erp-muted" id="pko-palbrk">${smallCnt ? ` (${palletsUp - smallCnt} × 120×80 + ${smallCnt} × 60×80)` : ""}</span></span>
-        <span>Кашони: <b>${totals.boxes}</b></span>
+        <span>Опаковки: <b>${totals.boxes}</b></span>
         <span>Нето: <b>${Math.round(totals.net * 10) / 10} кг</b></span>
         <span title="Теглото на празния евро палет 120×80; малкият 60×80 се брои наполовина">Тегло на палет 120×80: <input type="number" step="any" id="pko-palkg" value="${escapeAttr(String(P.palletKg || 20))}" style="width:64px" /> кг</span>
         <span>Бруто: <b id="pko-gross">${gross} кг</b></span>
