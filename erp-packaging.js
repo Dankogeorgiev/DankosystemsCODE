@@ -34,18 +34,22 @@ function packNorm(s) { return String(s || "").trim().toLowerCase(); }
 /* Стандартните кашони на Данко Системс (30.07.2026) — падащ списък навсякъде,
    където се избира кашон; изборът попълва и размера автоматично. */
 const PACK_BOX_STD = [
-  { name: "Малък", size: "48×22×12" },
-  { name: "Среден", size: "60×30×12" },
-  { name: "Голям", size: "80×36×23" },
-  { name: "МПК 85", size: "85×26×25" },
+  { name: "Малък кашон", size: "48×22×12" },
+  { name: "Среден кашон", size: "60×30×12" },
+  { name: "Голям кашон", size: "80×36×23" },
+  { name: "Кашон МПК 85", size: "85×26×25" },
   { name: "Тава", size: "120×80×8" },
   { name: "Плик", size: "" },          // опаковка в плик (без кашон) — по Данко, 01.11.2026
   { name: "Връзка тръби", size: "" },  // сноп тръби — обикновено 20 бр. (попълва се само̀)
   { name: "Нестандартна", size: "" },  // свободно описание (бившата колона „Нест. опаковка")
 ];
+// Старите кратки имена („Малък", „Голям", „МПК 85"…) продължават да се
+// разпознават — записите по заявки и картотеката не се пипат.
+const PACK_BOX_ALIASES = { "малък": "Малък кашон", "среден": "Среден кашон", "голям": "Голям кашон", "мпк 85": "Кашон МПК 85" };
 function packBoxStdFind(name) {
-  const n = packNorm(name);
+  let n = packNorm(name);
   if (!n) return null;
+  if (PACK_BOX_ALIASES[n]) n = packNorm(PACK_BOX_ALIASES[n]);
   return PACK_BOX_STD.find(b => packNorm(b.name) === n || packNorm(b.name + " " + b.size) === n || packNorm(b.name + " · " + b.size) === n) || null;
 }
 function packBoxDatalistHtml() {
@@ -407,20 +411,24 @@ async function erpPackOrderOpen(orderId, moreIds) {
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : "")),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),   // може и дробно (напр. 7,5)
       ride: !!r.ride,   // върху другите палети (дребното отгоре) — пази се по заявка
+      // Мерната единица: „броя" или „к-т ×2" (ляв+десен) — при комплекти
+      // кашоните, бройките и килограмите се смятат върху двойното.
+      unitMult: r.unitMult != null ? (Number(r.unitMult) || 1) : ((spec && Number(spec.unitMult)) || 1),
     };
   };
   const calc = st => {
     const perBox = packNum(st.perBox), perPallet = packNum(st.perPallet);
-    const bd = packBoxBreakdown(st.qty, perBox);
+    const effQty = st.qty * (st.unitMult || 1);   // к-т ×2 → реалните БРОЯ
+    const bd = packBoxBreakdown(effQty, perBox);
     const pallets = (!st.ride && bd.boxes > 0 && perPallet > 0) ? bd.boxes / perPallet : 0;
-    const netKg = Math.round(st.qty * packNum(st.kgPer) * 10) / 10;
-    return { boxes: bd.boxes, bdText: bd.text, pallets, netKg };
+    const netKg = Math.round(effQty * packNum(st.kgPer) * 10) / 10;
+    return { boxes: bd.boxes, bdText: bd.text, pallets, netKg, effQty };
   };
   const render = () => {
     const states = (o.lines || []).map((_, i) => rowState(i));
     const totals = states.reduce((t, st) => {
       const c = calc(st);
-      t.qty += st.qty; t.boxes += c.boxes; t.pallets += c.pallets; t.net += c.netKg;
+      t.qty += c.effQty; t.boxes += c.boxes; t.pallets += c.pallets; t.net += c.netKg;   // ОБЩО в реални БРОЯ
       return t;
     }, { qty: 0, boxes: 0, pallets: 0, net: 0 });
     const built = packPlanPallets(states.map(st => ({ ...st, ...calc(st) })), P);
@@ -436,16 +444,21 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
-        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Бройка</th><th class="num">КГ за брой</th><th>Вид опаковка</th><th class="num">брой в опаковка</th><th>Добавка</th><th class="num">опаковки на палет</th><th class="num">Опаковки</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
+        <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Количество</th><th class="num">КГ за брой</th><th>Вид опаковка</th><th class="num">брой в опаковка</th><th>Добавка</th><th class="num">опаковки на палет</th><th class="num">Опаковки</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
         <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
           <td><b>${escapeHtml(st.code)}</b></td>
           <td>${escapeHtml(st.name)}</td>
-          <td class="num"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:76px" />${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Оригиналната бройка по заявката — изтрий корекцията, за да се върне">заявка: ${erpNum(st.baseQty)}</span>` : ""}</td>
+          <td class="num"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:76px" />
+            <select class="pko-unit" data-i="${i}" title="Мерната единица: при „к-т ×2" (ляв + десен) кашоните, бройките и килограмите се смятат върху двойното">
+              <option value="1" ${(st.unitMult || 1) === 1 ? "selected" : ""}>броя</option>
+              <option value="2" ${st.unitMult === 2 ? "selected" : ""}>к-та ×2</option>
+            </select>
+            ${st.unitMult > 1 ? `<br><span class="erp-muted" style="font-size:11px">= ${erpNum(st.qty * st.unitMult)} броя</span>` : ""}${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Оригиналното количество по заявката — изтрий корекцията, за да се върне">заявка: ${erpNum(st.baseQty)}</span>` : ""}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:130px" placeholder="Малък / Плик / Връзка…" title="Вид опаковка — избери от списъка или опиши свободно (нестандартна)" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td><input type="text" class="pko-addbox" data-i="${i}" value="${escapeAttr(st.addBox || "")}" style="width:150px" placeholder="${c.rest ? escapeAttr("1 кашон × " + erpNum(c.rest) + " бр.") : "непълен кашон…"}" title="Непълният кашон (остатъкът) — опиши го както го правите: вид кашон и бройка" /></td>
-          <td class="num"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:70px" title="Може и дробно число (напр. 7,5 кашона на палет)" ${st.ride ? "disabled" : ""} /><br><label class="erp-inline" style="font-size:11px;white-space:nowrap" title="Без собствен палет: тези опаковки (пликове, връзки тръби, дребното) се качват ВЪРХУ опаковките на първия палет"><input type="checkbox" class="pko-ride" data-i="${i}" ${st.ride ? "checked" : ""} /> върху другите</label></td>
+          <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:64px" title="Може и дробно число (напр. 7,5 кашона на палет)" ${st.ride ? "disabled" : ""} /><button type="button" class="btn btn-small pko-ride${st.ride ? " pko-ride-on" : ""}" data-i="${i}" title="🚛 Върху другите: без собствен палет — тези опаковки (пликове, връзки тръби, дребното) се качват ВЪРХУ опаковките на първия палет. Натисни пак за изключване.">🚛</button></td>
           <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
           <td class="num">${st.ride ? '<span class="erp-muted" title="качват се върху другите палети">🚛 отгоре</span>' : (c.pallets ? (Math.round(c.pallets * 100) / 100) : "—")}</td>
           <td class="num">${c.netKg || "—"}</td>
@@ -483,7 +496,8 @@ async function erpPackOrderOpen(orderId, moreIds) {
           // Полето „Нест. опаковка" слезе от екрана (01.11) — старата стойност
           // се пренася, за да не се губи от документите.
           nonstd: String((P.rows[key] || {}).nonstd != null ? P.rows[key].nonstd : (((erpPackFind(l.code, o.clientName) || {}).nonStdPacking) || "")).trim(),
-          ride: !!((tr.querySelector(".pko-ride") || {}).checked),
+          ride: !!(tr.querySelector(".pko-ride") && tr.querySelector(".pko-ride").classList.contains("pko-ride-on")),
+          unitMult: Number((tr.querySelector(".pko-unit") || {}).value) || 1,
           addBox: ((tr.querySelector(".pko-addbox") || {}).value || "").trim(),
           perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
           perPallet: erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0,
@@ -503,7 +517,8 @@ async function erpPackOrderOpen(orderId, moreIds) {
       // Връзка тръби: почти винаги 20 бр. — попълва се само̀, ако е празно.
       if (std && std.name === "Връзка тръби") { const tr = el.closest("tr"); const pb = tr && tr.querySelector(".pko-perbox"); if (pb && !erpToNum(pb.value)) pb.value = 20; }
     }));
-    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-perbox,.pko-addbox,.pko-perpal,.pko-ride").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-perbox,.pko-addbox,.pko-perpal,.pko-unit").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
+    v.querySelectorAll(".pko-ride").forEach(b => b.addEventListener("click", () => { b.classList.toggle("pko-ride-on"); collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
       collect();
@@ -539,6 +554,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           if (r.perBox > 0) spec.piecesPerBox = r.perBox;
           if (r.perBox > 0 && r.kgPer > 0) spec.kgPerBox = Math.round(r.perBox * r.kgPer * 100) / 100;
           if (r.perPallet > 0) spec.boxesPerPallet = r.perPallet;   // може и дробно (7,5)
+          if (Number(r.unitMult) > 1) spec.unitMult = Number(r.unitMult); else delete spec.unitMult;
         });
         // Стандартните палети (🧠 Запомни) → шаблон за клиента.
         try {
@@ -792,9 +808,11 @@ async function erpPackDocRows(o) {
     const key = String(l.code || i);
     const r = (P.rows || {})[key] || {};
     const spec = erpPackFind(l.code, o.clientName);
+    const mult = (r.unitMult != null ? Number(r.unitMult) : Number((spec || {}).unitMult)) || 1;
     const st = {
       key, code: l.code || "", name: l.name || "",
-      qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),   // ръчната корекция важи и за документите
+      // к-т ×2 → документите (Packing List, Палет опис) работят с РЕАЛНИТЕ броя
+      qty: (r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0)) * mult,
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
@@ -855,10 +873,12 @@ function packBuildPallets(rows) {
   // качва се върху опаковките на първия палет (по Данко, 01.11.2026).
   const rideRows = rows.filter(r => r.ride && r.boxes > 0);
   rows = rows.filter(r => !r.ride);
-  const items = rows.filter(r => r.boxes > 0).map(r => {
+  // Само редове с РЪЧНО въведено „опаковки на палет" влизат в подредбата
+  // (по Данко, 01.11: без мълчаливо „всичко на един палет" при празно поле).
+  const items = rows.filter(r => r.boxes > 0 && packNum(r.perPallet) > 0).map(r => {
     const pb = packNum(r.perBox) || 0;
     const bd = packBoxBreakdown(r.qty, pb);
-    return { r, pb, perPal: packNum(r.perPallet) || bd.boxes || 1, full: bd.full, rest: bd.rest };
+    return { r, pb, perPal: packNum(r.perPallet), full: bd.full, rest: bd.rest };
   });
   const left = it => it.full + (it.rest > 0 ? 1 : 0);
   const take = (it, n) => { // сваля n кашона от изделието (пълните първи, непълният последен)
