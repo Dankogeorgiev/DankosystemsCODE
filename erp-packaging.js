@@ -39,6 +39,7 @@ const PACK_BOX_STD = [
   { name: "Голям", size: "80×36×23" },
   { name: "МПК 85", size: "85×26×25" },
   { name: "Тава", size: "120×80×8" },
+  { name: "Плик", size: "" },   // опаковка в плик (без кашон) — по Данко, 01.11.2026
 ];
 function packBoxStdFind(name) {
   const n = packNorm(name);
