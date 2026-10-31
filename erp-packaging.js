@@ -1038,7 +1038,8 @@ function packDocHead(o, title, en) {
       <div>${L.ord}: <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · Order No: <b>" + escapeHtml(o.clientNo) + "</b>" : ""}</div></div>
     <div style="text-align:right">${L.cl}: <b>${escapeHtml(o.clientName || "")}</b><br>${L.dt}: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
 }
-function packPrintPacking(o, rows, P) {
+// Тялото на Пакинг листа — отделно, за да се вгражда и в „⚙ Работен доклад".
+function packBodyPacking(o, rows, P) {
   const tot = rows.reduce((t, r) => { t.q += r.qty; t.b += r.boxes; t.p += r.pallets; t.n += r.netKg; return t; }, { q: 0, b: 0, p: 0, n: 0 });
   const plPallets = packPlanPallets(rows, P);
   const palletsUp = plPallets.length || Math.ceil(tot.p - 1e-9);
@@ -1051,7 +1052,10 @@ function packPrintPacking(o, rows, P) {
     <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
     <div class="kv"><b>Pallets:</b> ${plSmall ? `${palletsUp - plSmall} × EUR 120×80 (${packNum(P.palletKg || 20)} kg) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} kg)` : `${palletsUp} × EUR 120×80 (${packNum(P.palletKg || 20)} kg)`} — total ${plKg} kg</div>
     <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
-  invPrintWindow("Packing List — заявка " + (o.ourNo || ""), body, "en");
+  return body;
+}
+function packPrintPacking(o, rows, P) {
+  invPrintWindow("Packing List — заявка " + (o.ourNo || ""), packBodyPacking(o, rows, P), "en");
 }
 function packPrintGoods(o, rows) {
   const en = packIsExport(o);
@@ -1063,7 +1067,8 @@ function packPrintGoods(o, rows) {
     <div class="foot"><div>${L.from}: ................</div><div>${L.to}: ................</div></div>`;
   invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg");
 }
-function packPrintPallets(o, rows, P) {
+// Тялото на Палет описа — отделно, за да се вгражда и в „⚙ Работен доклад".
+function packBodyPallets(o, rows, P) {
   const pallets = packPlanPallets(rows, P);
   const en = packIsExport(o);
   const L = en ? { title: "PALLET LIST", pal: "PALLET No", mix: "mixed", net: "Net weight", plt: "Pallet", gr: "Gross weight", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", ord: "Order No", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " }
@@ -1094,5 +1099,9 @@ function packPrintPallets(o, rows, P) {
       <div class="made">The Systems</div>
     </div>`;
   }).join("") || `<p>${L.none}</p>`);
-  invPrintWindow(L.win + (o.ourNo || ""), body, en ? "en" : "bg", { noLogo: true, noMade: true });
+  return { body, en, win: L.win };
+}
+function packPrintPallets(o, rows, P) {
+  const r = packBodyPallets(o, rows, P);
+  invPrintWindow(r.win + (o.ourNo || ""), r.body, r.en ? "en" : "bg", { noLogo: true, noMade: true });
 }

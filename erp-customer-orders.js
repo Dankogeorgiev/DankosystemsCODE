@@ -538,6 +538,7 @@ function erpRenderCOMobileList(v) {
           <div class="co-mob-actions">
             <button class="btn btn-small btn-primary" data-open="${o.id}">Отвори →</button>
             <button class="btn btn-small co-mob-draw" data-id="${o.id}" title="Всички чертежи на изделията в заявката">📄 Чертежи</button>
+            ${typeof erpOrderProcess === "function" ? `<button class="btn btn-small co-mob-proc" data-id="${o.id}" title="Работният доклад на заявката (А–Ж)">⚙ Обработка</button>` : ""}
             ${(o.files || []).length ? `<a class="btn btn-small" href="${escapeAttr(o.files[0].url || "#")}" target="_blank" rel="noopener" title="Файлът на заявката (сканираната поръчка от клиента)">📎 Заявка на клиента</a>` : ""}
           </div>
         </div>`).join("") || `<p class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</p>`}</div>`;
@@ -547,6 +548,12 @@ function erpRenderCOMobileList(v) {
     v.querySelectorAll(".co-mob-draw").forEach(b => b.addEventListener("click", () => {
       const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.id));
       if (o) erpCOAllDrawings(o, b);
+    }));
+    v.querySelectorAll(".co-mob-proc").forEach(b => b.addEventListener("click", () => {
+      // Оригиналът от списъка (не копие): „💾 Запази" в доклада пише цялата
+      // заявка и кешът трябва да остане верен.
+      const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.id));
+      if (o) erpOrderProcess(o);
     }));
   }
 }
@@ -983,6 +990,7 @@ async function erpRenderCOForm(o) {
       <div class="erp-co-linebar"><button class="btn btn-small" id="co-add-prod">+ Добави продукт</button>${(typeof quickAllowed === "function" && quickAllowed()) ? '<button class="btn btn-small btn-primary" id="co-add-quick" title="Нестандартно изделие по клиентски код — създава се с мини-рецепта и веднага влиза като ред в заявката">⚡ + Ново бързо изделие</button>' : ""}${((!o.id || nonstd) && typeof erpQuickTemplateXls === "function" && typeof quickAllowed === "function" && quickAllowed()) ? '<button type="button" class="btn btn-small" id="co-tpl-dl" title="Сваля Excel шаблон: ред за всяко нестандартно изделие (код, име, бройка, цена, маршрут, материали). Попълваш и го качваш с „⬆ Импорт шаблон".">⤓ Шаблон (Excel)</button><label class="btn btn-small" title="Качи ПОПЪЛНЕНИЯ шаблон — създава изделията с мини-рецептите и отваря заявка с всички редове">⬆ Импорт шаблон<input type="file" id="co-tpl-up" accept=".xlsx,.xls" hidden /></label>' : ""}${(!o.id && typeof erpAIStart === "function") ? '<button class="btn btn-small" id="co-ai-read" title="Качи файла на клиента (PDF/снимка/Excel) — Claude чете редовете, ти ги потвърждаваш и заявката се създава. Несъществуващите кодове се създават с „⚡ Ново".">🤖 Разчети заявка (AI)</button>' : ""}<span class="spacer"></span><span class="erp-count sell-cell" id="co-total"></span></div>
 
       <div class="erp-co-actions">
+        ${typeof erpOrderProcess === "function" ? '<button class="btn btn-small btn-primary" id="co-process" title="Работен доклад А–Ж: изделия срещу склада, материали и недостиг, за купуване, разкрой (+етикети и чертежи), палетен опис и пакинг лист — редактира се, пази се в заявката и се печата/сваля като PDF с името на клиента и номера">⚙ Обработи заявката</button>' : ""}
         <button class="btn btn-small" id="co-materials">🧮 Разбивка на материалите</button>
         <button class="btn btn-small" id="co-test" title="Провери маршрута — дали рецептите ще вървят правилно, преди да пуснеш">🧪 Тест рецепта</button>
         <button class="btn btn-small" id="co-sim" title="Паралелна реалност — прекарва заявката през цеховете с текущите наличности и показва докъде стига и къде спира">🔬 Симулирай производството</button>
@@ -1116,6 +1124,8 @@ async function erpRenderCOForm(o) {
     },
   }));
   document.getElementById("co-materials").addEventListener("click", () => erpCOMaterials(o));
+  const prc = document.getElementById("co-process");
+  if (prc) prc.addEventListener("click", () => erpOrderProcess(o));
   const coTest = document.getElementById("co-test");
   if (coTest) coTest.addEventListener("click", () => {
     const items = (o.lines || []).filter(l => l.productId).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));
