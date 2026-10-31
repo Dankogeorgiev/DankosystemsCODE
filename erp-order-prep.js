@@ -13,6 +13,9 @@
    invPrintWindow (erp-invoice-docs), erpSaveCO (erp-customer-orders). */
 
 let OPREP_CUT = { rows: [], prodIds: [] };   // последният разчет на разкроя (за Етикети/Чертежи)
+let OPREP_ORDER = null;                      // заявката на отворения раздел „Работен доклад"
+let OPREP_SECS = null;                       // секциите на екрана (редакциите живеят в DOM-а)
+let OPREP_FROM_SAVED = false;                // показваме запазен доклад или свеж разчет
 
 function oprepLeft(l) { const q = erpToNum(l.qty) || 0; return Math.max(0, q - Math.min(Math.max(0, Number(l.delivered) || 0), q)); }
 
@@ -50,10 +53,15 @@ async function erpOrderPrepBuild(o) {
       const have = Math.max(0, Number(m.stock) || 0);
       return { ...x, have, buy: Math.max(0, Math.round((x.required - have) * 1000) / 1000) };
     }).sort((a, b) => b.buy - a.buy || a.name.localeCompare(b.name, "bg"));
+    // Правило на Данко (01.11): материал със запас ≥ 20% НАД нужното не
+    // се показва — списъкът остава само с интересните (на ръба или липсващи).
+    const shown = mats.filter(x => x.have < x.required * 1.2);
+    const hidden = mats.length - shown.length;
     secs.push({
-      key: "mats", title: "В · 🧱 Материали по рецептите", html: (r.head || "") + (mats.length ? `
+      key: "mats", title: "В · 🧱 Материали по рецептите", html: (r.head || "") + (shown.length ? `
       <table class="oprep-t"><thead><tr><th>Материал</th><th>Нужно</th><th>Налично</th><th>НЕДОСТИГ</th></tr></thead>
-      <tbody>${mats.map(x => `<tr${x.buy > 0 ? ' style="background:#fef2f2"' : ""}><td>${esc(x.name)}</td><td>${erpNum(x.required)} ${esc(x.unit)}</td><td>${erpNum(x.have)}</td><td>${x.buy > 0 ? `<b style="color:#b91c1c">${erpNum(x.buy)} ${esc(x.unit)}</b>` : "—"}</td></tr>`).join("")}</tbody></table>` : "<p>Няма материали по рецептите.</p>"),
+      <tbody>${shown.map(x => `<tr${x.buy > 0 ? ' style="background:#fef2f2"' : ""}><td>${esc(x.name)}</td><td>${erpNum(x.required)} ${esc(x.unit)}</td><td>${erpNum(x.have)}</td><td>${x.buy > 0 ? `<b style="color:#b91c1c">${erpNum(x.buy)} ${esc(x.unit)}</b>` : "—"}</td></tr>`).join("")}</tbody></table>` : (mats.length ? `<p style="color:#166534"><b>✅ Всички материали са с достатъчен запас.</b></p>` : "<p>Няма материали по рецептите.</p>"))
+      + (hidden > 0 ? `<p class="hint">🫥 ${hidden} ${hidden === 1 ? "материал" : "материала"} със запас над 20% над нужното ${hidden === 1 ? "е скрит" : "са скрити"}.</p>` : ""),
     });
   } else secs.push({ key: "mats", title: "В · 🧱 Материали по рецептите", html: "<p>Модулът Разбивка на нуждите не е зареден.</p>" });
   const buy = mats.filter(x => x.buy > 0);
@@ -98,48 +106,57 @@ async function erpOrderPrepBuild(o) {
 
 async function erpOrderProcess(o) {
   if (!o) return;
+  // „Работен доклад" е ОТДЕЛЕН РАЗДЕЛ (по Данко, 01.11) — не изскачащ
+  // прозорец. Състоянието живее тук; разделът се рисува от erpDispatchTab.
+  OPREP_ORDER = o;
   const saved = (o.processing && Array.isArray(o.processing.sections) && o.processing.sections.length) ? o.processing : null;
-  if (saved) { erpOrderPrepDialog(o, saved.sections.map(s => ({ ...s })), true); return; }
-  const secs = await erpOrderPrepBuild(o);
-  erpOrderPrepDialog(o, secs, false);
+  OPREP_SECS = saved ? saved.sections.map(s => ({ ...s })) : await erpOrderPrepBuild(o);
+  OPREP_FROM_SAVED = !!saved;
+  if (typeof erpSetTab === "function") erpSetTab("oprep", true);
+  else erpRenderOrderPrepTab();   // резерва (напр. тестова среда без erp.js)
 }
 
-function erpOrderPrepDialog(o, secs, fromSaved) {
+function erpRenderOrderPrepTab() {
+  const v = erpView();
+  const o = OPREP_ORDER;
+  if (!o) {
+    v.innerHTML = `<p class="report-empty">Избери заявка и натисни „⚙ Работен доклад" (до „Отвори") в Заявки от клиенти.</p>`;
+    return;
+  }
+  const secs = OPREP_SECS || [];
+  const fromSaved = OPREP_FROM_SAVED;
   const title = `${o.clientName || "—"} — № ${o.ourNo || "—"}`;
   const savedLine = fromSaved
     ? `запазен ${erpDMY(String((o.processing || {}).updatedAt || "").slice(0, 10)) || ""}${(o.processing || {}).updatedBy ? " от " + escapeHtml(o.processing.updatedBy) : ""} — „↻ Преизчисли“ прави свеж разчет`
     : "нов разчет — „💾 Запази“ го оставя по заявката за всички";
-  const { wrap, close } = erpDialog(`
-    <h3 style="margin:0 0 2px">⚙ Работен доклад — ${escapeHtml(title)}</h3>
-    <p class="erp-muted" style="margin:0;font-size:12px">${savedLine}</p>
-    <div class="erp-toolbar" style="margin:8px 0">
+  v.innerHTML = `
+    <div class="erp-toolbar" style="margin:0 0 2px">
+      <span class="erp-count">⚙ Работен доклад — ${escapeHtml(title)}</span>
+      <span class="spacer"></span>
       <button class="btn btn-small btn-primary" id="op-save">💾 Запази</button>
       <button class="btn btn-small" id="op-print" title="Печат само на отметнатите секции — от прозореца „Запази като PDF“ дава файл с името на клиента и номера">🖨 Печат / PDF</button>
-      <button class="btn btn-small" id="op-rebuild" title="Свеж разчет от склада, рецептите и опаковките — редакциите В ПРОЗОРЕЦА се губят (запазеното остава до Запази)">↻ Преизчисли</button>
+      <button class="btn btn-small" id="op-rebuild" title="Свеж разчет от склада, рецептите и опаковките — редакциите НА ЕКРАНА се губят (запазеното остава до Запази)">↻ Преизчисли</button>
+      <button class="btn btn-small" id="op-open-order" title="Отваря самата заявка в раздел Заявки от клиенти">📋 Към заявката</button>
       <span class="save-status" id="op-status"></span>
-      <span class="spacer"></span>
-      <button class="btn btn-small" id="op-close">✕ Затвори</button>
     </div>
-    <p class="hint" style="margin:0 0 8px">Пиши направо в секциите — текстът се редактира. Отметката „в печата“ решава кои секции влизат в Печат/PDF.</p>
+    <p class="erp-muted" style="margin:0 0 6px;font-size:12px">${savedLine}</p>
+    <p class="hint" style="margin:0 0 8px">Пиши направо в секциите — текстът се редактира. Отметката „в печата“ решава кои секции влизат в Печат/PDF. Разделът се затваря от ✕ на лентата с отворените раздели.</p>
     <div class="oprep-secs">${secs.map((s, i) => `
       <div class="oprep-sec" data-k="${escapeAttr(s.key)}">
         <div class="oprep-sec-head">
           <h4>${escapeHtml(s.title)}</h4>
           <label class="erp-inline" style="font-size:12px" title="Да влезе ли секцията в Печат/PDF"><input type="checkbox" class="op-inc" ${s.inc === false ? "" : "checked"} /> в печата</label>
-          ${s.tools === "cut" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-labels" title="Палетните етикети на разкроя — печат">🏷 Етикети</button><button type="button" class="btn btn-small op-draws" title="Чертежите на изделията и възлите от разкроя">📄 Чертежи</button>' : ""}
+          ${s.tools === "cut" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-labels" title="Палетните етикети на разкроя — печат">🏷 Етикети</button><button type="button" class="btn btn-small op-draws" title="Чертежите на изделията и възлите от разкроя — поръчаните най-отгоре">📄 Чертежи</button>' : ""}
         </div>
         <div class="oprep-body" contenteditable="true" data-i="${i}">${s.html}</div>
-      </div>`).join("")}</div>`);
-  const box = wrap.querySelector(".erp-dialog-box");
-  if (box) box.classList.add("oprep-box");
-  const collect = () => [...wrap.querySelectorAll(".oprep-sec")].map((el, i) => ({
+      </div>`).join("")}</div>`;
+  const collect = () => [...v.querySelectorAll(".oprep-sec")].map((el, i) => ({
     key: el.dataset.k, title: secs[i].title, tools: secs[i].tools || undefined,
     html: el.querySelector(".oprep-body").innerHTML,
     inc: el.querySelector(".op-inc").checked,
   }));
-  wrap.querySelector("#op-close").addEventListener("click", close);
-  wrap.querySelector("#op-save").addEventListener("click", async () => {
-    const st = wrap.querySelector("#op-status"), b = wrap.querySelector("#op-save");
+  v.querySelector("#op-save").addEventListener("click", async () => {
+    const st = v.querySelector("#op-status"), b = v.querySelector("#op-save");
     b.disabled = true;
     o.processing = { sections: collect(), updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "" };
     try {
@@ -150,7 +167,7 @@ function erpOrderPrepDialog(o, secs, fromSaved) {
     b.disabled = false;
     setTimeout(() => { if (st) st.textContent = ""; }, 2500);
   });
-  wrap.querySelector("#op-print").addEventListener("click", () => {
+  v.querySelector("#op-print").addEventListener("click", () => {
     const inc = collect().filter(s => s.inc !== false && s.inc);
     if (!inc.length) { alert("Отметни поне една секция „в печата“."); return; }
     const body = inc.map(s => `<h2 style="margin:14px 0 6px;border-bottom:2px solid #000;padding-bottom:3px">${escapeHtml(s.title)}</h2>${s.html}
@@ -164,11 +181,16 @@ function erpOrderPrepDialog(o, secs, fromSaved) {
       w.document.close();
     }
   });
-  wrap.querySelector("#op-rebuild").addEventListener("click", async () => {
-    if (!confirm("Свеж разчет от склада, рецептите и опаковките?\nРъчните редакции В ПРОЗОРЕЦА се губят (запазеното в заявката остава, докато не натиснеш „💾 Запази“).")) return;
-    close();
-    const fresh = await erpOrderPrepBuild(o);
-    erpOrderPrepDialog(o, fresh, false);
+  v.querySelector("#op-rebuild").addEventListener("click", async () => {
+    if (!confirm("Свеж разчет от склада, рецептите и опаковките?\nРъчните редакции НА ЕКРАНА се губят (запазеното в заявката остава, докато не натиснеш „💾 Запази“).")) return;
+    OPREP_SECS = await erpOrderPrepBuild(o);
+    OPREP_FROM_SAVED = false;
+    erpRenderOrderPrepTab();
+  });
+  const oo = v.querySelector("#op-open-order");
+  if (oo) oo.addEventListener("click", () => {
+    if (typeof erpSetTab === "function") erpSetTab("customer");
+    if (typeof erpOpenCO === "function") erpOpenCO(o.id);
   });
   const ensureCut = () => {
     if (!(OPREP_CUT.rows || []).length && typeof cutCollect === "function") {
@@ -176,13 +198,13 @@ function erpOrderPrepDialog(o, secs, fromSaved) {
       OPREP_CUT = { rows: c.rows || [], prodIds: c.prodIds || [] };
     }
   };
-  const lb = wrap.querySelector(".op-labels");
+  const lb = v.querySelector(".op-labels");
   if (lb) lb.addEventListener("click", () => {
     ensureCut();
     if (typeof cutPrintLabels === "function") cutPrintLabels(OPREP_CUT.rows);
     else alert("Модулът Подготовка за производство не е зареден.");
   });
-  const db = wrap.querySelector(".op-draws");
+  const db = v.querySelector(".op-draws");
   if (db) db.addEventListener("click", async () => {
     ensureCut();
     if (typeof cutDrawings !== "function") { alert("Модулът с чертежите не е зареден."); return; }
@@ -190,8 +212,15 @@ function erpOrderPrepDialog(o, secs, fromSaved) {
     const draws = await cutDrawings(OPREP_CUT.prodIds || []);
     db.disabled = false;
     if (!draws.length) { alert("Изделията от разкроя нямат качени чертежи.\nЧертежи се качват на продукта в Склад детайли."); return; }
+    // Поръчаните в заявката изделия — НАЙ-ОТГОРЕ (по Данко, 01.11);
+    // възлите и детайлите от рецептите — отдолу.
+    const direct = new Set((o.lines || []).map(l => Number(l.productId)).filter(Boolean));
+    const top = draws.filter(d => direct.has(Number(d.pid)));
+    const rest = draws.filter(d => !direct.has(Number(d.pid)));
+    const li = d => `<li><a href="${escapeAttr(d.url)}" target="_blank" rel="noopener">📄 <b>${escapeHtml(d.pcode)}</b> ${escapeHtml(d.pname)} — ${escapeHtml(d.fname)}</a></li>`;
     const d2 = erpDialog(`<h3>📄 Чертежи по заявката</h3>
-      <ul class="co-file-ul">${draws.map(d => `<li><a href="${escapeAttr(d.url)}" target="_blank" rel="noopener">📄 <b>${escapeHtml(d.pcode)}</b> ${escapeHtml(d.pname)} — ${escapeHtml(d.fname)}</a></li>`).join("")}</ul>
+      ${top.length ? `<p style="margin:6px 0 2px"><b>Поръчаните изделия</b></p><ul class="co-file-ul">${top.map(li).join("")}</ul>` : ""}
+      ${rest.length ? `<p style="margin:10px 0 2px"><b>Възли и детайли от рецептите</b></p><ul class="co-file-ul">${rest.map(li).join("")}</ul>` : ""}
       <div class="erp-dialog-actions"><button class="btn" id="opd-close">Затвори</button></div>`);
     d2.wrap.querySelector("#opd-close").addEventListener("click", d2.close);
   });

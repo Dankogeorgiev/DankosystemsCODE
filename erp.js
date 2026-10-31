@@ -560,6 +560,7 @@ function erpDispatchTab(tab) {
     case "logistics":    if (typeof erpRenderLogistics === "function") erpRenderLogistics(); break;
     case "partners":     (typeof erpRenderCompanies === "function" ? erpRenderCompanies() : erpRenderPartners()); break;
     case "import":       erpRenderImport(); break;
+    case "oprep":        if (typeof erpRenderOrderPrepTab === "function") erpRenderOrderPrepTab(); else erpView().innerHTML = `<p class="erp-warn">Модулът Работен доклад не е зареден.</p>`; break;
     default:             erpRenderMaterials();
   }
 }
@@ -568,7 +569,7 @@ function erpDispatchTab(tab) {
    Всеки отворен модул стои като таб горе с ✕. Клик върху таб → превключва;
    ✕ → затваря. Всичко в един прозорец, без нови прозорци на браузъра. */
 // Раздели БЕЗ собствен бутон в лентата (отварят се от Себестойности).
-const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки", operations: "🏭 Операции → Цех", juliaguide: "👩 Юлия — упътване", pucheck: "🔎 Проверка (днес)", proformaco: "⚡ Проформа от заявка" };
+const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки", operations: "🏭 Операции → Цех", juliaguide: "👩 Юлия — упътване", pucheck: "🔎 Проверка (днес)", proformaco: "⚡ Проформа от заявка", oprep: "⚙ Работен доклад" };
 function erpTabLabel(tab) {
   const b = document.querySelector('.erp-tab[data-tab="' + tab + '"]');
   return b ? b.textContent.trim() : (ERP_EXTRA_TABS[tab] || tab);

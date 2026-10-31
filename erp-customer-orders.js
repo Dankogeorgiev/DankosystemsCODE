@@ -270,7 +270,7 @@ function erpCORowHtml(o) {
             <td data-label="Статус">${erpCOStatusCell(o)}</td>
             <td data-label="План" data-plan-for="${o.id}">${erpCOPlanCell(o)}</td>
             <td data-label="Файл">${erpCOFileCell(o)}</td>
-            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+            <td class="erp-row-actions" data-label="">${typeof erpOrderProcess === "function" ? `<button class="btn btn-small" data-oprep="${o.id}" title="Работният доклад А–Ж на заявката — отваря се като отделен раздел">⚙ Работен доклад</button>` : ""}<button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`;
 }
 function erpCOListHtml(rows) {
@@ -538,7 +538,7 @@ function erpRenderCOMobileList(v) {
           <div class="co-mob-actions">
             <button class="btn btn-small btn-primary" data-open="${o.id}">Отвори →</button>
             <button class="btn btn-small co-mob-draw" data-id="${o.id}" title="Всички чертежи на изделията в заявката">📄 Чертежи</button>
-            ${typeof erpOrderProcess === "function" ? `<button class="btn btn-small co-mob-proc" data-id="${o.id}" title="Работният доклад на заявката (А–Ж)">⚙ Обработка</button>` : ""}
+            ${typeof erpOrderProcess === "function" ? `<button class="btn btn-small co-mob-proc" data-id="${o.id}" title="Работният доклад на заявката (А–Ж) — отваря се като раздел">⚙ Работен доклад</button>` : ""}
             ${(o.files || []).length ? `<a class="btn btn-small" href="${escapeAttr(o.files[0].url || "#")}" target="_blank" rel="noopener" title="Файлът на заявката (сканираната поръчка от клиента)">📎 Заявка на клиента</a>` : ""}
           </div>
         </div>`).join("") || `<p class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</p>`}</div>`;
@@ -665,6 +665,11 @@ async function erpRenderCustomerOrders() {
     if (cnt) cnt.innerHTML = `${list.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
       ` <span class="sell-cell erp-muted" title="Сборът е само по НЕдоставеното — вече изпратеното не се брои">· остава ${erpEur(list.reduce((s, o) => s + erpCOValueLeft(o), 0))}</span>`}`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
+    tb.querySelectorAll("[data-oprep]").forEach(b => b.addEventListener("click", ev => {
+      ev.stopPropagation();
+      const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.oprep));
+      if (o && typeof erpOrderProcess === "function") erpOrderProcess(o);
+    }));
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
     tb.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
       const c = tr.dataset.folder;
