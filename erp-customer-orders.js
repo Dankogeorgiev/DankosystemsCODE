@@ -543,7 +543,7 @@ function erpRenderCOMobileList(v) {
         </div>`).join("") || `<p class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</p>`}</div>`;
     wireCommon();
     v.querySelector("#co-mob-back").addEventListener("click", () => { ERP_CO_MOB.client = null; erpRenderCOMobileList(v); });
-    v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => erpOpenCO(Number(b.dataset.open))));
+    v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => erpOpenCO(b.dataset.open)));
     v.querySelectorAll(".co-mob-draw").forEach(b => b.addEventListener("click", () => {
       const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.id));
       if (o) erpCOAllDrawings(o, b);
@@ -826,7 +826,9 @@ function erpCONonstdBanner(extra) {
   return `<div style="background:#f59e0b;color:#1f2937;font-weight:700;padding:8px 14px;border-radius:8px;margin:0 0 8px;display:flex;align-items:center;gap:10px">📦 НЕСТАНДАРТНА ПОРЪЧКА <span style="font-weight:400;font-size:12px">изделия по клиентски код (бързи изделия)</span>${extra || ""}</div>`;
 }
 function erpOpenCO(id) {
-  const o = (erpCOList || []).find(x => x.id === id);
+  // Сравнение по СТРИНГ: id-то идва ту като текст (dataset), ту като число —
+  // строгото === пропускаше тихо (бъгът „Отвори не отваря" от телефона, 31.10).
+  const o = (erpCOList || []).find(x => String(x.id) === String(id));
   if (o) erpRenderCOForm(JSON.parse(JSON.stringify(o)));
 }
 
