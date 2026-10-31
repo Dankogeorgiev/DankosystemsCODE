@@ -241,7 +241,11 @@ let PACK_CO_SEL = new Set();  // избрани заявки за ОБЩО оп�
 
 function packOrderRowHtml(o) {
   const packed = o.packing && Object.keys(o.packing.rows || {}).length;
-  const status = (typeof erpCOStatusCell === "function") ? erpCOStatusCell(o) : escapeHtml(o.status || "нова");
+  // Статус-клетката НЕ бива да може да убие списъка (клик на папка умираше
+  // тихо, ако някоя заявка хвърли при рисуване — Данко, 01.11).
+  let status = "";
+  try { status = (typeof erpCOStatusCell === "function") ? erpCOStatusCell(o) : escapeHtml(o.status || "нова"); }
+  catch (e) { status = escapeHtml(o.status || "нова"); }
   return `<tr class="erp-clickable" data-packco="${o.id}">
     <td class="pack-selcell" data-label="Заедно"><input type="checkbox" class="packsel" data-packselid="${o.id}"${PACK_CO_SEL.has(String(o.id)) ? " checked" : ""} title="Избери за ОБЩО опаковане (две+ заявки на едно товарене, с общ Packing List)" /></td>
     <td data-label="Наш №"><b>${escapeHtml(o.ourNo || "—")}</b></td>
@@ -254,9 +258,10 @@ function packOrderRowHtml(o) {
   </tr>`;
 }
 
+let PACK_CO_DONE = false;   // показвай и завършените заявки (архивните опаковки)
 function packOrdersListHtml() {
   const list = ((typeof erpCOList !== "undefined" && erpCOList) || [])
-    .filter(o => (o.status || "нова") !== "завършена")
+    .filter(o => PACK_CO_DONE || (o.status || "нова") !== "завършена")
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   if (!list.length) return "";
   // Папки по клиент — както в Заявки: всеки клиент си е в папка.
@@ -269,11 +274,12 @@ function packOrdersListHtml() {
     const open = PACK_CO_OPEN.has(c);
     return `<tr class="co-folder erp-clickable" data-packfolder="${escapeAttr(c)}">
       <td colspan="8">📁 ${open ? "▾" : "▸"} <b>${escapeHtml(c)}</b> — ${rows.length} ${rows.length === 1 ? "заявка" : "заявки"} · опаковани ${packed}/${rows.length}</td>
-    </tr>` + (open ? rows.map(packOrderRowHtml).join("") : "");
+    </tr>` + (open ? rows.map(o => { try { return packOrderRowHtml(o); } catch (e) { return `<tr><td colspan="8" class="erp-warn">⚠ Заявка № ${escapeHtml(String(o.ourNo || o.id))} не се показа: ${escapeHtml(e.message || String(e))}</td></tr>`; } }).join("") : "");
   }).join("");
   return `
     <div class="pack-orders">
-      <h4 class="erp-group-head" style="margin-top:0">📦 Заявки за опаковане (${list.length}) <span class="erp-muted" style="font-weight:400;font-size:12px">— за общо товарене отметни 2+ заявки в колоната „Заедно"</span></h4>
+      <h4 class="erp-group-head" style="margin-top:0">📦 Заявки за опаковане (${list.length}) <span class="erp-muted" style="font-weight:400;font-size:12px">— за общо товарене отметни 2+ заявки в колоната „Заедно"</span>
+        <label class="erp-inline" style="font-weight:400;font-size:12px;margin-left:10px"><input type="checkbox" id="pack-showdone" ${PACK_CO_DONE ? "checked" : ""} /> покажи и завършените</label></h4>
       <div class="pack-combobar" id="pack-combobar"${PACK_CO_SEL.size ? "" : " hidden"}>
         ✔ Избрани: <b id="pack-selcnt">${PACK_CO_SEL.size}</b> заявки за ЕДНО товарене
         <button type="button" class="btn btn-small btn-primary" id="pack-combine">📦 Опаковай заедно</button>
@@ -297,9 +303,15 @@ function packOrdersWire() {
   box.querySelectorAll("[data-packfolder]").forEach(tr => tr.addEventListener("click", () => {
     const c = tr.dataset.packfolder;
     if (PACK_CO_OPEN.has(c)) PACK_CO_OPEN.delete(c); else PACK_CO_OPEN.add(c);
-    box.innerHTML = packOrdersListHtml();
-    packOrdersWire();
+    try { box.innerHTML = packOrdersListHtml(); packOrdersWire(); }
+    catch (e) { alert("Списъкът не се прерисува: " + (e.message || e)); }
   }));
+  const sd = box.querySelector("#pack-showdone");
+  if (sd) sd.addEventListener("change", () => {
+    PACK_CO_DONE = sd.checked;
+    try { box.innerHTML = packOrdersListHtml(); packOrdersWire(); }
+    catch (e) { alert("Списъкът не се прерисува: " + (e.message || e)); }
+  });
   box.querySelectorAll("[data-packco-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpPackOrderOpen(b.dataset.packcoOpen); }));
   box.querySelectorAll("tr[data-packco]").forEach(tr => tr.addEventListener("click", () => erpPackOrderOpen(tr.dataset.packco)));
   // Общо опаковане: отметки + бутон „Опаковай заедно".
