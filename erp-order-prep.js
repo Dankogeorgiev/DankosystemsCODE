@@ -90,8 +90,8 @@ async function erpOrderPrepBuild(o) {
       const rows = await erpPackDocRows(o);
       const P = o.packing || { rows: {}, palletKg: 20 };
       const filled = rows.some(r => r.boxes > 0);
-      const warn = "<p>⚠ Опаковката на заявката не е попълнена — Палет описът и Пакинг листът черпят кашоните и теглата от ОПАКОВКИ. Попълни я (бутона 🎁 в заявката/Опаковки) и натисни „↻ Преизчисли“.</p>";
-      secs.push({ key: "pallets", title: "Е · 🧱 Палетен опис", html: filled ? packBodyPallets(o, rows, P).body : warn });
+      const warn = "<p>⚠ Опаковката на заявката не е попълнена — Палет описът и Пакинг листът черпят кашоните и теглата от ОПАКОВКИ. Ползвай бутоните на секцията: „🎁 Опаковка на заявката“ (попълваш веднага) или „⏮ Както последния път“ (копира от последната заявка на клиента), после „↻ Преизчисли“.</p>";
+      secs.push({ key: "pallets", title: "Е · 🧱 Палетен опис", tools: "pack", html: filled ? packBodyPallets(o, rows, P).body : warn });
       secs.push({ key: "packing", title: "Ж · 📦 Пакинг лист", html: filled ? packBodyPacking(o, rows, P) : warn });
     } else {
       secs.push({ key: "pallets", title: "Е · 🧱 Палетен опис", html: "<p>Модулът Опаковки не е зареден.</p>" });
@@ -146,7 +146,8 @@ function erpRenderOrderPrepTab() {
         <div class="oprep-sec-head">
           <h4>${escapeHtml(s.title)}</h4>
           <label class="erp-inline" style="font-size:12px" title="Да влезе ли секцията в Печат/PDF"><input type="checkbox" class="op-inc" ${s.inc === false ? "" : "checked"} /> в печата</label>
-          ${s.tools === "cut" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-labels" title="Палетните етикети на разкроя — печат">🏷 Етикети</button><button type="button" class="btn btn-small op-draws" title="Чертежите на изделията и възлите от разкроя — поръчаните най-отгоре">📄 Чертежи</button>' : ""}
+          ${s.tools === "cut" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-labels" title="Палетните етикети на разкроя — печат">🏷 Етикети</button><button type="button" class="btn btn-small op-draws" title="Чертежите на изделията и възлите от разкроя — поръчаните най-отгоре">📄 Чертежи</button>'
+            : s.tools === "pack" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-pack-open" title="Отваря опаковката на ТАЗИ заявка (кашони, тегла, палети) — попълваш и се връщаш с ↻ Преизчисли">🎁 Опаковка на заявката</button><button type="button" class="btn btn-small op-pack-last" title="Копира опаковъчните данни (кашони, тегла, палети) от последната заявка на клиента със същите изделия — бройките са си на новата заявка">⏮ Както последния път</button>' : ""}
         </div>
         <div class="oprep-body" contenteditable="true" data-i="${i}">${s.html}</div>
       </div>`).join("")}</div>`;
@@ -223,5 +224,55 @@ function erpRenderOrderPrepTab() {
       ${rest.length ? `<p style="margin:10px 0 2px"><b>Възли и детайли от рецептите</b></p><ul class="co-file-ul">${rest.map(li).join("")}</ul>` : ""}
       <div class="erp-dialog-actions"><button class="btn" id="opd-close">Затвори</button></div>`);
     d2.wrap.querySelector("#opd-close").addEventListener("click", d2.close);
+  });
+  // 🎁 Опаковката (Данко, 01.11): отваряне за попълване / копие от миналото.
+  const po = v.querySelector(".op-pack-open");
+  if (po) po.addEventListener("click", () => {
+    if (typeof erpPackOrderOpen === "function") erpPackOrderOpen(o.id);
+    else alert("Модулът Опаковки не е зареден.");
+  });
+  const pl = v.querySelector(".op-pack-last");
+  if (pl) pl.addEventListener("click", async () => {
+    const codes = [...new Set((o.lines || []).map(l => String(l.code || "")).filter(Boolean))];
+    if (!codes.length) { alert("Заявката няма редове с кодове на изделия."); return; }
+    const already = new Set(Object.keys((o.packing && o.packing.rows) || {}));
+    const olds = ((typeof erpCOList !== "undefined" && erpCOList) || [])
+      .filter(x => String(x.id) !== String(o.id)
+        && String(x.clientName || "").trim().toLowerCase() === String(o.clientName || "").trim().toLowerCase()
+        && x.packing && x.packing.rows && Object.keys(x.packing.rows).length)
+      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    const found = {}, srcNo = {};
+    codes.forEach(code => {
+      if (already.has(code)) return;   // попълненото тук на ръка не се пипа
+      for (const x of olds) {
+        const r = (x.packing.rows || {})[code];
+        if (r && (r.perBox || r.kgPer || r.boxType || r.perPallet)) {
+          const c = JSON.parse(JSON.stringify(r));
+          delete c.qty;   // бройката е на НОВАТА заявка, не старата
+          found[code] = c; srcNo[code] = x.ourNo || "?";
+          break;
+        }
+      }
+    });
+    const hit = Object.keys(found);
+    if (!hit.length) {
+      alert(already.size
+        ? "Опаковката на тези изделия вече е попълнена тук — няма какво да се копира."
+        : "Не намерих по-стара заявка на клиента с попълнена опаковка за тези кодове.\nПопълни я веднъж с „🎁 Опаковка на заявката“ — следващия път ще се копира с един клик.");
+      return;
+    }
+    const miss = codes.filter(c => !found[c] && !already.has(c));
+    if (!confirm(`⏮ Копирам опаковката от предишни заявки на ${o.clientName || "клиента"}:\n`
+      + hit.map(c => `• ${c} — от заявка № ${srcNo[c]}`).join("\n")
+      + (miss.length ? `\n\nБез данни остават: ${miss.join(", ")} (попълни ги ръчно)` : "")
+      + "\n\nПрилагам и преизчислявам?")) return;
+    o.packing = o.packing || { rows: {} };   // без palletKg по подразбиране — да може да дойде от старата заявка
+    o.packing.rows = o.packing.rows || {};
+    hit.forEach(c => { o.packing.rows[c] = found[c]; });
+    if (!o.packing.palletKg && olds[0] && olds[0].packing && olds[0].packing.palletKg) o.packing.palletKg = olds[0].packing.palletKg;
+    try { if (typeof erpSaveCO === "function") await erpSaveCO(o); } catch (e) { alert("Записът на заявката не мина: " + (e.message || e)); }
+    OPREP_SECS = await erpOrderPrepBuild(o);
+    OPREP_FROM_SAVED = false;
+    erpRenderOrderPrepTab();
   });
 }
