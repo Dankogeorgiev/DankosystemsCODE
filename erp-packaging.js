@@ -410,7 +410,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       addBox: r.addBox != null ? r.addBox : ((spec && spec.addBoxNote) || ""),
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : "")),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || ""),   // може и дробно (напр. 7,5)
-      ride: !!r.ride,   // върху другите палети (дребното отгоре) — пази се по заявка
+      rideOn: Number(r.rideOn) || (r.ride ? 1 : 0),   // 🚛 качва се ВЪРХУ палет № N (0 = свой палет)
       // Мерната единица: „броя" или „к-т ×2" (ляв+десен) — при комплекти
       // кашоните, бройките и килограмите се смятат върху двойното.
       unitMult: r.unitMult != null ? (Number(r.unitMult) || 1) : ((spec && Number(spec.unitMult)) || 1),
@@ -420,7 +420,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
     const perBox = packNum(st.perBox), perPallet = packNum(st.perPallet);
     const effQty = st.qty * (st.unitMult || 1);   // к-т ×2 → реалните БРОЯ
     const bd = packBoxBreakdown(effQty, perBox);
-    const pallets = (!st.ride && bd.boxes > 0 && perPallet > 0) ? bd.boxes / perPallet : 0;
+    const pallets = (!(st.rideOn > 0) && bd.boxes > 0 && perPallet > 0) ? bd.boxes / perPallet : 0;
     const netKg = Math.round(effQty * packNum(st.kgPer) * 10) / 10;
     return { boxes: bd.boxes, bdText: bd.text, pallets, netKg, effQty };
   };
@@ -432,6 +432,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       return t;
     }, { qty: 0, boxes: 0, pallets: 0, net: 0 });
     const built = packPlanPallets(states.map(st => ({ ...st, ...calc(st) })), P);
+    const rideMax = built.length;   // върху кой палет може да се качи дребното
     const palletsUp = built.length || Math.ceil(totals.pallets - 1e-9);
     const smallCnt = built.filter(p => p.small).length;
     const palletsKg = built.length ? packPalletsKg(built, P.palletKg) : palletsUp * packNum(P.palletKg || 20);
@@ -458,9 +459,12 @@ async function erpPackOrderOpen(orderId, moreIds) {
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:130px" placeholder="Малък / Плик / Връзка…" title="Вид опаковка — избери от списъка или опиши свободно (нестандартна)" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
           <td><input type="text" class="pko-addbox" data-i="${i}" value="${escapeAttr(st.addBox || "")}" style="width:150px" placeholder="${c.rest ? escapeAttr("1 кашон × " + erpNum(c.rest) + " бр.") : "непълен кашон…"}" title="Непълният кашон (остатъкът) — опиши го както го правите: вид кашон и бройка" /></td>
-          <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:64px" title="Може и дробно число (напр. 7,5 кашона на палет)" ${st.ride ? "disabled" : ""} /><button type="button" class="btn btn-small pko-ride${st.ride ? " pko-ride-on" : ""}" data-i="${i}" title="🚛 Върху другите: без собствен палет — тези опаковки (пликове, връзки тръби, дребното) се качват ВЪРХУ опаковките на първия палет. Натисни пак за изключване.">🚛</button></td>
+          <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${escapeAttr(String(st.perPallet || ""))}" style="width:64px" title="Може и дробно число (напр. 7,5 кашона на палет)" ${st.rideOn ? "disabled" : ""} /><select class="pko-ride" data-i="${i}" title="🚛 Дребното (пликове, връзки тръби) не прави свой палет — качва се ВЪРХУ избрания от вече генерираните палети">
+            <option value="0">—</option>
+            ${Array.from({ length: Math.max(rideMax, 1) }, (_, k) => `<option value="${k + 1}" ${st.rideOn === k + 1 ? "selected" : ""}>🚛 върху палет ${k + 1}</option>`).join("")}
+          </select></td>
           <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
-          <td class="num">${st.ride ? '<span class="erp-muted" title="качват се върху другите палети">🚛 отгоре</span>' : (c.pallets ? (Math.round(c.pallets * 100) / 100) : "—")}</td>
+          <td class="num">${st.rideOn ? `<span class="erp-muted" title="качват се върху палет ${st.rideOn}">🚛 палет ${st.rideOn}</span>` : (c.pallets ? (Math.round(c.pallets * 100) / 100) : "—")}</td>
           <td class="num">${c.netKg || "—"}</td>
         </tr>`; }).join("")}</tbody>
         <tfoot><tr style="font-weight:700;background:#f8fafc">
@@ -496,7 +500,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           // Полето „Нест. опаковка" слезе от екрана (01.11) — старата стойност
           // се пренася, за да не се губи от документите.
           nonstd: String((P.rows[key] || {}).nonstd != null ? P.rows[key].nonstd : (((erpPackFind(l.code, o.clientName) || {}).nonStdPacking) || "")).trim(),
-          ride: !!(tr.querySelector(".pko-ride") && tr.querySelector(".pko-ride").classList.contains("pko-ride-on")),
+          rideOn: Number((tr.querySelector(".pko-ride") || {}).value) || 0,
           unitMult: Number((tr.querySelector(".pko-unit") || {}).value) || 1,
           addBox: ((tr.querySelector(".pko-addbox") || {}).value || "").trim(),
           perBox: erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0,
@@ -517,8 +521,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       // Връзка тръби: почти винаги 20 бр. — попълва се само̀, ако е празно.
       if (std && std.name === "Връзка тръби") { const tr = el.closest("tr"); const pb = tr && tr.querySelector(".pko-perbox"); if (pb && !erpToNum(pb.value)) pb.value = 20; }
     }));
-    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-perbox,.pko-addbox,.pko-perpal,.pko-unit").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
-    v.querySelectorAll(".pko-ride").forEach(b => b.addEventListener("click", () => { b.classList.toggle("pko-ride-on"); collect(); render(); }));
+    v.querySelectorAll(".pko-qty,.pko-kg,.pko-box,.pko-perbox,.pko-addbox,.pko-perpal,.pko-unit,.pko-ride").forEach(el => el.addEventListener("change", () => { collect(); render(); }));
     const palkg = v.querySelector("#pko-palkg"); if (palkg) palkg.addEventListener("change", () => { collect(); render(); });
     v.querySelector("#pko-save").addEventListener("click", async () => {
       collect();
@@ -820,7 +823,7 @@ async function erpPackDocRows(o) {
       addBox: r.addBox != null ? r.addBox : ((spec && spec.addBoxNote) || ""),
       perBox: r.perBox != null ? r.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ((spec && packNum(spec.kgPerBox) > 0 && packNum(spec.kgPerPiece) > 0) ? Math.round(packNum(spec.kgPerBox) / packNum(spec.kgPerPiece)) : 0)),
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || 0),
-      ride: !!r.ride,   // върху другите палети (по заявка)
+      rideOn: Number(r.rideOn) || (r.ride ? 1 : 0),   // 🚛 върху палет № N (по заявка)
     };
     const perPallet = packNum(st.perPallet);
     const bd = packBoxBreakdown(st.qty, packNum(st.perBox));
@@ -871,8 +874,9 @@ function packBoxBreakdown(qty, perBox) {
 function packBuildPallets(rows) {
   // „Върху другите": дребното (пликове, връзки тръби) НЕ прави свой палет —
   // качва се върху опаковките на първия палет (по Данко, 01.11.2026).
-  const rideRows = rows.filter(r => r.ride && r.boxes > 0);
-  rows = rows.filter(r => !r.ride);
+  const rideNo = r => Number(r.rideOn) || (r.ride ? 1 : 0);
+  const rideRows = rows.filter(r => rideNo(r) > 0 && r.boxes > 0);
+  rows = rows.filter(r => !(rideNo(r) > 0));
   // Само редове с РЪЧНО въведено „опаковки на палет" влизат в подредбата
   // (по Данко, 01.11: без мълчаливо „всичко на един палет" при празно поле).
   const items = rows.filter(r => r.boxes > 0 && packNum(r.perPallet) > 0).map(r => {
@@ -907,7 +911,9 @@ function packBuildPallets(rows) {
   if (rideRows.length) {
     if (!pallets.length) pallets.push({ items: [] });   // само дребно → пак трябва палет
     rideRows.forEach(r => {
-      pallets[0].items.push({
+      // Качва се върху ИЗБРАНИЯ палет (по Данко, 01.11); ако го няма — върху последния.
+      const idx = Math.min(Math.max(1, rideNo(r)), pallets.length) - 1;
+      pallets[idx].items.push({
         code: r.code, name: r.name, boxes: r.boxes, qty: r.qty, full: r.boxes, rest: 0,
         pb: packNum(r.perBox) || 0, text: "отгоре върху палета",
         kg: Math.round(r.qty * packNum(r.kgPer) * 10) / 10,
@@ -922,7 +928,7 @@ function packBuildPallets(rows) {
    Планът е списък от палети; всеки палет е списък групи {code, boxes, per, part}
    (part = непълен кашон). Подписът пази плана валиден: промени ли се заявката
    (бройки/кашони), планът се строи наново от автоматиката. */
-function packPlanSig(rows) { return rows.map(r => `${r.code}|${r.qty}|${packNum(r.perBox)}|${packNum(r.perPallet)}|${r.ride ? 1 : 0}`).join(";"); }
+function packPlanSig(rows) { return rows.map(r => `${r.code}|${r.qty}|${packNum(r.perBox)}|${packNum(r.perPallet)}|${Number(r.rideOn) || (r.ride ? 1 : 0)}`).join(";"); }
 /* Палет в плана: { small: 0|1, g: [групи] }. small = малък палет 60×80
    (половин вместимост и половин тегло); стандартът е ЕВРО ПАЛЕТ 120×80. */
 function packPlanNorm(P) {
