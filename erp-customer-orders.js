@@ -458,6 +458,99 @@ async function erpCORemoveFile(o, i) {
 }
 
 /* ---------- Списък ---------- */
+/* ---------- 📱 Телефонен изглед (Данко, 31.10.2026) ----------
+   На телефон списъкът е ПАПКИ: клиентите → заявките на клиента → формата.
+   Лентите с всички модули се крият чрез CSS (:has) докато си в Заявки;
+   бутонът „☰ Меню" ги връща. На компютър нищо не се променя. */
+let ERP_CO_MOB = { client: null };
+function erpCOMobile() { return !!(window.matchMedia && window.matchMedia("(max-width: 760px)").matches); }
+// 📄 Всички чертежи по заявка — за бутона в телефонните карти.
+async function erpCOAllDrawings(o, btn) {
+  const old = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try { await erpCODrawingsEnsure(o); } finally { if (btn) { btn.disabled = false; btn.textContent = old; } }
+  const groups = (o.lines || []).filter(l => l.productId)
+    .map(l => ({ l, files: ERP_CO_DRAW[Number(l.productId)] || [] })).filter(g => g.files.length);
+  const tot = groups.reduce((s, g) => s + g.files.length, 0);
+  if (!tot) { alert("Никое изделие в тази заявка няма качен чертеж.\nЧертежи се качват на продукта в Склад детайли (или на бързото изделие)."); return; }
+  if (tot === 1) { window.open(groups[0].files[0].url, "_blank", "noopener"); return; }
+  const { wrap, close } = erpDialog(`
+    <h3>📄 Чертежи по заявка № ${escapeHtml(o.ourNo || "")}</h3>
+    ${groups.map(g => `<p style="margin:8px 0 2px"><b>${escapeHtml(g.l.code || "")} ${escapeHtml(g.l.name || "")}</b></p>
+      <ul class="co-file-ul">${g.files.map(f => `<li><a href="${escapeAttr(f.url)}" target="_blank" rel="noopener">📄 ${escapeHtml(f.name)}</a></li>`).join("")}</ul>`).join("")}
+    <div class="erp-dialog-actions"><button class="btn" id="cod-close">Затвори</button></div>`);
+  wrap.querySelector("#cod-close").addEventListener("click", close);
+}
+function erpRenderCOMobileList(v) {
+  const q = (erpCOQuery || "").toLowerCase().trim();
+  const all = (erpCOList || []).filter(o => !erpCOHideDone || (o.status || "нова") !== "завършена");
+  const menuBtn = `<button class="btn btn-small" id="co-mob-menu" title="Показва/крие лентата с всички модули">☰ Меню</button>`;
+  const wireCommon = () => {
+    const mb = v.querySelector("#co-mob-menu");
+    if (mb) mb.addEventListener("click", () => { const m = document.getElementById("erp-modal"); if (m) m.classList.toggle("erp-mob-menu"); });
+    const qe = v.querySelector("#co-mob-q");
+    if (qe) qe.addEventListener("change", () => { erpCOQuery = qe.value; erpRenderCOMobileList(v); });
+    const hd = v.querySelector("#co-mob-hidedone");
+    if (hd) hd.addEventListener("change", () => { erpCOHideDone = hd.checked; erpRenderCOMobileList(v); });
+  };
+  if (!ERP_CO_MOB.client) {
+    // Ниво 1: папките на клиентите
+    const by = new Map();
+    all.filter(o => !q || `${o.clientName || ""} ${o.ourNo || ""}`.toLowerCase().includes(q)).forEach(o => {
+      const k = (o.clientName || "— без клиент —").trim() || "— без клиент —";
+      let r = by.get(k); if (!r) { r = { name: k, n: 0, last: "", due: "" }; by.set(k, r); }
+      r.n++;
+      if (String(o.date || "") > r.last) r.last = String(o.date || "");
+      const d = String(o.deadline || "");
+      if (d && (o.status || "нова") !== "завършена" && (!r.due || d < r.due)) r.due = d;
+    });
+    const folders = [...by.values()].sort((a, b) => b.last.localeCompare(a.last));
+    v.innerHTML = `
+      <div class="erp-toolbar" style="margin:0 0 8px">${menuBtn}<span class="erp-count">📋 Заявки от клиенти</span></div>
+      <div class="erp-toolbar" style="margin:0 0 8px">
+        <input type="search" id="co-mob-q" placeholder="търси клиент или №…" value="${escapeAttr(erpCOQuery)}" />
+        <label class="erp-inline" style="font-size:13px"><input type="checkbox" id="co-mob-hidedone" ${erpCOHideDone ? "checked" : ""} /> крий завършените</label>
+      </div>
+      <div class="co-mob-folders">${folders.map(f => `
+        <button type="button" class="co-mob-card" data-cl="${escapeAttr(f.name)}">
+          <div class="co-mob-row1">📁 <b>${escapeHtml(f.name)}</b><span class="erp-muted">${f.n} ${f.n === 1 ? "заявка" : "заявки"}</span></div>
+          <div class="co-mob-sub">${f.due ? `най-близък срок <b>${erpDMY(f.due)}</b> · ` : ""}последна ${erpDMY(f.last) || "—"}</div>
+        </button>`).join("") || `<p class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</p>`}</div>`;
+    wireCommon();
+    v.querySelectorAll(".co-mob-card[data-cl]").forEach(b => b.addEventListener("click", () => {
+      ERP_CO_MOB.client = b.dataset.cl; erpRenderCOMobileList(v);
+    }));
+  } else {
+    // Ниво 2: заявките на избрания клиент
+    const cl = ERP_CO_MOB.client;
+    const orders = all.filter(o => ((o.clientName || "— без клиент —").trim() || "— без клиент —") === cl)
+      .filter(o => !q || `${o.ourNo || ""} ${o.clientNo || ""}`.toLowerCase().includes(q))
+      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    v.innerHTML = `
+      <div class="erp-toolbar" style="margin:0 0 8px">
+        <button class="btn btn-small" id="co-mob-back">← Клиенти</button>
+        <span class="erp-count">📁 ${escapeHtml(cl)}</span>${menuBtn}
+      </div>
+      <div class="co-mob-folders">${orders.map(o => `
+        <div class="co-mob-card">
+          <div class="co-mob-row1"><b>№ ${escapeHtml(o.ourNo || "—")}</b>${erpCOStatusCell(o)}</div>
+          <div class="co-mob-sub">${o.clientNo ? `клиентски № ${escapeHtml(o.clientNo)} · ` : ""}от ${erpDMY(o.date) || "—"}${o.deadline ? ` · срок <b>${erpDMY(o.deadline)}</b>` : ""} · ${(o.lines || []).length} изделия</div>
+          <div class="co-mob-actions">
+            <button class="btn btn-small btn-primary" data-open="${o.id}">Отвори →</button>
+            <button class="btn btn-small co-mob-draw" data-id="${o.id}" title="Всички чертежи на изделията в заявката">📄 Чертежи</button>
+            ${(o.files || []).length ? `<a class="btn btn-small" href="${escapeAttr(o.files[0].url || "#")}" target="_blank" rel="noopener" title="Файлът на заявката (сканираната поръчка от клиента)">📎 Заявка на клиента</a>` : ""}
+          </div>
+        </div>`).join("") || `<p class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</p>`}</div>`;
+    wireCommon();
+    v.querySelector("#co-mob-back").addEventListener("click", () => { ERP_CO_MOB.client = null; erpRenderCOMobileList(v); });
+    v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => erpOpenCO(Number(b.dataset.open))));
+    v.querySelectorAll(".co-mob-draw").forEach(b => b.addEventListener("click", () => {
+      const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.id));
+      if (o) erpCOAllDrawings(o, b);
+    }));
+  }
+}
+
 async function erpRenderCustomerOrders() {
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
@@ -471,6 +564,8 @@ async function erpRenderCustomerOrders() {
     return;
   }
   if (quickP) { try { await quickP; } catch (e) {} }
+  // 📱 Телефон: папките Клиент → Заявки, без тежката таблица (Данко, 31.10).
+  if (erpCOMobile()) { erpRenderCOMobileList(v); return; }
   // Текущи производства ЗА СКЛАД (пуснати от Продукти/Склад детайли, без заявка) —
   // показват се тук, за да се виждат наравно със заявките. Четат се от задачите.
   let stockGroups = [];

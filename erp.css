@@ -916,6 +916,22 @@ th.mr-c-buy { background: #f0fdf4; color: #166534; border-bottom: 2px solid #bbf
 /* 📄 Чертеж на реда в заявката */
 .co-draw-none { opacity: .4; }
 
+/* 📱 Папките на Заявки от клиенти (телефон): клиент → заявки */
+.co-mob-folders { display: flex; flex-direction: column; gap: 8px; }
+.co-mob-card { text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; width: 100%; }
+button.co-mob-card:active { background: #eff6ff; }
+.co-mob-row1 { display: flex; align-items: center; gap: 8px; }
+.co-mob-row1 b { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.co-mob-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.co-mob-actions { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+.co-mob-actions .btn { min-height: 42px; display: inline-flex; align-items: center; }
+
+@media (max-width: 760px) {
+  /* В Заявки от клиенти лентите с всичките модули се КРИЯТ (искане на
+     Данко от телефона, 31.10.2026) — бутонът „☰ Меню" ги връща. */
+  #erp-modal:has(#erp-view .erp-pane.active[data-pane="customer"]):not(.erp-mob-menu) .erp-tabs-row { display: none; }
+}
+
 /* 📱 Заявки от клиенти на телефон (Данко, 31.10.2026 — iPhone):
    едри полета (16px спира авто-мащабирането на iOS), едър „📄 Чертеж",
    второстепенните офисни бутони се прибират — остават гледането,
