@@ -359,6 +359,50 @@ function erpPrintCO(o) {
 
 /* ---------- Файл на заявката (сканирана заявка/PDF/снимка) ---------- */
 // Списъкът с прикачени файлове в формата (с връзка за отваряне и бутон за махане).
+/* ---------- 📄 Чертежи на изделията в заявката (Данко, 31.10.2026) ----------
+   Чертежите живеят на продукта (products.drawings), а при нестандартните
+   изделия — в quick_items (files). Теглят се НАВЕДНЪЖ за всички редове на
+   заявката; бутонът 📄 отваря файла направо (на iPhone — в Safari). */
+let ERP_CO_DRAW = {};   // productId -> [{ name, url }]
+async function erpCODrawingsEnsure(o) {
+  const ids = [...new Set((o.lines || []).map(l => Number(l.productId)).filter(Boolean))];
+  const need = ids.filter(id => ERP_CO_DRAW[id] === undefined);
+  if (!need.length) return ERP_CO_DRAW;
+  need.forEach(id => { ERP_CO_DRAW[id] = []; });   // пази от двойно теглене
+  try {
+    const { data } = await sb.from("products").select("id,drawings").in("id", need);
+    (data || []).forEach(r => {
+      ERP_CO_DRAW[r.id] = (Array.isArray(r.drawings) ? r.drawings : []).filter(f => f && f.url)
+        .map(f => ({ name: f.name || "чертеж", url: f.url }));
+    });
+  } catch (e) {}
+  try {   // бързите изделия: файловете са в quick_items по productId
+    const empty = need.filter(id => !(ERP_CO_DRAW[id] || []).length);
+    if (empty.length) {
+      const { data } = await sb.from("app_config").select("data").eq("id", "quick_items").maybeSingle();
+      const by = (data && data.data && data.data.byId) || {};
+      empty.forEach(id => {
+        const q = by[id] || by[String(id)];
+        if (q && Array.isArray(q.files)) ERP_CO_DRAW[id] = q.files.filter(f => f && f.url).map(f => ({ name: f.name || "чертеж", url: f.url }));
+      });
+    }
+  } catch (e) {}
+  return ERP_CO_DRAW;
+}
+function erpCOOpenDrawings(l) {
+  const list = ERP_CO_DRAW[Number(l.productId)] || [];
+  if (!list.length) {
+    alert(`„${l.name || l.code || "Изделието"}" няма качен чертеж.\nЧертежи се качват на продукта в Склад детайли (или на бързото изделие в Нестандартни поръчки).`);
+    return;
+  }
+  if (list.length === 1) { window.open(list[0].url, "_blank", "noopener"); return; }
+  const { wrap, close } = erpDialog(`
+    <h3>📄 Чертежи — ${escapeHtml(l.code || "")} ${escapeHtml(l.name || "")}</h3>
+    <ul class="co-file-ul">${list.map(f => `<li><a href="${escapeAttr(f.url)}" target="_blank" rel="noopener">📄 ${escapeHtml(f.name)}</a></li>`).join("")}</ul>
+    <div class="erp-dialog-actions"><button class="btn" id="cod-close">Затвори</button></div>`);
+  wrap.querySelector("#cod-close").addEventListener("click", close);
+}
+
 function erpCOFilesHtml(o) {
   const files = (o && o.files) || [];
   if (!files.length) return `<p class="erp-muted" style="margin:0 0 6px">Няма прикачен файл. Прикачи сканираната заявка (PDF/снимка).</p>`;
@@ -896,6 +940,17 @@ async function erpRenderCOForm(o) {
   const csBox = document.getElementById("co-cs-sugg");
   if (csBox) csBox.__o = o;   // лентата е на ТАЗИ заявка — чужди закъснели викания се игнорират
   erpCOConsSugg(o);           // и при отваряне на формата
+  // 📄 Чертежите на изделията се дотеглят отзад (една заявка за всички
+  // редове); бутон без чертеж леко избледнява.
+  erpCODrawingsEnsure(o).then(() => {
+    document.querySelectorAll("#co-lines .co-draw").forEach(b => {
+      const l = o.lines[Number(b.dataset.i)];
+      if (!l) return;
+      const none = !(ERP_CO_DRAW[Number(l.productId)] || []).length;
+      b.classList.toggle("co-draw-none", none);
+      b.title = none ? "Изделието няма качен чертеж" : "Отваря чертежите на изделието — на телефона направо в браузъра";
+    });
+  });
   document.getElementById("co-status").addEventListener("change", e => { o.status = e.target.value; });
   const cliInfo = document.getElementById("co-cli-info");
   if (cliInfo) cliInfo.addEventListener("click", () => { if (typeof cliQuickView === "function") cliQuickView(o.clientName); });
@@ -1061,7 +1116,7 @@ function erpCOLinesHtml(o) {
         return rem > 0
           ? `<div class="erp-co-deliv" title="Доставено при частично фактуриране">📦 доставени ${erpNum(del)} · остават <b>${erpNum(rem)}</b></div>`
           : `<div class="erp-co-deliv erp-co-deliv-full" title="Напълно доставено">✅ доставени ${erpNum(del)} (напълно)</div>`;
-      })()}</td>
+      })()}${l.productId ? `<div style="margin-top:3px"><button type="button" class="btn btn-small co-draw" data-i="${i}" title="Отваря чертежите на изделието — на телефона направо в браузъра">📄 Чертеж</button></div>` : ""}</td>
       <td class="num" data-label="Бройка"><input type="number" class="co-qty" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.qty || 1))}" style="width:70px" /></td>
       <td class="num sell-cell" data-label="Прод. цена"><input type="number" class="co-price" data-i="${i}" min="0" step="any" value="${escapeAttr(String(l.unitPrice || ""))}" style="width:90px" placeholder="0.00" /></td>
       <td class="num sell-cell" data-label="Сума">${erpEur((erpToNum(l.qty) || 0) * (erpToNum(l.unitPrice) || 0))}</td>
@@ -1074,6 +1129,19 @@ function erpCOWireLines(o) {
   body.querySelectorAll(".co-qty").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].qty = erpToNum(inp.value); erpCOLineSums(o); }));
   body.querySelectorAll(".co-price").forEach(inp => inp.addEventListener("input", () => { o.lines[Number(inp.dataset.i)].unitPrice = erpToNum(inp.value); erpCOLineSums(o); }));
   body.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { o.lines.splice(Number(b.dataset.rm), 1); erpCORefreshLines(o); }));
+  // 📄 Чертежите на реда: ако още не са теглени, дотеглят се при клика.
+  body.querySelectorAll(".co-draw").forEach(b => {
+    const l = o.lines[Number(b.dataset.i)];
+    if (l && ERP_CO_DRAW[Number(l.productId)] !== undefined && !(ERP_CO_DRAW[Number(l.productId)] || []).length) {
+      b.classList.add("co-draw-none"); b.title = "Изделието няма качен чертеж";
+    }
+    b.addEventListener("click", async () => {
+      const ln = o.lines[Number(b.dataset.i)]; if (!ln) return;
+      const old = b.textContent; b.disabled = true; b.textContent = "…";
+      try { await erpCODrawingsEnsure(o); } finally { b.disabled = false; b.textContent = old; }
+      erpCOOpenDrawings(ln);
+    });
+  });
   erpCOTotal(o);
 }
 function erpCOLineSums(o) {  // обновява сумите по редове + общата, без загуба на фокус
