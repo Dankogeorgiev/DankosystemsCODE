@@ -414,8 +414,9 @@ async function erpPackOrderOpen(orderId, moreIds) {
       enAlt: String(l.clientName || (spec && spec.clientProductName) || "").trim(),
       // Бройката може да се коригира РЪЧНО за опаковането (частична пратка и пр.)
       // — пази се в опаковката (r.qty), заявката НЕ се пипа.
-      qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),
-      baseQty: erpToNum(l.qty) || 0,
+      qty: r.qty != null ? (erpToNum(r.qty) || 0) : packLeftQty(l),
+      baseQty: packLeftQty(l),
+      ordered: erpToNum(l.qty) || 0,
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
       boxSize: r.boxSize != null ? r.boxSize : ((spec && spec.boxSize) || ""),
@@ -459,7 +460,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
   };
   // 🚚 Частично товарене (Данко, 02.11): извадените с ✕ редове (P.skip) не
   // влизат в таблицата, плана и документите — връщат се от лентата отдолу.
-  const allStates = () => (o.lines || []).map((_, i) => rowState(i)).filter(st => !(P.skip && P.skip[st.key])).concat((P.extras || []).map((_, j) => extraState(j)));
+  const allStates = () => (o.lines || []).map((_, i) => rowState(i)).filter(st => st.qty > 0 && !(P.skip && P.skip[st.key])).concat((P.extras || []).map((_, j) => extraState(j)));
   const render = () => {
     const states = allStates();
     const totals = states.reduce((t, st) => {
@@ -512,7 +513,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
             ${st.unitMult > 1 ? `<br><span class="erp-muted" style="font-size:11px">= ${erpNum(st.qty)} леви + ${erpNum(st.qty)} десни</span><br><select class="pko-split" data-i="${i}" title="Подредбата на палета при комплекти: „к-т на палет" = леви и десни заедно на един палет; „по страна" = палет само с една страна">
               <option value="set" ${st.sideMode !== "side" ? "selected" : ""}>🧩 к-т на палет</option>
               <option value="side" ${st.sideMode === "side" ? "selected" : ""}>⬅➡ по страна</option>
-            </select>` : ""}${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Оригиналното количество по заявката — изтрий корекцията, за да се върне">заявка: ${erpNum(st.baseQty)}</span>` : ""}</td>
+            </select>` : ""}${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Остатъкът за доставка по заявката — изтрий корекцията, за да се върне">остава: ${erpNum(st.baseQty)}</span>` : ""}${st.ordered > st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Заявката е частично доставена — опакова се само остатъкът">доставени ${erpNum(st.ordered - st.baseQty)} от ${erpNum(st.ordered)}</span>` : ""}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:130px" placeholder="Малък / Плик / Връзка…" title="Вид опаковка — избери от списъка или опиши свободно (нестандартна)" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
           <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" /></td>
@@ -531,6 +532,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         </tr></tfoot>
       </table>
       ${(() => { const sk = Object.keys(P.skip || {}).filter(k => P.skip[k]); if (!sk.length) return ""; const nameOf = k => { const l = (o.lines || []).find((l2, i2) => String(l2.code || i2) === k) || {}; return (l.code ? l.code + " · " : "") + (l.name || k); }; return `<div class="pko-skipbar">🚚 <b>Частично товарене</b> — няма да се товарят: ${sk.map(k => `<span class="pko-skipchip">${escapeHtml(nameOf(k))} <button type="button" class="pko-unskip" data-key="${escapeAttr(k)}" title="Върни реда в опаковката">↩</button></span>`).join(" ")}</div>`; })()}
+      ${(() => { const done = (o.lines || []).filter((l, i) => (erpToNum(l.qty) || 0) > 0 && packLeftQty(l) <= 0 && !((P.rows[String(l.code || i)] || {}).qty > 0)); if (!done.length) return ""; return `<div class="pko-donebar">✅ <b>Доставени изцяло</b> — не се товарят: ${done.map(l => `<span class="pko-donechip">${escapeHtml((l.code ? l.code + " · " : "") + (l.name || ""))} <span class="erp-muted">(${erpNum(erpToNum(l.qty) || 0)} бр.)</span></span>`).join(" ")}</div>`; })()}
       <div class="costk-stats">
         <span>Сума на палетите: <b id="pko-palsum">${palletsUp}</b><span class="erp-muted" id="pko-palbrk">${smallCnt ? ` (${palletsUp - smallCnt} × 120×80 + ${smallCnt} × 60×80)` : ""}</span></span>
         <span>Опаковки: <b>${totals.boxes}</b></span>
@@ -586,7 +588,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         // Ръчна корекция на бройката: пази се САМО ако се различава от заявката
         // (върнеш ли оригиналното число, корекцията пада и следи заявката).
         const qv = erpToNum((tr.querySelector(".pko-qty") || {}).value) || 0;
-        if (qv !== (erpToNum(l.qty) || 0)) P.rows[key].qty = qv;
+        if (qv !== packLeftQty(l)) P.rows[key].qty = qv;
       });
       P.palletKg = erpToNum((document.getElementById("pko-palkg") || {}).value) || 20;
     };
@@ -1018,7 +1020,7 @@ async function erpPackDocRows(o) {
       enAlt: String(l.clientName || (spec && spec.clientProductName) || "").trim(),
       // qty е в ЕДИНИЦАТА на реда (броя или К-ТА); kgPer е за единица —
       // кг-то при комплекти НЕ се удвоява, бройките/кашоните — да (по страни).
-      qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),
+      qty: r.qty != null ? (erpToNum(r.qty) || 0) : packLeftQty(l),
       unitMult: mult, sideMode: r.sideMode || (spec || {}).sideMode || "set",
       kgPer: r.kgPer != null ? r.kgPer : packKgFor(l.code, o.clientName, l.productId),
       boxType: r.boxType != null ? r.boxType : ((spec && spec.boxType) || ""),
@@ -1032,7 +1034,7 @@ async function erpPackDocRows(o) {
     const perPallet = packNum(st.perPallet);
     const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
     return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
-  }).filter(r => !(P.skip && P.skip[r.key])).concat(extras);
+  }).filter(r => r.qty > 0 && !(P.skip && P.skip[r.key])).concat(extras);
 }
 async function erpPackPrintFor(o, kind) {
   if (!o) { alert("Няма заявка."); return; }
@@ -1054,6 +1056,13 @@ async function erpPackOrderForInvoice(inv) {
   const ref = String((inv && inv.orderRef) || "").trim().toLowerCase();
   if (!ref) return null;
   return list.find(x => String(x.clientNo || "").trim().toLowerCase() === ref || String(x.ourNo || "").trim().toLowerCase() === ref) || null;
+}
+
+/* Остатъкът за доставка по ред от заявката: поръчано − доставено (както
+   в Работния доклад). Опаковката по подразбиране е ЗА ОСТАТЪКА (Данко, 02.11). */
+function packLeftQty(l) {
+  const q = erpToNum((l || {}).qty) || 0;
+  return Math.max(0, q - Math.min(Math.max(0, Number((l || {}).delivered) || 0), q));
 }
 
 /* Кашоните на едно изделие: пълни кашони + един непълен с остатъка.

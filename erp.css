@@ -1026,3 +1026,7 @@ button.co-mob-card:active { background: #eff6ff; }
 .pko-skipbar { margin: 6px 0 2px; padding: 7px 10px; background: #fff7ed; border: 1px dashed #fb923c; border-radius: 8px; font-size: 13px; }
 .pko-skipchip { display: inline-block; background: #fff; border: 1px solid #fdba74; border-radius: 14px; padding: 1px 6px 1px 10px; margin: 2px 2px; }
 .pko-skipchip .pko-unskip { border: 0; background: none; cursor: pointer; font-size: 14px; padding: 0 2px; }
+
+/* ✅ Изцяло доставените редове в Опаковки (информативна лента) */
+.pko-donebar { margin: 4px 0 2px; padding: 7px 10px; background: #f0fdf4; border: 1px dashed #4ade80; border-radius: 8px; font-size: 13px; }
+.pko-donechip { display: inline-block; background: #fff; border: 1px solid #86efac; border-radius: 14px; padding: 1px 10px; margin: 2px 2px; }
