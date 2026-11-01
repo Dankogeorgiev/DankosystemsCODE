@@ -77,7 +77,11 @@ function erpPackFind(code, clientName) {
 }
 
 /* ---------- Списък ---------- */
+// Епохата гони надбягването списък ↔ редактор: който започне ПОСЛЕДЕН, печели
+// екрана (иначе фоновият рендер на списъка стъпкваше отворения редактор).
+let ERP_PACK_EPOCH = 0;
 async function erpRenderPackaging() {
+  const myEpoch = ++ERP_PACK_EPOCH;
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await erpPackLoad();
@@ -85,6 +89,7 @@ async function erpRenderPackaging() {
   try { if ((typeof erpCOList === "undefined" || !erpCOList) && typeof erpLoadCustomerOrders === "function") await erpLoadCustomerOrders(); } catch (e) {}
   let clients = [];
   try { if (typeof erpLoadClients === "function") clients = await erpLoadClients(); } catch (e) {}
+  if (myEpoch !== ERP_PACK_EPOCH) return;   // по-нов екран пое раздела, докато зареждахме
   const clientNames = clients.map(c => c.company).filter(Boolean);
   v.innerHTML = `
     <div class="erp-toolbar" style="margin-bottom:6px">
@@ -363,6 +368,11 @@ async function erpPackOrderOpen(orderId, moreIds) {
   const all = ((typeof erpCOList !== "undefined" && erpCOList) || []);
   const main = all.find(x => String(x.id) === String(orderId));
   if (!main) { alert("Заявката не е намерена."); return; }
+  // Редакторът живее в раздел „Опаковки": повикан отдругаде (напр. от
+  // „🎁 Опаковка на заявката" в Работния доклад), първо превключваме раздела —
+  // иначе стъпкваше доклада в НЕГОВИЯ pane (находка 01.11.2026).
+  if (typeof erpSetTab === "function" && typeof ERP !== "undefined" && ERP.tab !== "packaging") erpSetTab("packaging");
+  ++ERP_PACK_EPOCH;   // прекратява евентуален течащ рендер на списъка — редакторът печели
   const others = (moreIds || []).map(id => all.find(x => String(x.id) === String(id))).filter(Boolean);
   try { await erpEnsureLoaded(); } catch (e) {}
   main.packing = main.packing || { rows: {}, palletKg: 20 };

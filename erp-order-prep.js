@@ -30,13 +30,13 @@ async function erpOrderPrepBuild(o) {
   const esc = s => escapeHtml(String(s == null ? "" : s));
   const secs = [];
   // А · Резюме
-  secs.push({
+  secs.push(oprepSafe(() => ({
     key: "sum", title: "А · Резюме", html: `
     <p><b>${esc(o.clientName || "—")}</b> · заявка <b>№ ${esc(o.ourNo || "—")}</b>${o.clientNo ? ` · клиентски № ${esc(o.clientNo)}` : ""}</p>
     <p>Дата: <b>${erpDMY(o.date) || "—"}</b> · срок: <b>${erpDMY(o.deadline) || "—"}</b> · статус: ${esc(o.status || "нова")}</p>
-    <p>${(o.lines || []).map(l => `${esc(l.code || "")} ${esc(l.name || "")} × ${erpNum(erpToNum(l.qty) || 0)}${(Number(l.delivered) || 0) > 0 ? ` (доставени ${erpNum(Number(l.delivered) || 0)})` : ""}`).join("<br>") || "—"}</p>
+    <p>${(o.lines || []).filter(l => l && typeof l === "object").map(l => `${esc(l.code || "")} ${esc(l.name || "")} × ${erpNum(erpToNum(l.qty) || 0)}${(Number(l.delivered) || 0) > 0 ? ` (доставени ${erpNum(Number(l.delivered) || 0)})` : ""}`).join("<br>") || "—"}</p>
     ${o.note ? `<p>📝 ${esc(o.note)}</p>` : ""}`,
-  });
+  }), err => ({ key: "sum", title: "А · Резюме", html: err })));
   // Б · Изделията срещу Склад детайли
   secs.push(oprepSafe(() => {
     const bRows = (o.lines || []).filter(l => l.productId).map(l => {
@@ -122,8 +122,8 @@ async function erpOrderProcess(o) {
   // „Работен доклад" е ОТДЕЛЕН РАЗДЕЛ (по Данко, 01.11) — не изскачащ
   // прозорец. Състоянието живее тук; разделът се рисува от erpDispatchTab.
   OPREP_ORDER = o;
-  const saved = (o.processing && Array.isArray(o.processing.sections) && o.processing.sections.length) ? o.processing : null;
   try {
+    const saved = (o.processing && Array.isArray(o.processing.sections) && o.processing.sections.length) ? o.processing : null;
     OPREP_SECS = saved ? saved.sections.map(s => ({ ...s })) : await erpOrderPrepBuild(o);
     OPREP_FROM_SAVED = !!saved;
   } catch (e) {
@@ -182,7 +182,9 @@ function erpRenderOrderPrepTab() {
   v.querySelector("#op-save").addEventListener("click", async () => {
     const st = v.querySelector("#op-status"), b = v.querySelector("#op-save");
     b.disabled = true;
-    o.processing = { sections: collect(), updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "" };
+    // Секцията-грешка (key "err") НЕ се запазва — иначе циментира счупения
+    // екран в заявката и следващото ⚙ отваря нея вместо свеж разчет.
+    o.processing = { sections: collect().filter(s => s.key !== "err"), updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "" };
     try {
       if (typeof erpSaveCO !== "function") throw new Error("модулът Заявки не е зареден");
       await erpSaveCO(o);
@@ -218,8 +220,10 @@ function erpRenderOrderPrepTab() {
   });
   const ensureCut = () => {
     if (!(OPREP_CUT.rows || []).length && typeof cutCollect === "function") {
-      const c = cutCollect([o]);
-      OPREP_CUT = { rows: c.rows || [], prodIds: c.prodIds || [] };
+      try {
+        const c = cutCollect([o]);
+        OPREP_CUT = { rows: c.rows || [], prodIds: c.prodIds || [] };
+      } catch (e) { alert("Разкроят удари грешка: " + ((e && e.message) || e)); }
     }
   };
   const lb = v.querySelector(".op-labels");

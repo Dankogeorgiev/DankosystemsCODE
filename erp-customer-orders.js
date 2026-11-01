@@ -244,6 +244,17 @@ function erpCODocsWire(root, o) {
     if (typeof erpOpenInvoice === "function") erpOpenInvoice(b.dataset.inv);
   }));
 }
+/* Закача „⚙ Работен доклад" на редовете. ПОМОЩНА — ползва се и от
+   първоначалния рендер, и от erpCORefreshTable: преди бутонът беше жив
+   само след филтър/подредба, а при пресен таб кликът пропадаше към реда
+   и отваряше ФОРМАТА вместо доклада (случая AGI 251, 01.11.2026). */
+function erpCOWireOprep(root) {
+  root.querySelectorAll("[data-oprep]").forEach(b => b.addEventListener("click", ev => {
+    ev.stopPropagation();
+    const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.oprep));
+    if (o && typeof erpOrderProcess === "function") erpOrderProcess(o).catch(e => alert("Работният доклад не се отвори: " + ((e && e.message) || e)));
+  }));
+}
 /* Допълва клетките, след като планът се зареди фоново. */
 function erpCOPlanFill() {
   const byId = new Map((erpCOList || []).map(x => [String(x.id), x]));
@@ -665,11 +676,7 @@ async function erpRenderCustomerOrders() {
     if (cnt) cnt.innerHTML = `${list.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
       ` <span class="sell-cell erp-muted" title="Сборът е само по НЕдоставеното — вече изпратеното не се брои">· остава ${erpEur(list.reduce((s, o) => s + erpCOValueLeft(o), 0))}</span>`}`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
-    tb.querySelectorAll("[data-oprep]").forEach(b => b.addEventListener("click", ev => {
-      ev.stopPropagation();
-      const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.oprep));
-      if (o && typeof erpOrderProcess === "function") erpOrderProcess(o).catch(e => alert("Работният доклад не се отвори: " + ((e && e.message) || e)));
-    }));
+    erpCOWireOprep(tb);
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
     tb.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
       const c = tr.dataset.folder;
@@ -748,6 +755,7 @@ async function erpRenderCustomerOrders() {
     erpCORefreshTable();
   });
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
+  erpCOWireOprep(v);   // БЕЗ това бутонът „⚙ Работен доклад" е мъртъв при пресен таб (случая AGI 251)
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   v.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
     const c = tr.dataset.folder;

@@ -485,6 +485,7 @@ function erpSetTab(tab, force) {
   // Производствен достъп: без финансовите модули.
   if (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production
       && ["sales", "pricelists", "purchases", "supprofiles", "finance", "invoices", "payables", "receivables", "costsheet", "costrates"].includes(tab)) tab = "customer";
+  const prevTab = ERP.tab;
   ERP.tab = tab;
   // „Отворени раздели" (като табове на документи) — добавяме отворения, ако още го няма.
   ERP.openTabs = ERP.openTabs || [];
@@ -495,6 +496,9 @@ function erpSetTab(tab, force) {
   const stale = pane.dataset.stale === "1";
   document.querySelectorAll("#erp-view .erp-pane").forEach(p =>
     p.classList.toggle("active", p.dataset.pane === tab));
+  // Скролът е ОБЩ за всички панове (#erp-view): при смяна на раздела тръгваме
+  // отгоре — иначе новият раздел се отваря „по средата" и изглежда празен/счупен.
+  if (prevTab !== tab) { const sc = document.getElementById("erp-view"); if (sc) sc.scrollTop = 0; }
   erpRenderOpenTabs();
   if (created || force || stale) { delete pane.dataset.stale; erpDispatchTab(tab); }
 }
