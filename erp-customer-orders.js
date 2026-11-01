@@ -328,6 +328,14 @@ function erpCOTruckDialog(o) {
   wrap.querySelector("#cotr-close").addEventListener("click", close);
   wrap.querySelector("#cotr-new").addEventListener("click", () => { close(); if (typeof logiOrderInquiry === "function") logiOrderInquiry(o); });
 }
+/* 🎁 Опаковката на заявката от списъка: веригата е Опаковка → Работен
+   доклад → Транспорт (по Данко, 01.11.2026) — без първото няма второ. */
+function erpCOWirePack(root) {
+  root.querySelectorAll("[data-pack]").forEach(b => b.addEventListener("click", ev => {
+    ev.stopPropagation();
+    if (typeof erpPackOrderOpen === "function") erpPackOrderOpen(b.dataset.pack);
+  }));
+}
 /* Закача камиончето 🚛 (запитване за транспорт) на редовете — и от
    първоначалния рендер, и от erpCORefreshTable. */
 function erpCOWireTruck(root) {
@@ -378,9 +386,9 @@ function erpCORowHtml(o) {
             <td data-label="Статус">${erpCOStatusCell(o)}</td>
             <td data-label="План" data-plan-for="${o.id}">${erpCOPlanCell(o)}</td>
             <td data-label="Файл">${erpCOFileCell(o)}</td>
-            <td class="erp-row-actions" data-label="">${typeof logiOrderInquiry === "function" ? (erpCOInqsOf(o).length
+            <td class="erp-row-actions" data-label="">${typeof erpPackOrderOpen === "function" ? `<button class="btn btn-small" data-pack="${o.id}" title="Опаковката на заявката (кашони, тегла, палети) — от нея се раждат Палет описът и Пакинг листът в Работния доклад">🎁</button>` : ""}${typeof erpOrderProcess === "function" ? `<button class="btn btn-small" data-oprep="${o.id}" title="Работният доклад А–Ж на заявката — отваря се като отделен раздел">⚙ Работен доклад</button>` : ""}${typeof logiOrderInquiry === "function" ? (erpCOInqsOf(o).length
               ? `<button class="btn btn-small co-truck co-truck-done" data-truck="${o.id}" title="По тази заявка е организиран транспорт (${erpCOInqsOf(o).length} запитван${erpCOInqsOf(o).length === 1 ? "е" : "ия"}) — клик: до кого и какво е върнато">🚛</button>`
-              : `<button class="btn btn-small btn-primary co-truck" data-truck="${o.id}" title="Запитване за транспорт по тази заявка — адрес, палети и тегло се попълват сами, запомня се в Логистика → Запитвания">🚛</button>`) : ""}${typeof erpOrderProcess === "function" ? `<button class="btn btn-small" data-oprep="${o.id}" title="Работният доклад А–Ж на заявката — отваря се като отделен раздел">⚙ Работен доклад</button>` : ""}<button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
+              : `<button class="btn btn-small btn-primary co-truck" data-truck="${o.id}" title="Запитване за транспорт по тази заявка — адрес, палети и тегло се попълват сами, запомня се в Логистика → Запитвания">🚛</button>`) : ""}<button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`;
 }
 function erpCOListHtml(rows) {
@@ -649,6 +657,7 @@ function erpRenderCOMobileList(v) {
           <div class="co-mob-actions">
             <button class="btn btn-small btn-primary" data-open="${o.id}">Отвори →</button>
             <button class="btn btn-small co-mob-draw" data-id="${o.id}" title="Всички чертежи на изделията в заявката">📄 Чертежи</button>
+            ${typeof erpPackOrderOpen === "function" ? `<button class="btn btn-small" data-pack="${o.id}" title="Опаковката на заявката — кашони, тегла, палети">🎁</button>` : ""}
             ${typeof erpOrderProcess === "function" ? `<button class="btn btn-small co-mob-proc" data-id="${o.id}" title="Работният доклад на заявката (А–Ж) — отваря се като раздел">⚙ Работен доклад</button>` : ""}
             ${typeof logiOrderInquiry === "function" ? (erpCOInqsOf(o).length
               ? `<button class="btn btn-small co-truck co-truck-done" data-truck="${o.id}" title="По тази заявка е организиран транспорт — клик за подробности">🚛</button>`
@@ -670,6 +679,7 @@ function erpRenderCOMobileList(v) {
       if (o) erpOrderProcess(o).catch(e => alert("Работният доклад не се отвори: " + ((e && e.message) || e)));
     }));
     erpCOWireTruck(v);
+    erpCOWirePack(v);
   }
 }
 
@@ -790,6 +800,7 @@ async function erpRenderCustomerOrders() {
     if (cnt) cnt.innerHTML = `${list.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
       ` <span class="sell-cell erp-muted" title="Сборът е само по НЕдоставеното — вече изпратеното не се брои">· остава ${erpEur(list.reduce((s, o) => s + erpCOValueLeft(o), 0))}</span>`}`;
     tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); erpOpenCO(b.dataset.open); }));
+    erpCOWirePack(tb);
     erpCOWireOprep(tb);
     erpCOWireTruck(tb);
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
@@ -884,6 +895,7 @@ async function erpRenderCustomerOrders() {
   v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenCO(b.dataset.open); }));
   erpCOWireOprep(v);   // БЕЗ това бутонът „⚙ Работен доклад" е мъртъв при пресен таб (случая AGI 251)
   erpCOWireTruck(v);
+  erpCOWirePack(v);
   v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
   v.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
     const c = tr.dataset.folder;

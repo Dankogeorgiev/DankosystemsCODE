@@ -720,6 +720,7 @@ async function erpRenderLogistics() {
     v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a,button,input,select")) return; openCO(tr.dataset.id); }));
     if (typeof erpCOWireOprep === "function") erpCOWireOprep(v);
     if (typeof erpCOWireTruck === "function") erpCOWireTruck(v);
+    if (typeof erpCOWirePack === "function") erpCOWirePack(v);
   }
   // 🧾 Клик на ред във Фактури транспорт → фактурата с ВСИЧКО от Покупки
   // (отваря се в раздел Покупки — Логистиката си остава отворена като раздел).

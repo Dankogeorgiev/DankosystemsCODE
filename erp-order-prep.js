@@ -169,6 +169,7 @@ function erpRenderOrderPrepTab() {
         <div class="oprep-sec-head">
           <h4>${escapeHtml(s.title)}</h4>
           <label class="erp-inline" style="font-size:12px" title="Да влезе ли секцията в Печат/PDF"><input type="checkbox" class="op-inc" ${s.inc === false ? "" : "checked"} /> в печата</label>
+          <button type="button" class="btn btn-small op-print-one" data-i="${i}" title="Печат САМО на тази секция — с корекциите от екрана, които се и записват в доклада">🖨</button>
           ${s.tools === "cut" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-labels" title="Палетните етикети на разкроя — печат">🏷 Етикети</button><button type="button" class="btn btn-small op-draws" title="Чертежите на изделията и възлите от разкроя — поръчаните най-отгоре">📄 Чертежи</button>'
             : s.tools === "pack" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-pack-open" title="Отваря опаковката на ТАЗИ заявка (кашони, тегла, палети) — попълваш и се връщаш с ↻ Преизчисли">🎁 Опаковка на заявката</button><button type="button" class="btn btn-small op-pack-last" title="Копира опаковъчните данни (кашони, тегла, палети) от последната заявка на клиента със същите изделия — бройките са си на новата заявка">⏮ Както последния път</button>' : ""}
         </div>
@@ -207,6 +208,30 @@ function erpRenderOrderPrepTab() {
       w.document.close();
     }
   });
+  // 🖨 Печат на ОТДЕЛНА секция (по Данко, 01.11.2026): взема текущия текст
+  // от екрана (с корекциите) и ГО ЗАПИСВА в доклада, после печата само нея.
+  const OPREP_T_CSS = `<style>.oprep-t{width:100%;border-collapse:collapse;margin:6px 0}.oprep-t th,.oprep-t td{border:1.2px solid #000;padding:4px 7px;font-size:11.5px;text-align:left}.oprep-t th{background:#efefef}</style>`;
+  const saveQuiet = async () => {
+    o.processing = { sections: collect().filter(s => s.key !== "err"), updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "" };
+    try {
+      if (typeof erpSaveCO === "function") await erpSaveCO(o);
+      const st = v.querySelector("#op-status");
+      if (st) { st.textContent = "✓ Записано с корекциите"; setTimeout(() => { if (st) st.textContent = ""; }, 2500); }
+    } catch (e) { alert("Корекциите НЕ се записаха: " + ((e && e.message) || e)); }
+  };
+  v.querySelectorAll(".op-print-one").forEach(b => b.addEventListener("click", async () => {
+    const i = Number(b.dataset.i);
+    const sec = v.querySelectorAll(".oprep-sec")[i];
+    if (!sec || !secs[i]) return;
+    const title = secs[i].title || "";
+    const html = sec.querySelector(".oprep-body").innerHTML;
+    const clean = s => String(s).replace(/[\\/:*?"<>|]+/g, " ").replace(/[^\p{L}\p{N} ·.,–—-]/gu, "").replace(/\s+/g, " ").trim();
+    const fname = clean(`${o.clientName || "клиент"}-${o.ourNo || ""} ${title}`);
+    const body = `<h2 style="margin:4px 0 8px;border-bottom:2px solid #000;padding-bottom:3px">${escapeHtml(title)}</h2>${html}${OPREP_T_CSS}`;
+    if (typeof invPrintWindow === "function") invPrintWindow(fname, body, "bg");
+    else alert("Печатният модул не е зареден.");
+    await saveQuiet();   // корекциите от екрана остават в доклада
+  }));
   v.querySelector("#op-rebuild").addEventListener("click", async () => {
     if (!confirm("Свеж разчет от склада, рецептите и опаковките?\nРъчните редакции НА ЕКРАНА се губят (запазеното в заявката остава, докато не натиснеш „💾 Запази“).")) return;
     try { OPREP_SECS = await erpOrderPrepBuild(o); } catch (e) { alert("Разчетът не мина: " + ((e && e.message) || e)); return; }
