@@ -42,6 +42,7 @@ const PACK_BOX_STD = [
   { name: "Тава", size: "120×80×8" },
   { name: "Плик", size: "" },          // опаковка в плик (без кашон) — по Данко, 01.11.2026
   { name: "Връзка тръби", size: "" },  // сноп тръби — обикновено 20 бр. (попълва се само̀)
+  { name: "Европалет", size: "120×80" },  // детайлите се нареждат ДИРЕКТНО на палета (1 опаковка = 1 палет)
   { name: "Нестандартна", size: "" },  // свободно описание (бившата колона „Нест. опаковка")
 ];
 // Старите кратки имена („Малък", „Голям", „МПК 85"…) продължават да се
@@ -599,9 +600,10 @@ async function erpPackOrderOpen(orderId, moreIds) {
       if (std) { el.value = std.name; const tr = el.closest("tr"); const s = tr && tr.querySelector(".pko-boxsize"); if (s) s.value = std.size; }
       // Връзка тръби: почти винаги 20 бр. — попълва се само̀, ако е празно.
       if (std && std.name === "Връзка тръби") { const tr = el.closest("tr"); const pb = tr && tr.querySelector(".pko-perbox"); if (pb && !erpToNum(pb.value)) pb.value = 20; }
-      // Лимитите на рампата (по Данко): Голям кашон → 15/палет, Малък → 20/палет.
+      // Лимитите на рампата (по Данко): Голям кашон → 15/палет, Малък → 20/палет,
+      // Европалет → 1 (самата „опаковка" Е палетът — детайлите са директно отгоре).
       if (std) {
-        const lim = std.name === "Голям кашон" ? 15 : std.name === "Малък кашон" ? 20 : 0;
+        const lim = std.name === "Голям кашон" ? 15 : std.name === "Малък кашон" ? 20 : std.name === "Европалет" ? 1 : 0;
         const tr = el.closest("tr"); const pp = tr && tr.querySelector(".pko-perpal");
         if (lim && pp && !erpToNum(pp.value) && !pp.disabled) pp.value = lim;
       }
@@ -801,6 +803,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
     const isBagCode = code => /плик/i.test(String((info[code] || {}).boxType || ""));
     const dimsOf = code => {
       if (isBagCode(code)) return { l: 36, w: 26, h: 13, bag: 1 };
+      if (/европалет/i.test(String((info[code] || {}).boxType || ""))) return { l: 118, w: 78, h: 36 };
       const nums = (String((info[code] || {}).boxSize || "").match(/\d+/g) || []).map(Number).filter(n => n > 0).sort((a, b) => b - a);
       if (!nums.length) return { l: 40, w: 30, h: 25 };
       const l = Math.min(nums[0], 200);
@@ -1454,7 +1457,7 @@ const PACK_EN_DICT = {
   "комплект": "set", "комплекта": "sets", "комплекти": "sets", "чифт": "pair", "чифта": "pairs",
   "брой": "pcs", "броя": "pcs", "бройка": "qty", "бр": "pcs",
   "кашон": "box", "кашона": "boxes", "кашони": "boxes", "кашонът": "box",
-  "палет": "pallet", "палета": "pallets", "палети": "pallets",
+  "палет": "pallet", "палета": "pallets", "палети": "pallets", "европалет": "euro pallet",
   "плик": "bag", "плика": "bags", "пликове": "bags", "тава": "tray", "тави": "trays",
   "връзка": "bundle", "връзки": "bundles", "опаковка": "package", "опаковки": "packages",
   "нестандартна": "custom", "нестандартен": "custom", "нестандартни": "custom",
