@@ -17,7 +17,7 @@ let LOGI = null;             // { loads: [...] }
 // товарене/Товари/Анализ транспорт отпаднаха: заявките живеят в „Заявки от
 // клиенти" (с камиончето 🚛 за запитване), а данните на старите товари и
 // помощните функции (logiBindInvoice и др.) остават — спят, нищо не губим.
-let logiView = "inq";        // inq | dest | tinv
+let logiView = "orders";     // orders | inq | dest | tinv (📋 Заявките са работният екран)
 let logiQ = "";
 
 async function logiLoad(force) {
@@ -565,7 +565,27 @@ async function erpRenderLogistics() {
   const money = "";
 
   let body = "";
-  if (logiView === "inq") {
+  if (logiView === "orders") {
+    // 📋 СЪЩИЯТ списък като „Заявки от клиенти" (по Данко, 01.11.2026) —
+    // подреден по Плана за товарене: тази седмица, другата, нататък.
+    // Клик на заявка я отваря в раздел Заявки; камиончето 🚛 и ⚙ са си тук.
+    try { if (typeof lpEnsureItems === "function") await lpEnsureItems(); } catch (e) {}
+    if (typeof erpCOSortRows === "function" && typeof erpCOListHtml === "function") {
+      const keepS = erpCOSort, keepQ = erpCOQuery;
+      let rowsHtml = "", cnt = 0;
+      try {
+        erpCOSort = "plan"; erpCOQuery = logiQ;
+        const rows = erpCOSortRows(((typeof erpCOList !== "undefined" && erpCOList) || []).slice());
+        cnt = rows.length;
+        rowsHtml = erpCOListHtml(rows);
+      } finally { erpCOSort = keepS; erpCOQuery = keepQ; }
+      body = `<table class="report-table erp-table" id="co-orders-table">
+        <thead><tr><th>Наш №</th><th>Клиентски №</th><th>Клиент</th><th>Дата</th><th>Срок</th><th class="num">Продукти</th><th class="num sell-cell" title="Стойността на НЕдоставеното">Остава</th><th>Статус</th><th title="В кой седмичен план за експедиция е включена заявката">План</th><th>Файл</th><th></th></tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="11" class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</td></tr>`}</tbody>
+      </table>
+      <p class="hint">Същият списък като „Заявки от клиенти" (${cnt} заявки), подреден по <b>Плана за товарене</b>: 🚚 тази седмица → другата → нататък → без план. Клик на ред отваря заявката в раздел Заявки; 🚛 праща/показва запитването за транспорт; ⚙ отваря Работния доклад.</p>`;
+    } else body = `<p class="erp-warn">Модулът Заявки от клиенти не е зареден.</p>`;
+  } else if (logiView === "inq") {
     let inqs = (LOGI.inq || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
     if (q) inqs = inqs.filter(x => logiNorm([x.label, x.subject, (x.to || []).join(" "), logiCargoOf(x), x.price, x.text].join(" ")).includes(q));
     body = `<table class="report-table erp-table">
@@ -651,6 +671,7 @@ async function erpRenderLogistics() {
 
   v.innerHTML = `
     <div class="erp-toolbar">
+      <button class="btn btn-small ${logiView === "orders" ? "btn-primary" : ""}" id="lgi-v-orders" title="Същият списък като Заявки от клиенти, подреден по Плана за товарене — какво се товари тази седмица и следващите">📋 Заявки от клиенти</button>
       <button class="btn btn-small ${logiView === "inq" ? "btn-primary" : ""}" id="lgi-v-inq" title="Всички изпратени запитвания за транспорт: кога, до кого, по коя заявка, върната цена">📨 Запитвания (${(LOGI.inq || []).length})</button>
       <button class="btn btn-small ${logiView === "dest" ? "btn-primary" : ""}" id="lgi-v-dest">🗺 Дестинации</button>
       <button class="btn btn-small ${logiView === "tinv" ? "btn-primary" : ""}" id="lgi-v-tinv" title="Всички транспортни фактури от Покупки — Транспорт износ и Транспорт вътрешен поотделно, със суми; клик на ред отваря фактурата с всичко от Покупки">🧾 Фактури транспорт</button>
@@ -687,6 +708,19 @@ async function erpRenderLogistics() {
   }));
   v.querySelector("#lgi-v-dest").addEventListener("click", () => { logiView = "dest"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-inq").addEventListener("click", () => { logiView = "inq"; erpRenderLogistics(); });
+  v.querySelector("#lgi-v-orders").addEventListener("click", () => { logiView = "orders"; erpRenderLogistics(); });
+  // 📋 Вграденият списък Заявки: клик отваря заявката в раздел Заявки от
+  // клиенти (формата НЕ се рисува върху Логистиката); 🚛 и ⚙ са си тук.
+  if (logiView === "orders") {
+    const openCO = id => {
+      if (typeof erpSetTab === "function") erpSetTab("customer");
+      if (typeof erpOpenCO === "function") erpOpenCO(id);
+    };
+    v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", ev => { ev.stopPropagation(); openCO(b.dataset.open); }));
+    v.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a,button,input,select")) return; openCO(tr.dataset.id); }));
+    if (typeof erpCOWireOprep === "function") erpCOWireOprep(v);
+    if (typeof erpCOWireTruck === "function") erpCOWireTruck(v);
+  }
   // 🧾 Клик на ред във Фактури транспорт → фактурата с ВСИЧКО от Покупки
   // (отваря се в раздел Покупки — Логистиката си остава отворена като раздел).
   v.querySelectorAll("[data-puopen]").forEach(tr => tr.addEventListener("click", ev => {

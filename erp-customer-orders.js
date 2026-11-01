@@ -22,6 +22,14 @@ function erpCOSortRows(rows) {
   const val = o => erpCOValueLeft(o);   // подрежда се по ОСТАВАЩАТА стойност
   const S = String;
   const cmp = {
+    // 🚚 По Плана за товарене: тази седмица → другата → нататък; планираните
+    // пред непланираните; вътре в групата — по срок (Данко, 01.11.2026).
+    plan: (a, b) => {
+      const wa = erpCOPlanWeek(a), wb = erpCOPlanWeek(b);
+      if (!!wa !== !!wb) return wa ? -1 : 1;
+      if (wa && wb && wa !== wb) return wa.localeCompare(wb);
+      return S(a.deadline || "9999-99-99").localeCompare(S(b.deadline || "9999-99-99"));
+    },
     deadline: (a, b) => S(a.deadline || "9999-99-99").localeCompare(S(b.deadline || "9999-99-99")),   // най-скорошен срок отгоре
     client: (a, b) => (a.clientName || "").localeCompare(b.clientName || "", "bg"),
     date: (a, b) => S(b.date || "").localeCompare(S(a.date || "")),                                    // най-нови отгоре
@@ -176,6 +184,47 @@ function erpCOStatusCell(o) {
    Показва се до статуса. Данните идват от loading-plan.js (app_config
    „loading_plan"); ако модулът още не е зареден — клетката стои празна и
    се попълва, щом дойде (erpCOPlanFill). */
+/* Седмицата на товарене (понеделник ISO) — за подредбата „по План". */
+function erpCOPlanWeek(o) {
+  try { const inf = (typeof lpOrderPlanInfo === "function") ? lpOrderPlanInfo(o) : null; return (inf && inf.week) || ""; }
+  catch (e) { return ""; }
+}
+/* Понеделникът на текущата седмица + w седмици (ISO, „YYYY-MM-DD"). */
+function erpCOMondayPlus(w) {
+  const now = new Date();
+  const u = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const mon = new Date(u.getTime() - ((u.getUTCDay() + 6) % 7) * 864e5 + (w || 0) * 7 * 864e5);
+  const p = n => String(n).padStart(2, "0");
+  return `${mon.getUTCFullYear()}-${p(mon.getUTCMonth() + 1)}-${p(mon.getUTCDate())}`;
+}
+/* Групите по седмици за подредбата „🚚 По плана": заглавен ред пред всяка
+   седмица — ТАЗИ СЕДМИЦА / ДРУГАТА СЕДМИЦА / Седмица N, после без план. */
+function erpCOPlanGroupsHtml(rows) {
+  const cur = erpCOMondayPlus(0), next = erpCOMondayPlus(1);
+  const p = n => String(n).padStart(2, "0");
+  const label = w => {
+    if (!w) return "⬜ БЕЗ ПЛАН ЗА ТОВАРЕНЕ — по срок";
+    const m = String(w).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return "🚚 " + w;
+    const mon = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    const sun = new Date(mon.getTime() + 6 * 864e5);
+    const thu = new Date(mon.getTime() + 3 * 864e5);
+    const jan1 = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1));
+    const no = Math.ceil(((thu - jan1) / 864e5 + 1) / 7);
+    const per = `${p(mon.getUTCDate())}.${p(mon.getUTCMonth() + 1)}–${p(sun.getUTCDate())}.${p(sun.getUTCMonth() + 1)}`;
+    if (w === cur) return `🚚 ТАЗИ СЕДМИЦА — седмица ${no} (${per})`;
+    if (w === next) return `🚚 ДРУГАТА СЕДМИЦА — седмица ${no} (${per})`;
+    if (w < cur) return `⚠ ИЗОСТАНАЛИ — седмица ${no} (${per})`;
+    return `🚚 СЕДМИЦА ${no} (${per})`;
+  };
+  let out = "", last = "__начало__";
+  rows.forEach(o => {
+    const w = erpCOPlanWeek(o);
+    if (w !== last) { out += `<tr class="co-plan-head"><td colspan="11">${escapeHtml(label(w))}</td></tr>`; last = w; }
+    out += erpCORowHtml(o);
+  });
+  return out;
+}
 function erpCOPlanCell(o) {
   const inf = (typeof lpOrderPlanInfo === "function") ? lpOrderPlanInfo(o) : null;
   if (!inf) return `<span class="erp-muted co-plan-no" title="Заявката не е включена в план за седмица">—</span>`;
@@ -335,6 +384,7 @@ function erpCORowHtml(o) {
           </tr>`;
 }
 function erpCOListHtml(rows) {
+  if (erpCOSort === "plan") return erpCOPlanGroupsHtml(rows);
   if (erpCOSort !== "client" || (erpCOQuery || "").trim()) return rows.map(erpCORowHtml).join("");
   const groups = new Map();
   rows.forEach(o => { const c = o.clientName || "— без клиент —"; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(o); });
@@ -623,7 +673,11 @@ function erpRenderCOMobileList(v) {
   }
 }
 
+// Епохата гони надбягването списък ↔ форма: който започне ПОСЛЕДЕН, печели
+// екрана (формата, отворена от Логистика, не се стъпква от фоновия списък).
+let ERP_CO_EPOCH = 0;
 async function erpRenderCustomerOrders() {
+  const myEpoch = ++ERP_CO_EPOCH;
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   // Трите независими зареждания вървят УСПОРЕДНО (преди бяха едно след друго).
@@ -639,6 +693,9 @@ async function erpRenderCustomerOrders() {
   // 🚛 Запитванията за транспорт (Логистика): камиончето на реда е синьо без
   // запитване и ЖЪЛТО, щом по заявката вече е организиран транспорт.
   try { if (typeof logiLoad === "function") await logiLoad(); } catch (e) {}
+  // 🚚 Подредбата „по План": седмиците трябват ПРЕДИ чертането на таблицата.
+  if (erpCOSort === "plan") { try { if (typeof lpEnsureItems === "function") await lpEnsureItems(); } catch (e) {} }
+  if (myEpoch !== ERP_CO_EPOCH) return;   // по-нов екран пое раздела, докато зареждахме
   // 📱 Телефон: папките Клиент → Заявки, без тежката таблица (Данко, 31.10).
   if (erpCOMobile()) { erpRenderCOMobileList(v); return; }
   // Текущи производства ЗА СКЛАД (пуснати от Продукти/Склад детайли, без заявка) —
@@ -745,11 +802,12 @@ async function erpRenderCustomerOrders() {
 
   const rows = erpCOSortRows(erpCOList.slice());
   const sortOpts = [
-    ["deadline", "Срок на доставка"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
+    ["deadline", "Срок на доставка"], ["plan", "🚚 План за товарене (по седмици)"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
     ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Остатъчна стойност (голяма отгоре)"],
   ];
   const statusOpts = ["нова", "в производство", "готова за продажба", "частично завършена", "завършена"];
   const clientOpts = [...new Set((erpCOList || []).map(o => o.clientName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  if (myEpoch !== ERP_CO_EPOCH) return;   // формата (или по-нов списък) пое раздела
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count" id="erp-co-count">${rows.length} заявки${(typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.production) ? "" :
@@ -764,6 +822,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline">Подреди по
         <select id="erp-co-sort">${sortOpts.map(([k, l]) => `<option value="${k}" ${k === erpCOSort ? "selected" : ""}>${l}</option>`).join("")}</select>
       </label>
+      <button class="btn btn-small ${erpCOSort === "plan" ? "btn-primary" : ""}" id="erp-co-byplan" title="Подрежда заявките по Плана за товарене: ТАЗИ СЕДМИЦА, ДРУГАТА СЕДМИЦА, нататък — и накрая без план. Повторен клик връща по срок.">🚚 По плана</button>
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
@@ -789,7 +848,17 @@ async function erpRenderCustomerOrders() {
   const aiBtn = document.getElementById("erp-co-ai");
   if (aiBtn) aiBtn.addEventListener("click", erpAIStart);
   const sortSel = document.getElementById("erp-co-sort");
-  if (sortSel) sortSel.addEventListener("change", e => { erpCOSort = e.target.value; erpCORefreshTable(); });
+  if (sortSel) sortSel.addEventListener("change", async e => {
+    erpCOSort = e.target.value;
+    if (erpCOSort === "plan") { try { if (typeof lpEnsureItems === "function") await lpEnsureItems(); } catch (err) {} }
+    erpRenderCustomerOrders();   // целият екран — бутонът „🚚 По плана" да свети вярно
+  });
+  const byPlan = document.getElementById("erp-co-byplan");
+  if (byPlan) byPlan.addEventListener("click", async () => {
+    erpCOSort = erpCOSort === "plan" ? "deadline" : "plan";
+    if (erpCOSort === "plan") { try { if (typeof lpEnsureItems === "function") await lpEnsureItems(); } catch (err) {} }
+    erpRenderCustomerOrders();
+  });
   const fStatus = document.getElementById("erp-co-fstatus");
   if (fStatus) fStatus.addEventListener("change", e => { erpCOStatusFilter = e.target.value; erpCORefreshTable(); });
   const fClient = document.getElementById("erp-co-fclient");
@@ -997,12 +1066,14 @@ async function erpCOConsSugg(o) {
 
 /* ---------- Форма / детайл ---------- */
 async function erpRenderCOForm(o) {
+  const myEpoch = ++ERP_CO_EPOCH;   // формата бие течащ рендер на списъка
   const v = erpView();
   const clients = await erpLoadClients();
   if (!o.posted && (o.clientId || o.clientName)) erpCOFillPrices(o);   // авто-цени при отваряне
   const canDelete = (typeof isOwnerAdmin === "function") && isOwnerAdmin() && o.id;
   try { if (typeof quickLoad === "function") await quickLoad(); } catch (e) {}   // за знака „нестандартна"
   const nonstd = erpCOIsNonstd(o);
+  if (myEpoch !== ERP_CO_EPOCH) return;   // по-нов екран пое раздела, докато зареждахме
   v.innerHTML = `
     ${nonstd ? erpCONonstdBanner() : ""}
     <div class="erp-toolbar"${nonstd ? ' style="border-left:4px solid #f59e0b;padding-left:8px"' : ""}>

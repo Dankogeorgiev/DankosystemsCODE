@@ -976,3 +976,7 @@ button.co-mob-card:active { background: #eff6ff; }
 .co-truck { font-size: 14px; }
 .co-truck-done { background: #fde047; border-color: #eab308; color: #713f12; }
 .co-truck-done:hover { background: #facc15; }
+
+/* 🚚 Заглавните редове на групите „по План за товарене" в Заявки/Логистика */
+.co-plan-head td { background: #ecfeff; border-top: 2px solid #06b6d4; color: #155e75;
+  font-weight: 800; font-size: 12.5px; letter-spacing: .4px; padding: 7px 10px; }
