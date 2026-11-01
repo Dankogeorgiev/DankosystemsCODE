@@ -363,6 +363,8 @@ function erpInvPrintExport(o, opts) {
 /* ---------- Packing List (по образеца: Marks and numbers / Order / Qty / Net weight / Value) ---------- */
 function erpInvPrintPackingEx(o) {
   const tr = o.transport || {};
+  // Без кирилица в документа (по Данко, 01.11.2026) — превод/транслитерация.
+  const tEn = x => (typeof packEnText === "function" ? packEnText(String(x == null ? "" : x)) : String(x == null ? "" : x));
   const cons = (o.consignee && (o.consignee.name || o.consignee.city)) ? o.consignee : (o.client || {});
   let totQ = 0, totW = 0;
   const rows = (o.lines || []).map((l, i) => {
@@ -373,7 +375,7 @@ function erpInvPrintPackingEx(o) {
     return `<tr>
       <td class="c">${i + 1}</td>
       <td class="c">${escapeHtml(l.clientCode || l.code || "")}</td>
-      <td>${escapeHtml(l.name || "")}</td>
+      <td>${escapeHtml(tEn(l.name || ""))}</td>
       <td class="c">${escapeHtml(l.orderRef || o.orderRef || "")}</td>
       <td class="r">${erpNum(q)} pcs.</td>
       <td class="r">${per1 ? erpNum(Math.round(per1 * 100) / 100) : ""}</td>
@@ -389,9 +391,9 @@ function erpInvPrintPackingEx(o) {
       <div class="party"><h3>Consignee:</h3>${invClientBlock(o, "consignee")}</div>
     </div>
     <div class="grid2">
-      <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tr.means || "by truck")}</b>${tr.vehicleReg ? `<br>Vehicle No: <b>${escapeHtml(tr.vehicleReg)}</b>` : ""}<br>Destination: <b>${escapeHtml(tr.destination || cons.country || "")}</b></div>
-      <div>Conditions of delivery:<br><b>${escapeHtml(tr.incoterms || "")}</b>${tr.carrier ? `<br>Carrier:<br><b>${escapeHtml(tr.carrier)}</b>` : ""}</div>
-      <div>Place of shipment:<br><b>${escapeHtml(tr.loadPlace || "Plovdiv")}</b><br>Date of shipment:<br><b>${invFmtD(tr.shipDate || o.issueDate || o.date)}</b></div>
+      <div><b>Transport:</b><br>Means of transport:<br><b>${escapeHtml(tEn(tr.means || "by truck"))}</b>${tr.vehicleReg ? `<br>Vehicle No: <b>${escapeHtml(tr.vehicleReg)}</b>` : ""}<br>Destination: <b>${escapeHtml(tEn(tr.destination || cons.country || ""))}</b></div>
+      <div>Conditions of delivery:<br><b>${escapeHtml(tr.incoterms || "")}</b>${tr.carrier ? `<br>Carrier:<br><b>${escapeHtml(tEn(tr.carrier))}</b>` : ""}</div>
+      <div>Place of shipment:<br><b>${escapeHtml(tEn(tr.loadPlace || "Plovdiv"))}</b><br>Date of shipment:<br><b>${invFmtD(tr.shipDate || o.issueDate || o.date)}</b></div>
     </div>
     <table>
       <thead><tr><th class="c" style="width:24px">№</th><th class="c" style="width:80px">Code</th><th>Marks and numbers</th><th class="c" style="width:84px">Order No/Date</th><th class="c" style="width:70px">Quantity</th><th class="c" style="width:70px">Net weight 1 pc (kg)</th><th class="c" style="width:76px">Net weight (kg)</th></tr></thead>
@@ -409,24 +411,25 @@ function erpInvPrintPackingEx(o) {
 /* ---------- Description of Goods (по образеца: митница, камион, маршрут, опис) ---------- */
 function erpInvPrintDescGoods(o) {
   const tr = o.transport || {};
+  // Без кирилица в документа (по Данко, 01.11.2026) — превод/транслитерация.
+  const tEn = x => (typeof packEnText === "function" ? packEnText(String(x == null ? "" : x)) : String(x == null ? "" : x));
   const rows = (o.lines || []).map((l, i) => `<tr>
       <td class="c">${i + 1}</td>
-      <td><b>${escapeHtml(l.name || "")}</b></td>
-      <td>${escapeHtml(l.goodsDesc || "")}</td>
+      <td><b>${escapeHtml(tEn(l.name || ""))}</b></td>
+      <td>${escapeHtml(tEn(l.goodsDesc || ""))}</td>
     </tr>`).join("") || `<tr><td colspan="3" class="c muted">—</td></tr>`;
   const body = `
     <div class="head"><div><h1>DESCRIPTION OF GOODS</h1></div>
       <div style="text-align:right"><b>${escapeHtml(invDocRef(o))}</b>${o.orderRef ? `<br>Order No.: <b>${escapeHtml(o.orderRef)}</b>` : ""}</div></div>
     <div class="grid2" style="grid-template-columns:1fr 1fr">
-      <div>Speditor:<br>Company: <b>${escapeHtml(tr.carrier || "")}</b></div>
-      <div>Митница: <b>${escapeHtml(tr.customs || "")}</b><br>Vehicle Plate No.: <b>${escapeHtml(tr.vehicleReg || "")}</b></div>
+      <div>Speditor:<br>Company: <b>${escapeHtml(tEn(tr.carrier || ""))}</b></div>
+      <div>Customs office: <b>${escapeHtml(tEn(tr.customs || ""))}</b><br>Vehicle Plate No.: <b>${escapeHtml(tr.vehicleReg || "")}</b></div>
     </div>
-    <div class="kv">Route: <b>${escapeHtml(tr.route || "")}</b></div>
+    <div class="kv">Route: <b>${escapeHtml(tEn(tr.route || ""))}</b></div>
     <table>
-      <thead><tr><th class="c" style="width:26px">№</th><th>Marks and numbers</th><th style="width:200px">Описание (за митницата)</th></tr></thead>
+      <thead><tr><th class="c" style="width:26px">No</th><th>Marks and numbers</th><th style="width:200px">Description (for customs)</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p class="muted" style="font-size:10.5px">Описанието на всеки ред („Тръби с планки", „Планки"…) се попълва с ✎ Редакция преди печат — или кажи на Клод да добави поле по ред.</p>
     <div class="foot"><div>Date: ${invFmtD(tr.shipDate || o.issueDate || o.date)}</div><div>Signature: ${escapeHtml(o.compiledBy || "")}</div></div>`;
   invPrintWindow("Description of Goods " + (o.docNo || ""), body, "en");
 }
@@ -438,6 +441,9 @@ function erpInvPrintDescGoods(o) {
    нето + палети × тегло на палет. */
 function erpInvPrintCMREx(o) {
   const s = ERP_SELLER_EN; const tr = o.transport || {};
+  // БЕЗ КИРИЛИЦА (по Данко, 01.11.2026): целият формуляр е на английски, а
+  // данните (превозвач, шофьор, маршрут, адреси) се превеждат/транслитерират.
+  const tEn = x => (typeof packEnText === "function" ? packEnText(String(x == null ? "" : x)) : String(x == null ? "" : x));
   const cons = (o.consignee && (o.consignee.name || o.consignee.city)) ? o.consignee : (o.client || {});
   const netKg = (o.lines || []).reduce((sum, l) => sum + ((typeof erpDocLineKg === "function" && erpDocLineKg(o, l)) || 0), 0);
   const pi = invPalletInfo(o, netKg);
@@ -446,42 +452,42 @@ function erpInvPrintCMREx(o) {
   const bx = (cls, label, val, mh) => `<div class="cbx ${cls || ""}" style="min-height:${mh || 46}px"><div class="cbl">${label}</div><div class="cbv">${val || ""}</div></div>`;
   const body = `
     <div class="cmr-top">
-      <div class="cmr-copy">Екземпляр за изпращача<br><i>Copy for sender</i><br><span class="cmr-fill">1 – 5, 9 – 16, 18 + 22</span></div>
-      <div class="cmr-title"><b>МЕЖДУНАРОДНА<br>ТОВАРИТЕЛНИЦА</b><div class="cmr-big">CMR</div><i>INTERNATIONAL CONSIGNMENT NOTE</i></div>
-      <div class="cmr-no">No <b>${escapeHtml(o.docNo || "..........")}</b><br><span class="cmr-fill">...................... Държава / Country</span></div>
+      <div class="cmr-copy">Copy for sender<br><span class="cmr-fill">1 – 5, 9 – 16, 18 + 22</span></div>
+      <div class="cmr-title"><b>INTERNATIONAL<br>CONSIGNMENT NOTE</b><div class="cmr-big">CMR</div></div>
+      <div class="cmr-no">No <b>${escapeHtml(o.docNo || "..........")}</b><br><span class="cmr-fill">...................... Country</span></div>
     </div>
-    <div class="cmr-note">За попълване на отговорност на изпращача · To be completed on the sender's responsibility · Очертаните графи с дебели линии се попълват от превозвача / The space framed with heavy lines must be filled in by the carrier</div>
+    <div class="cmr-note">To be completed on the sender's responsibility · The space framed with heavy lines must be filled in by the carrier</div>
     <div class="cmrgrid">
       <div class="cmrcol">
-        ${bx("", "1 Изпращач (име, адрес, държава) / Sender (name, address, country)", `<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.vat)}<br>${escapeHtml(s.address)}<br>${escapeHtml(s.city)}, ${escapeHtml(s.country)} BG`, 74)}
-        ${bx("", "2 Получател (име, адрес, държава) / Consignee (name, address, country)", `<b>${escapeHtml(cons.name || "")}</b><br>${[cons.street, cons.city, cons.country].filter(Boolean).map(escapeHtml).join("<br>")}${cons.vat ? "<br>" + escapeHtml(cons.vat) : ""}`, 74)}
-        ${bx("", "3 Място на разтоварване на стоката / Place of delivery of the goods (place, country)", escapeHtml(tr.unloadPlace || [cons.city, cons.country].filter(Boolean).join(", ")), 52)}
-        ${bx("", "4 Място и дата на натоварване / Place and date of taking over the goods (place, country, date)", `${escapeHtml(tr.loadPlace || s.address + ", " + s.city)}, Bulgaria BG<br>Date: <b>${invFmtD(tr.shipDate || o.issueDate)}</b>`, 52)}
-        ${bx("", "5 Приложени документи / Documents attached", docsAttached, 62)}
+        ${bx("", "1 Sender (name, address, country)", `<b>${escapeHtml(s.name)}</b><br>${escapeHtml(s.vat)}<br>${escapeHtml(s.address)}<br>${escapeHtml(s.city)}, ${escapeHtml(s.country)} BG`, 74)}
+        ${bx("", "2 Consignee (name, address, country)", `<b>${escapeHtml(tEn(cons.name || ""))}</b><br>${[cons.street, cons.city, cons.country].filter(Boolean).map(x => escapeHtml(tEn(x))).join("<br>")}${cons.vat ? "<br>" + escapeHtml(cons.vat) : ""}`, 74)}
+        ${bx("", "3 Place of delivery of the goods (place, country)", escapeHtml(tEn(tr.unloadPlace || [cons.city, cons.country].filter(Boolean).join(", "))), 52)}
+        ${bx("", "4 Place and date of taking over the goods (place, country, date)", `${escapeHtml(tEn(tr.loadPlace || s.address + ", " + s.city))}, Bulgaria BG<br>Date: <b>${invFmtD(tr.shipDate || o.issueDate)}</b>`, 52)}
+        ${bx("", "5 Documents attached", docsAttached, 62)}
       </div>
       <div class="cmrcol">
-        ${bx("hv", "16 Превозвач (име, адрес, държава) / Carrier (name, address, country)", escapeHtml(tr.carrier || "") + (tr.vehicleReg ? `<br>Vehicle Plate No.: <b>${escapeHtml(tr.vehicleReg)}</b>` : "") + (tr.driver ? `<br>Driver: ${escapeHtml(tr.driver)}` : ""), 74)}
-        ${bx("hv", "17 Последващи превозвачи / Successive carriers", "", 52)}
-        ${bx("hv", "18 Резерви и бележки на превозвача / Carrier's reservations and observations on taking over the goods", "", 74)}
-        ${bx("", "13 Инструкции на изпращача / Sender's instructions", (tr.route ? "Route: <b>" + escapeHtml(tr.route) + "</b>" : "") + (tr.customs ? `<br>Customs: <b>${escapeHtml(tr.customs)}</b>` : ""), 62)}
-        ${bx("", "14 Условия на доставка / Conditions of delivery", `<b>${escapeHtml(tr.incoterms || "")}</b>`, 34)}
+        ${bx("hv", "16 Carrier (name, address, country)", escapeHtml(tEn(tr.carrier || "")) + (tr.vehicleReg ? `<br>Vehicle Plate No.: <b>${escapeHtml(tr.vehicleReg)}</b>` : "") + (tr.driver ? `<br>Driver: ${escapeHtml(tEn(tr.driver))}` : ""), 74)}
+        ${bx("hv", "17 Successive carriers", "", 52)}
+        ${bx("hv", "18 Carrier's reservations and observations on taking over the goods", "", 74)}
+        ${bx("", "13 Sender's instructions", (tr.route ? "Route: <b>" + escapeHtml(tEn(tr.route)) + "</b>" : "") + (tr.customs ? `<br>Customs: <b>${escapeHtml(tEn(tr.customs))}</b>` : ""), 62)}
+        ${bx("", "14 Conditions of delivery", `<b>${escapeHtml(tr.incoterms || "")}</b>`, 34)}
       </div>
     </div>
     <table class="cmr-goods">
       <thead><tr>
-        <th style="width:20%">6 Марки и номера<br><i>Marks and numbers</i></th>
-        <th style="width:14%">7 Брой на пакетите<br><i>Number of packages</i></th>
-        <th style="width:16%">8 Начин на опаковане<br><i>Method of packing</i></th>
-        <th>9 Вид на стоката<br><i>Nature of the goods</i></th>
-        <th style="width:12%">10 Статистически №<br><i>Statistical number</i></th>
-        <th style="width:12%">11 Тегло бруто, kg<br><i>Gross weight in kg</i></th>
-        <th style="width:9%">12 Обем m³<br><i>Volume in m³</i></th>
+        <th style="width:20%">6 Marks and numbers</th>
+        <th style="width:14%">7 Number of packages</th>
+        <th style="width:16%">8 Method of packing</th>
+        <th>9 Nature of the goods</th>
+        <th style="width:12%">10 Statistical number</th>
+        <th style="width:12%">11 Gross weight in kg</th>
+        <th style="width:9%">12 Volume in m³</th>
       </tr></thead>
       <tbody><tr style="height:84px">
         <td>Pallets: <b>${pi.n || ""}</b></td>
         <td class="c"><b>${pi.n || ""}</b></td>
         <td class="c">${pi.n ? "pallets" : ""}</td>
-        <td><b>${escapeHtml(invGoodsNature(o))}</b></td>
+        <td><b>${escapeHtml(tEn(invGoodsNature(o)))}</b></td>
         <td class="c">${escapeHtml(o.tariffCode || "")}</td>
         <td class="c"><b>${pi.gross ? erpNum(pi.gross) : ""}</b></td>
         <td></td>
@@ -489,17 +495,17 @@ function erpInvPrintCMREx(o) {
     </table>
     <div class="cmrgrid">
       <div class="cmrcol">
-        ${bx("", "19 Специални споразумения / Special agreements", "", 36)}
-        ${bx("", "21 Съставена в / Established in — на / on", `${escapeHtml(tr.loadPlace || "Plovdiv")} · ${invFmtD(tr.shipDate || o.issueDate)}`, 36)}
-        ${bx("", "22 Подпис и печат на изпращача / Signature and stamp of the sender", `<br><br>${escapeHtml(s.name)}`, 72)}
+        ${bx("", "19 Special agreements", "", 36)}
+        ${bx("", "21 Established in — on", `${escapeHtml(tEn(tr.loadPlace || "Plovdiv"))} · ${invFmtD(tr.shipDate || o.issueDate)}`, 36)}
+        ${bx("", "22 Signature and stamp of the sender", `<br><br>${escapeHtml(s.name)}`, 72)}
       </div>
       <div class="cmrcol">
-        ${bx("hv", "20 Разни / Miscellaneous", "", 36)}
-        ${bx("hv", "23 Подпис и печат на превозвача / Signature and stamp of the carrier", "<br><br><br>", 72)}
-        ${bx("", "24 Стоката получена / Goods received — място / place ............... дата / date ...............<br>Подпис и печат на получателя / Signature and stamp of the consignee", "<br><br>", 72)}
+        ${bx("hv", "20 Miscellaneous", "", 36)}
+        ${bx("hv", "23 Signature and stamp of the carrier", "<br><br><br>", 72)}
+        ${bx("", "24 Goods received — place ............... date ...............<br>Signature and stamp of the consignee", "<br><br>", 72)}
       </div>
     </div>
-    <p class="muted" style="font-size:9.5px;margin-top:4px">Този превоз се подчинява, независимо от всяка противна клауза, на Конвенцията за договора за международен автомобилен превоз на стоки (CMR). · This carriage is subject, notwithstanding any clause to the contrary, to the Convention on the Contract for the International Carriage of Goods by Road (CMR).</p>
+    <p class="muted" style="font-size:9.5px;margin-top:4px">This carriage is subject, notwithstanding any clause to the contrary, to the Convention on the Contract for the International Carriage of Goods by Road (CMR).</p>
     <style>
       .cmr-top{display:flex;gap:10px;align-items:stretch;border:2px solid #000;padding:6px 10px;margin-bottom:4px}
       .cmr-copy{font-size:10px;flex:1}
@@ -521,7 +527,7 @@ function erpInvPrintCMREx(o) {
       table.cmr-goods td.c{text-align:center}
       @media print{ body{font-size:11px} }
     </style>`;
-  invPrintWindow("CMR " + (o.docNo || ""), body, "bg");
+  invPrintWindow("CMR " + (o.docNo || ""), body, "en");
 }
 
 /* ---------- Декларации за произход (BG + EN, авто от фактурата) ---------- */

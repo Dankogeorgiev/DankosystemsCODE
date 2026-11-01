@@ -834,6 +834,9 @@ async function erpPackDocRows(o) {
     const mult = (r.unitMult != null ? Number(r.unitMult) : Number((spec || {}).unitMult)) || 1;
     const st = {
       key, code: l.code || "", name: l.name || "",
+      // „име при клиента" (от реда на заявката или картотеката) — за
+      // английските документи то бие машинния превод.
+      enAlt: String(l.clientName || (spec && spec.clientProductName) || "").trim(),
       // qty е в ЕДИНИЦАТА на реда (броя или К-ТА); kgPer е за единица —
       // кг-то при комплекти НЕ се удвоява, бройките/кашоните — да (по страни).
       qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),
@@ -1150,13 +1153,103 @@ function packColor(code) {
 }
 /* Клиент на латиница (без кирилица) = ИЗНОС → придружаващите документи на английски. */
 function packIsExport(o) { const n = String((o && o.clientName) || ""); return /[A-Za-z]/.test(n) && !/[А-Яа-я]/.test(n); }
+
+/* ---------- АВТОМАТИЧЕН АНГЛИЙСКИ за документите (по Данко, 01.11.2026) ----------
+   Packing List, Палет описът и ЧМР-то НИКОГА не носят кирилица: първо целите
+   изрази, после дума по дума през речника на производството, а каквото остане
+   на кирилица се транслитерира (БДС латиница). Екраните ОСТАВАТ на български —
+   превежда се само това, което излиза на хартия. */
+const PACK_EN_PHRASES = [
+  ["отгоре върху палета", "on top of the pallet"],
+  ["връзка тръби", "tube bundle"], ["връзки тръби", "tube bundles"],
+  ["непълен кашон", "partial box"], ["к-та", "sets"], ["к-т", "set"],
+];
+const PACK_EN_DICT = {
+  "механизъм": "mechanism", "механизма": "mechanism", "механизми": "mechanisms", "механизмите": "mechanisms",
+  "тръба": "tube", "тръби": "tubes", "тръбен": "tube", "тръбна": "tube",
+  "планка": "plate", "планки": "plates", "възел": "assembly", "възли": "assemblies",
+  "детайл": "part", "детайли": "parts", "изделие": "product", "изделия": "products",
+  "спирачка": "brake", "спирачки": "brakes", "колело": "wheel", "колела": "wheels",
+  "болт": "bolt", "болта": "bolts", "болтове": "bolts", "гайка": "nut", "гайки": "nuts",
+  "шайба": "washer", "шайби": "washers", "пружина": "spring", "пружини": "springs",
+  "ос": "axle", "оси": "axles", "лагер": "bearing", "лагери": "bearings",
+  "втулка": "bushing", "втулки": "bushings", "рамка": "frame", "рамки": "frames",
+  "крак": "leg", "крака": "legs", "капак": "cover", "капаци": "covers",
+  "панта": "hinge", "панти": "hinges", "ухо": "ear", "уши": "ears",
+  "шина": "rail", "шини": "rails", "профил": "profile", "профили": "profiles",
+  "ламарина": "sheet metal", "лента": "strip", "щрипс": "strip",
+  "конзола": "bracket", "конзоли": "brackets", "държач": "holder", "държачи": "holders",
+  "фиксатор": "lock", "фиксатори": "locks", "ограничител": "stopper", "ограничители": "stoppers",
+  "винт": "screw", "винта": "screws", "винтове": "screws", "нит": "rivet", "нитове": "rivets",
+  "скоба": "clamp", "скоби": "clamps", "кука": "hook", "куки": "hooks",
+  "халка": "ring", "халки": "rings", "прът": "rod", "пръти": "rods",
+  "щифт": "pin", "щифтове": "pins", "дръжка": "handle", "дръжки": "handles",
+  "седалка": "seat", "облегалка": "backrest", "легло": "bed", "диван": "sofa",
+  "фотьойл": "armchair", "табуретка": "stool", "маса": "table", "стол": "chair", "столове": "chairs",
+  "метален": "metal", "метална": "metal", "метални": "metal",
+  "черен": "black", "черна": "black", "черни": "black", "бял": "white", "бяла": "white", "бели": "white",
+  "ляв": "left", "лява": "left", "ляво": "left", "леви": "left", "левия": "left",
+  "десен": "right", "дясна": "right", "дясно": "right", "десни": "right", "десния": "right",
+  "малък": "small", "малка": "small", "малки": "small",
+  "среден": "medium", "средна": "medium", "средни": "medium",
+  "голям": "large", "голяма": "large", "големи": "large",
+  "къс": "short", "къса": "short", "дълъг": "long", "дълга": "long",
+  "горен": "upper", "горна": "upper", "долен": "lower", "долна": "lower",
+  "преден": "front", "предна": "front", "заден": "rear", "задна": "rear",
+  "двоен": "double", "двойна": "double", "единичен": "single", "единична": "single",
+  "комплект": "set", "комплекта": "sets", "комплекти": "sets", "чифт": "pair", "чифта": "pairs",
+  "брой": "pcs", "броя": "pcs", "бройка": "qty", "бр": "pcs",
+  "кашон": "box", "кашона": "boxes", "кашони": "boxes", "кашонът": "box",
+  "палет": "pallet", "палета": "pallets", "палети": "pallets",
+  "плик": "bag", "плика": "bags", "пликове": "bags", "тава": "tray", "тави": "trays",
+  "връзка": "bundle", "връзки": "bundles", "опаковка": "package", "опаковки": "packages",
+  "нестандартна": "custom", "нестандартен": "custom", "нестандартни": "custom",
+  "заявка": "order", "клиент": "client", "комбиниран": "mixed",
+  "кг": "kg", "см": "cm", "мм": "mm", "и": "and", "с": "with", "за": "for", "по": "per", "на": "of", "от": "of",
+};
+const PACK_TRANSLIT = { "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sht", "ъ": "a", "ь": "y", "ю": "yu", "я": "ya" };
+function packTranslitWord(w) {
+  const out = [...w].map(ch => {
+    const lo = ch.toLowerCase(); const t = PACK_TRANSLIT[lo];
+    if (t == null) return ch;
+    return ch === lo ? t : (t.charAt(0).toUpperCase() + t.slice(1));
+  }).join("");
+  // Изцяло главна дума (БЪЛГАРИЯ) остава изцяло главна (BALGARIYA).
+  return (w.length > 1 && w === w.toUpperCase() && w !== w.toLowerCase()) ? out.toUpperCase() : out;
+}
+function packEnCase(src, en) {
+  if (src === src.toUpperCase() && src.length > 1) return en.toUpperCase();
+  if (src.charAt(0) === src.charAt(0).toUpperCase()) return en.charAt(0).toUpperCase() + en.slice(1);
+  return en;
+}
+function packEnText(s) {
+  let out = String(s == null ? "" : s);
+  if (!/[А-Яа-я]/.test(out)) return out;
+  PACK_EN_PHRASES.forEach(([bg, en]) => {
+    out = out.replace(new RegExp(bg.replace(/[-]/g, "[-]"), "gi"), m => packEnCase(m, en));
+  });
+  out = out.replace(/[А-Яа-я]+/g, w => {
+    const d = PACK_EN_DICT[w.toLowerCase()];
+    return d ? packEnCase(w, d) : packTranslitWord(w);
+  });
+  return out;
+}
+/* Името на реда за документ: „име при клиента" от заявката / картотеката
+   (ако е на латиница) бие машинния превод на нашето име. */
+function packEnRowName(r) {
+  const alt = String((r && r.enAlt) || "").trim();
+  if (alt && !/[А-Яа-я]/.test(alt)) return alt;
+  return packEnText((r && r.name) || "");
+}
 function packDocHead(o, title, en) {
   const L = en ? { ord: "Order", cl: "Client", dt: "Date" } : { ord: "Заявка", cl: "Клиент", dt: "Дата" };
+  const cl = en ? packEnText(o.clientName || "") : (o.clientName || "");
   return `<div class="head"><div><h1>${title}</h1>
       <div>${L.ord}: <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · Order No: <b>" + escapeHtml(o.clientNo) + "</b>" : ""}</div></div>
-    <div style="text-align:right">${L.cl}: <b>${escapeHtml(o.clientName || "")}</b><br>${L.dt}: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
+    <div style="text-align:right">${L.cl}: <b>${escapeHtml(cl)}</b><br>${L.dt}: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
 }
 // Тялото на Пакинг листа — отделно, за да се вгражда и в „⚙ Работен доклад".
+// ВИНАГИ на английски, без кирилица (по Данко, 01.11.2026) — екранът е си БГ.
 function packBodyPacking(o, rows, P) {
   const tot = rows.reduce((t, r) => { t.q += (r.effQty != null ? r.effQty : r.qty); t.b += r.boxes; t.p += r.pallets; t.n += r.netKg; return t; }, { q: 0, b: 0, p: 0, n: 0 });
   const plPallets = packPlanPallets(rows, P);
@@ -1164,16 +1257,16 @@ function packBodyPacking(o, rows, P) {
   const plSmall = plPallets.filter(p => p.small).length;
   const plKg = plPallets.length ? packPalletsKg(plPallets, P.palletKg) : palletsUp * packNum(P.palletKg || 20);
   const gross = Math.round((tot.n + plKg) * 10) / 10;
-  const body = `${packDocHead(o, "PACKING LIST", packIsExport(o))}
+  const body = `${packDocHead(o, "PACKING LIST", true)}
     <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(r.name)}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td class="r">${(Number(r.unitMult) || 1) > 1 ? (Math.round(packNum(r.kgPer) / r.unitMult * 1000) / 1000) : (r.kgPer || "")}</td><td>${escapeHtml(r.boxType)}${r.nonstd ? " · " + escapeHtml(r.nonstd) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${r.bdText}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(r.addBox)}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(packEnRowName(r))}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td class="r">${(Number(r.unitMult) || 1) > 1 ? (Math.round(packNum(r.kgPer) / r.unitMult * 1000) / 1000) : (r.kgPer || "")}</td><td>${escapeHtml(packEnText(r.boxType))}${r.nonstd ? " · " + escapeHtml(packEnText(r.nonstd)) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${escapeHtml(packEnText(r.bdText))}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(packEnText(r.addBox))}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
     <div class="kv"><b>Pallets:</b> ${plSmall ? `${palletsUp - plSmall} × EUR 120×80 (${packNum(P.palletKg || 20)} kg) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} kg)` : `${palletsUp} × EUR 120×80 (${packNum(P.palletKg || 20)} kg)`} — total ${plKg} kg</div>
     <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
   return body;
 }
 function packPrintPacking(o, rows, P) {
-  invPrintWindow("Packing List — заявка " + (o.ourNo || ""), packBodyPacking(o, rows, P), "en");
+  invPrintWindow("Packing List — order " + (o.ourNo || ""), packBodyPacking(o, rows, P), "en");
 }
 function packPrintGoods(o, rows) {
   const en = packIsExport(o);
@@ -1188,10 +1281,17 @@ function packPrintGoods(o, rows) {
 // Тялото на Палет описа — отделно, за да се вгражда и в „⚙ Работен доклад".
 function packBodyPallets(o, rows, P) {
   const pallets = packPlanPallets(rows, P);
-  const en = packIsExport(o);
-  const L = en ? { title: "PALLET LIST", pal: "PALLET No", mix: "mixed", net: "Net weight", plt: "Pallet", gr: "Gross weight", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", ord: "Order No", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " }
-    : { title: "ПАЛЕТ ОПИС / PALLET LIST", pal: "ПАЛЕТ №", mix: "комбиниран", net: "Нето", plt: "Палет", gr: "Бруто", code: "Код", name: "Наименование", boxes: "Кашони", qty: "Бройка", kg: "Нето кг", tot: "Общо палети", ord: "Order No (клиентски №)", none: "Няма палети — попълни кашоните на палет.", win: "Палет опис — заявка " };
-  const kgU = en ? "kg" : "кг";
+  // ВИНАГИ на английски, без кирилица (по Данко, 01.11.2026) — екранът е си БГ.
+  const en = true;
+  const L = { title: "PALLET LIST", pal: "PALLET No", mix: "mixed", net: "Net weight", plt: "Pallet", gr: "Gross weight", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", ord: "Order No", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " };
+  const kgU = "kg";
+  // Име по код за документите: „име при клиента" бие превода на нашето.
+  const enBy = {}; (rows || []).forEach(r => { if (r && r.code) enBy[r.code] = packEnRowName(r); });
+  const enItem = x => {
+    const side = /—\s*леви\s*$/.test(x.name || "") ? " — left" : /—\s*десни\s*$/.test(x.name || "") ? " — right" : "";
+    const base = enBy[x.code];
+    return base ? base + side : packEnText(x.name || "");
+  };
   const base = new URL(".", location.href).href;
   // Всеки палет на ОТДЕЛЕН лист А4 (вертикален) с ЛОГО, ЕДЪР шрифт и подпис.
   const pageCss = `<style>
@@ -1211,7 +1311,7 @@ function packBodyPallets(o, rows, P) {
       <h2 style="margin:12px 0 6px;font-size:34px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:21px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
       <div class="kv" style="font-size:22px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
       <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.boxes}</th><th class="c">${L.qty}</th><th class="c">${L.kg}</th></tr></thead>
-      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(x.name)}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${x.text})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}${(p.extra || []).map(x => `<tr><td><b>${escapeHtml(x.code || "")}</b></td><td>${escapeHtml(x.name || x.text || "")}</td><td class="r">—</td><td class="r">${escapeHtml(x.qty || "")}</td><td class="r">—</td></tr>`).join("")}</tbody></table>
+      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(enItem(x))}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${escapeHtml(packEnText(x.text))})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}${(p.extra || []).map(x => `<tr><td><b>${escapeHtml(x.code || "")}</b></td><td>${escapeHtml(packEnText(x.name || x.text || ""))}</td><td class="r">—</td><td class="r">${escapeHtml(packEnText(String(x.qty || "")))}</td><td class="r">—</td></tr>`).join("")}</tbody></table>
       <div class="kv"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
       ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>` : ""}
       <div class="made">The Systems</div>
