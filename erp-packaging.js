@@ -17,13 +17,14 @@ async function erpPackLoad() {
     const { data } = await sb.from("app_config").select("data").eq("id", "packaging").maybeSingle();
     PACKAGING = (data && data.data && data.data.list) || [];
     PACK_LAYOUTS = (data && data.data && data.data.layouts) || {};
+    PACK_EN_AUTO = (data && data.data && data.data.enAuto) || {};   // наученият превод
   }
   catch (e) { PACKAGING = []; PACK_LAYOUTS = PACK_LAYOUTS || {}; }
   erpPackIdxBust();
 }
 async function erpPackSave() {
   erpPackIdxBust();   // списъкът може да е променен на място — индексът да се престрои
-  const { error } = await sb.from("app_config").upsert({ id: "packaging", data: { list: PACKAGING || [], layouts: PACK_LAYOUTS || {} }, updated_at: new Date().toISOString() });
+  const { error } = await sb.from("app_config").upsert({ id: "packaging", data: { list: PACKAGING || [], layouts: PACK_LAYOUTS || {}, enAuto: PACK_EN_AUTO || {} }, updated_at: new Date().toISOString() });
   if (error) { alert("Грешка при запис: " + error.message + (/row-level security|violates/i.test(error.message || "") ? "\n\nПусни app-config-rls-fix.sql в Supabase." : "")); return false; }
   return true;
 }
@@ -464,6 +465,24 @@ async function erpPackOrderOpen(orderId, moreIds) {
     }, { qty: 0, boxes: 0, pallets: 0, net: 0 });
     const built = packPlanPallets(states.map(st => ({ ...st, ...calc(st) })), P);
     const rideMax = built.length;   // върху кой палет може да се качи дребното
+    // Палетите се КРЪЩАВАТ (по Данко, 02.11): редът показва „Палет 1 · Палет 2",
+    // не гола бройка — така лесно се добавят описания и дребно върху тях.
+    const palsByCode = {};
+    built.forEach(p => (p.items || []).forEach(it => { (palsByCode[it.code] = palsByCode[it.code] || new Set()).add(p.no); }));
+    const palNames = st => {
+      const set = palsByCode[st.code];
+      if (!set || !set.size) return "";
+      const ns = [...set].sort((a, b) => a - b);
+      const parts = [];
+      let a0 = ns[0], prev = ns[0];
+      for (let k2 = 1; k2 <= ns.length; k2++) {
+        const n = ns[k2];
+        if (n === prev + 1) { prev = n; continue; }
+        parts.push(a0 === prev ? "Палет " + a0 : (prev - a0 === 1 ? `Палет ${a0}<br>Палет ${prev}` : `Палети ${a0}–${prev}`));
+        a0 = prev = n;
+      }
+      return parts.join("<br>");
+    };
     const palletsUp = built.length || Math.ceil(totals.pallets - 1e-9);
     const smallCnt = built.filter(p => p.small).length;
     const palletsKg = built.length ? packPalletsKg(built, P.palletKg) : palletsUp * packNum(P.palletKg || 20);
@@ -499,7 +518,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
             ${Array.from({ length: Math.max(rideMax, 1) }, (_, k) => `<option value="${k + 1}" ${st.rideOn === k + 1 ? "selected" : ""}>🚛 върху палет ${k + 1}</option>`).join("")}
           </select></td>
           <td class="num"><b>${c.boxes || "—"}</b>${c.boxes > 1 && c.bdText ? `<br><span class="erp-muted" style="white-space:nowrap">${c.bdText}</span>` : ""}</td>
-          <td class="num">${st.rideOn ? `<span class="erp-muted" title="качват се върху палет ${st.rideOn}">🚛 палет ${st.rideOn}</span>` : (c.pallets ? (Math.round(c.pallets * 100) / 100) : "—")}</td>
+          <td class="num" style="white-space:nowrap;font-size:12px">${st.rideOn ? `<span class="erp-muted" title="качват се върху палет ${st.rideOn}">🚛 палет ${st.rideOn}</span>` : (palNames(st) ? `<span title="по плана долу${c.pallets ? " · сметка: " + (Math.round(c.pallets * 100) / 100) + " палета" : ""}">${palNames(st)}</span>` : (c.pallets ? (Math.round(c.pallets * 100) / 100) : "—"))}</td>
           <td class="num">${c.netKg || "—"}</td>
         </tr>`; }).join("")}</tbody>
         <tfoot><tr style="font-weight:700;background:#f8fafc">
@@ -678,8 +697,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           ${live(k) ? '<span class="pko-doc-ed">✍ с корекции</span>' : stale(k) ? '<span class="pko-doc-ed" title="Данните горе се промениха след корекциите — документът е построен наново">⚠ корекциите паднаха</span>' : ""}
           <span class="spacer" style="flex:1"></span>
           <button type="button" class="btn btn-small btn-primary pko-doc-save" data-k="${k}" title="Пази корекциите от екрана — излизат във всички разпечатки и в Работния доклад">💾 Запази корекциите</button>
-          <button type="button" class="btn btn-small pko-doc-reset" data-k="${k}" title="Маха корекциите — документът се строи наново от данните">↺</button>
-          <button type="button" class="btn btn-small pko-doc-print" data-k="${k}" title="Печат на документа както го виждаш (с корекциите от екрана)">🖨</button>
+          <button type="button" class="btn btn-small pko-doc-print" data-k="${k}" title="Печат / PDF на документа както го виждаш (с корекциите от екрана)">🖨 Печат</button>
         </div>
         <div class="pko-doc-body" contenteditable="true" data-doc="${k}">${html}</div>
       </div>`;
@@ -692,16 +710,15 @@ async function erpPackOrderOpen(orderId, moreIds) {
       P.docEdits[k] = { html: bodyEl.innerHTML, sig };
       renderDocs();
     }));
-    docs.querySelectorAll(".pko-doc-reset").forEach(b => b.addEventListener("click", () => {
-      if (P.docEdits) delete P.docEdits[b.dataset.k];
-      renderDocs();
-    }));
     docs.querySelectorAll(".pko-doc-print").forEach(b => b.addEventListener("click", () => {
       const k = b.dataset.k;
       const bodyEl = docs.querySelector(`.pko-doc-body[data-doc="${k}"]`);
-      const title = (k === "packing" ? "Packing List — order " : "Pallet List — order ") + (o.ourNo || "");
-      invPrintWindow(title, bodyEl.innerHTML, "en");
+      const en = packIsExport(o);
+      const title = (k === "packing" ? (en ? "Packing List — order " : "Пакинг лист — заявка ") : (en ? "Pallet List — order " : "Палет опис — заявка ")) + (o.ourNo || "");
+      invPrintWindow(title, bodyEl.innerHTML, en ? "en" : "bg");
     }));
+    // 🤖 Преводът пристига → документите БЕЗ запазени корекции се преначертават.
+    if (packIsExport(o)) packEnLearn(() => renderDocs());
   };
   /* --- 3D редактор на палетния план ---
      Всеки КАШОН е отделна кутия. Клик маркира/отмаркира (може много
@@ -773,9 +790,32 @@ async function erpPackOrderOpen(orderId, moreIds) {
       const h = nums[2] || Math.round(w * 0.8);
       return { l, w, h };
     };
+    /* РЕАЛНИТЕ схеми на рампата (чертежите на Данко, 02.11.2026), на евро
+       палет 120×80: ГОЛЯМ кашон (80×36×23) — 2 по дължина един до друг +
+       3-ти НАПРЕЧНО (3 на слой); СРЕДЕН кашон (60×30×12) — 6 на слой: по
+       3 в две половини, средният ОБЪРНАТ НАСТРАНИ (на ребро, 60×12, h=30). */
+    const packLayerSlots = bt => /голям кашон/i.test(bt)
+      ? { h: 23, slots: [{ x: 0, y: 0, l: 80, w: 36, h: 23 }, { x: 0, y: 36, l: 80, w: 36, h: 23 }, { x: 80, y: 0, l: 36, w: 80, h: 23 }] }
+      : /среден кашон/i.test(bt)
+        ? { h: 30, slots: [{ x: 0, y: 0, l: 60, w: 30, h: 12 }, { x: 0, y: 30, l: 60, w: 12, h: 30 }, { x: 0, y: 42, l: 60, w: 30, h: 12 }, { x: 60, y: 0, l: 60, w: 30, h: 12 }, { x: 60, y: 30, l: 60, w: 12, h: 30 }, { x: 60, y: 42, l: 60, w: 30, h: 12 }] }
+        : null;
     const layoutBoxes = (g, PL, PW) => {
       const units = [];
       (g || []).forEach((x, gi) => { const d = dimsOf(x.code); for (let k = 0; k < x.boxes; k++) units.push({ ...d, code: x.code, per: x.per, part: x.part, gi, k }); });
+      // Еднородни палети от Голям/Среден кашон → точната схема на рампата.
+      if (units.length && PL === 120 && PW === 80) {
+        const bts = [...new Set(units.map(u => String((info[u.code] || {}).boxType || "")))];
+        const pat = bts.length && bts.every(bt => /голям кашон/i.test(bt)) ? packLayerSlots("Голям кашон")
+          : bts.length && bts.every(bt => /среден кашон/i.test(bt)) ? packLayerSlots("Среден кашон") : null;
+        if (pat) {
+          units.forEach((u, idx) => {
+            const sl = pat.slots[idx % pat.slots.length];
+            u.x = sl.x; u.y = sl.y; u.z = Math.floor(idx / pat.slots.length) * pat.h;
+            u.l = sl.l; u.w = sl.w; u.h = sl.h;
+          });
+          return { units };
+        }
+      }
       let cx = 0, cy = 0, cz = 0, rowW = 0, layH = 0;
       units.forEach(u => {
         const l = Math.min(u.l, PL), w = Math.min(u.w, PW);
@@ -1411,20 +1451,70 @@ function packEnCase(src, en) {
   if (src.charAt(0) === src.charAt(0).toUpperCase()) return en.charAt(0).toUpperCase() + en.slice(1);
   return en;
 }
+/* 🤖 Наученият от Claude речник (цели фрази, по Данко 02.11: „ПРЕВЕЖДА се,
+   не се изписва на латиница!"). Пази се в app_config "packaging" → enAuto.
+   PACK_EN_MISS събира фразите, които речникът не покри — packEnLearn ги
+   праща за превод и кешът расте; транслитерацията е само последна резерва. */
+let PACK_EN_AUTO = {};
+const PACK_EN_MISS = new Set();
+let PACK_EN_LEARNING = false;
 function packEnText(s) {
   let out = String(s == null ? "" : s);
   if (!/[А-Яа-я]/.test(out)) return out;
+  const auto = PACK_EN_AUTO[out.trim().toLowerCase()];
+  if (auto) return auto;
   PACK_EN_PHRASES.forEach(([bg, en]) => {
     out = out.replace(new RegExp(bg.replace(/[-]/g, "[-]"), "gi"), m => packEnCase(m, en));
   });
+  let missed = false;
   out = out.replace(/[А-Яа-я]+/g, w => {
     const d = PACK_EN_DICT[w.toLowerCase()];
-    return d ? packEnCase(w, d) : packTranslitWord(w);
+    if (d) return packEnCase(w, d);
+    missed = true;                      // речникът не стигна → транслитерация
+    return packTranslitWord(w);
   });
+  if (missed) PACK_EN_MISS.add(String(s).trim());   // … и фразата отива за ПРЕВОД
   return out;
 }
-// (ВРЕМЕНЕН СТЪБ — пълният превод с Claude идва в следващата версия.)
-function packEnLearn() {}
+/* Праща непреведените фрази на Claude (функцията assistant), кешира отговора
+   и вика onDone при нови преводи — „Документите на живо" се preначертават. */
+async function packEnLearn(onDone) {
+  try {
+    if (PACK_EN_LEARNING || !PACK_EN_MISS.size) return;
+    const cfg = (typeof window !== "undefined" && window.DANKO_CONFIG) || null;
+    if (!cfg || !cfg.SUPABASE_URL || typeof fetch !== "function" || typeof sb === "undefined" || !sb) return;
+    PACK_EN_LEARNING = true;
+    const phrases = [...PACK_EN_MISS].filter(x => /[А-Яа-я]/.test(x)).slice(0, 40);
+    if (!phrases.length) { PACK_EN_LEARNING = false; return; }
+    let token = cfg.SUPABASE_ANON_KEY;
+    try { const { data } = await sb.auth.getSession(); if (data && data.session && data.session.access_token) token = data.session.access_token; } catch (e) {}
+    const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: cfg.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+      body: JSON.stringify({
+        model: "claude-sonnet-5", max_tokens: 2000,
+        system: "Ти си преводач на производствени термини за мебелни механизми (разтегателни дивани) от български на английски. Отговаряш САМО с JSON обект {\"българска фраза\": \"English translation\"} — нищо друго. Превеждай кратко и технически (mechanism, tube, plate, brake, bolt, left/right…). Кодове, числа, размери и думите на латиница остават непроменени.",
+        messages: [{ role: "user", content: JSON.stringify(phrases) }],
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    const txt = String((j && j.text) || "").replace(/^```(json)?/m, "").replace(/```\s*$/m, "").trim();
+    const map = JSON.parse(txt);
+    let added = 0;
+    Object.keys(map || {}).forEach(bg => {
+      const en = String(map[bg] || "").trim();
+      if (!en || /[А-Яа-я]/.test(en)) return;   // преводът трябва да е на латиница
+      PACK_EN_AUTO[String(bg).trim().toLowerCase()] = en;
+      PACK_EN_MISS.delete(String(bg).trim());
+      added++;
+    });
+    if (added) {
+      try { await erpPackSave(); } catch (e) {}
+      if (onDone) { try { onDone(); } catch (e) {} }
+    }
+  } catch (e) { /* тихо — транслитерацията остава до следващия опит */ }
+  finally { PACK_EN_LEARNING = false; }
+}
 /* Името на реда за документ: „име при клиента" от заявката / картотеката
    (ако е на латиница) бие машинния превод на нашето име. */
 function packEnRowName(r) {
@@ -1503,17 +1593,21 @@ function packPrintGoods(o, rows) {
 // Тялото на Палет описа — отделно, за да се вгражда и в „⚙ Работен доклад".
 function packBodyPallets(o, rows, P) {
   const pallets = packPlanPallets(rows, P);
-  // ВИНАГИ на английски, без кирилица (по Данко, 01.11.2026) — екранът е си БГ.
-  const en = true;
-  const L = { title: "PALLET LIST", pal: "PALLET No", mix: "mixed", net: "Net weight", plt: "Pallet", gr: "Gross weight", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", ord: "Order No", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " };
-  const kgU = "kg";
+  // ПРАВИЛОТО НА ЕЗИКА (Данко, 02.11): кирилица клиент → БГ; латиница → EN с превод.
+  const en = packIsExport(o);
+  const L = en
+    ? { title: "PALLET LIST", pal: "PALLET No", mix: "mixed", net: "Net weight", plt: "Pallet", gr: "Gross weight", code: "Code", name: "Description", boxes: "Boxes", qty: "Qty", kg: "Net kg", tot: "Total pallets", ord: "Order No", none: "No pallets — fill in boxes per pallet.", win: "Pallet List — order " }
+    : { title: "ПАЛЕТ ОПИС", pal: "ПАЛЕТ №", mix: "комбиниран", net: "Нето", plt: "Палет", gr: "Бруто", code: "Код", name: "Наименование", boxes: "Кашони", qty: "Бройка", kg: "Нето кг", tot: "Общо палети", ord: "Поръчка №", none: "Няма палети — попълни кашоните на палет.", win: "Палет опис — заявка " };
+  const kgU = en ? "kg" : "кг";
   // Име по код за документите: „име при клиента" бие превода на нашето.
-  const enBy = {}; (rows || []).forEach(r => { if (r && r.code) enBy[r.code] = packEnRowName(r); });
+  const enBy = {}; if (en) (rows || []).forEach(r => { if (r && r.code) enBy[r.code] = packEnRowName(r); });
   const enItem = x => {
+    if (!en) return x.name || "";
     const side = /—\s*леви\s*$/.test(x.name || "") ? " — left" : /—\s*десни\s*$/.test(x.name || "") ? " — right" : "";
     const base = enBy[x.code];
     return base ? base + side : packEnText(x.name || "");
   };
+  if (en) packEnLearn();   // непреведеното отива към Claude и се кешира
   const base = new URL(".", location.href).href;
   // Всеки палет на ОТДЕЛЕН лист А4 (вертикален) с ЛОГО, ЕДЪР шрифт и подпис.
   const pageCss = `<style>
@@ -1533,7 +1627,7 @@ function packBodyPallets(o, rows, P) {
       <h2 style="margin:12px 0 6px;font-size:34px;letter-spacing:1px">${L.pal} ${p.no} / ${pallets.length} <span style="font-weight:400;font-size:21px;color:#555">· ${p.small ? "60×80" : "EUR 120×80"}${p.items.length > 1 ? " · " + L.mix : ""}</span></h2>
       <div class="kv" style="font-size:22px"><b>${L.ord}:</b> ${escapeHtml(o.clientNo || "—")}</div>
       <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.boxes}</th><th class="c">${L.qty}</th><th class="c">${L.kg}</th></tr></thead>
-      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(enItem(x))}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${escapeHtml(packEnText(x.text))})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}${(p.extra || []).map(x => `<tr><td><b>${escapeHtml(x.code || "")}</b></td><td>${escapeHtml(packEnText(x.name || x.text || ""))}</td><td class="r">—</td><td class="r">${escapeHtml(packEnText(String(x.qty || "")))}</td><td class="r">—</td></tr>`).join("")}</tbody></table>
+      <tbody>${p.items.map(x => `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(enItem(x))}</td><td class="r">${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${escapeHtml(en ? packEnText(x.text) : x.text)})</small>` : ""}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`).join("")}${(p.extra || []).map(x => `<tr><td><b>${escapeHtml(x.code || "")}</b></td><td>${escapeHtml(en ? packEnText(x.name || x.text || "") : (x.name || x.text || ""))}</td><td class="r">—</td><td class="r">${escapeHtml(en ? packEnText(String(x.qty || "")) : String(x.qty || ""))}</td><td class="r">—</td></tr>`).join("")}</tbody></table>
       <div class="kv"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
       ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>` : ""}
       <div class="made">The Systems</div>
