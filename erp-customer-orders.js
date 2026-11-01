@@ -329,7 +329,12 @@ function erpCOTruckDialog(o) {
   wrap.querySelector("#cotr-new").addEventListener("click", () => { close(); if (typeof logiOrderInquiry === "function") logiOrderInquiry(o); });
 }
 /* 🎁 Опаковката на заявката от списъка: веригата е Опаковка → Работен
-   доклад → Транспорт (по Данко, 01.11.2026) — без първото няма второ. */
+   доклад → Транспорт (по Данко, 01.11.2026) — без първото няма второ.
+   Готова опаковка → иконката става ЗЕЛЕНА (същият критерий като
+   „опаковани N/M" в Опаковки). */
+function erpCOPacked(o) {
+  try { return !!(o && o.packing && Object.keys(o.packing.rows || {}).length); } catch (e) { return false; }
+}
 function erpCOWirePack(root) {
   root.querySelectorAll("[data-pack]").forEach(b => b.addEventListener("click", ev => {
     ev.stopPropagation();
@@ -386,7 +391,9 @@ function erpCORowHtml(o) {
             <td data-label="Статус">${erpCOStatusCell(o)}</td>
             <td data-label="План" data-plan-for="${o.id}">${erpCOPlanCell(o)}</td>
             <td data-label="Файл">${erpCOFileCell(o)}</td>
-            <td class="erp-row-actions" data-label="">${typeof erpPackOrderOpen === "function" ? `<button class="btn btn-small" data-pack="${o.id}" title="Опаковката на заявката (кашони, тегла, палети) — от нея се раждат Палет описът и Пакинг листът в Работния доклад">🎁</button>` : ""}${typeof erpOrderProcess === "function" ? `<button class="btn btn-small" data-oprep="${o.id}" title="Работният доклад А–Ж на заявката — отваря се като отделен раздел">⚙ Работен доклад</button>` : ""}${typeof logiOrderInquiry === "function" ? (erpCOInqsOf(o).length
+            <td class="erp-row-actions" data-label="">${typeof erpPackOrderOpen === "function" ? (erpCOPacked(o)
+              ? `<button class="btn btn-small co-pack-done" data-pack="${o.id}" title="Опаковката е ПОПЪЛНЕНА ✓ — клик я отваря за преглед или корекция">🎁</button>`
+              : `<button class="btn btn-small" data-pack="${o.id}" title="Опаковката на заявката (кашони, тегла, палети) — от нея се раждат Палет описът и Пакинг листът в Работния доклад">🎁</button>`) : ""}${typeof erpOrderProcess === "function" ? `<button class="btn btn-small" data-oprep="${o.id}" title="Работният доклад А–Ж на заявката — отваря се като отделен раздел">⚙ Работен доклад</button>` : ""}${typeof logiOrderInquiry === "function" ? (erpCOInqsOf(o).length
               ? `<button class="btn btn-small co-truck co-truck-done" data-truck="${o.id}" title="По тази заявка е организиран транспорт (${erpCOInqsOf(o).length} запитван${erpCOInqsOf(o).length === 1 ? "е" : "ия"}) — клик: до кого и какво е върнато">🚛</button>`
               : `<button class="btn btn-small btn-primary co-truck" data-truck="${o.id}" title="Запитване за транспорт по тази заявка — адрес, палети и тегло се попълват сами, запомня се в Логистика → Запитвания">🚛</button>`) : ""}<button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
           </tr>`;
@@ -657,7 +664,7 @@ function erpRenderCOMobileList(v) {
           <div class="co-mob-actions">
             <button class="btn btn-small btn-primary" data-open="${o.id}">Отвори →</button>
             <button class="btn btn-small co-mob-draw" data-id="${o.id}" title="Всички чертежи на изделията в заявката">📄 Чертежи</button>
-            ${typeof erpPackOrderOpen === "function" ? `<button class="btn btn-small" data-pack="${o.id}" title="Опаковката на заявката — кашони, тегла, палети">🎁</button>` : ""}
+            ${typeof erpPackOrderOpen === "function" ? `<button class="btn btn-small${erpCOPacked(o) ? " co-pack-done" : ""}" data-pack="${o.id}" title="${erpCOPacked(o) ? "Опаковката е попълнена ✓" : "Опаковката на заявката — кашони, тегла, палети"}">🎁</button>` : ""}
             ${typeof erpOrderProcess === "function" ? `<button class="btn btn-small co-mob-proc" data-id="${o.id}" title="Работният доклад на заявката (А–Ж) — отваря се като раздел">⚙ Работен доклад</button>` : ""}
             ${typeof logiOrderInquiry === "function" ? (erpCOInqsOf(o).length
               ? `<button class="btn btn-small co-truck co-truck-done" data-truck="${o.id}" title="По тази заявка е организиран транспорт — клик за подробности">🚛</button>`
