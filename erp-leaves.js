@@ -447,6 +447,122 @@ async function leaveBalImport(file, done) {
 /* ---------- Отпуски от НАЧАЛНИЯ екран (без достъп до Финанси) ----------
    Списък с имейли, които виждат бутона „🏖 Отпуски" до Склад/ЕРП. Отваря същия
    офис изглед (чакащи, одобряване, календар, оставащи дни) в собствен прозорец. */
+/* ---------- 👥 СЛУЖИТЕЛИ (по Данко, 01.11.2026) ----------
+   Обвивка с два подтаба: 🏖 Отпуски (екранът си е същият) и 📋 Присъствена
+   форма — месечна таблица кой е бил на работа и кой не. Служителите идват
+   от „Оставащи отпуски" (leave_balance), одобрените отпуски се отбелязват
+   сами като „О". Пази се в app_config "attendance":
+   { "YYYY-MM": { "Име": { "1": "р"|"н"|"б", ... } } }. */
+let staffView = "leaves";   // leaves | attend
+async function erpRenderStaff(v) {
+  v.innerHTML = `
+    <div class="erp-toolbar" style="margin-bottom:6px">
+      <button class="btn btn-small ${staffView === "leaves" ? "btn-primary" : ""}" id="st-v-leaves">🏖 Отпуски</button>
+      <button class="btn btn-small ${staffView === "attend" ? "btn-primary" : ""}" id="st-v-attend" title="Кой е бил на работа и кой не — по дни за месеца. Отпуските от одобрените молби се отбелязват сами.">📋 Присъствена форма</button>
+    </div>
+    <div id="staff-body"></div>`;
+  v.querySelector("#st-v-leaves").addEventListener("click", () => { staffView = "leaves"; erpRenderStaff(v); });
+  v.querySelector("#st-v-attend").addEventListener("click", () => { staffView = "attend"; erpRenderStaff(v); });
+  const body = v.querySelector("#staff-body");
+  if (staffView === "attend") await erpRenderAttendance(body);
+  else await erpRenderLeaves(body);
+}
+
+let ATTEND = null;          // целият регистър по месеци
+let attendMonth = null;     // показваният месец "YYYY-MM"
+let attendSaveT = null;
+async function attendLoad() {
+  if (ATTEND) return;
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "attendance").maybeSingle(); ATTEND = (data && data.data) || {}; }
+  catch (e) { ATTEND = ATTEND || {}; }
+}
+async function attendSave() {
+  const { error } = await sb.from("app_config").upsert({ id: "attendance", data: ATTEND || {}, updated_at: new Date().toISOString() });
+  if (error) { alert("Присъствената форма НЕ се записа: " + error.message); return false; }
+  return true;
+}
+function attendSaveSoon() { clearTimeout(attendSaveT); attendSaveT = setTimeout(() => { attendSave(); }, 600); }
+/* Одобрените отпуски на месеца: име (норм.) → Set от дните (само работни). */
+function attendLeaveDays(ym) {
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const by = new Map();
+  const [Y, M] = ym.split("-").map(Number);
+  (LEAVES || []).filter(l => l.status === "одобрена" && l.from && l.to).forEach(l => {
+    const a = new Date(l.from + "T00:00:00"), b = new Date(l.to + "T00:00:00");
+    for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
+      if (d.getFullYear() !== Y || d.getMonth() + 1 !== M) continue;
+      const wd = d.getDay();
+      if (wd === 0 || wd === 6) continue;   // уикендите не са отпуск
+      const k = norm(l.name);
+      if (!by.has(k)) by.set(k, new Set());
+      by.get(k).add(d.getDate());
+    }
+  });
+  return by;
+}
+async function erpRenderAttendance(v) {
+  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  await leavesLoad(); await leaveBalLoad(); await attendLoad();
+  if (!attendMonth) attendMonth = new Date().toISOString().slice(0, 7);
+  const ym = attendMonth;
+  const [Y, M] = ym.split("-").map(Number);
+  const daysIn = new Date(Y, M, 0).getDate();
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const WD = ["Н", "П", "В", "С", "Ч", "П", "С"];
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const people = (LEAVE_BAL.list || []).slice().sort((a, b) => String(a.name || "").localeCompare(b.name || "", "bg"));
+  const monthRec = ATTEND[ym] = ATTEND[ym] || {};
+  const leavesBy = attendLeaveDays(ym);
+  const MONN = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+  const cellOf = (p, d) => {
+    const man = (monthRec[p.name] || {})[String(d)] || "";
+    const dt = new Date(Y, M - 1, d);
+    const we = dt.getDay() === 0 || dt.getDay() === 6;
+    const onLeave = (leavesBy.get(norm(p.name)) || new Set()).has(d);
+    const code = man || (onLeave ? "О" : "");
+    const cls = we ? "at-we" : code === "р" ? "at-ok" : code === "н" ? "at-no" : code === "б" ? "at-sick" : code === "О" ? "at-leave" : "";
+    const iso = `${ym}-${String(d).padStart(2, "0")}`;
+    const txt = code === "р" ? "✓" : code === "н" ? "✗" : code === "б" ? "Б" : code === "О" ? "О" : "";
+    return `<td class="at-c ${cls}${iso === todayIso ? " at-today" : ""}" data-n="${escapeAttr(p.name)}" data-d="${d}" title="${escapeAttr(p.name)} · ${String(d).padStart(2, "0")}.${String(M).padStart(2, "0")}${we ? " (почивен)" : ""}${onLeave && !man ? " · отпуск по одобрена молба" : ""}. Клик: ✓ работа → ✗ отсъства → Б болничен → изчисти.">${txt}</td>`;
+  };
+  const totals = p => {
+    let ok = 0, no = 0, lv = 0, sick = 0;
+    for (let d = 1; d <= daysIn; d++) {
+      const man = (monthRec[p.name] || {})[String(d)] || "";
+      const onLeave = (leavesBy.get(norm(p.name)) || new Set()).has(d);
+      const code = man || (onLeave ? "О" : "");
+      if (code === "р") ok++; else if (code === "н") no++; else if (code === "б") sick++; else if (code === "О") lv++;
+    }
+    return { ok, no, lv, sick };
+  };
+  v.innerHTML = `
+    <div class="erp-toolbar" style="margin-bottom:4px">
+      <button class="btn btn-small" id="at-prev">‹</button>
+      <b style="min-width:170px;text-align:center">${MONN[M - 1]} ${Y}</b>
+      <button class="btn btn-small" id="at-next">›</button>
+      <span class="erp-muted" style="margin-left:10px">клик в клетка: <b style="color:#166534">✓ на работа</b> → <b style="color:#b91c1c">✗ отсъства</b> → <b style="color:#b45309">Б болничен</b> → празно · <b style="color:#1d4ed8">О</b> = отпуск (само̀, от одобрените молби)</span>
+      <span class="spacer"></span>
+      <span class="erp-count">${people.length} служители</span>
+    </div>
+    ${people.length ? `<div style="overflow:auto"><table class="report-table erp-table at-table">
+      <thead><tr><th style="min-width:160px">Служител</th>${Array.from({ length: daysIn }, (_, i) => { const dt = new Date(Y, M - 1, i + 1); const we = dt.getDay() === 0 || dt.getDay() === 6; return `<th class="at-h${we ? " at-we" : ""}">${i + 1}<div class="at-wd">${WD[dt.getDay()]}</div></th>`; }).join("")}<th class="num" title="Дни на работа">✓</th><th class="num" title="Отсъствия">✗</th><th class="num" title="Болнични">Б</th><th class="num" title="Отпуск">О</th></tr></thead>
+      <tbody>${people.map(p => { const t = totals(p); return `<tr><td><b>${escapeHtml(p.name || "")}</b></td>${Array.from({ length: daysIn }, (_, i) => cellOf(p, i + 1)).join("")}<td class="num" style="color:#166534"><b>${t.ok || ""}</b></td><td class="num" style="color:#b91c1c"><b>${t.no || ""}</b></td><td class="num" style="color:#b45309"><b>${t.sick || ""}</b></td><td class="num" style="color:#1d4ed8"><b>${t.lv || ""}</b></td></tr>`; }).join("")}</tbody>
+    </table></div>
+    <p class="hint">Отбелязаното се записва само̀. Служителите идват от „🏖 Отпуски → 📊 Оставащи отпуски" (там се добавят и махат). „О" идва автоматично от одобрените молби за отпуск — ръчна отметка в същия ден я заменя.</p>`
+    : `<p class="report-empty">Няма служители. Добави ги в „🏖 Отпуски → 📊 Оставащи отпуски" (➕ или импорт от файла) и се върни тук.</p>`}`;
+  v.querySelector("#at-prev").addEventListener("click", () => { attendMonth = leaveShiftMonth(attendMonth, -1); erpRenderAttendance(v); });
+  v.querySelector("#at-next").addEventListener("click", () => { attendMonth = leaveShiftMonth(attendMonth, 1); erpRenderAttendance(v); });
+  v.querySelectorAll(".at-c").forEach(td => td.addEventListener("click", () => {
+    const name = td.dataset.n, d = String(td.dataset.d);
+    const rec = monthRec[name] = monthRec[name] || {};
+    const cur = rec[d] || "";
+    const next = cur === "" ? "р" : cur === "р" ? "н" : cur === "н" ? "б" : "";
+    if (next) rec[d] = next; else delete rec[d];
+    attendSaveSoon();
+    erpRenderAttendance(v);   // клетката + сборовете веднага
+  }));
+}
+
 const LEAVES_MAIN_EMAILS = ["angelov@dankosystems.com", "grigor.baykov@dankosystems.com", "dankog@gmail.com"];
 function leavesMainAllowed() {
   const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
@@ -454,12 +570,12 @@ function leavesMainAllowed() {
 }
 function openLeavesStandalone() {
   const { wrap, close } = erpDialog(`
-    <h3>🏖 Отпуски</h3>
+    <h3>👥 Служители</h3>
     <div id="lv-standalone"></div>
     <div class="erp-dialog-actions"><button class="btn" id="lv-sa-close">Затвори</button></div>`);
   wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-full");
   wrap.querySelector("#lv-sa-close").addEventListener("click", close);
-  erpRenderLeaves(wrap.querySelector("#lv-standalone"));
+  erpRenderStaff(wrap.querySelector("#lv-standalone"));
 }
 function leavesMainInit() {
   const b = document.getElementById("btn-leaves-main");

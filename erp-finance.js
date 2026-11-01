@@ -41,7 +41,7 @@ async function erpRenderFinance() {
     <button class="btn btn-small ${erpFinView === "invmargin" ? "btn-primary" : ""}" id="fin-nav-im" title="Маржин по ИЗДАДЕНИТЕ фактури за седмицата/месеца (кредитните известия влизат с минус)">🧾 Маржин по фактурирано</button>
     <button class="btn btn-small ${erpFinView === "rates" ? "btn-primary" : ""}" id="fin-nav-r">⚙️ Разходи и ставки</button>
     <button class="btn btn-small ${erpFinView === "payroll" ? "btn-primary" : ""}" id="fin-nav-p">🧾 Заплати (седмично)</button>
-    <button class="btn btn-small ${erpFinView === "leaves" ? "btn-primary" : ""}" id="fin-nav-l">🏖 Отпуски</button>
+    <button class="btn btn-small ${erpFinView === "leaves" ? "btn-primary" : ""}" id="fin-nav-l" title="Отпуски + Присъствена форма (кой е на работа по дни)">👥 Служители</button>
     <button class="btn btn-small ${erpFinView === "erptable" ? "btn-primary" : ""}" id="fin-nav-e">📈 Таблица ЕРП</button>
     <button class="btn btn-small ${erpFinView === "vat" ? "btn-primary" : ""}" id="fin-nav-v">💶 ДДС за възстановяване</button></div>`;
   v.innerHTML = nav + `<div id="fin-body"><p class="erp-loading">Зареждане…</p></div>`;
@@ -55,7 +55,8 @@ async function erpRenderFinance() {
   const body = v.querySelector("#fin-body");
   if (erpFinView === "vat") { await erpRenderVat(body); return; }
   if (erpFinView === "leaves") {
-    if (typeof erpRenderLeaves === "function") await erpRenderLeaves(body);
+    if (typeof erpRenderStaff === "function") await erpRenderStaff(body);
+    else if (typeof erpRenderLeaves === "function") await erpRenderLeaves(body);
     else body.innerHTML = `<p class="erp-error">Модул „Отпуски" не е зареден.</p>`;
     return;
   }

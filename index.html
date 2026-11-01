@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>СИСТЕМАТА</title>
   <link rel="stylesheet" href="styles.css?v=349" />
-  <link rel="stylesheet" href="erp.css?v=338" />
+  <link rel="stylesheet" href="erp.css?v=339" />
   <link rel="stylesheet" href="crm.css?v=2" />
 </head>
 <body>
@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 1002</p>
+      <p class="login-version">версия 1003</p>
     </form>
   </div>
 
@@ -50,7 +50,7 @@
         <button id="btn-offer" class="btn btn-offer" onclick="window.open('https://dankogeorgiev.github.io/PriceOfferCalculations/','_blank')">💶 Офериране</button>
         <button id="btn-erp" class="btn btn-erp">📦 Склад / ЕРП</button>
         <button id="btn-office" class="btn btn-finance" style="display:none" title="Офисът: Фактуриране · Продажби · Задължения · Финанси · Покупки · Вземания · Архив · Пулс · Отпуски — без производствените табове">💼 Офис</button>
-        <button id="btn-leaves-main" class="btn btn-finance" style="display:none" title="Молби за отпуск, одобряване, календар и оставащи дни">🏖 Отпуски</button>
+        <button id="btn-leaves-main" class="btn btn-finance" style="display:none" title="Отпуски (молби, календар, оставащи дни) + Присъствена форма — кой е на работа по дни">👥 Служители</button>
         <button id="btn-pulse" class="btn btn-finance" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
       </div>
     </div>
@@ -705,7 +705,7 @@
           <button class="btn btn-small erp-tab" data-tab="archive" title="Архив (изпълнени заявки)">📚 Архив</button>
           <button class="btn btn-small erp-tab" data-tab="logistics" title="Дестинации от износните фактури (Consignee), запитвания до транспортните фирми и архив кой товар с кой превозвач е тръгнал">🚚 Логистика</button>
           <button class="btn btn-small" id="erp-pulse-btn" style="display:none" title="Пулс на фирмата — финанси и производство с един поглед">⚡ Пулс</button>
-          <button class="btn btn-small" id="erp-office-leaves" title="Молби за отпуск, одобряване, календар и оставащи дни">🏖 Отпуски</button>
+          <button class="btn btn-small" id="erp-office-leaves" title="Отпуски (молби, календар, оставащи дни) + Присъствена форма — кой е на работа по дни">👥 Служители</button>
           <button class="btn btn-small erp-tab erp-office-only" data-tab="partners" title="Обединеният картон на фирмите: реквизити, хора с роли, транспортните фирми за Логистика, адресите за доставка">👥 Клиенти/Доставчици</button>
           <button class="btn btn-small erp-tab erp-office-only" data-tab="matreq" title="Доставчици по групи материали (папки), търсене по материал, липсващи с предложен доставчик + регистър на заявките">📨 Заявки за материали</button>
         </div>
@@ -788,9 +788,9 @@
   <script src="erp-costing.js?v=182"></script>
   <script src="erp-payroll.js?v=252"></script>
   <script src="erp-erptable.js?v=178"></script>
-  <script src="erp-finance.js?v=181"></script>
+  <script src="erp-finance.js?v=182"></script>
   <script src="erp-costsheet.js?v=18"></script>
-  <script src="erp-leaves.js?v=10"></script>
+  <script src="erp-leaves.js?v=11"></script>
   <script src="nav-back.js?v=164"></script>
   <script src="ui-guards.js?v=1"></script>
   <script src="assistant.js?v=182"></script>
