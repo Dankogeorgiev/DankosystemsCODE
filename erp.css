@@ -1021,3 +1021,8 @@ button.co-mob-card:active { background: #eff6ff; }
 .at-table td.at-sick { background: #fef3c7; color: #b45309; }
 .at-table td.at-leave { background: #dbeafe; color: #1d4ed8; }
 .at-table td.at-today, .at-table th.at-today { outline: 2px solid #0ea5e9; outline-offset: -2px; }
+
+/* 🚚 Частично товарене — извадените редове в Опаковки */
+.pko-skipbar { margin: 6px 0 2px; padding: 7px 10px; background: #fff7ed; border: 1px dashed #fb923c; border-radius: 8px; font-size: 13px; }
+.pko-skipchip { display: inline-block; background: #fff; border: 1px solid #fdba74; border-radius: 14px; padding: 1px 6px 1px 10px; margin: 2px 2px; }
+.pko-skipchip .pko-unskip { border: 0; background: none; cursor: pointer; font-size: 14px; padding: 0 2px; }

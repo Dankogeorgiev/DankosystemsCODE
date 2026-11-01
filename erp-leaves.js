@@ -580,9 +580,16 @@ function openLeavesStandalone() {
 function leavesMainInit() {
   const b = document.getElementById("btn-leaves-main");
   if (b && !b._lvWired) { b._lvWired = true; b.addEventListener("click", openLeavesStandalone); }
-  // Същият прозорец и от 💼 Офис менюто в ЕРП-то.
+  // От 💼 Офис менюто в ЕРП-то: НОРМАЛЕН РАЗДЕЛ (като Фактуриране), не
+  // изскачащ прозорец (по Данко, 02.11.2026). Прозорецът остава резерва.
   const ob = document.getElementById("erp-office-leaves");
-  if (ob && !ob._lvWired) { ob._lvWired = true; ob.addEventListener("click", openLeavesStandalone); }
+  if (ob && !ob._lvWired) {
+    ob._lvWired = true;
+    ob.addEventListener("click", () => {
+      if (typeof erpSetTab === "function") erpSetTab("staff", true);
+      else openLeavesStandalone();
+    });
+  }
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", leavesMainInit);
 else leavesMainInit();

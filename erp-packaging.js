@@ -409,7 +409,9 @@ async function erpPackOrderOpen(orderId, moreIds) {
     const r = P.rows[key] || {};
     const spec = erpPackFind(l.code, o.clientName);
     return {
-      key, code: l.code || "", name: l.name || "",
+      key, li: i, code: l.code || "", name: l.name || "",
+      // „име при клиента" — за английските документи в прегледа на живо.
+      enAlt: String(l.clientName || (spec && spec.clientProductName) || "").trim(),
       // Бройката може да се коригира РЪЧНО за опаковането (частична пратка и пр.)
       // — пази се в опаковката (r.qty), заявката НЕ се пипа.
       qty: r.qty != null ? (erpToNum(r.qty) || 0) : (erpToNum(l.qty) || 0),
@@ -455,7 +457,9 @@ async function erpPackOrderOpen(orderId, moreIds) {
       sideMode: x.sideMode || "set",
     };
   };
-  const allStates = () => (o.lines || []).map((_, i) => rowState(i)).concat((P.extras || []).map((_, j) => extraState(j)));
+  // 🚚 Частично товарене (Данко, 02.11): извадените с ✕ редове (P.skip) не
+  // влизат в таблицата, плана и документите — връщат се от лентата отдолу.
+  const allStates = () => (o.lines || []).map((_, i) => rowState(i)).filter(st => !(P.skip && P.skip[st.key])).concat((P.extras || []).map((_, j) => extraState(j)));
   const render = () => {
     const states = allStates();
     const totals = states.reduce((t, st) => {
@@ -497,8 +501,8 @@ async function erpPackOrderOpen(orderId, moreIds) {
       </div>
       <table class="report-table erp-table">
         <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Количество</th><th class="num">КГ за брой</th><th>Вид опаковка</th><th class="num">брой в опаковка</th><th>Добавка</th><th class="num">опаковки на палет</th><th class="num">Опаковки</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
-        <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}"${st.extra ? ` data-xi="${st.xi}" class="pko-extra-row"` : ""}>
-          <td><b>${escapeHtml(st.code)}</b>${st.extra ? `<button type="button" class="btn btn-small btn-danger pko-xdel" data-xi="${st.xi}" title="Махни добавения ред" style="margin-left:6px;padding:0 6px">×</button>` : ""}</td>
+        <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${st.extra ? i : st.li}"${st.extra ? ` data-xi="${st.xi}" class="pko-extra-row"` : ""}>
+          <td><b>${escapeHtml(st.code)}</b>${st.extra ? `<button type="button" class="btn btn-small btn-danger pko-xdel" data-xi="${st.xi}" title="Махни добавения ред" style="margin-left:6px;padding:0 6px">×</button>` : `<button type="button" class="btn btn-small pko-skip" data-key="${escapeAttr(st.key)}" title="НЯМА да се товари в тази пратка (частично товарене) — маха го от опаковката, плана и документите. Връща се от лентата под таблицата." style="margin-left:6px;padding:0 6px">✕</button>`}</td>
           <td>${escapeHtml(st.name)}${st.extra ? ' <span class="erp-muted" style="font-size:11px" title="Добавен ред — не е от заявката, но влиза в документите">➕ добавен</span>' : ""}</td>
           <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:62px" />
             <select class="pko-unit" data-i="${i}" title="Мерната единица: при „к-т ×2" (ляв + десен) кашоните, бройките и килограмите се смятат върху двойното">
@@ -526,6 +530,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
           <td class="num">${totals.boxes}</td><td class="num" id="pko-palfoot">${palletsUp}${totals.pallets ? ` <span class="erp-muted">(${Math.round(totals.pallets * 100) / 100})</span>` : ""}</td><td class="num">${Math.round(totals.net * 10) / 10}</td>
         </tr></tfoot>
       </table>
+      ${(() => { const sk = Object.keys(P.skip || {}).filter(k => P.skip[k]); if (!sk.length) return ""; const nameOf = k => { const l = (o.lines || []).find((l2, i2) => String(l2.code || i2) === k) || {}; return (l.code ? l.code + " · " : "") + (l.name || k); }; return `<div class="pko-skipbar">🚚 <b>Частично товарене</b> — няма да се товарят: ${sk.map(k => `<span class="pko-skipchip">${escapeHtml(nameOf(k))} <button type="button" class="pko-unskip" data-key="${escapeAttr(k)}" title="Върни реда в опаковката">↩</button></span>`).join(" ")}</div>`; })()}
       <div class="costk-stats">
         <span>Сума на палетите: <b id="pko-palsum">${palletsUp}</b><span class="erp-muted" id="pko-palbrk">${smallCnt ? ` (${palletsUp - smallCnt} × 120×80 + ${smallCnt} × 60×80)` : ""}</span></span>
         <span>Опаковки: <b>${totals.boxes}</b></span>
@@ -672,6 +677,17 @@ async function erpPackOrderOpen(orderId, moreIds) {
     v.querySelectorAll(".pko-xdel").forEach(b => b.addEventListener("click", () => {
       collect();
       (P.extras || []).splice(Number(b.dataset.xi), 1);
+      render();
+    }));
+    v.querySelectorAll(".pko-skip").forEach(b => b.addEventListener("click", () => {
+      collect();
+      P.skip = P.skip || {};
+      P.skip[b.dataset.key] = 1;
+      render();
+    }));
+    v.querySelectorAll(".pko-unskip").forEach(b => b.addEventListener("click", () => {
+      collect();
+      if (P.skip) delete P.skip[b.dataset.key];
       render();
     }));
     renderPlan();
@@ -1016,7 +1032,7 @@ async function erpPackDocRows(o) {
     const perPallet = packNum(st.perPallet);
     const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
     return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
-  }).concat(extras);
+  }).filter(r => !(P.skip && P.skip[r.key])).concat(extras);
 }
 async function erpPackPrintFor(o, kind) {
   if (!o) { alert("Няма заявка."); return; }
