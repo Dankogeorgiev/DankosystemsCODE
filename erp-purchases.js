@@ -281,15 +281,22 @@ function erpPuPayBadge(o) {
   return badge("⚠ липсва в Задължения", "#fee2e2", "#991b1b");
 }
 
+// Епохата гони надбягването списък ↔ форма: който започне ПОСЛЕДЕН, печели
+// екрана (иначе фоновият рендер на списъка стъпкваше отворената фактура —
+// напр. при клик от Логистика → Фактури транспорт).
+let ERP_PU_EPOCH = 0;
 async function erpRenderPurchases() {
+  const myEpoch = ++ERP_PU_EPOCH;
   const v = erpView();
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   try { if (typeof erpPayLoad === "function" && (typeof PAYABLES === "undefined" || !PAYABLES)) await erpPayLoad(); } catch (e) {}
   try { await erpLoadPurchases(); }
   catch (e) {
+    if (myEpoch !== ERP_PU_EPOCH) return;
     v.innerHTML = `<div class="erp-error"><h3>Не мога да заредя покупките</h3><p>${escapeHtml(e.message || String(e))}</p><p class="hint">Пусни обновения <code>erp-setup.sql</code> (таблица purchases) в Supabase.</p></div>`;
     return;
   }
+  if (myEpoch !== ERP_PU_EPOCH) return;   // по-нов екран пое раздела, докато зареждахме
   v.innerHTML = `
     <div class="erp-toolbar">
       <span class="erp-count" id="pu-count"></span>
@@ -394,6 +401,7 @@ async function erpPuMarkPaid(o) {
 
 /* ---------- Форма ---------- */
 async function erpRenderPurchaseForm(o) {
+  const myEpoch = ++ERP_PU_EPOCH;   // формата бие течащ рендер на списъка
   const v = erpView();
   const suppliers = await erpLoadSuppliers();
   const locked = !!o.posted;   // заключва само редовете за склад (заприходените)
@@ -418,6 +426,7 @@ async function erpRenderPurchaseForm(o) {
   const matType = erpPuTypeIsMat(o.expenseType);
   const due = erpPuDueDate(o);
   const st = erpPuPayStatus(o);
+  if (myEpoch !== ERP_PU_EPOCH) return;   // по-нов екран пое раздела, докато зареждахме
   v.innerHTML = `
     <div class="erp-toolbar">
       <button class="btn btn-small" id="pu-back">← Назад</button>

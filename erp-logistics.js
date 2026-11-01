@@ -12,8 +12,12 @@
    Ползва erpDialog/erpDMY/escapeHtml/sb/erpInvoices/erpMailComposeDialog. */
 
 let LOGI = null;             // { loads: [...] }
-let logiView = "orders";     // orders | dest | loads | inq (📦 Поръчки е работният екран)
-let logiOrdersAll = false;   // false = само планираните за товарене (тази седмица и напред)
+// Преработка по Данко (01.11.2026): останаха ТРИ раздела — 📨 Запитвания
+// (работният екран), 🗺 Дестинации и 🧾 Фактури транспорт. Поръчки/План
+// товарене/Товари/Анализ транспорт отпаднаха: заявките живеят в „Заявки от
+// клиенти" (с камиончето 🚛 за запитване), а данните на старите товари и
+// помощните функции (logiBindInvoice и др.) остават — спят, нищо не губим.
+let logiView = "inq";        // inq | dest | tinv
 let logiQ = "";
 
 async function logiLoad(force) {
@@ -160,6 +164,8 @@ ${p.incoterms ? "• Условие: " + p.incoterms + "\n" : ""}
           });
           await logiSave();
           if (typeof ERP !== "undefined" && ERP.tab === "logistics") erpRenderLogistics();
+          // Камиончето на заявката става жълто веднага (Заявки от клиенти).
+          else if (typeof ERP !== "undefined" && ERP.tab === "customer" && typeof erpRenderCustomerOrders === "function") erpRenderCustomerOrders();
         } catch (e2) { console.warn("регистър запитвания:", e2); }
       },
     });
@@ -562,7 +568,6 @@ async function erpRenderLogistics() {
   if (logiView === "inq") {
     let inqs = (LOGI.inq || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
     if (q) inqs = inqs.filter(x => logiNorm([x.label, x.subject, (x.to || []).join(" "), logiCargoOf(x), x.price, x.text].join(" ")).includes(q));
-    const loadOfInq = x => (LOGI.loads || []).find(l => Number(l.id) === Number(x.loadId));
     body = `<table class="report-table erp-table">
       <thead><tr><th>Кога</th><th>До кого</th><th>Относно</th><th>Поръчка / Ф-ра</th><th>Товар</th><th>Върната цена</th><th>Откъс</th><th></th></tr></thead>
       <tbody>${inqs.map(x => `<tr>
@@ -576,162 +581,10 @@ async function erpRenderLogistics() {
         <td class="erp-row-actions">
           <button class="btn btn-small lgq-view" data-id="${x.id}" title="Пълният текст на запитването">👁</button>
           <button class="btn btn-small btn-primary lgq-resend" data-id="${x.id}" title="Същото запитване до ДРУГА фирма — избираш получател, текстът е готов">↪ До друга фирма</button>
-          ${x.orderId ? (loadOfInq(x)
-            ? `<span class="erp-count" title="От това запитване вече е направен товар">🚛 ${escapeHtml((loadOfInq(x).carrier || "товар"))}</span>`
-            : `<button class="btn btn-small lgq-load" data-id="${x.id}" title="Избрал си тази фирма → създава ТОВАР по поръчката. № на фактурата ще се попълни САМ, щом я издадеш.">🚛 → Товар</button>`) : ""}
         </td>
-      </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Още няма изпратени запитвания. Пращат се от „📨 Запитване за транспорт" — от поръчката (Заявки), от фактурата или от дестинация — и се записват тук сами.</td></tr>`}</tbody>
+      </tr>`).join("") || `<tr><td colspan="8" class="report-empty">Още няма изпратени запитвания. Пращат се от камиончето 🚛 в „Заявки от клиенти", от фактурата или от дестинация — и се записват тук сами.</td></tr>`}</tbody>
     </table>
-    <p class="hint">Всяко изпратено запитване се помни: кога, до кого, по коя поръчка и за какъв товар. Като получиш оферта — напиши я в „Върната цена" (записва се веднага). Избереш ли фирма — „🚛 → Товар" прави товара по поръчката, а № на фактурата се връзва сам при издаването ѝ.</p>`;
-  } else if (logiView === "orders") {
-    const plan = await logiPlanLoad();
-    // По подразбиране: САМО планираните за товарене (тази седмица и напред,
-    // от „🚚 План за седмицата"). „Всички активни" показва както преди.
-    // Търсиш ли — излиза ВСИЧКО (и завършени, и непланирани).
-    let cos = ((typeof erpCOList !== "undefined" && erpCOList) || []).slice();
-    if (q) cos = cos.filter(c => logiNorm([c.ourNo, c.clientNo, c.clientName, c.status, logiOrderAddr(c)].join(" ")).includes(q));
-    else if (!logiOrdersAll) cos = cos.filter(c => logiPlanOf(c, plan));
-    else cos = cos.filter(c => (c.status || "нова") !== "завършена");
-    // Планираните най-отпред по седмицата на товаренето, после по срок.
-    cos.sort((a, b) => {
-      const pa = logiPlanOf(a, plan), pb = logiPlanOf(b, plan);
-      if (pa && pb && pa.week !== pb.week) return pa.week.localeCompare(pb.week);
-      if (!!pa !== !!pb) return pa ? -1 : 1;
-      return String(a.deadline || "9999-99-99").localeCompare(String(b.deadline || "9999-99-99"));
-    });
-    const today = new Date().toISOString().slice(0, 10);
-    const trCell = c => {
-      const oid = String(c.id);
-      const inqs = (LOGI.inq || []).filter(x => String(x.orderId || "") === oid);
-      const lds = (LOGI.loads || []).filter(l => String(l.orderId || "") === oid);
-      const parts = [];
-      if (inqs.length) {
-        const priced = inqs.filter(x => x.price);
-        parts.push(`<span title="Изпратени запитвания по поръчката${priced.length ? " · върнати цени: " + priced.map(x => escapeAttr(x.price)).join("; ") : ""}">📨 ${inqs.length}${priced.length ? " · " + priced.map(x => escapeHtml(x.price)).join("; ") : ""}</span>`);
-      }
-      lds.forEach(l => parts.push(`<span title="Товар по поръчката">🚛 ${escapeHtml(l.carrier || "товар")} — ${l.invNo ? "ф-ра " + escapeHtml(l.invNo) + ", " + escapeHtml(l.status || "") : "⏳ очаква ф-ра"}</span>`));
-      return parts.join("<br>") || `<span class="erp-muted">—</span>`;
-    };
-    body = `<div class="erp-toolbar" style="margin:0 0 6px">
-      <button class="btn btn-small ${!logiOrdersAll ? "btn-primary" : ""}" id="lgo-f-plan" title="Само поръчките от 🚚 План за седмицата — тази седмица и следващите планирани">🗓 Планирани за товарене</button>
-      <button class="btn btn-small ${logiOrdersAll ? "btn-primary" : ""}" id="lgo-f-all" title="Всички активни поръчки (завършените се крият; търсенето вижда всичко)">Всички активни</button>
-    </div>
-    <table class="report-table erp-table">
-      <thead><tr><th>Поръчка</th><th>Клиент</th><th>Срок</th><th>Производство</th><th>Палети · Тегло</th><th>Разтоварване</th><th>Транспорт</th><th></th></tr></thead>
-      <tbody>${cos.map(c => {
-        const pct = (typeof erpCOPct === "function") ? erpCOPct(c) : { tot: 0, del: 0, pct: 0 };
-        const cg = logiOrderCargo(c);
-        const pl = logiPlanOf(c, plan);
-        // Палети/кг: ПЛАНЪТ е с предимство (той казва какво реално ще се товари).
-        const cnt = (pl && pl.pallets) || cg.cnt, kg = (pl && pl.kg) || cg.kg;
-        const late = c.deadline && c.deadline < today && (c.status || "") !== "готова за продажба";
-        return `<tr>
-          <td><a class="lgo-open" data-oid="${escapeAttr(String(c.id))}" style="cursor:pointer;text-decoration:underline" title="Какво се товари: редове, палети, транспорт, файлове и документи — без да влизаш в Склад/ЕРП"><b>№ ${escapeHtml(c.ourNo || "—")}</b></a>${c.clientNo ? `<div class="erp-muted" style="font-size:11px" title="Клиентски №">кл. № ${escapeHtml(c.clientNo)}</div>` : ""}</td>
-          <td>${escapeHtml(c.clientName || "")}</td>
-          <td style="white-space:nowrap">${pl ? `<div style="color:#0f766e;font-weight:700" title="Планирано товарене (🚚 План за седмицата)">🗓 ${logiWeekLabel(pl.week)}</div>` : ""}${c.deadline ? `<span style="${late ? "color:#dc2626;font-weight:700" : ""}" title="Срок на поръчката">${erpDMY(c.deadline)}</span>${late ? ' <span title="Срокът е минал">⚠</span>' : ""}` : (pl ? "" : `<span class="erp-muted">—</span>`)}</td>
-          <td><span class="erp-co-status s-${escapeAttr(c.status || "нова")}">${escapeHtml(c.status || "нова")}</span>${pct.tot ? `<div class="erp-muted" style="font-size:11px">доставени ${erpNum(pct.del)} от ${erpNum(pct.tot)} бр. (${pct.pct}%)</div>` : ""}</td>
-          <td style="white-space:nowrap">${cnt ? `🧱 ${erpNum(cnt)} пал.${pl && pl.pallets ? ` <span class="erp-muted" style="font-size:11px" title="От Плана за седмицата — толкова е планирано да се товари">(план)</span>` : ""}` : `<span class="erp-muted" title="Палетите се попълват от Плана за седмицата, Опаковки или ✎ Палети на заявката">—</span>`}${kg ? `<div class="erp-muted" style="font-size:11px">~${erpNum(kg)} кг</div>` : ""}</td>
-          <td style="max-width:260px">${escapeHtml(logiOrderAddr(c)) || `<span class="erp-muted">—</span>`}</td>
-          <td style="font-size:12px">${trCell(c)}</td>
-          <td class="erp-row-actions">
-            <button class="btn btn-small lgo-view" data-oid="${escapeAttr(String(c.id))}" title="Какво се товари — редове, палети, файлове, документи">👁</button>
-            <button class="btn btn-small lgo-inq" data-oid="${escapeAttr(String(c.id))}" title="Запитване за транспорт по тази поръчка — адрес/палети/тегло са готови">📨</button>
-            <button class="btn btn-small btn-primary lgo-load" data-oid="${escapeAttr(String(c.id))}" title="Нов товар по тази поръчка — № на фактурата ще дойде сам при издаването">🚛</button>
-          </td>
-        </tr>`;
-      }).join("") || `<tr><td colspan="8" class="report-empty">${q ? "Нищо не отговаря на търсенето — то рови във ВСИЧКИ поръчки, и завършените."
-        : (!logiOrdersAll ? "Няма планирани товарения за тази седмица и напред. Планът се прави от „🚚 План за седмицата“ на основния екран — или виж „Всички активни“." : "Няма активни поръчки (завършените се крият — потърси ги по номер или клиент и излизат).")}</td></tr>`}</tbody>
-    </table>
-    <p class="hint">По подразбиране са само поръчките от „🚚 План за седмицата" — тази седмица и следващите планирани, подредени по седмицата на товаренето (🗓 в зелено; палетите/килата са планираните). 👁 показва какво се товари, 📨 праща запитване, 🚛 отваря товар. Търсенето вижда всички поръчки.</p>`;
-  } else if (logiView === "wplan") {
-    if (!LOGI_WPLAN_MON) LOGI_WPLAN_MON = logiMondayOf(new Date());
-    const mon = LOGI_WPLAN_MON;
-    let wrows = (LOGI.wplan || []).filter(x => x.week === mon);
-    if (q) wrows = wrows.filter(x => logiNorm([x.dest, x.client, x.invNo, x.carrier, x.contact].join(" ")).includes(q));
-    const carriers = [...new Set(logiCarriers().map(c => (c.company || "").trim()).filter(Boolean))];
-    const totPal = wrows.reduce((s, x) => s + (erpToNum(x.pallets) || 0), 0);
-    body = `
-    <div class="erp-toolbar" style="margin:0 0 6px">
-      <button class="btn btn-small" id="wp-prev" title="Предишната седмица">‹</button>
-      <b style="font-size:15px">Седмица ${logiWeekNum(mon)} · ${logiWeekLabel(mon)}</b>
-      <button class="btn btn-small" id="wp-next" title="Следващата седмица">›</button>
-      <button class="btn btn-small" id="wp-today" title="Връща към текущата седмица">Днес</button>
-      <span class="spacer"></span>
-      <button class="btn btn-small" id="wp-fill" title="Попълва редове от „🚚 План за седмицата“ за тази седмица: клиент, палети, дестинация; № фактура и превозвач идват от Товарите, ако ги има">🔄 От Плана за седмицата</button>
-      <button class="btn btn-small btn-primary" id="wp-add">+ Ред</button>
-    </div>
-    <table class="report-table erp-table">
-      <thead><tr><th>Дестинация</th><th>Клиент</th><th>№ Фактура</th><th class="num">Палети</th><th>Транспортна фирма</th><th>Лице за контакт</th><th></th></tr></thead>
-      <tbody>${wrows.map(x => `<tr>
-        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="dest" value="${escapeAttr(x.dest || "")}" placeholder="град, държава" style="width:100%;min-width:170px" /></td>
-        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="client" value="${escapeAttr(x.client || "")}" style="width:100%;min-width:140px" /></td>
-        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="invNo" value="${escapeAttr(x.invNo || "")}" placeholder="№ (щом я издадеш)" style="width:130px" /></td>
-        <td class="num"><input type="number" class="wp-f" data-id="${x.id}" data-f="pallets" value="${escapeAttr(x.pallets || "")}" min="0" style="width:72px;text-align:right" /></td>
-        <td><input type="text" class="wp-f wp-carrier" data-id="${x.id}" data-f="carrier" list="wp-carriers" value="${escapeAttr(x.carrier || "")}" placeholder="избери или пиши" style="width:100%;min-width:150px" /></td>
-        <td><input type="text" class="wp-f" data-id="${x.id}" data-f="contact" value="${escapeAttr(x.contact || "")}" placeholder="име · телефон" style="width:100%;min-width:150px" /></td>
-        <td class="erp-row-actions"><button class="btn btn-small btn-danger wp-del" data-id="${x.id}" title="Изтрий реда">×</button></td>
-      </tr>`).join("") || `<tr><td colspan="7" class="report-empty">Няма редове за седмица ${logiWeekNum(mon)} (${logiWeekLabel(mon)}). „+ Ред“ добавя ръчно, „🔄 От Плана за седмицата“ попълва от планираните товарения.</td></tr>`}</tbody>
-      ${wrows.length ? `<tfoot><tr><td colspan="3" style="text-align:right"><b>ОБЩО:</b></td><td class="num"><b>${erpNum(totPal)} пал.</b></td><td colspan="3"></td></tr></tfoot>` : ""}
-    </table>
-    <datalist id="wp-carriers">${carriers.map(c => `<option value="${escapeAttr(c)}"></option>`).join("")}</datalist>
-    <p class="hint">Планът за товарене на седмицата: всяка промяна се записва ВЕДНАГА. Избереш ли транспортна фирма от списъка, лицето за контакт се попълва само̀ (от указателя, категория „Транспорт / логистика“). ‹ › местят седмицата — записите си стоят по седмици.</p>`;
-  } else if (logiView === "trans") {
-    let tps = logiTransList().slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-    if (q) tps = tps.filter(p => logiNorm([p.supplierName, p.invoiceNo, p.expenseType, logiTcostOf(p).dest, logiTransExtract(p).txt].join(" ")).includes(q));
-    // Обобщение по дестинация + фирма (само попълнените редове).
-    const agg = new Map();
-    tps.forEach(p => {
-      const tc = logiTcostOf(p);
-      const pal = erpToNum(tc.pallets) || 0;
-      const dest = String(tc.dest || "").trim();
-      if (!dest || pal <= 0) return;
-      const base = logiTransBase(p);
-      if (!base) return;
-      const key = logiNorm(dest) + "|" + logiNorm(p.supplierName);
-      const g = agg.get(key) || { dest, carrier: p.supplierName || "—", n: 0, pal: 0, sum: 0, min: Infinity, max: 0 };
-      const per = base / pal;
-      g.n++; g.pal += pal; g.sum += base;
-      if (per < g.min) g.min = per; if (per > g.max) g.max = per;
-      agg.set(key, g);
-    });
-    const aggRows = [...agg.values()].sort((a, b) => a.dest.localeCompare(b.dest, "bg") || (a.sum / a.pal) - (b.sum / b.pal));
-    const f2 = n => (Math.round(n * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    body = `
-    ${aggRows.length ? `<h4 class="erp-group-head" style="margin-top:0">Сравнение по дестинация (без ДДС, EUR)</h4>
-    <table class="report-table erp-table" style="margin-bottom:14px">
-      <thead><tr><th>Дестинация</th><th>Транспортна фирма</th><th class="num">Курсове</th><th class="num">Палети общо</th><th class="num">Платено общо</th><th class="num">Ø цена / палет</th><th class="num">мин – макс / палет</th></tr></thead>
-      <tbody>${aggRows.map(g => `<tr>
-        <td><b>${escapeHtml(g.dest)}</b></td>
-        <td>${escapeHtml(g.carrier)}</td>
-        <td class="num">${g.n}</td>
-        <td class="num">${erpNum(g.pal)}</td>
-        <td class="num">${f2(g.sum)}</td>
-        <td class="num"><b>${f2(g.sum / g.pal)}</b></td>
-        <td class="num">${f2(g.min)} – ${f2(g.max)}</td>
-      </tr>`).join("")}</tbody>
-    </table>` : `<p class="hint" style="margin-top:0">Сравнението се появява, щом попълниш <b>Дестинация</b> и <b>Палети</b> на фактурите долу — тогава виждаш Ø цена на палет по дестинация и фирма.</p>`}
-    <h4 class="erp-group-head">Транспортните фактури от Покупки (${tps.length})</h4>
-    <table class="report-table erp-table">
-      <thead><tr><th>Дата</th><th>№ Фактура</th><th>Транспортна фирма</th><th>Вид</th><th class="num">Сума без ДДС (EUR)</th><th class="num">Палети</th><th>Дестинация</th><th class="num">€ / палет</th><th>Редовете на фактурата</th></tr></thead>
-      <tbody>${tps.map(p => {
-        const tc = logiTcostOf(p);
-        const ex = logiTransExtract(p);
-        const pal = erpToNum(tc.pallets) || 0;
-        const base = logiTransBase(p);
-        return `<tr>
-          <td style="white-space:nowrap">${erpDMY(p.date) || "—"}</td>
-          <td><b>${escapeHtml(p.invoiceNo || "—")}</b></td>
-          <td>${escapeHtml(p.supplierName || "—")}</td>
-          <td>${/износ/i.test(p.expenseType || "") ? "🌍 износ" : (/вътрешен/i.test(p.expenseType || "") ? "🇧🇬 вътрешен" : escapeHtml(p.expenseType || "—"))}</td>
-          <td class="num">${f2(base)}</td>
-          <td class="num"><input type="number" class="tc-f" data-pid="${escapeAttr(String(p.id))}" data-f="pallets" value="${escapeAttr(tc.pallets != null && tc.pallets !== "" ? tc.pallets : (ex.pal || ""))}" min="0" style="width:70px;text-align:right" title="${ex.pal ? "Авто-предложение от текста: " + ex.pal + " палета — провери и запази с излизане от полето" : "Броят палети на този курс"}" /></td>
-          <td><input type="text" class="tc-f" data-pid="${escapeAttr(String(p.id))}" data-f="dest" value="${escapeAttr(tc.dest || "")}" placeholder="град / държава" style="width:100%;min-width:140px" /></td>
-          <td class="num">${pal > 0 && base ? `<b>${f2(base / pal)}</b>` : `<span class="erp-muted">—</span>`}</td>
-          <td class="erp-muted" style="max-width:300px;font-size:11.5px">${escapeHtml(ex.txt || "")}</td>
-        </tr>`;
-      }).join("") || `<tr><td colspan="9" class="report-empty">Няма транспортни фактури — те идват от Покупки с вид разход „Транспорт износ / Транспорт вътрешен“ или от доставчик с категория „Транспорт / логистика“.</td></tr>`}</tbody>
-    </table>
-    <p class="hint">Попълни <b>Палети</b> (често се предлагат сами от текста) и <b>Дестинация</b> — записват се ВЕДНАГА и горе се сглобява сравнението: Ø цена на палет по дестинация и фирма. Получиш ли нова оферта, погледни реда на същата дестинация и я сравни.</p>`;
+    <p class="hint">Всяко изпратено запитване се помни: кога, до кого, по коя заявка и за какъв товар. Като получиш оферта — напиши я в „Върната цена" (записва се веднага и се вижда при жълтото камионче 🚛 на заявката). Клик на № отваря какво се товари.</p>`;
   } else if (logiView === "tinv") {
     // 🧾 Фактури транспорт (по Данко, 26.10): всяка покупка с вид „Транспорт
     // износ/вътрешен" идва тук САМА (както Металите в папка Метали) —
@@ -751,7 +604,7 @@ async function erpRenderLogistics() {
       <h4 class="erp-group-head">${icon} ${title} — ${rows.length} фактури · <b>${f2(tot)} EUR</b> без ДДС${Math.abs(totY - tot) > 0.005 ? ` · за ${year} г.: ${f2(totY)} EUR` : ""}</h4>
       <table class="report-table erp-table" style="margin-bottom:14px">
         <thead><tr><th>Дата</th><th>№ Фактура</th><th>Транспортна фирма</th><th>Дестинация</th><th class="num">Сума без ДДС (EUR)</th><th>Редовете на фактурата</th></tr></thead>
-        <tbody>${rows.map(p => { const tc = logiTcostOf(p); const ex = logiTransExtract(p); return `<tr>
+        <tbody>${rows.map(p => { const tc = logiTcostOf(p); const ex = logiTransExtract(p); return `<tr class="erp-clickable" data-puopen="${escapeAttr(String(p.id))}" title="Отваря фактурата с всичко, въведено в Покупки — редове, суми, плащане">
           <td style="white-space:nowrap">${erpDMY(p.date) || "—"}</td>
           <td><b>${escapeHtml(p.invoiceNo || "—")}</b></td>
           <td>${escapeHtml(p.supplierName || "—")}</td>
@@ -762,14 +615,14 @@ async function erpRenderLogistics() {
       </table>`;
     };
     body = `
-    <p class="hint" style="margin-top:0">Всяка покупка с вид разход <b>Транспорт износ</b> или <b>Транспорт вътрешен</b> идва тук сама — включително преместените от „Заявки за материали → Без група". Палети и дестинация се попълват в 📊 Анализ транспорт.</p>
+    <p class="hint" style="margin-top:0">Всяка покупка с вид разход <b>Транспорт износ</b> или <b>Транспорт вътрешен</b> идва тук сама — включително преместените от „Заявки за материали → Без група". <b>Клик на ред</b> отваря фактурата с всичко, въведено в Покупки.</p>
     ${sect("🚛", "Транспорт износ", exp)}
     ${sect("🚐", "Транспорт вътрешен", dom)}
     ${untyped.length ? `<h4 class="erp-group-head">🏷 От превозвачи, БЕЗ посочен вид (${untyped.length})</h4>
     <p class="hint" style="margin:4px 0">Фактури от фирми с категория „Транспорт / логистика", но без вид разход — разнеси ги с бутоните (видът се записва в Покупки, общо за всички):</p>
     <table class="report-table erp-table">
       <thead><tr><th>Дата</th><th>№</th><th>Фирма</th><th class="num">Сума (EUR)</th><th>Редове</th><th></th></tr></thead>
-      <tbody>${untyped.map(p => { const ex = logiTransExtract(p); return `<tr>
+      <tbody>${untyped.map(p => { const ex = logiTransExtract(p); return `<tr class="erp-clickable" data-puopen="${escapeAttr(String(p.id))}" title="Отваря фактурата с всичко, въведено в Покупки">
         <td style="white-space:nowrap">${erpDMY(p.date) || "—"}</td><td><b>${escapeHtml(p.invoiceNo || "—")}</b></td>
         <td>${escapeHtml(p.supplierName || "—")}</td><td class="num">${f2(logiTransBase(p))}</td>
         <td class="erp-muted" style="max-width:300px;font-size:11.5px">${escapeHtml(ex.txt || "")}</td>
@@ -794,54 +647,19 @@ async function erpRenderLogistics() {
     </table>
     <p class="hint">Дестинациите се събират сами от издадените фактури: получателят (Consignee) е мястото, където пращаме камиона. „📨 Запитване" предпопълва маршрута.</p>`;
     v.__dests = dests;
-  } else {
-    let loads = (LOGI.loads || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-    if (q) loads = loads.filter(l => logiNorm([l.invNo, l.ourNo, l.client, l.dest, l.carrier, l.vehicle, l.note].join(" ")).includes(q));
-    const stBadge = s => s === "разтоварен" ? `<span class="erp-co-status" style="background:#dcfce7;color:#166534">✓ разтоварен</span>`
-      : s === "натоварен" ? `<span class="erp-co-status" style="background:#fef9c3;color:#854d0e">🚚 натоварен</span>`
-      : `<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">⏳ заявен</span>`;
-    body = `<table class="report-table erp-table">
-      <thead><tr><th>Дата</th><th>№ Фактура</th><th>Поръчка</th><th>Клиент</th><th>Дестинация</th><th>Превозвач</th><th>Камион</th><th>Статус</th><th>Бележка / ЧМР</th><th></th></tr></thead>
-      <tbody>${loads.map(l => `<tr data-lid="${l.id}">
-        <td>${erpDMY(l.date) || "—"}</td>
-        <td>${l.invNo ? `<b>${escapeHtml(l.invNo)}</b>` : (l.orderId || l.ourNo ? `<span class="erp-muted" title="Товарът е по поръчка — номерът на фактурата ще се попълни САМ при издаването ѝ">⏳ очаква ф-ра</span>` : "—")}</td>
-        <td>${l.ourNo || l.orderId ? `<a class="lgo-open" data-oid="${escapeAttr(String(l.orderId || ""))}" data-ono="${escapeAttr(l.ourNo || "")}" style="cursor:pointer;text-decoration:underline" title="Какво се товари: редове, палети, транспорт, файлове и документи"><b>№ ${escapeHtml(l.ourNo || "?")}</b></a>` : `<span class="erp-muted">—</span>`}</td>
-        <td>${escapeHtml(l.client || "")}</td>
-        <td>${escapeHtml(l.dest || "")}</td>
-        <td>${escapeHtml(l.carrier || "") || `<span class="erp-muted">—</span>`}</td>
-        <td>${escapeHtml(l.vehicle || "")}</td>
-        <td><select class="lgi-st" data-lid="${l.id}" title="Статус на товара">${LOGI_STATUSES.map(s => `<option ${l.status === s ? "selected" : ""}>${s}</option>`).join("")}</select> ${stBadge(l.status)}</td>
-        <td><input type="text" class="lgi-note" data-lid="${l.id}" value="${escapeAttr(l.note || "")}" placeholder="ЧМР №, файл, уговорка…" style="width:160px" /></td>
-        <td class="erp-row-actions"><button class="btn btn-small lgi-edit" data-lid="${l.id}" title="Редакция на товара">✎</button><button class="btn btn-small btn-danger lgi-del" data-lid="${l.id}" title="Изтрий реда">×</button></td>
-      </tr>`).join("") || `<tr><td colspan="10" class="report-empty">Няма записани товари. Товар се прави от запитване („🚛 → Товар") още докато е поръчка, а „🔄 От фактурите" пълни архива от издадените износни фактури.</td></tr>`}</tbody>
-    </table>
-    <p class="hint">Архивът помни коя поръчка/фактура с кой превозвач е тръгнала: заявен → натоварен → разтоварен. Товар по поръчка стои с „⏳ очаква ф-ра" и номерът се попълва САМ при издаването на фактурата. Статусът и бележката (№ на ЧМР) се записват веднага.</p>`;
   }
 
   v.innerHTML = `
     <div class="erp-toolbar">
-      <button class="btn btn-small ${logiView === "orders" ? "btn-primary" : ""}" id="lgi-v-orders" title="Активните поръчки с всичко за експедицията — срок, производство, палети, адрес, документи">📦 Поръчки (${(((typeof erpCOList !== "undefined" && erpCOList) || []).filter(c => (c.status || "нова") !== "завършена")).length})</button>
-      <button class="btn btn-small ${logiView === "wplan" ? "btn-primary" : ""}" id="lgi-v-wplan" title="Планът за товарене по седмици: дестинация, клиент, фактура, палети, транспортна фирма и лице за контакт">🗓 План товарене</button>
+      <button class="btn btn-small ${logiView === "inq" ? "btn-primary" : ""}" id="lgi-v-inq" title="Всички изпратени запитвания за транспорт: кога, до кого, по коя заявка, върната цена">📨 Запитвания (${(LOGI.inq || []).length})</button>
       <button class="btn btn-small ${logiView === "dest" ? "btn-primary" : ""}" id="lgi-v-dest">🗺 Дестинации</button>
-      <button class="btn btn-small ${logiView === "loads" ? "btn-primary" : ""}" id="lgi-v-loads">📜 Товари (${(LOGI.loads || []).length})</button>
-      <button class="btn btn-small ${logiView === "inq" ? "btn-primary" : ""}" id="lgi-v-inq">📨 Запитвания (${(LOGI.inq || []).length})</button>
-      <button class="btn btn-small ${logiView === "trans" ? "btn-primary" : ""}" id="lgi-v-trans" title="Транспортните фактури от Покупки: дестинация, палети, цена на палет по фирма — за сравнение с нови оферти">📊 Анализ транспорт</button>
-      <button class="btn btn-small ${logiView === "tinv" ? "btn-primary" : ""}" id="lgi-v-tinv" title="Всички транспортни фактури от Покупки — Транспорт износ и Транспорт вътрешен поотделно, със суми за следене на разходите">🧾 Фактури транспорт</button>
+      <button class="btn btn-small ${logiView === "tinv" ? "btn-primary" : ""}" id="lgi-v-tinv" title="Всички транспортни фактури от Покупки — Транспорт износ и Транспорт вътрешен поотделно, със суми; клик на ред отваря фактурата с всичко от Покупки">🧾 Фактури транспорт</button>
       <input type="search" id="lgi-q" placeholder="🔎 поръчка / клиент / адрес / № фактура / превозвач… (Enter)" value="${escapeAttr(logiQ)}" style="min-width:250px" autocomplete="off" />
       <span class="spacer"></span>
       <button class="btn btn-small" id="lgi-inq" title="Свободно запитване за транспорт до избрани транспортни фирми">📨 Запитване за транспорт</button>
-      ${logiView === "loads" ? `<button class="btn btn-small" id="lgi-sync" title="Добавя в архива издадените износни фактури, които още ги няма (превозвачът идва от ✎ Транспорт на фактурата)">🔄 От фактурите</button>
-      <button class="btn btn-small btn-primary" id="lgi-add">+ Товар</button>` : ""}
     </div>
     ${body}`;
 
-  v.querySelector("#lgi-v-orders").addEventListener("click", () => { logiView = "orders"; erpRenderLogistics(); });
-  v.querySelector("#lgi-v-wplan").addEventListener("click", () => { logiView = "wplan"; erpRenderLogistics(); });
-  v.querySelector("#lgi-v-trans").addEventListener("click", async () => {
-    logiView = "trans";
-    try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
-    erpRenderLogistics();
-  });
   v.querySelector("#lgi-v-tinv").addEventListener("click", async () => {
     logiView = "tinv";
     try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
@@ -867,46 +685,23 @@ async function erpRenderLogistics() {
       erpRenderLogistics();
     } catch (e) { alert("Не се записа: " + (e.message || e)); b.disabled = false; }
   }));
-  // 📊 Анализ: палети/дестинация по фактура — записват се веднага; сравнението
-  // горе се преначертава чак когато редът е ПОПЪЛНЕН (да не губи фокуса).
-  v.querySelectorAll(".tc-f").forEach(i => i.addEventListener("change", async () => {
-    LOGI.tcost = LOGI.tcost || {};
-    const key = String(i.dataset.pid);
-    const rec = LOGI.tcost[key] || {};
-    rec[i.dataset.f] = i.value.trim();
-    // Палетите от авто-предложението се закотвят при първото пипане на реда.
-    if (!("pallets" in rec) || rec.pallets === "") {
-      const row = i.closest("tr");
-      const palEl = row && row.querySelector('.tc-f[data-f="pallets"]');
-      if (palEl && palEl.value.trim()) rec.pallets = palEl.value.trim();
-    }
-    LOGI.tcost[key] = rec;
-    const done = String(rec.dest || "").trim() && (erpToNum(rec.pallets) || 0) > 0;
-    await logiSave();
-    if (done) erpRenderLogistics();
-  }));
   v.querySelector("#lgi-v-dest").addEventListener("click", () => { logiView = "dest"; erpRenderLogistics(); });
-  v.querySelector("#lgi-v-loads").addEventListener("click", () => { logiView = "loads"; erpRenderLogistics(); });
   v.querySelector("#lgi-v-inq").addEventListener("click", () => { logiView = "inq"; erpRenderLogistics(); });
-  // Поръчката по id/наш № — за 👁 диалога отвсякъде (📦, Товари, Запитвания).
+  // 🧾 Клик на ред във Фактури транспорт → фактурата с ВСИЧКО от Покупки
+  // (отваря се в раздел Покупки — Логистиката си остава отворена като раздел).
+  v.querySelectorAll("[data-puopen]").forEach(tr => tr.addEventListener("click", ev => {
+    if (ev.target.closest("button,input,a,select")) return;   // Разнеси-бутоните са си бутони
+    if (typeof erpOpenPurchase !== "function") return;
+    if (typeof erpSetTab === "function" && typeof ERP !== "undefined" && ERP.tab !== "purchases") erpSetTab("purchases");
+    erpOpenPurchase(tr.dataset.puopen);
+  }));
+  // Поръчката по id/наш № — за 👁 диалога от Запитванията.
   const findCO = (oid, ono) => {
     const list = (typeof erpCOList !== "undefined" && erpCOList) || [];
     return (oid && list.find(x => String(x.id) === String(oid)))
       || (ono && list.find(x => logiNorm(x.ourNo) === logiNorm(ono))) || null;
   };
-  const fp = v.querySelector("#lgo-f-plan"); if (fp) fp.addEventListener("click", () => { logiOrdersAll = false; erpRenderLogistics(); });
-  const fa = v.querySelector("#lgo-f-all"); if (fa) fa.addEventListener("click", () => { logiOrdersAll = true; erpRenderLogistics(); });
   v.querySelectorAll(".lgo-open, .lgo-view").forEach(el => el.addEventListener("click", () => logiOrderViewDialog(findCO(el.dataset.oid, el.dataset.ono))));
-  v.querySelectorAll(".lgo-inq").forEach(b => b.addEventListener("click", () => { const co = findCO(b.dataset.oid); if (co) logiOrderInquiry(co); }));
-  v.querySelectorAll(".lgo-load").forEach(b => b.addEventListener("click", () => {
-    const co = findCO(b.dataset.oid); if (!co) return;
-    logiEditDialog({
-      id: 0, invNo: "", date: new Date().toISOString().slice(0, 10),
-      client: co.clientName || "", dest: logiOrderAddr(co),
-      carrier: "", vehicle: "", status: "заявен", note: "",
-      orderId: co.id, ourNo: co.ourNo || "",
-    });
-  }));
   const findInq = id => (LOGI.inq || []).find(x => Number(x.id) === Number(id));
   v.querySelectorAll(".lgq-view").forEach(b => b.addEventListener("click", () => {
     const x = findInq(b.dataset.id); if (!x) return;
@@ -926,19 +721,6 @@ async function erpRenderLogistics() {
     const x = findInq(i.dataset.id); if (!x) return;
     x.price = i.value.trim(); await logiSave();
   }));
-  // „🚛 → Товар": от избраното запитване → товар по поръчката (без №, чака ф-ра).
-  v.querySelectorAll(".lgq-load").forEach(b => b.addEventListener("click", () => {
-    const x = findInq(b.dataset.id); if (!x) return;
-    // Ако запитването е било до ЕДНА фирма — тя е избраният превозвач.
-    const one = (x.to || []).length === 1 ? (logiCarriers().find(c => logiNorm(c.email) === logiNorm(x.to[0])) || {}).company || "" : "";
-    logiEditDialog({
-      id: 0, invNo: x.invNo || "", date: new Date().toISOString().slice(0, 10),
-      client: x.client || (x.label || "").split(" — ")[0] || "", dest: x.dest || "",
-      carrier: one, vehicle: "", status: "заявен",
-      note: x.price ? "оферта: " + x.price : "",
-      orderId: x.orderId, ourNo: x.ourNo || "",
-    }, async l => { x.loadId = l.id; await logiSave(); });
-  }));
   uiSearchEnter(v.querySelector("#lgi-q"), val => { logiQ = val; erpRenderLogistics(); });
   v.querySelector("#lgi-inq").addEventListener("click", () => logiInquiry());
   v.querySelectorAll("[data-inq]").forEach(b => b.addEventListener("click", () => {
@@ -947,97 +729,6 @@ async function erpRenderLogistics() {
     logiInquiry({ to: [d.consignee, d.addr].filter(Boolean).join(" — "), label: d.client, from: "Пловдив, България" });
   }));
 
-  if (logiView === "wplan") {
-    const findW = id => (LOGI.wplan || []).find(x => Number(x.id) === Number(id));
-    v.querySelector("#wp-prev").addEventListener("click", () => { LOGI_WPLAN_MON = logiWeekShift(LOGI_WPLAN_MON, -1); erpRenderLogistics(); });
-    v.querySelector("#wp-next").addEventListener("click", () => { LOGI_WPLAN_MON = logiWeekShift(LOGI_WPLAN_MON, 1); erpRenderLogistics(); });
-    v.querySelector("#wp-today").addEventListener("click", () => { LOGI_WPLAN_MON = logiMondayOf(new Date()); erpRenderLogistics(); });
-    v.querySelector("#wp-add").addEventListener("click", async () => {
-      LOGI.wplan = LOGI.wplan || [];
-      LOGI.wplan.push({ id: logiWPlanNextId(), week: LOGI_WPLAN_MON, dest: "", client: "", invNo: "", pallets: "", carrier: "", contact: "", at: new Date().toISOString() });
-      if (await logiSave()) erpRenderLogistics();
-    });
-    v.querySelectorAll(".wp-f").forEach(i => i.addEventListener("change", async () => {
-      const x = findW(i.dataset.id); if (!x) return;
-      x[i.dataset.f] = i.value.trim();
-      // Фирма от указателя → лицето за контакт се попълва само (ако е празно).
-      if (i.dataset.f === "carrier" && !x.contact) {
-        const hit = logiCarriers().find(c => logiNorm(c.company) === logiNorm(i.value));
-        if (hit) {
-          x.contact = [hit.contact_person, hit.phone].filter(Boolean).join(" · ");
-          const cEl = v.querySelector(`.wp-f[data-id="${x.id}"][data-f="contact"]`);
-          if (cEl) cEl.value = x.contact;
-        }
-      }
-      await logiSave();
-    }));
-    v.querySelectorAll(".wp-del").forEach(b => b.addEventListener("click", async () => {
-      const x = findW(b.dataset.id); if (!x) return;
-      if (!confirm(`Да изтрия ли реда за ${x.client || x.dest || "—"} от плана за товарене?`)) return;
-      LOGI.wplan = (LOGI.wplan || []).filter(y => Number(y.id) !== Number(x.id));
-      if (await logiSave()) erpRenderLogistics();
-    }));
-    v.querySelector("#wp-fill").addEventListener("click", async () => {
-      const items = await logiPlanItemsFor(LOGI_WPLAN_MON);
-      if (!items.length) { alert(`В „🚚 План за седмицата“ няма записи за седмица ${logiWeekNum(LOGI_WPLAN_MON)}.`); return; }
-      LOGI.wplan = LOGI.wplan || [];
-      const have = new Set(LOGI.wplan.filter(x => x.week === LOGI_WPLAN_MON).map(x => x.orderId ? "o:" + x.orderId : "c:" + logiNorm(x.client)));
-      let added = 0;
-      items.forEach(it => {
-        const key = it.orderId ? "o:" + it.orderId : "c:" + logiNorm(it.client);
-        if (have.has(key)) return;
-        have.add(key);
-        const co = it.orderId ? ((typeof erpCOList !== "undefined" && erpCOList) || []).find(c => String(c.id) === String(it.orderId)) : null;
-        const ld = it.orderId ? (LOGI.loads || []).find(l => String(l.orderId || "") === String(it.orderId)) : null;
-        const carrier = (ld && ld.carrier) || "";
-        const hit = carrier ? logiCarriers().find(c => logiNorm(c.company) === logiNorm(carrier)) : null;
-        LOGI.wplan.push({
-          id: logiWPlanNextId(), week: LOGI_WPLAN_MON,
-          dest: (ld && ld.dest) || (co ? logiOrderAddr(co) : ""),
-          client: it.client || (co && co.clientName) || "",
-          invNo: (ld && ld.invNo) || "",
-          pallets: erpToNum(it.pallets) || "",
-          carrier, contact: hit ? [hit.contact_person, hit.phone].filter(Boolean).join(" · ") : "",
-          orderId: it.orderId || null, at: new Date().toISOString(),
-        });
-        added++;
-      });
-      if (!added) { alert("Всичко планирано за седмицата вече е в плана за товарене."); return; }
-      if (await logiSave()) { alert(`✅ Добавени ${added} реда от Плана за седмицата.`); erpRenderLogistics(); }
-    });
-    return;
-  }
-  if (logiView !== "loads") return;
-  const findL = id => (LOGI.loads || []).find(x => Number(x.id) === Number(id));
-  v.querySelector("#lgi-sync").addEventListener("click", async () => {
-    // Продажбите трябват за проследяването фактура → поръчка (fromOrderId).
-    // Без тях чакащ товар не се разпознава и би се направил ДУБЛИРАЩ ред.
-    try { if (typeof erpLoadSales === "function" && (typeof erpSales === "undefined" || !erpSales)) await erpLoadSales(); } catch (e) {}
-    if (typeof erpSales === "undefined" || !Array.isArray(erpSales)) { alert("Продажбите не се заредиха (прекъсната връзка?) — без тях синхронизацията би дублирала товари. Опитай пак."); return; }
-    try { if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders(); } catch (e) {}
-    const r = logiSyncFromInvoices();
-    if (!r.added && !r.linked) { alert("Няма нови фактури за добавяне — всичко издадено (износ/с превозвач) вече е в архива."); return; }
-    if (await logiSave()) {
-      alert(`✅ ${r.added ? "Добавени " + r.added + " товара от фактурите." : ""}${r.added && r.linked ? "\n" : ""}${r.linked ? "Допълнени " + r.linked + " чакащи товара с № на фактурата им." : ""}`);
-      erpRenderLogistics();
-    }
-  });
-  v.querySelector("#lgi-add").addEventListener("click", () => logiEditDialog(null));
-  v.querySelectorAll(".lgi-st").forEach(s => s.addEventListener("change", async () => {
-    const l = findL(s.dataset.lid); if (!l) return;
-    l.status = s.value; await logiSave(); erpRenderLogistics();
-  }));
-  v.querySelectorAll(".lgi-note").forEach(i => i.addEventListener("change", async () => {
-    const l = findL(i.dataset.lid); if (!l) return;
-    l.note = i.value.trim(); await logiSave();
-  }));
-  v.querySelectorAll(".lgi-edit").forEach(b => b.addEventListener("click", () => logiEditDialog(findL(b.dataset.lid))));
-  v.querySelectorAll(".lgi-del").forEach(b => b.addEventListener("click", async () => {
-    const l = findL(b.dataset.lid); if (!l) return;
-    if (!confirm(`Да изтрия ли товара по фактура № ${l.invNo || "—"} (${l.carrier || "без превозвач"})?`)) return;
-    LOGI.loads = (LOGI.loads || []).filter(x => Number(x.id) !== Number(l.id));
-    if (await logiSave()) erpRenderLogistics();
-  }));
 }
 
 /* Ръчен товар / редакция. l може да е и ПРЕДПОПЪЛНЕН нов (id:0, напр. от

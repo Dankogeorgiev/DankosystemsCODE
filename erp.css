@@ -970,3 +970,9 @@ button.co-mob-card:active { background: #eff6ff; }
   .erp-co-actions .btn { flex: 1 1 auto; min-height: 42px; }
   .erp-co-linebar .btn { min-height: 42px; }
 }
+
+/* 🚛 Камиончето на заявката (транспорт): синьо = запитване, жълто = организиран
+   транспорт (има пратени запитвания по заявката) — Данко, 01.11.2026 */
+.co-truck { font-size: 14px; }
+.co-truck-done { background: #fde047; border-color: #eab308; color: #713f12; }
+.co-truck-done:hover { background: #facc15; }
