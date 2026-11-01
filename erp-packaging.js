@@ -1745,8 +1745,13 @@ function packBodyPallets(o, rows, P) {
   if (en) packEnLearn();   // непреведеното отива към Claude и се кешира
   const base = new URL(".", location.href).href;
   // Всеки палет на ОТДЕЛЕН лист А4 (вертикален) с ЛОГО, ЕДЪР шрифт и подпис.
+  // Името на клиента — с ВЪЗМОЖНО НАЙ-ГОЛЕМИ букви в празното дъно на листа
+  // (Данко, 02.11): от метри се вижда чии са палетите при товарене.
+  const clientNm = String(o.clientName || "").trim();
+  const nmSize = clientNm.length <= 10 ? 120 : clientNm.length <= 18 ? 92 : clientNm.length <= 28 ? 66 : 48;
   const pageCss = `<style>
-    .palpage{font-size:17px}
+    .palpage{font-size:17px;min-height:250mm;display:flex;flex-direction:column}
+    .palpage .pal-client{margin-top:auto;padding-top:26px;text-align:center;font-weight:900;text-transform:uppercase;line-height:1.04;word-break:break-word;letter-spacing:2px;font-size:${nmSize}px}
     .palpage h1{font-size:28px}
     .palpage .head > div{font-size:21px;line-height:1.45}
     .palpage table th,.palpage table td{font-size:17px;padding:8px 10px}
@@ -1765,6 +1770,7 @@ function packBodyPallets(o, rows, P) {
       <tbody>${p.items.map(x => { const eu = euroPer[x.code]; return `<tr><td><b>${escapeHtml(x.code)}</b></td><td>${escapeHtml(enItem(x))}</td><td class="r">${eu ? `<small>${en ? "euro pallet" : "европалет"} · ${erpNum(eu)} ${en ? "pcs per pallet" : "бр. на палет"}</small>` : `${x.boxes}${x.text && x.boxes > 1 ? ` <small>(${escapeHtml(en ? packEnText(x.text) : x.text)})</small>` : ""}`}</td><td class="r">${erpNum(x.qty)}</td><td class="r">${x.kg}</td></tr>`; }).join("")}${(p.extra || []).map(x => `<tr><td><b>${escapeHtml(x.code || "")}</b></td><td>${escapeHtml(en ? packEnText(x.name || x.text || "") : (x.name || x.text || ""))}</td><td class="r">—</td><td class="r">${escapeHtml(en ? packEnText(String(x.qty || "")) : String(x.qty || ""))}</td><td class="r">—</td></tr>`).join("")}</tbody></table>
       <div class="kv"><b>${L.net}:</b> ${kg} ${kgU} · <b>${L.plt}:</b> ${palKg} ${kgU} · <b>${L.gr}:</b> ${Math.round((kg + palKg) * 10) / 10} ${kgU}</div>
       ${idx === pallets.length - 1 ? `<div class="kv"><b>${L.tot}:</b> ${pallets.length}</div>` : ""}
+      <div class="pal-client">${escapeHtml(clientNm)}</div>
       <div class="made">The Systems</div>
     </div>`;
   }).join("") || `<p>${L.none}</p>`);
