@@ -1682,7 +1682,27 @@ function packBodyPacking(o, rows, P) {
   const gross = Math.round((tot.n + plKg) * 10) / 10;
   const body = `${packDocHead(o, L.title, en)}
     <table><thead><tr><th>№</th><th>${L.code}</th><th>${L.desc}</th><th class="c">${L.qty}</th><th class="c">${L.kgpc}</th><th class="c">${L.box}</th><th class="c">${L.pb}</th><th class="c">${L.boxes}</th><th class="c">${L.net}</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(NM(r))}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td class="r">${(Number(r.unitMult) || 1) > 1 ? (Math.round(packNum(r.kgPer) / r.unitMult * 1000) / 1000) : (r.kgPer || "")}</td><td>${escapeHtml(T(r.boxType))}${/европалет/i.test(String(r.boxType || "")) && packNum(r.perBox) > 0 ? ` — ${erpNum(packNum(r.perBox))} ${en ? "pcs per pallet" : "бр. на палет"}` : ""}${r.nonstd ? " · " + escapeHtml(T(r.nonstd)) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${escapeHtml(T(r.bdText))}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(T(r.addBox))}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tbody>${(() => {
+      let idx = 0, out = "";
+      const boxCell = r => `${escapeHtml(T(r.boxType))}${/европалет/i.test(String(r.boxType || "")) && packNum(r.perBox) > 0 ? ` — ${erpNum(packNum(r.perBox))} ${en ? "pcs per pallet" : "бр. на палет"}` : ""}${r.nonstd ? " · " + escapeHtml(T(r.nonstd)) : ""}`;
+      rows.forEach(r => {
+        // Комплектите (×2) се пишат на ДВА реда — ЛЕВИ и ДЕСНИ (Данко, 02.11):
+        // кашон съдържа само една страна, затова и документът ги дели така.
+        if ((Number(r.unitMult) || 1) === 2 && packNum(r.perBox) > 0 && r.qty > 0) {
+          const side = packBoxBreakdown(r.qty, packNum(r.perBox));
+          const half = Math.round(packNum(r.kgPer) / 2 * 1000) / 1000;
+          const netHalf = Math.round(r.qty * packNum(r.kgPer) / 2 * 10) / 10;
+          [[en ? "left" : "леви", netHalf], [en ? "right" : "десни", Math.round((r.netKg - netHalf) * 10) / 10]].forEach(([sideName, net]) => {
+            idx++;
+            out += `<tr><td class="c">${idx}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(NM(r))} — <b>${sideName}</b></td><td class="r">${erpNum(r.qty)}</td><td class="r">${half || ""}</td><td>${boxCell(r)}</td><td class="r">${r.perBox || ""}</td><td class="r">${side.boxes || ""}${side.boxes > 1 && side.text ? `<br><small>${escapeHtml(side.text)}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(T(r.addBox))}</small>` : ""}</td><td class="r">${net || ""}</td></tr>`;
+          });
+          return;
+        }
+        idx++;
+        out += `<tr><td class="c">${idx}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(NM(r))}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td class="r">${(Number(r.unitMult) || 1) > 1 ? (Math.round(packNum(r.kgPer) / r.unitMult * 1000) / 1000) : (r.kgPer || "")}</td><td>${boxCell(r)}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${escapeHtml(T(r.bdText))}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(T(r.addBox))}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`;
+      });
+      return out;
+    })()}</tbody>
     <tfoot><tr><td colspan="3"><b>${L.tot}</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
     <div class="kv"><b>${L.pal}:</b> ${plSmall ? `${palletsUp - plSmall} × ${L.eur} 120×80 (${packNum(P.palletKg || 20)} ${L.kg}) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} ${L.kg})` : `${palletsUp} × ${L.eur} 120×80 (${packNum(P.palletKg || 20)} ${L.kg})`} — ${L.total} ${plKg} ${L.kg}</div>
     <div class="kv"><b>${L.tnet}:</b> ${Math.round(tot.n * 10) / 10} ${L.kg} · <b>${L.tgr}:</b> ${gross} ${L.kg}</div>`;
