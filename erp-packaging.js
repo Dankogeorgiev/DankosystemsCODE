@@ -1423,6 +1423,8 @@ function packEnText(s) {
   });
   return out;
 }
+// (ВРЕМЕНЕН СТЪБ — пълният превод с Claude идва в следващата версия.)
+function packEnLearn() {}
 /* Името на реда за документ: „име при клиента" от заявката / картотеката
    (ако е на латиница) бие машинния превод на нашето име. */
 function packEnRowName(r) {
@@ -1459,24 +1461,34 @@ function packBodyPalletsFinal(o, rows, P) {
   return r;
 }
 // Тялото на Пакинг листа — отделно, за да се вгражда и в „⚙ Работен доклад".
-// ВИНАГИ на английски, без кирилица (по Данко, 01.11.2026) — екранът е си БГ.
+// ПРАВИЛОТО НА ЕЗИКА (по Данко, 02.11.2026): клиент на кирилица = вътрешен
+// пазар → ВСИЧКО на български; клиент на латиница = износ → всичко на
+// английски, с ИСТИНСКИ ПРЕВОД (не транслитерация).
 function packBodyPacking(o, rows, P) {
+  const en = packIsExport(o);
+  const L = en
+    ? { title: "PACKING LIST", code: "Code", desc: "Description", qty: "Qty", kgpc: "kg / pc", box: "Box type", pb: "Pcs / box", boxes: "Boxes", net: "Net kg", tot: "TOTAL", pal: "Pallets", tnet: "Total net weight", tgr: "Total gross weight", kg: "kg", eur: "EUR", total: "total" }
+    : { title: "ПАКИНГ ЛИСТ", code: "Код", desc: "Наименование", qty: "Бройка", kgpc: "кг / бр.", box: "Вид опаковка", pb: "Бр. в опаковка", boxes: "Опаковки", net: "Нето кг", tot: "ОБЩО", pal: "Палети", tnet: "Общо нето", tgr: "Общо бруто", kg: "кг", eur: "ЕВРО", total: "общо" };
+  const T = s => en ? packEnText(s) : String(s == null ? "" : s);
+  const NM = r => en ? packEnRowName(r) : (r.name || "");
   const tot = rows.reduce((t, r) => { t.q += (r.effQty != null ? r.effQty : r.qty); t.b += r.boxes; t.p += r.pallets; t.n += r.netKg; return t; }, { q: 0, b: 0, p: 0, n: 0 });
   const plPallets = packPlanPallets(rows, P);
   const palletsUp = plPallets.length || Math.ceil(tot.p - 1e-9);
   const plSmall = plPallets.filter(p => p.small).length;
   const plKg = plPallets.length ? packPalletsKg(plPallets, P.palletKg) : palletsUp * packNum(P.palletKg || 20);
   const gross = Math.round((tot.n + plKg) * 10) / 10;
-  const body = `${packDocHead(o, "PACKING LIST", true)}
-    <table><thead><tr><th>№</th><th>Code</th><th>Description</th><th class="c">Qty</th><th class="c">kg / pc</th><th class="c">Box type</th><th class="c">Pcs / box</th><th class="c">Boxes</th><th class="c">Net kg</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(packEnRowName(r))}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td class="r">${(Number(r.unitMult) || 1) > 1 ? (Math.round(packNum(r.kgPer) / r.unitMult * 1000) / 1000) : (r.kgPer || "")}</td><td>${escapeHtml(packEnText(r.boxType))}${r.nonstd ? " · " + escapeHtml(packEnText(r.nonstd)) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${escapeHtml(packEnText(r.bdText))}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(packEnText(r.addBox))}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
-    <tfoot><tr><td colspan="3"><b>TOTAL</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
-    <div class="kv"><b>Pallets:</b> ${plSmall ? `${palletsUp - plSmall} × EUR 120×80 (${packNum(P.palletKg || 20)} kg) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} kg)` : `${palletsUp} × EUR 120×80 (${packNum(P.palletKg || 20)} kg)`} — total ${plKg} kg</div>
-    <div class="kv"><b>Total net weight:</b> ${Math.round(tot.n * 10) / 10} kg · <b>Total gross weight:</b> ${gross} kg</div>`;
+  const body = `${packDocHead(o, L.title, en)}
+    <table><thead><tr><th>№</th><th>${L.code}</th><th>${L.desc}</th><th class="c">${L.qty}</th><th class="c">${L.kgpc}</th><th class="c">${L.box}</th><th class="c">${L.pb}</th><th class="c">${L.boxes}</th><th class="c">${L.net}</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr><td class="c">${i + 1}</td><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(NM(r))}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td class="r">${(Number(r.unitMult) || 1) > 1 ? (Math.round(packNum(r.kgPer) / r.unitMult * 1000) / 1000) : (r.kgPer || "")}</td><td>${escapeHtml(T(r.boxType))}${r.nonstd ? " · " + escapeHtml(T(r.nonstd)) : ""}</td><td class="r">${r.perBox || ""}</td><td class="r">${r.boxes || ""}${r.boxes > 1 && r.bdText ? `<br><small>${escapeHtml(T(r.bdText))}</small>` : ""}${r.addBox ? `<br><small>+ ${escapeHtml(T(r.addBox))}</small>` : ""}</td><td class="r">${r.netKg || ""}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="3"><b>${L.tot}</b></td><td class="r"><b>${erpNum(tot.q)}</b></td><td></td><td></td><td></td><td class="r"><b>${tot.b}</b></td><td class="r"><b>${Math.round(tot.n * 10) / 10}</b></td></tr></tfoot></table>
+    <div class="kv"><b>${L.pal}:</b> ${plSmall ? `${palletsUp - plSmall} × ${L.eur} 120×80 (${packNum(P.palletKg || 20)} ${L.kg}) + ${plSmall} × 60×80 (${packNum(P.palletKg || 20) / 2} ${L.kg})` : `${palletsUp} × ${L.eur} 120×80 (${packNum(P.palletKg || 20)} ${L.kg})`} — ${L.total} ${plKg} ${L.kg}</div>
+    <div class="kv"><b>${L.tnet}:</b> ${Math.round(tot.n * 10) / 10} ${L.kg} · <b>${L.tgr}:</b> ${gross} ${L.kg}</div>`;
+  if (en) packEnLearn();   // непреведените думи отиват за превод от Claude (кешира се)
   return body;
 }
 function packPrintPacking(o, rows, P) {
-  invPrintWindow("Packing List — order " + (o.ourNo || ""), packBodyPackingFinal(o, rows, P), "en");
+  const en = packIsExport(o);
+  invPrintWindow((en ? "Packing List — order " : "Пакинг лист — заявка ") + (o.ourNo || ""), packBodyPackingFinal(o, rows, P), en ? "en" : "bg");
 }
 function packPrintGoods(o, rows) {
   const en = packIsExport(o);
