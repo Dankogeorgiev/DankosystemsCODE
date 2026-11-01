@@ -433,8 +433,30 @@ async function erpPackOrderOpen(orderId, moreIds) {
     const pallets = (!(st.rideOn > 0) && rc.boxes > 0 && perPallet > 0) ? rc.boxes / perPallet : 0;
     return { boxes: rc.boxes, bdText: rc.bdText, pallets, netKg: rc.netKg, effQty: rc.effQty };
   };
+  // ➕ ДОБАВЕНИТЕ редове (по Данко, 01.11): болтове, амортисьори, каквото
+  // клиентът поиска — не са по заявката, но влизат в таблицата, плана и
+  // документите наравно с другите. Пазят се в o.packing.extras.
+  const extraState = j => {
+    const x = (P.extras || [])[j] || {};
+    const spec = erpPackFind(x.code, o.clientName);
+    return {
+      key: "x" + j, xi: j, extra: true,
+      code: x.code || "", name: x.name || "",
+      qty: erpToNum(x.qty) || 0, baseQty: erpToNum(x.qty) || 0,
+      kgPer: x.kgPer != null && x.kgPer !== "" ? x.kgPer : ((spec && spec.kgPerPiece) || ""),
+      boxType: x.boxType != null && x.boxType !== "" ? x.boxType : ((spec && spec.boxType) || ""),
+      boxSize: x.boxSize || ((spec && spec.boxSize) || ""),
+      nonstd: x.nonstd || "", addBox: x.addBox || "",
+      perBox: x.perBox != null && x.perBox !== "" ? x.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : ""),
+      perPallet: x.perPallet != null && x.perPallet !== "" ? x.perPallet : ((spec && spec.boxesPerPallet) || ""),
+      rideOn: Number(x.rideOn) || 0,
+      unitMult: Number(x.unitMult) || 1,
+      sideMode: x.sideMode || "set",
+    };
+  };
+  const allStates = () => (o.lines || []).map((_, i) => rowState(i)).concat((P.extras || []).map((_, j) => extraState(j)));
   const render = () => {
-    const states = (o.lines || []).map((_, i) => rowState(i));
+    const states = allStates();
     const totals = states.reduce((t, st) => {
       const c = calc(st);
       t.qty += c.effQty; t.boxes += c.boxes; t.pallets += c.pallets; t.net += c.netKg;   // ОБЩО в реални БРОЯ
@@ -451,13 +473,14 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small" id="pko-back">← Опаковки</button>
         <span class="erp-count">📦 Опаковане — ${o.__combined ? `<b style="color:#b45309">${o.__combined.length} заявки ЗАЕДНО</b> ` : "заявка "}<b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · клиентски № " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")}</span>
         <span class="spacer"></span>
+        <button class="btn btn-small" id="pko-addrow" title="Добави ред към опаковката: продукт/материал от номенклатурата, аксесоар или свободен текст (болтове, амортисьори, каквото клиентът поиска). Влиза в таблицата, плана и документите наравно с другите.">➕ Добави ред</button>
         <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
       </div>
       <table class="report-table erp-table">
         <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Количество</th><th class="num">КГ за брой</th><th>Вид опаковка</th><th class="num">брой в опаковка</th><th>Добавка</th><th class="num">опаковки на палет</th><th class="num">Опаковки</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
-        <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}">
-          <td><b>${escapeHtml(st.code)}</b></td>
-          <td>${escapeHtml(st.name)}</td>
+        <tbody>${states.map((st, i) => { const c = calc(st); return `<tr data-i="${i}"${st.extra ? ` data-xi="${st.xi}" class="pko-extra-row"` : ""}>
+          <td><b>${escapeHtml(st.code)}</b>${st.extra ? `<button type="button" class="btn btn-small btn-danger pko-xdel" data-xi="${st.xi}" title="Махни добавения ред" style="margin-left:6px;padding:0 6px">×</button>` : ""}</td>
+          <td>${escapeHtml(st.name)}${st.extra ? ' <span class="erp-muted" style="font-size:11px" title="Добавен ред — не е от заявката, но влиза в документите">➕ добавен</span>' : ""}</td>
           <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:62px" />
             <select class="pko-unit" data-i="${i}" title="Мерната единица: при „к-т ×2" (ляв + десен) кашоните, бройките и килограмите се смятат върху двойното">
               <option value="1" ${(st.unitMult || 1) === 1 ? "selected" : ""}>броя</option>
@@ -499,9 +522,26 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <button class="btn btn-small" id="pko-palai" title="Claude пише описа в стила на старите описи на този клиент (архива 2019 → днес)">🤖 Опис с AI</button>
         <span class="erp-muted">Документите се пълнят от ТАЗИ таблица (Опаковъчната верига).</span>
       </div>
+      <div id="pko-docs"></div>
       ${packBoxDatalistHtml()}`;
     const collect = () => {
       v.querySelectorAll("tr[data-i]").forEach(tr => {
+        // ➕ Добавен ред → пише се в P.extras[j] (цялото му състояние).
+        if (tr.dataset.xi != null) {
+          const x = (P.extras || [])[Number(tr.dataset.xi)];
+          if (!x) return;
+          x.qty = erpToNum((tr.querySelector(".pko-qty") || {}).value) || 0;
+          x.kgPer = erpToNum((tr.querySelector(".pko-kg") || {}).value) || 0;
+          x.boxType = ((tr.querySelector(".pko-box") || {}).value || "").trim();
+          x.boxSize = ((tr.querySelector(".pko-boxsize") || {}).value || "").trim();
+          x.rideOn = Number((tr.querySelector(".pko-ride") || {}).value) || 0;
+          x.unitMult = Number((tr.querySelector(".pko-unit") || {}).value) || 1;
+          x.sideMode = ((tr.querySelector(".pko-split") || {}).value) || "set";
+          x.addBox = ((tr.querySelector(".pko-addbox") || {}).value || "").trim();
+          x.perBox = erpToNum((tr.querySelector(".pko-perbox") || {}).value) || 0;
+          x.perPallet = erpToNum((tr.querySelector(".pko-perpal") || {}).value) || 0;
+          return;
+        }
         const i = Number(tr.dataset.i);
         const l = (o.lines || [])[i] || {};
         const key = String(l.code || i);
@@ -593,7 +633,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
       } catch (e) { btn.disabled = false; btn.textContent = "💾 Запази опаковката"; alert("Грешка при запис: " + (e.message || e)); }
     });
     // Печат — трите документа от опаковъчните данни.
-    const docRows = () => (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) }));
+    const docRows = () => allStates().map(st => ({ ...st, ...calc(st) }));
     v.querySelector("#pko-packing").addEventListener("click", () => { collect(); packPrintPacking(o, docRows(), P); });
     v.querySelector("#pko-goods").addEventListener("click", () => { collect(); packPrintGoods(o, docRows()); });
     v.querySelector("#pko-pallets").addEventListener("click", () => {
@@ -608,7 +648,60 @@ async function erpPackOrderOpen(orderId, moreIds) {
       if (typeof erpPalletAI !== "function") { alert("Модулът erp-pallet-ai.js не е зареден."); return; }
       erpPalletAI({ clientName: o.clientName, itemsText: await palItemsFromOrder(o), orderNo: o.clientNo || o.ourNo || "", orderId: o.id });
     });
+    const addRowBtn = v.querySelector("#pko-addrow");
+    if (addRowBtn) addRowBtn.addEventListener("click", () => { collect(); packAddRowPanel(o, P, () => render(), addRowBtn); });
+    v.querySelectorAll(".pko-xdel").forEach(b => b.addEventListener("click", () => {
+      collect();
+      (P.extras || []).splice(Number(b.dataset.xi), 1);
+      render();
+    }));
     renderPlan();
+    renderDocs();
+  };
+  /* --- 📄 Документите НА ЖИВО (по Данко, 01.11): Пакинг листът и Палет
+     описът се виждат до плана, пишеш корекции НАПРАВО в тях и „💾" ги пази
+     (P.docEdits). Корекциите излизат във ВСИЧКИ разпечатки и в Работния
+     доклад — докато данните не се променят (тогава падат, с предупреждение). */
+  const renderDocs = () => {
+    const docs = v.querySelector("#pko-docs"); if (!docs) return;
+    const rows = allStates().map(st => ({ ...st, ...calc(st) }));
+    if (!rows.some(r => r.boxes > 0)) { docs.innerHTML = ""; return; }
+    const sig = packDocSig(rows, P);
+    const ov = k => P.docEdits && P.docEdits[k] && P.docEdits[k].html ? P.docEdits[k] : null;
+    const stale = k => { const x = ov(k); return x && x.sig !== sig; };
+    const live = k => { const x = ov(k); return x && x.sig === sig; };
+    const pkHtml = live("packing") ? P.docEdits.packing.html : packBodyPacking(o, rows, P);
+    const plHtml = live("pallets") ? P.docEdits.pallets.html : packBodyPallets(o, rows, P).body;
+    const card = (k, icon, title, html) => `
+      <div class="pko-doc">
+        <div class="pko-doc-head"><b>${icon} ${title}</b>
+          ${live(k) ? '<span class="pko-doc-ed">✍ с корекции</span>' : stale(k) ? '<span class="pko-doc-ed" title="Данните горе се промениха след корекциите — документът е построен наново">⚠ корекциите паднаха</span>' : ""}
+          <span class="spacer" style="flex:1"></span>
+          <button type="button" class="btn btn-small btn-primary pko-doc-save" data-k="${k}" title="Пази корекциите от екрана — излизат във всички разпечатки и в Работния доклад">💾 Запази корекциите</button>
+          <button type="button" class="btn btn-small pko-doc-reset" data-k="${k}" title="Маха корекциите — документът се строи наново от данните">↺</button>
+          <button type="button" class="btn btn-small pko-doc-print" data-k="${k}" title="Печат на документа както го виждаш (с корекциите от екрана)">🖨</button>
+        </div>
+        <div class="pko-doc-body" contenteditable="true" data-doc="${k}">${html}</div>
+      </div>`;
+    docs.innerHTML = `<h4 class="erp-group-head">📄 Документите на живо <span class="erp-muted" style="font-weight:400;font-size:12px">— пиши корекции направо в тях; „💾 Запази корекциите" ги пази и те излизат във ВСИЧКИ разпечатки (и в Работния доклад), докато данните горе не се променят</span></h4>
+      <div class="pko-docs-wrap">${card("packing", "📦", "Пакинг лист", pkHtml)}${card("pallets", "🧱", "Палет опис", plHtml)}</div>`;
+    docs.querySelectorAll(".pko-doc-save").forEach(b => b.addEventListener("click", () => {
+      const k = b.dataset.k;
+      const bodyEl = docs.querySelector(`.pko-doc-body[data-doc="${k}"]`);
+      P.docEdits = P.docEdits || {};
+      P.docEdits[k] = { html: bodyEl.innerHTML, sig };
+      renderDocs();
+    }));
+    docs.querySelectorAll(".pko-doc-reset").forEach(b => b.addEventListener("click", () => {
+      if (P.docEdits) delete P.docEdits[b.dataset.k];
+      renderDocs();
+    }));
+    docs.querySelectorAll(".pko-doc-print").forEach(b => b.addEventListener("click", () => {
+      const k = b.dataset.k;
+      const bodyEl = docs.querySelector(`.pko-doc-body[data-doc="${k}"]`);
+      const title = (k === "packing" ? "Packing List — order " : "Pallet List — order ") + (o.ourNo || "");
+      invPrintWindow(title, bodyEl.innerHTML, "en");
+    }));
   };
   /* --- 3D редактор на палетния план ---
      Всеки КАШОН е отделна кутия. Клик маркира/отмаркира (може много
@@ -638,7 +731,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
   };
   // Обновява само числата, които зависят от палетния план (без ререндер на екрана).
   const refreshStats = () => {
-    const states = (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) }));
+    const states = allStates().map(st => ({ ...st, ...calc(st) }));
     const net = states.reduce((s, c) => s + (c.netKg || 0), 0);
     const fracSum = states.reduce((s, c) => s + (c.pallets || 0), 0);
     const built = packPlanPallets(states, P);
@@ -649,10 +742,11 @@ async function erpPackOrderOpen(orderId, moreIds) {
     const s2 = v.querySelector("#pko-palbrk"); if (s2) s2.textContent = smallCnt ? ` (${palletsUp - smallCnt} × 120×80 + ${smallCnt} × 60×80)` : "";
     const s3 = v.querySelector("#pko-gross"); if (s3) s3.textContent = (Math.round((net + palKg) * 10) / 10) + " кг";
     const s4 = v.querySelector("#pko-palfoot"); if (s4) s4.innerHTML = `${palletsUp}${fracSum ? ` <span class="erp-muted">(${Math.round(fracSum * 100) / 100})</span>` : ""}`;
+    renderDocs();   // документите на живо следват всяка промяна по плана
   };
   const renderPlan = () => {
     const box = v.querySelector("#pko-plan"); if (!box) return;
-    const rows = (o.lines || []).map((_, i) => rowState(i)).map(st => ({ ...st, ...calc(st) })).filter(r => r.boxes > 0);
+    const rows = allStates().map(st => ({ ...st, ...calc(st) })).filter(r => r.boxes > 0);
     if (!rows.length) { box.innerHTML = ""; return; }
     const sig = packPlanSig(rows);
     if (!Array.isArray(P.plan) || P.planSig !== sig) {
@@ -668,7 +762,10 @@ async function erpPackOrderOpen(orderId, moreIds) {
        размери: най-голямото число = дължина, средното = ширина, най-малкото
        = височина. Палетът е 120×80 (или 60×80), дебелина 12 см. --- */
     const K = 1.4, PALH = 12;
+    // Пликът не е кашон: рисува се като ТОРБА (ниска, 2-3 кг) — по Данко, 01.11.
+    const isBagCode = code => /плик/i.test(String((info[code] || {}).boxType || ""));
     const dimsOf = code => {
+      if (isBagCode(code)) return { l: 36, w: 26, h: 13, bag: 1 };
       const nums = (String((info[code] || {}).boxSize || "").match(/\d+/g) || []).map(Number).filter(n => n > 0).sort((a, b) => b - a);
       if (!nums.length) return { l: 40, w: 30, h: 25 };
       const l = Math.min(nums[0], 200);
@@ -708,8 +805,12 @@ async function erpPackOrderOpen(orderId, moreIds) {
       [...units].sort((a, b) => (a.x + a.y + a.z) - (b.x + b.y + b.z)).forEach(u => {
         const key = pi + ":" + u.gi + ":" + u.k;
         const inf = info[u.code] || {};
-        const tip = `${escapeAttr(u.code)} · ${escapeAttr(inf.name || "")} — 1 кашон × ${u.per} бр.${u.part ? " (непълен)" : ""}${inf.boxSize ? " · " + escapeAttr(inf.boxSize) : ""}. Клик = маркирай, влачи = премести.`;
-        html += cub(u.x, u.y, u.z, u.l, u.w, u.h, packColor(u.code), key, SEL.has(key), tip);
+        const tip = `${escapeAttr(u.code)} · ${escapeAttr(inf.name || "")} — 1 ${u.bag ? "плик" : "кашон"} × ${u.per} бр.${u.part ? " (непълен)" : ""}${inf.boxSize ? " · " + escapeAttr(inf.boxSize) : ""}. Клик = маркирай, влачи = премести.`;
+        if (u.bag) {
+          const c = pr(u.x + u.l / 2, u.y + u.w / 2, u.z);
+          const bw = Math.round((u.l + u.w) * K * 0.72), bh = Math.round(u.h * K + (u.l + u.w) * 0.2 * K);
+          html += `<div class="pk3i-bag${SEL.has(key) ? " selq" : ""}" data-key="${key}" draggable="true" title="${tip}" style="left:${c[0] - Math.round(bw / 2)}px;top:${c[1] - bh}px;width:${bw}px;height:${bh}px"></div>`;
+        } else html += cub(u.x, u.y, u.z, u.l, u.w, u.h, packColor(u.code), key, SEL.has(key), tip);
         if (u.part) { const c = pr(u.x + u.l / 2, u.y + u.w / 2, u.z + u.h); html += `<span class="pk3i-part" style="left:${c[0]}px;top:${c[1]}px">${u.per} бр.</span>`; }
       });
       // По една табелка на артикул — четима, не се върти с кутиите.
@@ -726,7 +827,8 @@ async function erpPackOrderOpen(orderId, moreIds) {
       const g = p.g || [];
       // Малкият палет 60×80 побира половината кашони на 120×80.
       const capOf = x => { const c = packNum((info[x.code] || {}).perPallet) || x.boxes || 1; return p.small ? Math.max(1, c / 2) : c; };
-      const pct = Math.round(g.reduce((s, x) => s + x.boxes / capOf(x), 0) * 100);
+      // Дребното „върху палет" (пликове, връзки) НЕ пълни процента — то е отгоре.
+      const pct = Math.round(g.reduce((s, x) => (Number((info[x.code] || {}).rideOn) > 0 ? s : s + x.boxes / capOf(x)), 0) * 100);
       const kg = g.reduce((s, x) => s + x.boxes * x.per * packNum((info[x.code] || {}).kgPer), 0);
       return `<div class="pk3d-pallet${pct > 100 ? " pk3d-overfull" : ""}" data-pi="${pi}">
         <div class="pk3d-head"><b>Палет №${pi + 1}</b><span><button type="button" class="btn btn-small" data-palsize="${pi}" title="Смени размера: стандартен евро 120×80 ↔ малък 60×80">${p.small ? "60×80" : "120×80"}</button> ${pct}%${kg ? " · " + Math.round(kg * 10) / 10 + " кг" : ""}${g.length > 1 ? " · комбиниран" : ""}</span></div>
@@ -827,6 +929,27 @@ async function erpPackOrderOpen(orderId, moreIds) {
 async function erpPackDocRows(o) {
   if (!PACKAGING) { try { await erpPackLoad(); } catch (e) {} }
   const P = o.packing || {};
+  // ➕ Добавените редове (болтове, амортисьори, по молба на клиента) —
+  // влизат в документите наравно с редовете по заявката.
+  const extras = (P.extras || []).map((x, j) => {
+    const spec = erpPackFind(x.code, o.clientName);
+    const mult = Number(x.unitMult) || 1;
+    const st = {
+      key: "x" + j, code: x.code || "", name: x.name || "",
+      enAlt: String((spec && spec.clientProductName) || "").trim(),
+      qty: erpToNum(x.qty) || 0, unitMult: mult, sideMode: x.sideMode || "set",
+      kgPer: x.kgPer != null && x.kgPer !== "" ? x.kgPer : ((spec && spec.kgPerPiece) || 0),
+      boxType: x.boxType || ((spec && spec.boxType) || ""),
+      boxSize: x.boxSize || ((spec && spec.boxSize) || ""),
+      nonstd: x.nonstd || "", addBox: x.addBox || "",
+      perBox: x.perBox != null && x.perBox !== "" ? x.perBox : (spec && packNum(spec.piecesPerBox) > 0 ? Math.round(packNum(spec.piecesPerBox)) : 0),
+      perPallet: x.perPallet != null && x.perPallet !== "" ? x.perPallet : ((spec && spec.boxesPerPallet) || 0),
+      rideOn: Number(x.rideOn) || 0,
+    };
+    const perPallet = packNum(st.perPallet);
+    const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
+    return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
+  });
   return (o.lines || []).map((l, i) => {
     const key = String(l.code || i);
     const r = (P.rows || {})[key] || {};
@@ -853,7 +976,7 @@ async function erpPackDocRows(o) {
     const perPallet = packNum(st.perPallet);
     const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
     return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
-  });
+  }).concat(extras);
 }
 async function erpPackPrintFor(o, kind) {
   if (!o) { alert("Няма заявка."); return; }
@@ -988,7 +1111,9 @@ function packBuildPallets(rows) {
    Планът е списък от палети; всеки палет е списък групи {code, boxes, per, part}
    (part = непълен кашон). Подписът пази плана валиден: промени ли се заявката
    (бройки/кашони), планът се строи наново от автоматиката. */
-function packPlanSig(rows) { return rows.map(r => `${r.code}|${r.qty}|${packNum(r.perBox)}|${packNum(r.perPallet)}|${Number(r.rideOn) || (r.ride ? 1 : 0)}|${Number(r.unitMult) || 1}|${r.sideMode || ""}`).join(";"); }
+// „v2" в подписа: плановете отпреди фикса на комплектите (01.11, вечерта)
+// се строят наново — старите бяха с изгубени/дублирани кашони по страни.
+function packPlanSig(rows) { return "v2;" + rows.map(r => `${r.code}|${r.qty}|${packNum(r.perBox)}|${packNum(r.perPallet)}|${Number(r.rideOn) || (r.ride ? 1 : 0)}|${Number(r.unitMult) || 1}|${r.sideMode || ""}`).join(";"); }
 /* Палет в плана: { small: 0|1, g: [групи] }. small = малък палет 60×80
    (половин вместимост и половин тегло); стандартът е ЕВРО ПАЛЕТ 120×80. */
 function packPlanNorm(P) {
@@ -1037,6 +1162,10 @@ function packLayoutTemplate(P) {
 function packPlanFromTemplate(rows, clientName) {
   const t = PACK_LAYOUTS && PACK_LAYOUTS[packNorm(clientName)];
   if (!t || !Array.isArray(t.pallets) || !t.pallets.length) return null;
+  // Комплектите (×2) се редят по СТРАНИ — старите шаблони не знаят за това
+  // (брояха кашоните без удвояването и планът губеше/дублираше кашони).
+  // При к-та шаблонът отстъпва на автоматиката (случая ЕМ ЕС 261, 01.11).
+  if (rows.some(r => (Number(r.unitMult) || 1) > 1)) return null;
   const avail = {}, pbOf = {};
   rows.forEach(r => { const bd = packBoxBreakdown(r.qty, packNum(r.perBox)); avail[r.code] = { full: bd.full, rest: bd.rest }; pbOf[r.code] = packNum(r.perBox); });
   const plan = [];
@@ -1068,6 +1197,66 @@ function packPalletsKg(pallets, palletKg) {
   const pk = packNum(palletKg || 20);
   return Math.round(pallets.reduce((s, p) => s + (p.small ? pk / 2 : pk), 0) * 10) / 10;
 }
+/* ➕ Нов РЕД в опаковъчната таблица (по Данко, 01.11.2026): продукт/материал
+   от номенклатурата, аксесоар или свободен текст — клиентите често искат
+   болтове, амортисьори и др., които не са по заявката, но пътуват с нея.
+   Редът влиза в таблицата, плана и документите наравно с останалите. */
+function packAddRowPanel(o, P, after, nearEl) {
+  document.getElementById("pax-panel")?.remove();
+  const prods = ((typeof ERP !== "undefined" && ERP.products) || []);
+  const mats = ((typeof ERP !== "undefined" && ERP.materials) || []);
+  const accCodes = (typeof NIT_ACCESSORY_CODES !== "undefined") ? [...NIT_ACCESSORY_CODES] : [];
+  const accMats = (typeof NIT_ACCESSORY_MAT_CODES !== "undefined") ? [...NIT_ACCESSORY_MAT_CODES] : [];
+  const nameOf = code => {
+    const p = prods.find(x => String(x.code || "").trim() === String(code)); if (p) return p.name || "";
+    const m = mats.find(x => String(x.code || "").trim() === String(code)); return m ? (m.name || "") : "";
+  };
+  const accAll = [...accCodes, ...accMats].map(c => ({ code: c, name: nameOf(c) }))
+    .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code), "bg"));
+  const el = document.createElement("div");
+  el.id = "pax-panel"; el.className = "pex-panel";
+  el.innerHTML = `
+    <div class="pex-head" id="pax-drag">➕ Добави ред към <b>опаковката</b><span class="spacer" style="flex:1"></span><button class="btn btn-small" id="pax-close" title="Затвори">✕</button></div>
+    <div class="pex-body">
+      <div class="pex-row"><label>Продукт / материал</label>
+        <input type="text" id="pax-code" list="pax-codes" placeholder="код или име…" />
+        <input type="text" id="pax-qcode" placeholder="бройки" /></div>
+      <div class="pex-row"><label>Аксесоар</label>
+        <select id="pax-acc"><option value="">— избери —</option>${accAll.map(a => `<option value="${escapeAttr(a.code)}">${escapeHtml(a.code + (a.name ? " · " + a.name : ""))}</option>`).join("")}</select>
+        <input type="text" id="pax-qacc" placeholder="бройки" /></div>
+      <div class="pex-row"><label>Свободен текст</label>
+        <input type="text" id="pax-free" placeholder="напр. Болтове М8, амортисьори…" />
+        <input type="text" id="pax-qfree" placeholder="бройки" /></div>
+      <datalist id="pax-codes">${[...prods, ...mats].slice(0, 2500).map(x => `<option value="${escapeAttr(String(x.code || ""))}">${escapeHtml(String(x.code || "") + " · " + String(x.name || ""))}</option>`).join("")}</datalist>
+      <p class="hint" style="margin:6px 0 0">Редът влиза в таблицата (попълваш кг, вид опаковка, бройки) и излиза в Пакинг листа и Палет описа наравно с другите.</p>
+      <div class="pex-actions"><button class="btn btn-small btn-primary" id="pax-add">➕ Добави</button><span class="erp-muted" id="pax-msg"></span></div>
+    </div>`;
+  document.body.appendChild(el);
+  const r = nearEl ? nearEl.getBoundingClientRect() : { left: 80, bottom: 120 };
+  el.style.left = Math.max(8, Math.min(window.innerWidth - 380, r.left - 220)) + "px";
+  el.style.top = Math.max(8, Math.min(window.innerHeight - 300, r.bottom + 6)) + "px";
+  const head = el.querySelector("#pax-drag");
+  let dx = 0, dy = 0, moving = false;
+  head.addEventListener("mousedown", e => { moving = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - el.offsetTop; e.preventDefault(); });
+  document.addEventListener("mousemove", e => { if (!moving) return; el.style.left = (e.clientX - dx) + "px"; el.style.top = (e.clientY - dy) + "px"; });
+  document.addEventListener("mouseup", () => { moving = false; });
+  el.querySelector("#pax-close").addEventListener("click", () => el.remove());
+  el.querySelector("#pax-add").addEventListener("click", () => {
+    P.extras = P.extras || [];
+    const q = id => (el.querySelector(id).value || "").trim();
+    let n = 0;
+    const code = q("#pax-code").split("·")[0].trim();
+    if (code) { P.extras.push({ code, name: nameOf(code) || "", qty: erpToNum(q("#pax-qcode")) || 0 }); n++; }
+    const ac = q("#pax-acc");
+    if (ac) { P.extras.push({ code: ac, name: nameOf(ac) || "", qty: erpToNum(q("#pax-qacc")) || 0 }); n++; }
+    const fr = q("#pax-free");
+    if (fr) { P.extras.push({ code: "", name: fr, qty: erpToNum(q("#pax-qfree")) || 0 }); n++; }
+    if (!n) { el.querySelector("#pax-msg").textContent = "избери или напиши какво да добавя"; return; }
+    el.remove();
+    if (after) after();
+  });
+}
+
 /* ➕ Добавяне към ОПИСА на палета: продукт от заявката, аксесоар или свободен
    текст. Само имена и количество за описа — НИКАКВИ наличности и складови
    движения (това е как физически се реди палетът). Пази се в plan[i].extra. */
@@ -1248,6 +1437,27 @@ function packDocHead(o, title, en) {
       <div>${L.ord}: <b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · Order No: <b>" + escapeHtml(o.clientNo) + "</b>" : ""}</div></div>
     <div style="text-align:right">${L.cl}: <b>${escapeHtml(cl)}</b><br>${L.dt}: <b>${erpDMY(new Date().toISOString().slice(0, 10))}</b></div></div>`;
 }
+/* Подписът на данните за документите: редове + палетен план + тегло на
+   палета. Пази корекциите в P.docEdits валидни — промяна в данните ги сваля. */
+function packDocSig(rows, P) {
+  const plan = packPlanPallets(rows, P)
+    .map(p => (p.small ? "s" : "") + p.items.map(it => `${it.code}:${it.boxes}:${erpNum(it.qty)}`).join(",") + "|" + (p.extra || []).map(x => x.text).join("+")).join(";");
+  return "d1;" + rows.map(r => [r.code, r.name, r.qty, r.effQty, r.boxes, r.kgPer, r.boxType, r.perBox, r.addBox, r.nonstd, r.netKg, Number(r.rideOn) || 0].join("|")).join(";")
+    + "#" + plan + "#" + packNum(P && P.palletKg || 20);
+}
+/* ФИНАЛНИТЕ документи: ръчните корекции от „Документите на живо" (P.docEdits),
+   ако са още валидни; иначе — прясно построените. Ползват се ОТВСЯКЪДЕ. */
+function packBodyPackingFinal(o, rows, P) {
+  const ov = P && P.docEdits && P.docEdits.packing;
+  if (ov && ov.html && ov.sig === packDocSig(rows, P)) return ov.html;
+  return packBodyPacking(o, rows, P);
+}
+function packBodyPalletsFinal(o, rows, P) {
+  const r = packBodyPallets(o, rows, P);
+  const ov = P && P.docEdits && P.docEdits.pallets;
+  if (ov && ov.html && ov.sig === packDocSig(rows, P)) return { ...r, body: ov.html };
+  return r;
+}
 // Тялото на Пакинг листа — отделно, за да се вгражда и в „⚙ Работен доклад".
 // ВИНАГИ на английски, без кирилица (по Данко, 01.11.2026) — екранът е си БГ.
 function packBodyPacking(o, rows, P) {
@@ -1266,7 +1476,7 @@ function packBodyPacking(o, rows, P) {
   return body;
 }
 function packPrintPacking(o, rows, P) {
-  invPrintWindow("Packing List — order " + (o.ourNo || ""), packBodyPacking(o, rows, P), "en");
+  invPrintWindow("Packing List — order " + (o.ourNo || ""), packBodyPackingFinal(o, rows, P), "en");
 }
 function packPrintGoods(o, rows) {
   const en = packIsExport(o);
@@ -1320,6 +1530,6 @@ function packBodyPallets(o, rows, P) {
   return { body, en, win: L.win };
 }
 function packPrintPallets(o, rows, P) {
-  const r = packBodyPallets(o, rows, P);
+  const r = packBodyPalletsFinal(o, rows, P);
   invPrintWindow(r.win + (o.ourNo || ""), r.body, r.en ? "en" : "bg", { noLogo: true, noMade: true });
 }

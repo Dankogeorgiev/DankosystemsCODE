@@ -104,8 +104,11 @@ async function erpOrderPrepBuild(o) {
       const P = o.packing || { rows: {}, palletKg: 20 };
       const filled = rows.some(r => r.boxes > 0);
       const warn = "<p>⚠ Опаковката на заявката не е попълнена — Палет описът и Пакинг листът черпят кашоните и теглата от ОПАКОВКИ. Ползвай бутоните на секцията: „🎁 Опаковка на заявката“ (попълваш веднага) или „⏮ Както последния път“ (копира от последната заявка на клиента), после „↻ Преизчисли“.</p>";
-      secs.push({ key: "pallets", title: "Е · 🧱 Палетен опис", tools: "pack", html: filled ? packBodyPallets(o, rows, P).body : warn });
-      secs.push({ key: "packing", title: "Ж · 📦 Пакинг лист", html: filled ? packBodyPacking(o, rows, P) : warn });
+      // Final = с ръчните корекции от „Документите на живо" в Опаковки.
+      const bodyPal = typeof packBodyPalletsFinal === "function" ? packBodyPalletsFinal(o, rows, P).body : packBodyPallets(o, rows, P).body;
+      const bodyPk = typeof packBodyPackingFinal === "function" ? packBodyPackingFinal(o, rows, P) : packBodyPacking(o, rows, P);
+      secs.push({ key: "pallets", title: "Е · 🧱 Палетен опис", tools: "pack", html: filled ? bodyPal : warn });
+      secs.push({ key: "packing", title: "Ж · 📦 Пакинг лист", html: filled ? bodyPk : warn });
     } else {
       secs.push({ key: "pallets", title: "Е · 🧱 Палетен опис", html: "<p>Модулът Опаковки не е зареден.</p>" });
       secs.push({ key: "packing", title: "Ж · 📦 Пакинг лист", html: "<p>Модулът Опаковки не е зареден.</p>" });
