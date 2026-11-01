@@ -553,7 +553,7 @@ function erpRenderCOMobileList(v) {
       // Оригиналът от списъка (не копие): „💾 Запази" в доклада пише цялата
       // заявка и кешът трябва да остане верен.
       const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.id));
-      if (o) erpOrderProcess(o);
+      if (o) erpOrderProcess(o).catch(e => alert("Работният доклад не се отвори: " + ((e && e.message) || e)));
     }));
   }
 }
@@ -668,7 +668,7 @@ async function erpRenderCustomerOrders() {
     tb.querySelectorAll("[data-oprep]").forEach(b => b.addEventListener("click", ev => {
       ev.stopPropagation();
       const o = (erpCOList || []).find(x => String(x.id) === String(b.dataset.oprep));
-      if (o && typeof erpOrderProcess === "function") erpOrderProcess(o);
+      if (o && typeof erpOrderProcess === "function") erpOrderProcess(o).catch(e => alert("Работният доклад не се отвори: " + ((e && e.message) || e)));
     }));
     tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", ev => { if (ev.target.closest("a")) return; erpOpenCO(tr.dataset.id); }));
     tb.querySelectorAll("[data-folder]").forEach(tr => tr.addEventListener("click", () => {
@@ -1130,7 +1130,7 @@ async function erpRenderCOForm(o) {
   }));
   document.getElementById("co-materials").addEventListener("click", () => erpCOMaterials(o));
   const prc = document.getElementById("co-process");
-  if (prc) prc.addEventListener("click", () => erpOrderProcess(o));
+  if (prc) prc.addEventListener("click", () => erpOrderProcess(o).catch(e => alert("Работният доклад не се отвори: " + ((e && e.message) || e))));
   const coTest = document.getElementById("co-test");
   if (coTest) coTest.addEventListener("click", () => {
     const items = (o.lines || []).filter(l => l.productId).map(l => ({ productId: l.productId, qty: erpToNum(l.qty) || 1 }));

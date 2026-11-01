@@ -19,6 +19,13 @@ let OPREP_FROM_SAVED = false;                // показваме запазе�
 
 function oprepLeft(l) { const q = erpToNum(l.qty) || 0; return Math.max(0, q - Math.min(Math.max(0, Number(l.delivered) || 0), q)); }
 
+// Една счупена секция НЕ убива доклада (по случая AGI 251, 01.11.2026):
+// грешката се показва ВЪТРЕ в секцията, останалите се смятат нормално.
+function oprepSafe(fn, fallbackHtml) {
+  try { return fn(); }
+  catch (e) { return fallbackHtml(`<p class="erp-warn">⚠ Тази секция удари грешка: <b>${escapeHtml(String((e && e.message) || e))}</b> — кажи на разработката, останалото е сметнато.</p>`); }
+}
+
 async function erpOrderPrepBuild(o) {
   const esc = s => escapeHtml(String(s == null ? "" : s));
   const secs = [];
@@ -31,59 +38,65 @@ async function erpOrderPrepBuild(o) {
     ${o.note ? `<p>📝 ${esc(o.note)}</p>` : ""}`,
   });
   // Б · Изделията срещу Склад детайли
-  const bRows = (o.lines || []).filter(l => l.productId).map(l => {
-    const p = (typeof ERP !== "undefined" && ERP.prodById && ERP.prodById[l.productId]) || {};
-    const left = oprepLeft(l);
-    const have = Math.max(0, Number(p.stock) || 0);
-    const take = Math.min(have, left);
-    return { code: p.code || l.code || "", name: p.name || l.name || "", left, have, take, make: Math.max(0, left - have) };
-  });
-  secs.push({
-    key: "stock", title: "Б · 🏭 Изделия: склад и производство", html: bRows.length ? `
+  secs.push(oprepSafe(() => {
+    const bRows = (o.lines || []).filter(l => l.productId).map(l => {
+      const p = (typeof ERP !== "undefined" && ERP.prodById && ERP.prodById[l.productId]) || {};
+      const left = oprepLeft(l);
+      const have = Math.max(0, Number(p.stock) || 0);
+      const take = Math.min(have, left);
+      return { code: p.code || l.code || "", name: p.name || l.name || "", left, have, take, make: Math.max(0, left - have) };
+    });
+    return {
+      key: "stock", title: "Б · 🏭 Изделия: склад и производство", html: bRows.length ? `
     <table class="oprep-t"><thead><tr><th>Код</th><th>Изделие</th><th>Остатък</th><th>В Склад детайли</th><th>От склада</th><th>ЗА ПРОИЗВОДСТВО</th></tr></thead>
     <tbody>${bRows.map(r => `<tr${r.make > 0 ? "" : ' style="color:#166534"'}><td><b>${esc(r.code)}</b></td><td>${esc(r.name)}</td><td>${erpNum(r.left)}</td><td>${erpNum(r.have)}</td><td>${erpNum(r.take)}</td><td><b>${r.make > 0 ? erpNum(r.make) : "— покрито"}</b></td></tr>`).join("")}</tbody></table>
     <p class="hint">Складовите бройки са ориентир — реалното нетиране става при „🏭 Пусни в производство“.</p>` : "<p>Няма редове с изделия от номенклатурата.</p>",
-  });
+    };
+  }, err => ({ key: "stock", title: "Б · 🏭 Изделия: склад и производство", html: err })));
   // В · Материалите по рецептите (разбивката, за остатъка) + Г · За купуване
-  let mats = [];
+  let mats = [], matsErr = false;
   if (typeof erpReqBuildOrder === "function") {
-    const r = erpReqBuildOrder(o);
-    mats = (r.rows || []).map(x => {
-      const m = (typeof ERP !== "undefined" && ERP.matById && (ERP.matById[x.material_id] || ERP.matById[String(x.material_id)])) || {};
-      const have = Math.max(0, Number(m.stock) || 0);
-      return { ...x, have, buy: Math.max(0, Math.round((x.required - have) * 1000) / 1000) };
-    }).sort((a, b) => b.buy - a.buy || a.name.localeCompare(b.name, "bg"));
-    // Правило на Данко (01.11): материал със запас ≥ 20% НАД нужното не
-    // се показва — списъкът остава само с интересните (на ръба или липсващи).
-    const shown = mats.filter(x => x.have < x.required * 1.2);
-    const hidden = mats.length - shown.length;
-    secs.push({
-      key: "mats", title: "В · 🧱 Материали по рецептите", html: (r.head || "") + (shown.length ? `
+    secs.push(oprepSafe(() => {
+      const r = erpReqBuildOrder(o);
+      mats = (r.rows || []).map(x => {
+        const m = (typeof ERP !== "undefined" && ERP.matById && (ERP.matById[x.material_id] || ERP.matById[String(x.material_id)])) || {};
+        const have = Math.max(0, Number(m.stock) || 0);
+        return { ...x, have, buy: Math.max(0, Math.round((x.required - have) * 1000) / 1000) };
+      }).sort((a, b) => b.buy - a.buy || a.name.localeCompare(b.name, "bg"));
+      // Правило на Данко (01.11): материал със запас ≥ 20% НАД нужното не
+      // се показва — списъкът остава само с интересните (на ръба или липсващи).
+      const shown = mats.filter(x => x.have < x.required * 1.2);
+      const hidden = mats.length - shown.length;
+      return {
+        key: "mats", title: "В · 🧱 Материали по рецептите", html: (r.head || "") + (shown.length ? `
       <table class="oprep-t"><thead><tr><th>Материал</th><th>Нужно</th><th>Налично</th><th>НЕДОСТИГ</th></tr></thead>
       <tbody>${shown.map(x => `<tr${x.buy > 0 ? ' style="background:#fef2f2"' : ""}><td>${esc(x.name)}</td><td>${erpNum(x.required)} ${esc(x.unit)}</td><td>${erpNum(x.have)}</td><td>${x.buy > 0 ? `<b style="color:#b91c1c">${erpNum(x.buy)} ${esc(x.unit)}</b>` : "—"}</td></tr>`).join("")}</tbody></table>` : (mats.length ? `<p style="color:#166534"><b>✅ Всички материали са с достатъчен запас.</b></p>` : "<p>Няма материали по рецептите.</p>"))
       + (hidden > 0 ? `<p class="hint">🫥 ${hidden} ${hidden === 1 ? "материал" : "материала"} със запас над 20% над нужното ${hidden === 1 ? "е скрит" : "са скрити"}.</p>` : ""),
-    });
+      };
+    }, err => { matsErr = true; return { key: "mats", title: "В · 🧱 Материали по рецептите", html: err }; }));
   } else secs.push({ key: "mats", title: "В · 🧱 Материали по рецептите", html: "<p>Модулът Разбивка на нуждите не е зареден.</p>" });
   const buy = mats.filter(x => x.buy > 0);
   secs.push({
-    key: "buy", title: "Г · 🛒 За купуване", html: buy.length ? `
+    key: "buy", title: "Г · 🛒 За купуване", html: matsErr ? `<p class="erp-warn">⚠ Разбивката на материалите удари грешка (виж секция В) — списъкът за купуване не може да се сметне.</p>` : (buy.length ? `
     <table class="oprep-t"><thead><tr><th>Материал</th><th>ЗА КУПУВАНЕ</th></tr></thead>
     <tbody>${buy.map(x => `<tr><td>${esc(x.name)}</td><td><b>${erpNum(x.buy)} ${esc(x.unit)}</b></td></tr>`).join("")}</tbody></table>
-    <p class="hint">Недостигът по разбивката — наличното в склад Материали е извадено.</p>` : `<p style="color:#166534"><b>✅ Всичко необходимо е налично — няма какво да се купува.</b></p>`,
+    <p class="hint">Недостигът по разбивката — наличното в склад Материали е извадено.</p>` : `<p style="color:#166534"><b>✅ Всичко необходимо е налично — няма какво да се купува.</b></p>`),
   });
   // Д · Разкроят на тръбите (Подготовка за производство)
-  let cutHtml = "<p>Модулът Подготовка за производство не е зареден.</p>";
   OPREP_CUT = { rows: [], prodIds: [] };
-  if (typeof cutCollect === "function") {
-    const c = cutCollect([o]);
-    OPREP_CUT = { rows: c.rows || [], prodIds: c.prodIds || [] };
-    cutHtml = (c.rows || []).length ? `
+  secs.push(oprepSafe(() => {
+    let cutHtml = "<p>Модулът Подготовка за производство не е зареден.</p>";
+    if (typeof cutCollect === "function") {
+      const c = cutCollect([o]);
+      OPREP_CUT = { rows: c.rows || [], prodIds: c.prodIds || [] };
+      cutHtml = (c.rows || []).length ? `
       <table class="oprep-t"><thead><tr><th>Тръба</th><th>L (мм)</th><th>Брой разрези</th><th>Бележка</th></tr></thead>
       <tbody>${c.rows.map(r => `<tr><td>${esc(r.name)}</td><td>${r.lenMm ? erpNum(r.lenMm) : "—"}</td><td><b>${erpNum(r.cuts)}</b></td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table>`
-      : "<p>Няма тръби за разкрой в рецептите на тази заявка.</p>";
-    if ((c.problems || []).length) cutHtml += `<p class="erp-warn">⚠ ${c.problems.map(esc).join("<br>⚠ ")}</p>`;
-  }
-  secs.push({ key: "cut", title: "Д · 🪚 Разкрой на тръбите", html: cutHtml, tools: "cut" });
+        : "<p>Няма тръби за разкрой в рецептите на тази заявка.</p>";
+      if ((c.problems || []).length) cutHtml += `<p class="erp-warn">⚠ ${c.problems.map(esc).join("<br>⚠ ")}</p>`;
+    }
+    return { key: "cut", title: "Д · 🪚 Разкрой на тръбите", html: cutHtml, tools: "cut" };
+  }, err => ({ key: "cut", title: "Д · 🪚 Разкрой на тръбите", html: err, tools: "cut" })));
   // Е · Палетен опис и Ж · Пакинг лист (от ОПАКОВКИ)
   try {
     if (typeof erpPackDocRows === "function" && typeof packBodyPallets === "function" && typeof packBodyPacking === "function") {
@@ -110,10 +123,20 @@ async function erpOrderProcess(o) {
   // прозорец. Състоянието живее тук; разделът се рисува от erpDispatchTab.
   OPREP_ORDER = o;
   const saved = (o.processing && Array.isArray(o.processing.sections) && o.processing.sections.length) ? o.processing : null;
-  OPREP_SECS = saved ? saved.sections.map(s => ({ ...s })) : await erpOrderPrepBuild(o);
-  OPREP_FROM_SAVED = !!saved;
-  if (typeof erpSetTab === "function") erpSetTab("oprep", true);
-  else erpRenderOrderPrepTab();   // резерва (напр. тестова среда без erp.js)
+  try {
+    OPREP_SECS = saved ? saved.sections.map(s => ({ ...s })) : await erpOrderPrepBuild(o);
+    OPREP_FROM_SAVED = !!saved;
+  } catch (e) {
+    // Докладът НИКОГА не умира тихо (по случая AGI 251): отваря се с грешката.
+    OPREP_SECS = [{ key: "err", title: "⚠ Докладът удари грешка", html: `<p class="erp-warn">Разчетът не мина: <b>${escapeHtml(String((e && e.message) || e))}</b></p><p class="hint">Снимай този екран и го прати на разработката. „↻ Преизчисли“ опитва наново.</p>` }];
+    OPREP_FROM_SAVED = false;
+  }
+  try {
+    if (typeof erpSetTab === "function") erpSetTab("oprep", true);
+    else erpRenderOrderPrepTab();   // резерва (напр. тестова среда без erp.js)
+  } catch (e) {
+    alert("Разделът „Работен доклад“ не се отвори: " + ((e && e.message) || e));
+  }
 }
 
 function erpRenderOrderPrepTab() {
@@ -184,7 +207,7 @@ function erpRenderOrderPrepTab() {
   });
   v.querySelector("#op-rebuild").addEventListener("click", async () => {
     if (!confirm("Свеж разчет от склада, рецептите и опаковките?\nРъчните редакции НА ЕКРАНА се губят (запазеното в заявката остава, докато не натиснеш „💾 Запази“).")) return;
-    OPREP_SECS = await erpOrderPrepBuild(o);
+    try { OPREP_SECS = await erpOrderPrepBuild(o); } catch (e) { alert("Разчетът не мина: " + ((e && e.message) || e)); return; }
     OPREP_FROM_SAVED = false;
     erpRenderOrderPrepTab();
   });
@@ -271,7 +294,7 @@ function erpRenderOrderPrepTab() {
     hit.forEach(c => { o.packing.rows[c] = found[c]; });
     if (!o.packing.palletKg && olds[0] && olds[0].packing && olds[0].packing.palletKg) o.packing.palletKg = olds[0].packing.palletKg;
     try { if (typeof erpSaveCO === "function") await erpSaveCO(o); } catch (e) { alert("Записът на заявката не мина: " + (e.message || e)); }
-    OPREP_SECS = await erpOrderPrepBuild(o);
+    try { OPREP_SECS = await erpOrderPrepBuild(o); } catch (e) { alert("Разчетът не мина: " + ((e && e.message) || e)); return; }
     OPREP_FROM_SAVED = false;
     erpRenderOrderPrepTab();
   });
