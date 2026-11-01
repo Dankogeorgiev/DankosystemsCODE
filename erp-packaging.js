@@ -434,11 +434,15 @@ async function erpPackOrderOpen(orderId, moreIds) {
   };
   const packIsEuro = bt => /европалет/i.test(String(bt || ""));
   const calc = st => {
-    const perPallet = packIsEuro(st.boxType) ? 1 : packNum(st.perPallet);
-    const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
+    const euro = packIsEuro(st.boxType);
+    const perPallet = euro ? 1 : packNum(st.perPallet);
+    // Европалет с ПРАЗНО „броя върху палета" = всичко на ЕДИН палет (Данко, 02.11):
+    // палетите излизат веднага, без да чакат бройката.
+    const perBox = euro && !(packNum(st.perBox) > 0) && st.qty > 0 ? st.qty : st.perBox;
+    const rc = packRowCalc(st.qty, perBox, st.kgPer, st.unitMult);
     const pallets = (!(st.rideOn > 0) && rc.boxes > 0 && perPallet > 0) ? rc.boxes / perPallet : 0;
-    // perPallet се връща ЕФЕКТИВЕН (Европалет → 1) — планът и подписът го ползват.
-    return { boxes: rc.boxes, bdText: rc.bdText, pallets, netKg: rc.netKg, effQty: rc.effQty, perPallet };
+    // perPallet/perBox се връщат ЕФЕКТИВНИ — планът и подписът ги ползват.
+    return { boxes: rc.boxes, bdText: rc.bdText, pallets, netKg: rc.netKg, effQty: rc.effQty, perPallet, perBox };
   };
   // ➕ ДОБАВЕНИТЕ редове (по Данко, 01.11): болтове, амортисьори, каквото
   // клиентът поиска — не са по заявката, но влизат в таблицата, плана и
@@ -464,6 +468,56 @@ async function erpPackOrderOpen(orderId, moreIds) {
   // 🚚 Частично товарене (Данко, 02.11): извадените с ✕ редове (P.skip) не
   // влизат в таблицата, плана и документите — връщат се от лентата отдолу.
   const allStates = () => (o.lines || []).map((_, i) => rowState(i)).filter(st => st.qty > 0 && !(P.skip && P.skip[st.key])).concat((P.extras || []).map((_, j) => extraState(j)));
+  // ✔ Избраните редове (квадратчетата) — за „Премахни" и „⚡ Бърза опаковка".
+  const PKO_SEL = new Set();
+  /* ⚡ БЪРЗАТА ОПАКОВКА (по Данко, 02.11.2026): свободен Палетен опис за
+     малки/нестандартни пратки — предпопълва се с избраните редове (или със
+     запазения), пише се НАПРАВО в него (вид опаковка „чувал", бележки…),
+     нищо не е задължително. Пази се в o.packing.quickDoc. */
+  const packQuick = keys => {
+    const en = packIsExport(o);
+    const states = allStates().map(st => ({ ...st, ...calc(st) }));
+    const sel = (keys || []).length ? states.filter(st => keys.includes(st.key)) : [];
+    let bodyHtml;
+    if (!sel.length && P.quickDoc && P.quickDoc.html) bodyHtml = P.quickDoc.html;
+    else {
+      const rowsSrc = sel.length ? sel : states;
+      const L = en ? { t: "PALLET LIST", code: "Code", name: "Description", qty: "Qty", box: "Packing", note: "Note", net: "Net" }
+        : { t: "ПАЛЕТЕН ОПИС", code: "Код", name: "Наименование", qty: "Количество", box: "Вид опаковка", note: "Бележка", net: "Нето" };
+      const NM = r => en ? packEnRowName(r) : (r.name || "");
+      const T = x => en ? packEnText(x) : String(x == null ? "" : x);
+      bodyHtml = `${packDocHead(o, L.t, en)}
+        <table><thead><tr><th>${L.code}</th><th>${L.name}</th><th class="c">${L.qty}</th><th>${L.box}</th><th>${L.note}</th></tr></thead>
+        <tbody>${rowsSrc.map(r => `<tr><td><b>${escapeHtml(r.code)}</b></td><td>${escapeHtml(NM(r))}</td><td class="r">${erpNum(r.effQty != null ? r.effQty : r.qty)}</td><td>${escapeHtml(T(r.boxType || ""))}</td><td><br></td></tr>`).join("")}
+        ${"<tr><td><br></td><td><br></td><td><br></td><td><br></td><td><br></td></tr>".repeat(3)}</tbody></table>
+        <p><b>${L.net}:</b> ${Math.round(rowsSrc.reduce((s2, r) => s2 + (r.netKg || 0), 0) * 10) / 10} ${en ? "kg" : "кг"}</p>`;
+    }
+    const { wrap, close } = erpDialog(`
+      <h3>⚡ Бърза опаковка — ${en ? "Pallet List" : "Палетен опис"}</h3>
+      <p class="hint" style="margin:0 0 6px">Пиши свободно направо в описа — вид опаковка (напр. „чувал"), бройки, бележки. Нищо не е задължително. „💾 Запази" го оставя по заявката (⚡ бутонът горе го отваря пак).</p>
+      <div class="pko-doc-body" id="pq-body" contenteditable="true" style="max-height:60vh;border:1px solid #e2e8f0;border-radius:8px">${bodyHtml}</div>
+      <div class="erp-dialog-actions">
+        <button class="btn btn-small btn-primary" id="pq-save">💾 Запази</button>
+        <button class="btn btn-small" id="pq-print" title="Печат / PDF както го виждаш">🖨 Печат</button>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn" id="pq-close">Затвори</button>
+      </div>`);
+    try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
+    wrap.querySelector("#pq-close").addEventListener("click", close);
+    wrap.querySelector("#pq-print").addEventListener("click", () => {
+      invPrintWindow((en ? "Pallet List (quick) — order " : "Палетен опис (бърз) — заявка ") + (o.ourNo || ""), wrap.querySelector("#pq-body").innerHTML, en ? "en" : "bg");
+    });
+    wrap.querySelector("#pq-save").addEventListener("click", async () => {
+      const b = wrap.querySelector("#pq-save"); b.disabled = true; b.textContent = "Записва…";
+      P.quickDoc = { html: wrap.querySelector("#pq-body").innerHTML, at: new Date().toISOString() };
+      try { await erpSaveCO(o.__combined ? o.__combined[0] : o); b.textContent = "✓ Записано"; }
+      catch (e) { alert("Грешка при запис: " + (e.message || e)); }
+      setTimeout(() => { b.disabled = false; b.textContent = "💾 Запази"; }, 1200);
+    });
+    PKO_SEL.clear();
+    v.querySelectorAll(".pko-sel").forEach(cb => { cb.checked = false; });
+    const bar = v.querySelector("#pko-selbar"); if (bar) bar.hidden = true;
+  };
   const render = () => {
     const states = allStates();
     const totals = states.reduce((t, st) => {
@@ -501,12 +555,18 @@ async function erpPackOrderOpen(orderId, moreIds) {
         <span class="erp-count">📦 Опаковане — ${o.__combined ? `<b style="color:#b45309">${o.__combined.length} заявки ЗАЕДНО</b> ` : "заявка "}<b>${escapeHtml(o.ourNo || "—")}</b>${o.clientNo ? " · клиентски № " + escapeHtml(o.clientNo) : ""} · ${escapeHtml(o.clientName || "")}</span>
         <span class="spacer"></span>
         <button class="btn btn-small" id="pko-addrow" title="Добави ред към опаковката: продукт/материал от номенклатурата, аксесоар или свободен текст (болтове, амортисьори, каквото клиентът поиска). Влиза в таблицата, плана и документите наравно с другите.">➕ Добави ред</button>
+        <button class="btn btn-small" id="pko-quick" title="Бързата опаковка: свободен Палетен опис за малки/нестандартни пратки — пишеш каквото искаш (напр. „чувал") и го запазваш по заявката${P.quickDoc ? ". ИМА ЗАПАЗЕН." : ""}">⚡ Бърза опаковка${P.quickDoc ? " ✍" : ""}</button>
         <button class="btn btn-small btn-primary" id="pko-save" title="Записва опаковката към заявката И я запомня като стандарт за клиента (кашони, тегла, палетна подредба, добавките към палетите) — следваща заявка се подрежда така сама">💾 Запази опаковката</button>
+      </div>
+      <div class="pko-skipbar" id="pko-selbar" ${PKO_SEL.size ? "" : "hidden"}>✔ Избрани: <b id="pko-selcnt">${PKO_SEL.size}</b> реда ·
+        <button type="button" class="btn btn-small" id="pko-sel-skip" title="Няма да се товарят в тази пратка — отиват в лентата под таблицата, връщат се с ↩">🚚 Премахни от опаковката</button>
+        <button type="button" class="btn btn-small btn-primary" id="pko-sel-quick" title="Бърз Палетен опис САМО с избраните редове — пишеш свободно (вид опаковка, бележки), нищо не е задължително">⚡ Бърза опаковка</button>
+        <button type="button" class="btn btn-small" id="pko-sel-clear">откажи</button>
       </div>
       <table class="report-table erp-table">
         <thead><tr><th>КОД</th><th>Продукт</th><th class="num">Количество</th><th class="num">КГ за брой</th><th>Вид опаковка</th><th class="num">брой в опаковка</th><th>Добавка</th><th class="num">опаковки на палет</th><th class="num">Опаковки</th><th class="num">Палети</th><th class="num">Нето кг</th></tr></thead>
         <tbody>${states.map((st, i) => { const c = calc(st); const euro = packIsEuro(st.boxType); return `<tr data-i="${st.extra ? i : st.li}"${st.extra ? ` data-xi="${st.xi}" class="pko-extra-row"` : ""}>
-          <td><b>${escapeHtml(st.code)}</b>${st.extra ? `<button type="button" class="btn btn-small btn-danger pko-xdel" data-xi="${st.xi}" title="Махни добавения ред" style="margin-left:6px;padding:0 6px">×</button>` : `<button type="button" class="btn btn-small pko-skip" data-key="${escapeAttr(st.key)}" title="НЯМА да се товари в тази пратка (частично товарене) — маха го от опаковката, плана и документите. Връща се от лентата под таблицата." style="margin-left:6px;padding:0 6px">✕</button>`}</td>
+          <td><b>${escapeHtml(st.code)}</b>${st.extra ? `<button type="button" class="btn btn-small btn-danger pko-xdel" data-xi="${st.xi}" title="Махни добавения ред" style="margin-left:6px;padding:0 6px">×</button>` : `<input type="checkbox" class="pko-sel" data-key="${escapeAttr(st.key)}" ${PKO_SEL.has(st.key) ? "checked" : ""} title="Маркирай реда — отгоре излизат „Премахни от опаковката" и „⚡ Бърза опаковка"" style="margin-left:6px" />`}</td>
           <td>${escapeHtml(st.name)}${st.extra ? ' <span class="erp-muted" style="font-size:11px" title="Добавен ред — не е от заявката, но влиза в документите">➕ добавен</span>' : ""}</td>
           <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-qty" data-i="${i}" value="${escapeAttr(String(st.qty))}" style="width:62px" />
             <select class="pko-unit" data-i="${i}" title="Мерната единица: при „к-т ×2" (ляв + десен) кашоните, бройките и килограмите се смятат върху двойното">
@@ -519,7 +579,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
             </select>` : ""}${st.qty !== st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Остатъкът за доставка по заявката — изтрий корекцията, за да се върне">остава: ${erpNum(st.baseQty)}</span>` : ""}${st.ordered > st.baseQty ? `<br><span class="erp-muted" style="font-size:11px" title="Заявката е частично доставена — опакова се само остатъкът">доставени ${erpNum(st.ordered - st.baseQty)} от ${erpNum(st.ordered)}</span>` : ""}</td>
           <td class="num"><input type="number" step="any" min="0" class="pko-kg" data-i="${i}" value="${escapeAttr(String(st.kgPer || ""))}" style="width:80px" /></td>
           <td><input type="text" class="pko-box" data-i="${i}" list="pack-boxlist" value="${escapeAttr(st.boxType)}" style="width:130px" placeholder="Малък / Плик / Връзка…" title="Вид опаковка — избери от списъка или опиши свободно (нестандартна)" /><input type="hidden" class="pko-boxsize" data-i="${i}" value="${escapeAttr(st.boxSize)}" /></td>
-          <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" ${euro ? `placeholder="бр./палет" title="ЕВРОПАЛЕТ: пишеш колко БРОЯ се нареждат върху един палет — палетите се смятат сами"` : ""} />${euro ? `<div class="erp-muted" style="font-size:10.5px" title="При Европалет това поле е бройката върху палета">броя върху палета</div>` : ""}</td>
+          <td class="num"><input type="number" step="1" min="0" class="pko-perbox" data-i="${i}" value="${escapeAttr(String(st.perBox || ""))}" style="width:70px" ${euro ? `placeholder="бр./палет" title="ЕВРОПАЛЕТ: пишеш колко БРОЯ се нареждат върху един палет — палетите се смятат сами"` : ""} />${euro ? `<div class="erp-muted" style="font-size:10.5px" title="При Европалет това поле е бройката върху палета; оставиш ли го празно — всичко отива на 1 палет">броя върху палета · празно = 1 палет</div>` : ""}</td>
           <td><input type="text" class="pko-addbox" data-i="${i}" value="${escapeAttr(st.addBox || "")}" style="width:150px" placeholder="${c.rest ? escapeAttr("1 кашон × " + erpNum(c.rest) + " бр.") : "непълен кашон…"}" title="Непълният кашон (остатъкът) — опиши го както го правите: вид кашон и бройка" /></td>
           <td class="num" style="white-space:nowrap"><input type="number" step="any" min="0" class="pko-perpal" data-i="${i}" value="${euro ? "1" : escapeAttr(String(st.perPallet || ""))}" style="width:64px" title="${euro ? "Европалет: 1 опаковка = 1 палет (смята се само̀ от броя върху палета)" : "Може и дробно число (напр. 7,5 кашона на палет)"}" ${st.rideOn || euro ? "disabled" : ""} /><select class="pko-ride" data-i="${i}" style="max-width:136px" title="🚛 Дребното (пликове, връзки тръби) не прави свой палет — качва се ВЪРХУ избрания от вече генерираните палети">
             <option value="0">—</option>
@@ -685,12 +745,25 @@ async function erpPackOrderOpen(orderId, moreIds) {
       (P.extras || []).splice(Number(b.dataset.xi), 1);
       render();
     }));
-    v.querySelectorAll(".pko-skip").forEach(b => b.addEventListener("click", () => {
+    v.querySelectorAll(".pko-sel").forEach(cb => cb.addEventListener("change", () => {
+      if (cb.checked) PKO_SEL.add(cb.dataset.key); else PKO_SEL.delete(cb.dataset.key);
+      const bar = v.querySelector("#pko-selbar"); if (bar) bar.hidden = !PKO_SEL.size;
+      const c = v.querySelector("#pko-selcnt"); if (c) c.textContent = PKO_SEL.size;
+    }));
+    const selSkip = v.querySelector("#pko-sel-skip");
+    if (selSkip) selSkip.addEventListener("click", () => {
       collect();
       P.skip = P.skip || {};
-      P.skip[b.dataset.key] = 1;
+      [...PKO_SEL].forEach(k => { P.skip[k] = 1; });
+      PKO_SEL.clear();
       render();
-    }));
+    });
+    const selQuick = v.querySelector("#pko-sel-quick");
+    if (selQuick) selQuick.addEventListener("click", () => { collect(); packQuick([...PKO_SEL]); });
+    const selClear = v.querySelector("#pko-sel-clear");
+    if (selClear) selClear.addEventListener("click", () => { PKO_SEL.clear(); render(); });
+    const quickBtn = v.querySelector("#pko-quick");
+    if (quickBtn) quickBtn.addEventListener("click", () => { collect(); packQuick([...PKO_SEL]); });
     v.querySelectorAll(".pko-unskip").forEach(b => b.addEventListener("click", () => {
       collect();
       if (P.skip) delete P.skip[b.dataset.key];
@@ -1009,6 +1082,7 @@ async function erpPackDocRows(o) {
       perPallet: /европалет/i.test(String(x.boxType || "")) ? 1 : (x.perPallet != null && x.perPallet !== "" ? x.perPallet : ((spec && spec.boxesPerPallet) || 0)),
       rideOn: Number(x.rideOn) || 0,
     };
+    if (/европалет/i.test(String(st.boxType || "")) && !(packNum(st.perBox) > 0) && st.qty > 0) st.perBox = st.qty;
     const perPallet = packNum(st.perPallet);
     const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
     return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
@@ -1036,7 +1110,10 @@ async function erpPackDocRows(o) {
       perPallet: r.perPallet != null ? r.perPallet : ((spec && spec.boxesPerPallet) || 0),
       rideOn: Number(r.rideOn) || (r.ride ? 1 : 0),   // 🚛 върху палет № N (по заявка)
     };
-    if (/европалет/i.test(String(st.boxType || ""))) st.perPallet = 1;   // 1 опаковка = 1 палет
+    if (/европалет/i.test(String(st.boxType || ""))) {
+      st.perPallet = 1;   // 1 опаковка = 1 палет
+      if (!(packNum(st.perBox) > 0) && st.qty > 0) st.perBox = st.qty;   // празно = всичко на 1 палет
+    }
     const perPallet = packNum(st.perPallet);
     const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
     return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
