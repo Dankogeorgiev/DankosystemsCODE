@@ -495,23 +495,40 @@ async function attendSave() {
   return true;
 }
 function attendSaveSoon() { clearTimeout(attendSaveT); attendSaveT = setTimeout(() => { attendSave(); }, 600); }
-/* Одобрените отпуски на месеца: име (норм.) → Set от дните (само работни). */
-function attendLeaveDays(ym) {
+/* Одобрените отпуски на месеца: .days(име) → Set от дните (само работни).
+   Името се връзва по ПЪЛНО съвпадение ИЛИ — еднозначно — по първо име +
+   фамилия: молбата може да е с 2 имена, а отчетната форма с 3 (и обратно).
+   При два служители с еднакви първо+фамилия съкратеното връзване се
+   изключва (за да не се отбележи П на грешния човек). */
+function attendLeaveDays(ym, people) {
   const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
-  const by = new Map();
+  const fl = n => { const w = norm(n).split(" ").filter(Boolean); return w.length > 1 ? w[0] + "|" + w[w.length - 1] : ""; };
+  const by = new Map(), byFl = new Map(), flOwner = new Map(), flBad = new Set();
+  // Двусмислие и СРЕД СЛУЖИТЕЛИТЕ: двама с еднакви първо+фамилия → една
+  // молба „Иво Стоянов" не бива да отбележи П и на двамата.
+  const empFl = new Map(), empFlBad = new Set();
+  (people || []).forEach(p => {
+    const kF = fl(p.name), kN = norm(p.name);
+    if (!kF) return;
+    if (empFl.has(kF) && empFl.get(kF) !== kN) empFlBad.add(kF); else empFl.set(kF, kN);
+  });
   const [Y, M] = ym.split("-").map(Number);
   (LEAVES || []).filter(l => l.status === "одобрена" && l.from && l.to).forEach(l => {
+    const kN = norm(l.name), kF = fl(l.name);
+    if (kF) { if (flOwner.has(kF) && flOwner.get(kF) !== kN) flBad.add(kF); else flOwner.set(kF, kN); }
     const a = new Date(l.from + "T00:00:00"), b = new Date(l.to + "T00:00:00");
     for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
       if (d.getFullYear() !== Y || d.getMonth() + 1 !== M) continue;
       const wd = d.getDay();
       if (wd === 0 || wd === 6) continue;   // уикендите не са отпуск
-      const k = norm(l.name);
-      if (!by.has(k)) by.set(k, new Set());
-      by.get(k).add(d.getDate());
+      if (!by.has(kN)) by.set(kN, new Set());
+      by.get(kN).add(d.getDate());
+      if (kF) { if (!byFl.has(kF)) byFl.set(kF, new Set()); byFl.get(kF).add(d.getDate()); }
     }
   });
-  return by;
+  flBad.forEach(k => byFl.delete(k));
+  const EMPTY = new Set();
+  return { days: name => by.get(norm(name)) || (!empFlBad.has(fl(name)) && byFl.get(fl(name))) || EMPTY };
 }
 /* Имената от ОФИЦИАЛНАТА отчетна форма: ред с „Трите имена" (3+ кирилски
    думи) + длъжността от следващата текстова клетка (прескача числата/8-ците).
@@ -637,7 +654,7 @@ function attendExportRows(ym) {
   const daysIn = new Date(Y, M, 0).getDate();
   const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
   const monthRec = (ATTEND || {})[ym] || {};
-  const leavesBy = attendLeaveDays(ym);
+  const leavesBy = attendLeaveDays(ym, (LEAVE_BAL && LEAVE_BAL.list) || []);
   const MONN = ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"];
   const people = (LEAVE_BAL.list || []).slice().sort((a, b) => String(a.name || "").localeCompare(b.name || "", "bg"));
   const VIEW = { "р": "8", "н": "О", "б": "Б", "нп": "Н", "м": "М" };   // по образеца: 8 = отработен ден
@@ -652,7 +669,7 @@ function attendExportRows(ym) {
     let ok = 0, lv = 0, unp = 0, mat = 0, sick = 0, no = 0;
     for (let d = 1; d <= daysIn; d++) {
       const man = (monthRec[p.name] || {})[String(d)] || "";
-      const onLeave = (leavesBy.get(norm(p.name)) || new Set()).has(d);
+      const onLeave = leavesBy.days(p.name).has(d);
       const code = man || (onLeave ? "П" : "");
       if (code === "р") ok++; else if (code === "П") lv++; else if (code === "нп") unp++;
       else if (code === "м") mat++; else if (code === "б") sick++; else if (code === "н") no++;
@@ -677,6 +694,87 @@ function attendExportXlsx(ym) {
   XLSX.writeFile(wb, `Присъствена форма ${MONN[M - 1]} ${Y}.xlsx`);
 }
 
+/* ---------- 🖨 Месечен отчет „Отпуски" за СЧЕТОВОДСТВОТО (печат → PDF) ----------
+   Кой е ползвал платен отпуск през месеца, по одобрените молби: периодите се
+   режат до месеца, броят се само работните дни в него. */
+function attendLeaveReportRows(ym) {
+  const [Y, M] = ym.split("-").map(Number);
+  const mStart = `${ym}-01`;
+  const mEnd = `${ym}-${String(new Date(Y, M, 0).getDate()).padStart(2, "0")}`;
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const fl = n => { const w = norm(n).split(" ").filter(Boolean); return w.length > 1 ? w[0] + "|" + w[w.length - 1] : ""; };
+  const byPerson = new Map();
+  (LEAVES || []).filter(l => l.status === "одобрена" && l.from && l.to && l.from <= mEnd && l.to >= mStart).forEach(l => {
+    const from = l.from < mStart ? mStart : l.from;
+    const to = l.to > mEnd ? mEnd : l.to;
+    const days = leaveWorkDays(from, to);
+    if (!days) return;   // напр. отпуск само през уикенда на ръба на месеца
+    const k = norm(l.name);
+    if (!byPerson.has(k)) byPerson.set(k, { name: l.name, role: l.position || "", periods: [], days: 0 });
+    const p = byPerson.get(k);
+    p.periods.push(leaveFmt(from) + " – " + leaveFmt(to) + ((l.from < mStart || l.to > mEnd) ? " *" : ""));
+    p.days += days;
+  });
+  const rows = [...byPerson.values()].sort((a, b) => String(a.name).localeCompare(b.name, "bg"));
+  // Длъжността: от молбата, иначе от списъка на служителите (и по 2 имена).
+  rows.forEach(r => {
+    if (r.role) return;
+    const p = (LEAVE_BAL && LEAVE_BAL.list || []).find(x => norm(x.name) === norm(r.name) || (fl(x.name) && fl(x.name) === fl(r.name)));
+    if (p && p.role) r.role = p.role;
+  });
+  return rows;
+}
+function attendLeaveReportHtml(ym) {
+  const [Y, M] = ym.split("-").map(Number);
+  const MONN = ["ЯНУАРИ", "ФЕВРУАРИ", "МАРТ", "АПРИЛ", "МАЙ", "ЮНИ", "ЮЛИ", "АВГУСТ", "СЕПТЕМВРИ", "ОКТОМВРИ", "НОЕМВРИ", "ДЕКЕМВРИ"];
+  const rows = attendLeaveReportRows(ym);
+  const total = rows.reduce((s, r) => s + r.days, 0);
+  const hasClip = rows.some(r => r.periods.some(p => p.includes("*")));
+  const body = rows.length ? rows.map((r, i) => `<tr>
+      <td class="num">${i + 1}</td>
+      <td><b>${escapeHtml(r.name)}</b></td>
+      <td>${escapeHtml(r.role || "")}</td>
+      <td>${r.periods.map(escapeHtml).join("<br>")}</td>
+      <td class="num"><b>${r.days}</b></td>
+    </tr>`).join("")
+    : `<tr><td colspan="5" class="empty">Няма одобрени отпуски през месеца.</td></tr>`;
+  return `<!doctype html><html lang="bg"><head><meta charset="utf-8"><title>Отпуски ${escapeHtml(MONN[M - 1].toLowerCase())} ${Y}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 12pt; color: #000; margin: 20mm 16mm; }
+    h2 { text-align: center; margin: 0 0 2px; font-size: 13pt; }
+    h1 { text-align: center; margin: 2px 0 4px; font-size: 16pt; letter-spacing: 1px; }
+    .sub { text-align: center; margin: 0 0 14px; font-size: 10.5pt; color: #333; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #000; padding: 5px 8px; text-align: left; vertical-align: top; }
+    th { background: #eee; font-size: 10.5pt; }
+    .num { text-align: center; width: 1%; white-space: nowrap; }
+    .empty { text-align: center; color: #555; padding: 18px; }
+    tfoot td { font-weight: bold; background: #f5f5f5; }
+    .note { font-size: 10pt; color: #333; margin-top: 8px; }
+    .sign { display: flex; justify-content: space-between; margin-top: 46px; font-size: 11.5pt; }
+    @media print { .noprint { display: none } }
+    .noprint { text-align: center; margin-bottom: 14px; }
+    .btnp { background: #0f766e; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  </style></head><body>
+    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат / Запази като PDF</button></div>
+    <h2>„ДАНКО СИСТЕМС" ООД</h2>
+    <h1>ОТПУСКИ ЗА МЕСЕЦ ${MONN[M - 1]} ${Y} г.</h1>
+    <p class="sub">Платен годишен отпуск по одобрени молби — броят се само работните дни в месеца</p>
+    <table>
+      <thead><tr><th class="num">№</th><th>Трите имена</th><th>Длъжност</th><th>Период</th><th class="num">Раб. дни</th></tr></thead>
+      <tbody>${body}</tbody>
+      ${rows.length ? `<tfoot><tr><td colspan="3">ОБЩО</td><td>${rows.length} ${rows.length === 1 ? "служител" : "служители"}</td><td class="num">${total}</td></tr></tfoot>` : ""}
+    </table>
+    ${hasClip ? `<p class="note">* отпускът продължава и извън месеца — в отчета са само дните, попадащи в месеца.</p>` : ""}
+    <div class="sign"><span>Съставил: ..............................</span><span>Управител: ..............................</span></div>
+  </body></html>`;
+}
+function attendLeavePrint(ym) {
+  const html = attendLeaveReportHtml(ym);
+  const w = window.open("", "_blank"); if (!w) { alert("Разреши popup за сайта."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+}
+
 async function erpRenderAttendance(v, quiet) {
   // quiet = тихо пре-рендериране след клик по клетка: без „Зареждане…" и без
   // презареждане от базата (данните са в паметта), а хоризонталният скрол се
@@ -696,7 +794,7 @@ async function erpRenderAttendance(v, quiet) {
   const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
   const people = (LEAVE_BAL.list || []).slice().sort((a, b) => String(a.name || "").localeCompare(b.name || "", "bg"));
   const monthRec = ATTEND[ym] = ATTEND[ym] || {};
-  const leavesBy = attendLeaveDays(ym);
+  const leavesBy = attendLeaveDays(ym, (LEAVE_BAL && LEAVE_BAL.list) || []);
   const MONN = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
   // Кодовете са по ОФИЦИАЛНАТА отчетна форма (файлът на Данко, 02.11):
   // ✓ = отработен ден (8 ч), ✗ = неявяване, Б = болничен, Н = неплатен
@@ -707,7 +805,7 @@ async function erpRenderAttendance(v, quiet) {
     const man = (monthRec[p.name] || {})[String(d)] || "";
     const dt = new Date(Y, M - 1, d);
     const we = dt.getDay() === 0 || dt.getDay() === 6;
-    const onLeave = (leavesBy.get(norm(p.name)) || new Set()).has(d);
+    const onLeave = leavesBy.days(p.name).has(d);
     const code = man || (onLeave ? "П" : "");
     const cls = we ? "at-we" : (AT_CLS[code] || "");
     const iso = `${ym}-${String(d).padStart(2, "0")}`;
@@ -717,7 +815,7 @@ async function erpRenderAttendance(v, quiet) {
     const t = { ok: 0, no: 0, sick: 0, unpaid: 0, mat: 0, lv: 0 };
     for (let d = 1; d <= daysIn; d++) {
       const man = (monthRec[p.name] || {})[String(d)] || "";
-      const onLeave = (leavesBy.get(norm(p.name)) || new Set()).has(d);
+      const onLeave = leavesBy.days(p.name).has(d);
       const code = man || (onLeave ? "П" : "");
       if (code === "р") t.ok++; else if (code === "н") t.no++; else if (code === "б") t.sick++;
       else if (code === "нп") t.unpaid++; else if (code === "м") t.mat++; else if (code === "П") t.lv++;
@@ -736,13 +834,14 @@ async function erpRenderAttendance(v, quiet) {
       <button class="btn btn-small" id="at-import-chk" title="Експортът от системата за чекиране (CSV) — отбелязва ✓ на всеки, който се е чекирал през деня. Празното остава празно (отпуск/болничен се пишат на ръка), непознатите имена стават нови служители.">📥 От чекирането</button>
       <input type="file" id="at-import-chk-file" accept=".csv,.txt" style="display:none" />
       <button class="btn btn-small" id="at-export" title="Сваля попълнената присъствена форма за този месец като Excel файл — готов за изпращане на счетоводството.">⬇ Свали (Excel)</button>
+      <button class="btn btn-small" id="at-leave-pdf" title="Месечен отчет кой е ползвал платен отпуск (по одобрените молби) — отваря се за печат, от диалога избери „Запази като PDF&#8220; и го прати на счетоводството.">🖨 Отпуски (PDF)</button>
       <span class="erp-count">${people.length} служители</span>
     </div>
     ${people.length ? `<div class="at-scroll" style="overflow:auto"><table class="report-table erp-table at-table">
       <thead><tr><th style="min-width:160px">Служител</th><th style="min-width:90px">Длъжност</th>${Array.from({ length: daysIn }, (_, i) => { const dt = new Date(Y, M - 1, i + 1); const we = dt.getDay() === 0 || dt.getDay() === 6; return `<th class="at-h${we ? " at-we" : ""}">${i + 1}<div class="at-wd">${WD[dt.getDay()]}</div></th>`; }).join("")}<th class="num" title="Отработени дни">✓</th><th class="num" title="Неявявания">✗</th><th class="num" title="Болнични">Б</th><th class="num" title="Неплатен отпуск">Н</th><th class="num" title="Майчинство">М</th><th class="num" title="Платен отпуск">П</th></tr></thead>
       <tbody>${people.map(p => { const t = totals(p); return `<tr><td><b>${escapeHtml(p.name || "")}</b></td><td class="erp-muted" style="font-size:11.5px">${escapeHtml(p.role || "")}</td>${Array.from({ length: daysIn }, (_, i) => cellOf(p, i + 1)).join("")}<td class="num" style="color:#166534"><b>${t.ok || ""}</b></td><td class="num" style="color:#b91c1c"><b>${t.no || ""}</b></td><td class="num" style="color:#b45309"><b>${t.sick || ""}</b></td><td class="num" style="color:#334155"><b>${t.unpaid || ""}</b></td><td class="num" style="color:#7e22ce"><b>${t.mat || ""}</b></td><td class="num" style="color:#1d4ed8"><b>${t.lv || ""}</b></td></tr>`; }).join("")}</tbody>
     </table></div>
-    <p class="hint">Отбелязаното се записва само̀. Кодовете са по официалната отчетна форма: ✓ отработен ден · ✗ неявяване · Б болничен · Н неплатен отпуск · М майчинство · П платен отпуск (идва сам от одобрените молби; ръчна отметка в същия ден го заменя). „📥 От чекирането" нанася ✓ от експорта на системата за чекиране (CSV); празното се дописва на ръка. „⬇ Свали (Excel)" дава попълнената форма за счетоводството.</p>`
+    <p class="hint">Отбелязаното се записва само̀. Кодовете са по официалната отчетна форма: ✓ отработен ден · ✗ неявяване · Б болничен · Н неплатен отпуск · М майчинство · П платен отпуск (идва сам от одобрените молби; ръчна отметка в същия ден го заменя). „📥 От чекирането" нанася ✓ от експорта на системата за чекиране (CSV); празното се дописва на ръка. „⬇ Свали (Excel)" дава попълнената форма, а „🖨 Отпуски (PDF)" — месечния отчет кой е ползвал отпуск, за счетоводството.</p>`
     : `<p class="report-empty">Няма служители. Натисни „📥 Имена от формата" горе и избери официалната отчетна форма (Excel) — имената и длъжностите се зареждат от избрания месечен лист.</p>`}`;
   if (keepX) { const sc = v.querySelector(".at-scroll"); if (sc) sc.scrollLeft = keepX; }
   const impBtn = v.querySelector("#at-import");
@@ -765,6 +864,8 @@ async function erpRenderAttendance(v, quiet) {
   }
   const expBtn = v.querySelector("#at-export");
   if (expBtn) expBtn.addEventListener("click", () => { try { attendExportXlsx(attendMonth); } catch (e) { alert("Грешка при експорта: " + (e.message || e)); } });
+  const lvPdfBtn = v.querySelector("#at-leave-pdf");
+  if (lvPdfBtn) lvPdfBtn.addEventListener("click", () => { try { attendLeavePrint(attendMonth); } catch (e) { alert("Грешка при отчета: " + (e.message || e)); } });
   v.querySelector("#at-prev").addEventListener("click", () => { attendMonth = leaveShiftMonth(attendMonth, -1); erpRenderAttendance(v); });
   v.querySelector("#at-next").addEventListener("click", () => { attendMonth = leaveShiftMonth(attendMonth, 1); erpRenderAttendance(v); });
   v.querySelectorAll(".at-c").forEach(td => td.addEventListener("click", () => {
