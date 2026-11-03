@@ -49,7 +49,7 @@ async function erpRenderFinance() {
   v.querySelector("#fin-nav-im").addEventListener("click", () => { erpFinView = "invmargin"; erpRenderFinance(); });
   v.querySelector("#fin-nav-r").addEventListener("click", () => { erpFinView = "rates"; erpRenderFinance(); });
   v.querySelector("#fin-nav-p").addEventListener("click", () => { erpFinView = "payroll"; erpRenderFinance(); });
-  v.querySelector("#fin-nav-l").addEventListener("click", () => { erpFinView = "leaves"; erpRenderFinance(); });
+  v.querySelector("#fin-nav-l").addEventListener("click", () => { erpFinView = "leaves"; if (typeof staffResetView === "function") staffResetView(); erpRenderFinance(); });
   v.querySelector("#fin-nav-e").addEventListener("click", () => { erpFinView = "erptable"; erpRenderFinance(); });
   v.querySelector("#fin-nav-v").addEventListener("click", () => { erpFinView = "vat"; erpRenderFinance(); });
   const body = v.querySelector("#fin-body");

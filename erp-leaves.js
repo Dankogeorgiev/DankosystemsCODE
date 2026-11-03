@@ -99,6 +99,8 @@ function leaveRequestDialog(opts) {
         // Имейл до админите — да видят молбата веднага (не блокира записа).
         try { erpLeaveNotifyAdmins({ name, from, to, days, ws }).catch(() => {}); } catch (e) {}
         alert("✅ Молбата е ИЗПРАТЕНА.\n\n⚠ ВНИМАНИЕ: Това НЕ означава, че отпускът е одобрен! Докато не получите обратна връзка от офиса, статусът е просто молба.");
+        // От офисния изглед новата молба да се ВИДИ веднага в списъка.
+        if (opts.onSaved) opts.onSaved();
       }
     } else { btn.disabled = false; btn.textContent = editRec ? "💾 Запази поправките" : admin ? "💾 Запиши като одобрен" : "📨 Поискай отпуск"; }
   });
@@ -208,9 +210,13 @@ async function erpRenderLeaves(v) {
     ${approved.length ? `<table class="report-table erp-table"><thead><tr><th>Служител</th><th>От</th><th>До</th><th class="num">Раб. дни</th><th>Подадена</th><th></th></tr></thead>
       <tbody>${approved.map(l => row(l, false)).join("")}</tbody></table>` : `<p class="hint">Още няма одобрени отпуски.</p>`}`;
 
-  document.getElementById("lv-new-req").addEventListener("click", () => leaveRequestDialog({ onSaved: () => erpRenderLeaves(v) }));
-  document.getElementById("lv-new-approved").addEventListener("click", () => leaveRequestDialog({ adminEntry: true, onSaved: () => erpRenderLeaves(v) }));
-  document.getElementById("lv-balance").addEventListener("click", () => { leaveView = "balance"; erpRenderLeaves(v); });
+  // ВНИМАНИЕ: само v.querySelector, НЕ document.getElementById — изгледът може
+  // да съществува в два панела едновременно (разделът Служители се пази скрит,
+  // докато Финанси→Служители рисува втори екземпляр) и глобалното търсене
+  // закача слушателите на СКРИТИЯ дубликат → мъртви бутони, празен календар.
+  v.querySelector("#lv-new-req").addEventListener("click", () => leaveRequestDialog({ onSaved: () => erpRenderLeaves(v) }));
+  v.querySelector("#lv-new-approved").addEventListener("click", () => leaveRequestDialog({ adminEntry: true, onSaved: () => erpRenderLeaves(v) }));
+  v.querySelector("#lv-balance").addEventListener("click", () => { leaveView = "balance"; erpRenderLeaves(v); });
   v.querySelectorAll("[data-approve]").forEach(b => b.addEventListener("click", async () => {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.approve)); if (!l) return;
     l.status = "одобрена"; l.approvedAt = new Date().toISOString().slice(0, 10);
@@ -228,9 +234,9 @@ async function erpRenderLeaves(v) {
     LEAVES = LEAVES.filter(x => x.id !== l.id);
     if (await leavesSave()) erpRenderLeaves(v);
   }));
-  const cal = () => leaveRenderCalendar(document.getElementById("lv-cal"), document.getElementById("lv-cal-title"));
-  document.getElementById("lv-cal-prev").addEventListener("click", () => { leaveCalMonth = leaveShiftMonth(leaveCalMonth, -1); cal(); });
-  document.getElementById("lv-cal-next").addEventListener("click", () => { leaveCalMonth = leaveShiftMonth(leaveCalMonth, 1); cal(); });
+  const cal = () => leaveRenderCalendar(v.querySelector("#lv-cal"), v.querySelector("#lv-cal-title"));
+  v.querySelector("#lv-cal-prev").addEventListener("click", () => { leaveCalMonth = leaveShiftMonth(leaveCalMonth, -1); cal(); });
+  v.querySelector("#lv-cal-next").addEventListener("click", () => { leaveCalMonth = leaveShiftMonth(leaveCalMonth, 1); cal(); });
   cal();
 }
 function leaveShiftMonth(ym, d) {
@@ -393,14 +399,16 @@ async function erpRenderLeaveBalance(v) {
   // Връщаме се В СЪЩИЯ контейнер (разделът Служители / Финанси / прозорецът),
   // не през erpRenderFinance() — тя рисува ЦЕЛИЯ екран Финанси върху активния
   // панел и от раздела Служители се губи навигацията (по Данко, 03.11.2026).
-  document.getElementById("lb-back").addEventListener("click", () => { leaveView = "requests"; erpRenderLeaves(v); });
-  document.getElementById("lb-add").addEventListener("click", async () => {
+  // И тук само v.querySelector — при два екземпляра на изгледа глобалното
+  // търсене закача „← Молби и календар" на скрития дубликат (мъртъв бутон).
+  v.querySelector("#lb-back").addEventListener("click", () => { leaveView = "requests"; erpRenderLeaves(v); });
+  v.querySelector("#lb-add").addEventListener("click", async () => {
     const name = prompt("Трите имена на служителя:"); if (!name || !name.trim()) return;
     const ent = prompt("Платен отпуск за годината (дни):", "20"); if (ent === null) return;
     LEAVE_BAL.list.push({ id: leaveBalNextId(), name: name.trim(), carry: 0, entitle: lbNum(ent) || 20, months: Array(12).fill(0) });
     if (await leaveBalSave()) rerender();
   });
-  const fi = document.getElementById("lb-file"); if (fi) fi.addEventListener("change", e => leaveBalImport(e.target.files[0], rerender));
+  const fi = v.querySelector("#lb-file"); if (fi) fi.addEventListener("change", e => leaveBalImport(e.target.files[0], rerender));
   v.querySelectorAll("[data-lbdel]").forEach(b => b.addEventListener("click", async () => {
     const p = LEAVE_BAL.list.find(x => x.id === Number(b.dataset.lbdel)); if (!p) return;
     if (!confirm(`Да махна ли ${p.name} от таблицата?`)) return;
@@ -669,9 +677,16 @@ function attendExportXlsx(ym) {
   XLSX.writeFile(wb, `Присъствена форма ${MONN[M - 1]} ${Y}.xlsx`);
 }
 
-async function erpRenderAttendance(v) {
-  v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
-  await leavesLoad(); await leaveBalLoad(); await attendLoad();
+async function erpRenderAttendance(v, quiet) {
+  // quiet = тихо пре-рендериране след клик по клетка: без „Зареждане…" и без
+  // презареждане от базата (данните са в паметта), а хоризонталният скрол се
+  // пази — иначе след всяка отметка след средата на месеца таблицата се
+  // връща в началото и трябва пак да се скролва.
+  const keepX = quiet ? ((v.querySelector(".at-scroll") || {}).scrollLeft || 0) : 0;
+  if (!quiet) {
+    v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+    await leavesLoad(); await leaveBalLoad(); await attendLoad();
+  }
   if (!attendMonth) attendMonth = new Date().toISOString().slice(0, 7);
   const ym = attendMonth;
   const [Y, M] = ym.split("-").map(Number);
@@ -723,12 +738,13 @@ async function erpRenderAttendance(v) {
       <button class="btn btn-small" id="at-export" title="Сваля попълнената присъствена форма за този месец като Excel файл — готов за изпращане на счетоводството.">⬇ Свали (Excel)</button>
       <span class="erp-count">${people.length} служители</span>
     </div>
-    ${people.length ? `<div style="overflow:auto"><table class="report-table erp-table at-table">
+    ${people.length ? `<div class="at-scroll" style="overflow:auto"><table class="report-table erp-table at-table">
       <thead><tr><th style="min-width:160px">Служител</th><th style="min-width:90px">Длъжност</th>${Array.from({ length: daysIn }, (_, i) => { const dt = new Date(Y, M - 1, i + 1); const we = dt.getDay() === 0 || dt.getDay() === 6; return `<th class="at-h${we ? " at-we" : ""}">${i + 1}<div class="at-wd">${WD[dt.getDay()]}</div></th>`; }).join("")}<th class="num" title="Отработени дни">✓</th><th class="num" title="Неявявания">✗</th><th class="num" title="Болнични">Б</th><th class="num" title="Неплатен отпуск">Н</th><th class="num" title="Майчинство">М</th><th class="num" title="Платен отпуск">П</th></tr></thead>
       <tbody>${people.map(p => { const t = totals(p); return `<tr><td><b>${escapeHtml(p.name || "")}</b></td><td class="erp-muted" style="font-size:11.5px">${escapeHtml(p.role || "")}</td>${Array.from({ length: daysIn }, (_, i) => cellOf(p, i + 1)).join("")}<td class="num" style="color:#166534"><b>${t.ok || ""}</b></td><td class="num" style="color:#b91c1c"><b>${t.no || ""}</b></td><td class="num" style="color:#b45309"><b>${t.sick || ""}</b></td><td class="num" style="color:#334155"><b>${t.unpaid || ""}</b></td><td class="num" style="color:#7e22ce"><b>${t.mat || ""}</b></td><td class="num" style="color:#1d4ed8"><b>${t.lv || ""}</b></td></tr>`; }).join("")}</tbody>
     </table></div>
     <p class="hint">Отбелязаното се записва само̀. Кодовете са по официалната отчетна форма: ✓ отработен ден · ✗ неявяване · Б болничен · Н неплатен отпуск · М майчинство · П платен отпуск (идва сам от одобрените молби; ръчна отметка в същия ден го заменя). „📥 От чекирането" нанася ✓ от експорта на системата за чекиране (CSV); празното се дописва на ръка. „⬇ Свали (Excel)" дава попълнената форма за счетоводството.</p>`
     : `<p class="report-empty">Няма служители. Натисни „📥 Имена от формата" горе и избери официалната отчетна форма (Excel) — имената и длъжностите се зареждат от избрания месечен лист.</p>`}`;
+  if (keepX) { const sc = v.querySelector(".at-scroll"); if (sc) sc.scrollLeft = keepX; }
   const impBtn = v.querySelector("#at-import");
   const impFile = v.querySelector("#at-import-file");
   if (impBtn && impFile) {
@@ -758,7 +774,7 @@ async function erpRenderAttendance(v) {
     const next = cur === "" ? "р" : cur === "р" ? "н" : cur === "н" ? "б" : cur === "б" ? "нп" : cur === "нп" ? "м" : "";
     if (next) rec[d] = next; else delete rec[d];
     attendSaveSoon();
-    erpRenderAttendance(v);   // клетката + сборовете веднага
+    erpRenderAttendance(v, true);   // тихо: клетката + сборовете веднага, скролът остава
   }));
 }
 
@@ -767,7 +783,12 @@ function leavesMainAllowed() {
   const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
   return LEAVES_MAIN_EMAILS.includes(e);
 }
+/* Явно ВЛИЗАНЕ в модула (от меню/бутон): започва се от Отпуски → молбите.
+   Иначе глобалните leaveView/staffView „изтичат" между контекстите и
+   Служители се отваря направо на съвсем друг подекран. */
+function staffResetView() { staffView = "leaves"; leaveView = "requests"; }
 function openLeavesStandalone() {
+  staffResetView();
   const { wrap, close } = erpDialog(`
     <h3>👥 Служители</h3>
     <div id="lv-standalone"></div>
@@ -785,7 +806,7 @@ function leavesMainInit() {
   if (ob && !ob._lvWired) {
     ob._lvWired = true;
     ob.addEventListener("click", () => {
-      if (typeof erpSetTab === "function") erpSetTab("staff", true);
+      if (typeof erpSetTab === "function") { staffResetView(); erpSetTab("staff", true); }
       else openLeavesStandalone();
     });
   }
