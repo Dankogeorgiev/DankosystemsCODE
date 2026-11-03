@@ -92,7 +92,9 @@ function leaveRequestDialog(opts) {
     }
     if (await leavesSave()) {
       close();
-      if (editRec || admin) { if (typeof erpRenderFinance === "function") erpRenderFinance(); }
+      // Опресняваме само изгледа, от който е отворен диалогът (opts.onSaved) —
+      // erpRenderFinance() би залял активния панел с екрана Финанси.
+      if (editRec || admin) { if (opts.onSaved) opts.onSaved(); else if (typeof erpRenderFinance === "function") erpRenderFinance(); }
       else {
         // Имейл до админите — да видят молбата веднага (не блокира записа).
         try { erpLeaveNotifyAdmins({ name, from, to, days, ws }).catch(() => {}); } catch (e) {}
@@ -206,8 +208,8 @@ async function erpRenderLeaves(v) {
     ${approved.length ? `<table class="report-table erp-table"><thead><tr><th>Служител</th><th>От</th><th>До</th><th class="num">Раб. дни</th><th>Подадена</th><th></th></tr></thead>
       <tbody>${approved.map(l => row(l, false)).join("")}</tbody></table>` : `<p class="hint">Още няма одобрени отпуски.</p>`}`;
 
-  document.getElementById("lv-new-req").addEventListener("click", () => leaveRequestDialog({}));
-  document.getElementById("lv-new-approved").addEventListener("click", () => leaveRequestDialog({ adminEntry: true }));
+  document.getElementById("lv-new-req").addEventListener("click", () => leaveRequestDialog({ onSaved: () => erpRenderLeaves(v) }));
+  document.getElementById("lv-new-approved").addEventListener("click", () => leaveRequestDialog({ adminEntry: true, onSaved: () => erpRenderLeaves(v) }));
   document.getElementById("lv-balance").addEventListener("click", () => { leaveView = "balance"; erpRenderLeaves(v); });
   v.querySelectorAll("[data-approve]").forEach(b => b.addEventListener("click", async () => {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.approve)); if (!l) return;
@@ -218,7 +220,7 @@ async function erpRenderLeaves(v) {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.print)); if (l) leavePrint(l);
   }));
   v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => {
-    const l = (LEAVES || []).find(x => x.id === Number(b.dataset.edit)); if (l) leaveRequestDialog({ edit: l });
+    const l = (LEAVES || []).find(x => x.id === Number(b.dataset.edit)); if (l) leaveRequestDialog({ edit: l, onSaved: () => erpRenderLeaves(v) });
   }));
   v.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
     const l = (LEAVES || []).find(x => x.id === Number(b.dataset.del)); if (!l) return;
@@ -388,7 +390,10 @@ async function erpRenderLeaveBalance(v) {
     </table></div>`;
 
   const rerender = () => erpRenderLeaveBalance(v);
-  document.getElementById("lb-back").addEventListener("click", () => { leaveView = "requests"; if (typeof erpRenderFinance === "function") erpRenderFinance(); });
+  // Връщаме се В СЪЩИЯ контейнер (разделът Служители / Финанси / прозорецът),
+  // не през erpRenderFinance() — тя рисува ЦЕЛИЯ екран Финанси върху активния
+  // панел и от раздела Служители се губи навигацията (по Данко, 03.11.2026).
+  document.getElementById("lb-back").addEventListener("click", () => { leaveView = "requests"; erpRenderLeaves(v); });
   document.getElementById("lb-add").addEventListener("click", async () => {
     const name = prompt("Трите имена на служителя:"); if (!name || !name.trim()) return;
     const ent = prompt("Платен отпуск за годината (дни):", "20"); if (ent === null) return;
