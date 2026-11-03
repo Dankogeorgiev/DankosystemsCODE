@@ -106,21 +106,13 @@ function leaveRequestDialog(opts) {
   });
 }
 
-/* ---------- Нотификация до админите при нова молба ----------
-   Праща имейл (през Brevo) до всички с роля „админ" от app_config → roles
-   (само истински пощи, без цеховите @danko.local) + офисния екип. */
+/* ---------- Нотификация при нова молба ----------
+   Праща имейл (през Brevo) САМО до офиса — по изрично искане на Данко
+   (03.11.2026): молбите за отпуск не отиват на личната му поща. */
+const LEAVES_NOTIFY_TO = ["office@dankosystems.com"];
 async function erpLeaveNotifyAdmins(r) {
   if (typeof erpMailSend !== "function") return;
-  let admins = [];
-  try {
-    const { data } = await sb.from("app_config").select("data").eq("id", "roles").maybeSingle();
-    const by = (data && data.data && data.data.byEmail) || {};
-    admins = Object.keys(by).filter(e => {
-      const x = by[e] || {};
-      return (x.role === "admin" || x.admin === true) && e.includes("@") && !e.toLowerCase().endsWith("@danko.local");
-    });
-  } catch (e) {}
-  admins = [...new Set([...admins, "dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com"])];
+  const admins = LEAVES_NOTIFY_TO;
   const subj = `🏖 Нова молба за отпуск: ${r.name} (${leaveFmt(r.from)} – ${leaveFmt(r.to)})`;
   const text = `Постъпи нова молба за платен отпуск.\n\nСлужител: ${r.name}${r.ws ? "\nЦех: " + r.ws : ""}\nОт дата: ${leaveFmt(r.from)}\nДо дата (вкл.): ${leaveFmt(r.to)}\nРаботни дни: ${r.days}\n\nСтатус: ЧАКАЩА — разгледай я във Финанси → 🏖 Отпуски.\n\n— СИСТЕМАТА`;
   await erpMailSend({ to: admins, subject: subj, text, cc: [], direct: true });
