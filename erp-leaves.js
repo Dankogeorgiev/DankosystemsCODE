@@ -326,7 +326,9 @@ function lbNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(",",
 
 // Автоматично ползвани РАБОТНИ дни по месеци от ОДОБРЕНИТЕ молби (за годината).
 function leaveAutoMonths(name, year) {
-  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  // Числата са служебни номера („Георги Спасов 39") — махат се преди връзване.
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim()
+    .split(" ").filter(w => !/^\d+$/.test(w)).join(" ");
   const n1 = norm(name);
   const match = l => {
     const n2 = norm(l.name); if (!n1 || !n2) return false;
@@ -493,16 +495,24 @@ function attendSaveSoon() { clearTimeout(attendSaveT); attendSaveT = setTimeout(
    При два служители с еднакви първо+фамилия съкратеното връзване се
    изключва (за да не се отбележи П на грешния човек). */
 function attendLeaveDays(ym, people) {
-  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  // Числата в имената са СЛУЖЕБНИ номера от системата за чекиране
+  // („Георги Спасов 39") — не са част от името и се махат преди връзването,
+  // иначе номерът минава за „фамилия" и П-то не излиза (Данко, 03.11.2026).
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim()
+    .split(" ").filter(w => !/^\d+$/.test(w)).join(" ");
   const fl = n => { const w = norm(n).split(" ").filter(Boolean); return w.length > 1 ? w[0] + "|" + w[w.length - 1] : ""; };
   const by = new Map(), byFl = new Map(), flOwner = new Map(), flBad = new Set();
-  // Двусмислие и СРЕД СЛУЖИТЕЛИТЕ: двама с еднакви първо+фамилия → една
-  // молба „Иво Стоянов" не бива да отбележи П и на двамата.
-  const empFl = new Map(), empFlBad = new Set();
+  // Двусмислие СРЕД СЛУЖИТЕЛИТЕ: двама с еднакво чисто име или еднакви
+  // първо+фамилия → не се гадае, никой не получава П по съкратения път.
+  const empFl = new Map(), empFlBad = new Set(), empN = new Map(), empNBad = new Set();
   (people || []).forEach(p => {
-    const kF = fl(p.name), kN = norm(p.name);
+    const raw = String(p.name || "").replace(/\s+/g, " ").trim();
+    const kN = norm(p.name), kF = fl(p.name);
+    if (kN) { if (empN.has(kN) && empN.get(kN) !== raw) empNBad.add(kN); else empN.set(kN, raw); }
     if (!kF) return;
-    if (empFl.has(kF) && empFl.get(kF) !== kN) empFlBad.add(kF); else empFl.set(kF, kN);
+    // Сравняваме СУРОВИТЕ имена: след махане на номерата „Иван Иванов 1" и
+    // „Иван Иванов 2" се нормализират еднакво, но са различни хора.
+    if (empFl.has(kF) && empFl.get(kF) !== raw) empFlBad.add(kF); else empFl.set(kF, raw);
   });
   const [Y, M] = ym.split("-").map(Number);
   (LEAVES || []).filter(l => l.status === "одобрена" && l.from && l.to).forEach(l => {
@@ -520,7 +530,7 @@ function attendLeaveDays(ym, people) {
   });
   flBad.forEach(k => byFl.delete(k));
   const EMPTY = new Set();
-  return { days: name => by.get(norm(name)) || (!empFlBad.has(fl(name)) && byFl.get(fl(name))) || EMPTY };
+  return { days: name => (!empNBad.has(norm(name)) && by.get(norm(name))) || (!empFlBad.has(fl(name)) && byFl.get(fl(name))) || EMPTY };
 }
 /* Имената от ОФИЦИАЛНАТА отчетна форма: ред с „Трите имена" (3+ кирилски
    думи) + длъжността от следващата текстова клетка (прескача числата/8-ците).
@@ -602,16 +612,27 @@ function attendParseCheckins(text) {
 /* Нанася чекиранията: връзва двете имена от чека към трите имена в списъка
    (първо име + фамилия); пише „р" САМО в празни клетки. Връща равносметка. */
 function attendApplyCheckins(entries) {
-  const key = n => { const w = String(n || "").toLowerCase().replace(/\s+/g, " ").trim().split(" "); return w.length ? w[0] + "|" + w[w.length - 1] : ""; };
-  const byKey = new Map();
-  (LEAVE_BAL.list || []).forEach(p => byKey.set(key(p.name), p));
+  // Името от чека („Георги Спасов 39") се връзва към списъка: 1) точно;
+  // 2) без служебния номер, по първо име + фамилия — само ако е ЕДНОЗНАЧНО
+  // (при двама с еднакъв ключ не се гадае, прави се нов ред).
+  const clean = n => String(n || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const key = n => { const w = clean(n).split(" ").filter(x => x && !/^\d+$/.test(x)); return w.length ? w[0] + "|" + w[w.length - 1] : ""; };
+  const byRaw = new Map(), byKey = new Map(), keyBad = new Set();
+  const reg = p => {
+    byRaw.set(clean(p.name), p);
+    const k = key(p.name);
+    if (!k) return;
+    if (byKey.has(k) && byKey.get(k) !== p) keyBad.add(k); else byKey.set(k, p);
+  };
+  (LEAVE_BAL.list || []).forEach(reg);
   let added = 0, marked = 0;
   const months = new Set();
   (entries || []).forEach(e => {
-    let p = byKey.get(key(e.name));
+    const k = key(e.name);
+    let p = byRaw.get(clean(e.name)) || (!keyBad.has(k) && byKey.get(k)) || null;
     if (!p) {
       p = { id: leaveBalNextId(), name: e.name, role: "", carry: 0, entitle: 20, months: [] };
-      LEAVE_BAL.list.push(p); byKey.set(key(e.name), p); added++;
+      LEAVE_BAL.list.push(p); reg(p); added++;
     }
     ATTEND[e.ym] = ATTEND[e.ym] || {};
     const rec = ATTEND[e.ym][p.name] = ATTEND[e.ym][p.name] || {};
@@ -693,7 +714,8 @@ function attendLeaveReportRows(ym) {
   const [Y, M] = ym.split("-").map(Number);
   const mStart = `${ym}-01`;
   const mEnd = `${ym}-${String(new Date(Y, M, 0).getDate()).padStart(2, "0")}`;
-  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim()
+    .split(" ").filter(w => !/^\d+$/.test(w)).join(" ");   // без служебните номера
   const fl = n => { const w = norm(n).split(" ").filter(Boolean); return w.length > 1 ? w[0] + "|" + w[w.length - 1] : ""; };
   const byPerson = new Map();
   (LEAVES || []).filter(l => l.status === "одобрена" && l.from && l.to && l.from <= mEnd && l.to >= mStart).forEach(l => {
