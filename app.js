@@ -1080,6 +1080,37 @@ function showLogin() {
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = true);
 }
 
+/* ---------- 🔑 Смяна на паролата (на ВЛЕЗЛИЯ акаунт) ----------
+   Влизаш с акаунта, чиято парола искаш да смениш (напр. danko.order@...),
+   натискаш 🔑 до „Изход" и пишеш новата. Сменя се в Supabase Auth
+   (sb.auth.updateUser). Забравена парола се оправя само от Supabase →
+   Authentication → Users. */
+function openPasswordChange() {
+  const email = (session && session.user && session.user.email) || "";
+  const { wrap, close } = erpDialog(`
+    <h3>🔑 Смяна на парола</h3>
+    <p class="hint" style="margin:0 0 8px">Сменя паролата на акаунта, с който си влязъл: <b>${escapeHtml(email)}</b>. Най-малко 6 знака.</p>
+    <label>Нова парола <input type="password" id="pw-new" autocomplete="new-password" /></label>
+    <label>Новата парола още веднъж <input type="password" id="pw-new2" autocomplete="new-password" /></label>
+    <div class="erp-dialog-actions"><button class="btn" id="pw-cancel">Отказ</button><button class="btn btn-primary" id="pw-save">💾 Смени паролата</button></div>`);
+  wrap.querySelector("#pw-cancel").addEventListener("click", close);
+  wrap.querySelector("#pw-save").addEventListener("click", async () => {
+    const p1 = wrap.querySelector("#pw-new").value, p2 = wrap.querySelector("#pw-new2").value;
+    if (p1.length < 6) { alert("Паролата трябва да е поне 6 знака."); return; }
+    if (p1 !== p2) { alert("Двете пароли не съвпадат — напиши ги отново."); return; }
+    const btn = wrap.querySelector("#pw-save"); btn.disabled = true; btn.textContent = "Сменям…";
+    try {
+      const { error } = await sb.auth.updateUser({ password: p1 });
+      if (error) { alert("Грешка при смяната: " + error.message); btn.disabled = false; btn.textContent = "💾 Смени паролата"; return; }
+      close();
+      alert(`✅ Паролата на ${email} е сменена. От следващия вход важи новата.`);
+    } catch (ex) {
+      alert("Проблем с връзката — опитай пак.");
+      btn.disabled = false; btn.textContent = "💾 Смени паролата";
+    }
+  });
+}
+
 async function onSignedIn(s) {
   if (appStarted) return;
   appStarted = true;
@@ -1144,6 +1175,8 @@ async function offerLocalImport() {
 function wireHandlers() {
   document.getElementById("login-form").addEventListener("submit", handleLogin);
   document.getElementById("btn-logout").addEventListener("click", () => sb.auth.signOut());
+  const pwBtn = document.getElementById("btn-passwd");
+  if (pwBtn) pwBtn.addEventListener("click", () => { try { openPasswordChange(); } catch (e) { alert("Грешка: " + (e.message || e)); } });
 
   document.getElementById("btn-new").addEventListener("click", () => {
     document.body.classList.remove("samples-hidden");   // списъкът е изгледът на Мострите
