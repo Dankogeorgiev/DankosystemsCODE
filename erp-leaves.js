@@ -560,6 +560,110 @@ async function attendImportFile(file, done) {
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 
+/* ---------- 📥 Импорт от СИСТЕМАТА ЗА ЧЕКИРАНЕ (по Данко, 03.11.2026) ----------
+   Експортът е CSV (Windows-1251, разделител ;): всяко чекиране вход/изход е
+   ред с дата и име. Отбелязваме САМО присъствалите (✓); празното остава
+   празно — отпуски/болнични се пишат на ръка. Непознато име → нов служител. */
+function attendParseCheckins(text) {
+  const out = [];
+  String(text || "").split(/\r?\n/).forEach(line => {
+    const cells = line.split(";").map(c => c.replace(/^"|"$/g, "").trim());
+    const name = String(cells[7] || "").replace(/\s+/g, " ").trim();
+    if (!name || /общо време/i.test(line)) return;
+    const dt = String(cells[0] || cells[2] || "");
+    const m = dt.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (!m) return;
+    out.push({ name, ym: `${m[3]}-${String(Number(m[2])).padStart(2, "0")}`, day: Number(m[1]) });
+  });
+  return out;
+}
+/* Нанася чекиранията: връзва двете имена от чека към трите имена в списъка
+   (първо име + фамилия); пише „р" САМО в празни клетки. Връща равносметка. */
+function attendApplyCheckins(entries) {
+  const key = n => { const w = String(n || "").toLowerCase().replace(/\s+/g, " ").trim().split(" "); return w.length ? w[0] + "|" + w[w.length - 1] : ""; };
+  const byKey = new Map();
+  (LEAVE_BAL.list || []).forEach(p => byKey.set(key(p.name), p));
+  let added = 0, marked = 0;
+  const months = new Set();
+  (entries || []).forEach(e => {
+    let p = byKey.get(key(e.name));
+    if (!p) {
+      p = { id: leaveBalNextId(), name: e.name, role: "", carry: 0, entitle: 20, months: [] };
+      LEAVE_BAL.list.push(p); byKey.set(key(e.name), p); added++;
+    }
+    ATTEND[e.ym] = ATTEND[e.ym] || {};
+    const rec = ATTEND[e.ym][p.name] = ATTEND[e.ym][p.name] || {};
+    if (!rec[String(e.day)]) { rec[String(e.day)] = "р"; marked++; }
+    months.add(e.ym);
+  });
+  return { added, marked, months: [...months].sort() };
+}
+async function attendImportCheckins(file, done) {
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    let text = "";
+    try { text = new TextDecoder("windows-1251").decode(buf); } catch (e) { text = new TextDecoder().decode(buf); }
+    if (!/[А-Яа-я]/.test(text)) text = new TextDecoder().decode(buf);   // файлът може да е и UTF-8
+    const entries = attendParseCheckins(text);
+    if (!entries.length) { alert("Не намерих чекирания във файла — очаквам колони „Час на събитие; …; Име\u201C (експортът от системата за чекиране)."); return; }
+    await leavesLoad(); await leaveBalLoad(); await attendLoad();
+    const r = attendApplyCheckins(entries);
+    const okBal = r.added ? await leaveBalSave() : true;
+    const okAtt = await attendSave();
+    if (okBal && okAtt) {
+      if (r.months.length) attendMonth = r.months[r.months.length - 1];
+      alert(`✅ Чекирането е нанесено: ${r.marked} отработени дни (✓) за ${r.months.join(", ")}.${r.added ? `\n➕ ${r.added} нови служители от чека (допиши им длъжност при нужда).` : ""}\nПразните дни се попълват на ръка: ✗ / Б / Н / М (П идва от молбите).`);
+      if (done) done();
+    }
+  } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
+}
+/* ---------- ⬇ Експорт на попълнената форма за СЧЕТОВОДСТВОТО ---------- */
+function attendExportRows(ym) {
+  const [Y, M] = ym.split("-").map(Number);
+  const daysIn = new Date(Y, M, 0).getDate();
+  const norm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const monthRec = (ATTEND || {})[ym] || {};
+  const leavesBy = attendLeaveDays(ym);
+  const MONN = ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"];
+  const people = (LEAVE_BAL.list || []).slice().sort((a, b) => String(a.name || "").localeCompare(b.name || "", "bg"));
+  const VIEW = { "р": "8", "н": "О", "б": "Б", "нп": "Н", "м": "М" };   // по образеца: 8 = отработен ден
+  const rows = [];
+  rows.push(["ДАНКО СИСТЕМС ООД — ОТЧЕТНА ФОРМА за явяването и неявяването на работа"]);
+  rows.push([`${MONN[M - 1]} ${Y} г.`]);
+  rows.push([]);
+  const head = ["№", "Трите имена", "Длъжност", ...Array.from({ length: daysIn }, (_, i) => i + 1), "Отраб. дни", "П", "Н", "М", "Б", "Неявявания"];
+  rows.push(head);
+  people.forEach((p, pi) => {
+    const r = [pi + 1, p.name || "", p.role || ""];
+    let ok = 0, lv = 0, unp = 0, mat = 0, sick = 0, no = 0;
+    for (let d = 1; d <= daysIn; d++) {
+      const man = (monthRec[p.name] || {})[String(d)] || "";
+      const onLeave = (leavesBy.get(norm(p.name)) || new Set()).has(d);
+      const code = man || (onLeave ? "П" : "");
+      if (code === "р") ok++; else if (code === "П") lv++; else if (code === "нп") unp++;
+      else if (code === "м") mat++; else if (code === "б") sick++; else if (code === "н") no++;
+      r.push(code === "П" ? "П" : (VIEW[code] || ""));
+    }
+    r.push(ok, lv, unp, mat, sick, no);
+    rows.push(r);
+  });
+  rows.push([]);
+  rows.push(["Легенда: 8 = отработен ден · П = платен отпуск · Н = неплатен · М = майчинство · Б = болничен · О = неявяване"]);
+  rows.push(["Съставил: ..................", "", "Управител: .................."]);
+  return rows;
+}
+function attendExportXlsx(ym) {
+  if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
+  const [Y, M] = ym.split("-").map(Number);
+  const MONN = ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"];
+  const ws = XLSX.utils.aoa_to_sheet(attendExportRows(ym));
+  ws["!cols"] = [{ wch: 4 }, { wch: 28 }, { wch: 18 }, ...Array.from({ length: 31 }, () => ({ wch: 3.2 })), { wch: 9 }, { wch: 4 }, { wch: 4 }, { wch: 4 }, { wch: 4 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `${MONN[M - 1]} ${Y}`);
+  XLSX.writeFile(wb, `Присъствена форма ${MONN[M - 1]} ${Y}.xlsx`);
+}
+
 async function erpRenderAttendance(v) {
   v.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await leavesLoad(); await leaveBalLoad(); await attendLoad();
@@ -609,13 +713,16 @@ async function erpRenderAttendance(v) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="at-import" title="Зарежда имената и длъжностите от официалната отчетна форма (Excel) — избираш файла и месечния лист">📥 Имена от формата</button>
       <input type="file" id="at-import-file" accept=".xlsx,.xls" style="display:none" />
+      <button class="btn btn-small" id="at-import-chk" title="Експортът от системата за чекиране (CSV) — отбелязва ✓ на всеки, който се е чекирал през деня. Празното остава празно (отпуск/болничен се пишат на ръка), непознатите имена стават нови служители.">📥 От чекирането</button>
+      <input type="file" id="at-import-chk-file" accept=".csv,.txt" style="display:none" />
+      <button class="btn btn-small" id="at-export" title="Сваля попълнената присъствена форма за този месец като Excel файл — готов за изпращане на счетоводството.">⬇ Свали (Excel)</button>
       <span class="erp-count">${people.length} служители</span>
     </div>
     ${people.length ? `<div style="overflow:auto"><table class="report-table erp-table at-table">
       <thead><tr><th style="min-width:160px">Служител</th><th style="min-width:90px">Длъжност</th>${Array.from({ length: daysIn }, (_, i) => { const dt = new Date(Y, M - 1, i + 1); const we = dt.getDay() === 0 || dt.getDay() === 6; return `<th class="at-h${we ? " at-we" : ""}">${i + 1}<div class="at-wd">${WD[dt.getDay()]}</div></th>`; }).join("")}<th class="num" title="Отработени дни">✓</th><th class="num" title="Неявявания">✗</th><th class="num" title="Болнични">Б</th><th class="num" title="Неплатен отпуск">Н</th><th class="num" title="Майчинство">М</th><th class="num" title="Платен отпуск">П</th></tr></thead>
       <tbody>${people.map(p => { const t = totals(p); return `<tr><td><b>${escapeHtml(p.name || "")}</b></td><td class="erp-muted" style="font-size:11.5px">${escapeHtml(p.role || "")}</td>${Array.from({ length: daysIn }, (_, i) => cellOf(p, i + 1)).join("")}<td class="num" style="color:#166534"><b>${t.ok || ""}</b></td><td class="num" style="color:#b91c1c"><b>${t.no || ""}</b></td><td class="num" style="color:#b45309"><b>${t.sick || ""}</b></td><td class="num" style="color:#334155"><b>${t.unpaid || ""}</b></td><td class="num" style="color:#7e22ce"><b>${t.mat || ""}</b></td><td class="num" style="color:#1d4ed8"><b>${t.lv || ""}</b></td></tr>`; }).join("")}</tbody>
     </table></div>
-    <p class="hint">Отбелязаното се записва само̀. Кодовете са по официалната отчетна форма: ✓ отработен ден · ✗ неявяване · Б болничен · Н неплатен отпуск · М майчинство · П платен отпуск (идва сам от одобрените молби; ръчна отметка в същия ден го заменя). Служителите се зареждат с „📥 Имена от формата" или от „🏖 Отпуски → 📊 Оставащи отпуски".</p>`
+    <p class="hint">Отбелязаното се записва само̀. Кодовете са по официалната отчетна форма: ✓ отработен ден · ✗ неявяване · Б болничен · Н неплатен отпуск · М майчинство · П платен отпуск (идва сам от одобрените молби; ръчна отметка в същия ден го заменя). „📥 От чекирането" нанася ✓ от експорта на системата за чекиране (CSV); празното се дописва на ръка. „⬇ Свали (Excel)" дава попълнената форма за счетоводството.</p>`
     : `<p class="report-empty">Няма служители. Натисни „📥 Имена от формата" горе и избери официалната отчетна форма (Excel) — имената и длъжностите се зареждат от избрания месечен лист.</p>`}`;
   const impBtn = v.querySelector("#at-import");
   const impFile = v.querySelector("#at-import-file");
@@ -626,6 +733,17 @@ async function erpRenderAttendance(v) {
       if (f) attendImportFile(f, () => erpRenderAttendance(v));
     });
   }
+  const chkBtn = v.querySelector("#at-import-chk");
+  const chkFile = v.querySelector("#at-import-chk-file");
+  if (chkBtn && chkFile) {
+    chkBtn.addEventListener("click", () => chkFile.click());
+    chkFile.addEventListener("change", e => {
+      const f = e.target.files && e.target.files[0]; e.target.value = "";
+      if (f) attendImportCheckins(f, () => erpRenderAttendance(v));
+    });
+  }
+  const expBtn = v.querySelector("#at-export");
+  if (expBtn) expBtn.addEventListener("click", () => { try { attendExportXlsx(attendMonth); } catch (e) { alert("Грешка при експорта: " + (e.message || e)); } });
   v.querySelector("#at-prev").addEventListener("click", () => { attendMonth = leaveShiftMonth(attendMonth, -1); erpRenderAttendance(v); });
   v.querySelector("#at-next").addEventListener("click", () => { attendMonth = leaveShiftMonth(attendMonth, 1); erpRenderAttendance(v); });
   v.querySelectorAll(".at-c").forEach(td => td.addEventListener("click", () => {
