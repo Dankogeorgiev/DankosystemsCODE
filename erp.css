@@ -1034,3 +1034,7 @@ button.co-mob-card:active { background: #eff6ff; }
 /* 🎁 Готова опаковка по заявката — иконката става зелена */
 .co-pack-done { background: #dcfce7; border-color: #16a34a; color: #166534; }
 .co-pack-done:hover { background: #bbf7d0; }
+
+/* Присъствена форма — новите кодове по официалната форма */
+.at-table td.at-unpaid { background: #e2e8f0; color: #334155; }
+.at-table td.at-mat { background: #f3e8ff; color: #7e22ce; }
