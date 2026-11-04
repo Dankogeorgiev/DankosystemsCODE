@@ -843,6 +843,7 @@ async function erpRenderAttendance(v, quiet) {
       <button class="btn btn-small" id="at-next">›</button>
       <span class="erp-muted" style="margin-left:10px">клик: <b style="color:#166534">✓ работа</b> → <b style="color:#b91c1c">✗ неявяване</b> → <b style="color:#b45309">Б болничен</b> → <b style="color:#334155">Н неплатен</b> → <b style="color:#7e22ce">М майчинство</b> → празно · <b style="color:#1d4ed8">П</b> = платен отпуск (само̀, от одобрените молби)</span>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="at-add" title="Добавя служител на ръка — трите имена и длъжност. Влиза в списъка навсякъде (и в Оставащи отпуски, с 20 дни платен отпуск по подразбиране).">➕ Нов служител</button>
       <button class="btn btn-small" id="at-import" title="Зарежда имената и длъжностите от официалната отчетна форма (Excel) — избираш файла и месечния лист">📥 Имена от формата</button>
       <input type="file" id="at-import-file" accept=".xlsx,.xls" style="display:none" />
       <button class="btn btn-small" id="at-import-chk" title="Експортът от системата за чекиране (CSV) — отбелязва ✓ на всеки, който се е чекирал през деня. Празното остава празно (отпуск/болничен се пишат на ръка), непознатите имена стават нови служители.">📥 От чекирането</button>
@@ -856,8 +857,33 @@ async function erpRenderAttendance(v, quiet) {
       <tbody>${people.map(p => { const t = totals(p); return `<tr><td><b>${escapeHtml(p.name || "")}</b></td><td class="erp-muted" style="font-size:11.5px">${escapeHtml(p.role || "")}</td>${Array.from({ length: daysIn }, (_, i) => cellOf(p, i + 1)).join("")}<td class="num" style="color:#166534"><b>${t.ok || ""}</b></td><td class="num" style="color:#b91c1c"><b>${t.no || ""}</b></td><td class="num" style="color:#b45309"><b>${t.sick || ""}</b></td><td class="num" style="color:#334155"><b>${t.unpaid || ""}</b></td><td class="num" style="color:#7e22ce"><b>${t.mat || ""}</b></td><td class="num" style="color:#1d4ed8"><b>${t.lv || ""}</b></td></tr>`; }).join("")}</tbody>
     </table></div>
     <p class="hint">Отбелязаното се записва само̀. Кодовете са по официалната отчетна форма: ✓ отработен ден · ✗ неявяване · Б болничен · Н неплатен отпуск · М майчинство · П платен отпуск (идва сам от одобрените молби; ръчна отметка в същия ден го заменя). „📥 От чекирането" нанася ✓ от експорта на системата за чекиране (CSV); празното се дописва на ръка. „⬇ Свали (Excel)" дава попълнената форма, а „🖨 Отпуски (PDF)" — месечния отчет кой е ползвал отпуск, за счетоводството.</p>`
-    : `<p class="report-empty">Няма служители. Натисни „📥 Имена от формата" горе и избери официалната отчетна форма (Excel) — имената и длъжностите се зареждат от избрания месечен лист.</p>`}`;
+    : `<p class="report-empty">Няма служители. Натисни „📥 Имена от формата" горе (официалната отчетна форма, Excel) или добави човек на ръка с „➕ Нов служител".</p>`}`;
   if (keepX) { const sc = v.querySelector(".at-scroll"); if (sc) sc.scrollLeft = keepX; }
+  const addBtn = v.querySelector("#at-add");
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const { wrap, close } = erpDialog(`
+      <h3>➕ Нов служител</h3>
+      <p class="hint" style="margin:0 0 8px">Влиза в Присъствената форма и в Оставащи отпуски (20 дни платен отпуск по подразбиране — променя се там). Чекиранията и молбите за отпуск ще се връзват по името.</p>
+      <label>Трите имена <input type="text" id="ata-name" placeholder="Иван Иванов Иванов" /></label>
+      <label>Длъжност <input type="text" id="ata-role" placeholder="напр. монтажник (може и празно)" /></label>
+      <div class="erp-dialog-actions"><button class="btn" id="ata-cancel">Отказ</button><button class="btn btn-primary" id="ata-save">💾 Добави</button></div>`);
+    wrap.querySelector("#ata-cancel").addEventListener("click", close);
+    wrap.querySelector("#ata-save").addEventListener("click", async () => {
+      const name = (wrap.querySelector("#ata-name").value || "").replace(/\s+/g, " ").trim();
+      const role = (wrap.querySelector("#ata-role").value || "").replace(/\s+/g, " ").trim();
+      if (!name) { alert("Въведи името на служителя."); return; }
+      const clean = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+      if ((LEAVE_BAL.list || []).some(p => clean(p.name) === clean(name))) {
+        alert(`„${name}" вече е в списъка. Ако са двама различни души с еднакви имена, добави отличителна дума/номер към името.`);
+        return;
+      }
+      const btn = wrap.querySelector("#ata-save"); btn.disabled = true; btn.textContent = "Записвам…";
+      LEAVE_BAL.list = LEAVE_BAL.list || [];
+      LEAVE_BAL.list.push({ id: leaveBalNextId(), name, role, carry: 0, entitle: 20, months: [] });
+      if (await leaveBalSave()) { close(); erpRenderAttendance(v); }
+      else { LEAVE_BAL.list = LEAVE_BAL.list.filter(p => clean(p.name) !== clean(name)); btn.disabled = false; btn.textContent = "💾 Добави"; }
+    });
+  });
   const impBtn = v.querySelector("#at-import");
   const impFile = v.querySelector("#at-import-file");
   if (impBtn && impFile) {
