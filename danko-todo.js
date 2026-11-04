@@ -11,11 +11,13 @@
 let TODO_ITEMS = null;
 
 const TODO_PEOPLE = {
+  // boss: true = възлага на ВСИЧКИ („Кажи на Х да…"); assignTo: [имейли] =
+  // възлага САМО на изброените (Таня → Данко, по Данко 04.11.2026).
   "dankog@gmail.com":                { cfg: "danko_todo",  name: "Данко",    boss: true },
   "grigor.baykov@dankosystems.com":  { cfg: "todo_grigor", name: "Григор",   boss: true },
   "miroslav.pilev@dankosystems.com": { cfg: "todo_miro",   name: "Миро",     boss: true },
   "danko.orders@gmail.com":          { cfg: "todo_julia",  name: "Юлия" },
-  "office@dankosystems.com":         { cfg: "todo_krisi",  name: "Таня" },   // Таня пое офиса (списъкът е същият конфиг)
+  "office@dankosystems.com":         { cfg: "todo_krisi",  name: "Таня", assignTo: ["dankog@gmail.com"] },   // Таня пое офиса (списъкът е същият конфиг)
 };
 function todoMe() {
   if (typeof MY_ACCESS === "undefined" || !MY_ACCESS || !MY_ACCESS.isAdmin) return null;
@@ -63,7 +65,7 @@ async function todoPushTo(cfgId, item) {
 /* ---------- „Кажи на Юлия да …" ---------- */
 function todoParseAssign(text) {
   const me = todoMe();
-  if (!me || !me.boss) return null;
+  if (!me || (!me.boss && !(me.assignTo || []).length)) return null;
   // Хваща ВСЯКА форма на „кажи на <име> …": главни/малки букви, двоеточие,
   // запетая, точки, тирета, многоточие — каквото и да стои след името.
   const m = String(text || "").match(/^\s*кажи\s+на\s+([А-Яа-яA-Za-z]+)[\s:,.;!?\-–—…]+(.+)$/i);
@@ -73,6 +75,7 @@ function todoParseAssign(text) {
     .map(([email, p]) => ({ email, ...p }))
     .find(p => p.name.toLowerCase() === who || p.email.split("@")[0].toLowerCase() === who);
   if (!target || target.email === me.email) return null;
+  if (!me.boss && !(me.assignTo || []).includes(target.email)) return null;   // право само към изброените
   const rest = m[2].trim();
   // „да оправи…" → задача („моля те оправи…"); свободен текст → предава се дословно.
   const isTask = /^да\s+/i.test(rest);
@@ -161,7 +164,13 @@ async function todoAdd(inputId) {
 }
 function todoPlaceholder() {
   const me = todoMe();
-  return me && me.boss ? "Какво имаш да свършиш? (или: Кажи на Юлия да…) Enter добавя" : "Какво имаш да свършиш? Enter добавя";
+  if (!me) return "Какво имаш да свършиш? Enter добавя";
+  if (me.boss) return "Какво имаш да свършиш? (или: Кажи на Юлия да…) Enter добавя";
+  if ((me.assignTo || []).length) {
+    const first = TODO_PEOPLE[me.assignTo[0]];
+    return `Какво имаш да свършиш? (или: Кажи на ${first ? first.name : "…"} да…) Enter добавя`;
+  }
+  return "Какво имаш да свършиш? Enter добавя";
 }
 
 /* Вика се от applyAccess (app.js) след вход. */
