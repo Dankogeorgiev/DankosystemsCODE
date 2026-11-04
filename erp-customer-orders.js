@@ -17,8 +17,11 @@ function erpCOSortRows(rows) {
   let out = rows.filter(o => !q || `${o.ourNo || ""} ${o.clientNo || ""} ${o.clientName || ""} ${o.status || ""}`.toLowerCase().includes(q));
   if (erpCOStatusFilter) out = out.filter(o => (o.status || "нова") === erpCOStatusFilter);
   if (erpCOClientFilter) out = out.filter(o => (o.clientName || "") === erpCOClientFilter);
-  // Завършените се крият по подразбиране (освен при търсене или изрично избран статус).
-  if (erpCOHideDone && !q && !erpCOStatusFilter) out = out.filter(o => (o.status || "нова") !== "завършена");
+  // Завършените се крият щом отметката е сложена — И ПРИ ТЪРСЕНЕ (Данко,
+  // 04.11.2026: търсенето по клиент показваше завършени въпреки отметката).
+  // Само изрично избран статус от падащото меню ги вади (иначе филтър
+  // „завършена" + отметката би дал празен списък).
+  if (erpCOHideDone && !erpCOStatusFilter) out = out.filter(o => (o.status || "нова") !== "завършена");
   const val = o => erpCOValueLeft(o);   // подрежда се по ОСТАВАЩАТА стойност
   const S = String;
   const cmp = {
