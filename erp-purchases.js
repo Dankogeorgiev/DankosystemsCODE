@@ -453,8 +453,11 @@ async function erpRenderPurchaseForm(o) {
           <option value="goods" ${o.docType === "goods" ? "selected" : ""}>Стокова разписка (доставка)</option>
           <option value="credit" ${o.docType === "credit" ? "selected" : ""}>Кредитно известие (−)</option>
         </select></label>
-        <label>№ ${o.docType === "goods" ? "Стокова" : "Фактура"} <input type="text" id="pu-invoice" value="${escapeAttr(o.invoiceNo || "")}" /></label>
+        <label>№ ${o.docType === "goods" ? "Стокова" : o.docType === "credit" ? "Известие" : "Фактура"} <input type="text" id="pu-invoice" value="${escapeAttr(o.invoiceNo || "")}" ${o.docType === "credit" ? 'placeholder="№ на САМОТО известие (от документа)"' : ""} /></label>
         <label>Дата <input type="date" id="pu-date" value="${escapeAttr(o.date || "")}" /></label>
+        ${o.docType === "credit" ? `
+        <label>Към фактура № <input type="text" id="pu-credit-ref" value="${escapeAttr(o.creditToNo || "")}" placeholder="оригиналната фактура (по ЗДДС)" title="Номерът на фактурата, която известието намалява — пише го на самото известие" /></label>
+        <label>Фактурата от дата <input type="date" id="pu-credit-refdate" value="${escapeAttr(o.creditToDate || "")}" /></label>` : ""}
         <label>Плащане <select id="pu-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${st === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
         <label id="pu-term-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pu-term" min="0" value="${escapeAttr(String(o.termDays || 0))}" placeholder="напр. 30" /></label>
         <label id="pu-due-wrap" ${st !== "deferred" ? 'style="display:none"' : ""}>Дата за плащане <input type="date" id="pu-due" value="${escapeAttr(due)}" /></label>
@@ -469,7 +472,9 @@ async function erpRenderPurchaseForm(o) {
       </div>
       ${o.docType === "goods"
         ? '<p class="hint" style="margin:4px 0">📦 <b>Стокова разписка:</b> заприходява склада ВЕДНАГА, но НЕ влиза в разходите и плащанията — парите идват с месечната фактура, която я покрива.</p>'
-        : `<div class="erp-co-actions" style="margin:4px 0"><button class="btn btn-small" id="pu-covers" title="Фактура в края на месеца, покриваща доставени със стокови разписки количества: складът НЕ се пипа втори път — само сумата за плащане">🧾 Покрива стокови… ${(o.coversIds || []).length ? "(" + (o.coversIds || []).length + ")" : ""}</button>${(o.coversIds || []).length ? '<span class="erp-muted">складът е вдигнат от стоковите — тази фактура носи само парите</span>' : ""}</div>`}
+        : o.docType === "credit"
+          ? '<p class="hint" style="margin:4px 0">➖ <b>Кредитно известие:</b> пиши сумите ПОЛОЖИТЕЛНИ, както са на документа — системата ги вади навсякъде (разходи, ДДС, Задължения). Върната стока → добави материалните редове (изписват се от склада при запис); отстъпка в цената → само ред „разход/услуга", складът не се пипа.</p>'
+          : `<div class="erp-co-actions" style="margin:4px 0"><button class="btn btn-small" id="pu-covers" title="Фактура в края на месеца, покриваща доставени със стокови разписки количества: складът НЕ се пипа втори път — само сумата за плащане">🧾 Покрива стокови… ${(o.coversIds || []).length ? "(" + (o.coversIds || []).length + ")" : ""}</button>${(o.coversIds || []).length ? '<span class="erp-muted">складът е вдигнат от стоковите — тази фактура носи само парите</span>' : ""}</div>`}
       <label class="erp-co-note">Забележка <textarea id="pu-note" rows="2">${escapeHtml(o.note || "")}</textarea></label>
 
       <h4 class="erp-group-head">📎 Файл на фактурата</h4>
@@ -500,6 +505,7 @@ async function erpRenderPurchaseForm(o) {
   if (cvBtn) cvBtn.addEventListener("click", () => erpPuCoversDialog(o));
   const bind = (id, k, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("input", () => { o[k] = el.value; if (fn) fn(); }); };
   bind("pu-invoice", "invoiceNo"); bind("pu-date", "date", () => erpPuSyncDue(o)); bind("pu-note", "note");
+  bind("pu-credit-ref", "creditToNo"); bind("pu-credit-refdate", "creditToDate");
   bind("pu-term", "termDays", () => erpPuSyncDue(o)); bind("pu-due", "dueDate");
   const pd = document.getElementById("pu-paiddate"); if (pd) pd.addEventListener("input", () => o.paidDate = pd.value);
   document.getElementById("pu-supplier").addEventListener("input", e => { o.supplierName = e.target.value; const m = suppliers.find(s => s.name === e.target.value); o.supplierId = m ? m.id : null; });
