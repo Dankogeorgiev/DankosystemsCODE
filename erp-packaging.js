@@ -58,6 +58,21 @@ function packBoxDatalistHtml() {
   return `<datalist id="pack-boxlist">${PACK_BOX_STD.map(b => `<option value="${escapeAttr(b.name)}" label="${escapeAttr(b.size)}"></option>`).join("")}</datalist>`;
 }
 
+/* Ключовете на редовете в o.packing.rows: кодът на продукта; при ДВА реда с
+   ЕДИН И СЪЩ код (заявка 292 на ВКФ Ренцел — 102501 на два реда) вторият
+   получава „код#2", иначе двата реда пишат в един запис и взаимно си трият
+   избраната опаковка при всяко пре-рендериране (Данко, 04.11.2026).
+   Първото срещане остава само кодът — старите записани опаковки важат. */
+function packRowKeysOf(o) {
+  const seen = new Map();
+  return (o.lines || []).map((l, i) => {
+    const base = String(l.code || i);
+    const n = (seen.get(base) || 0) + 1;
+    seen.set(base, n);
+    return n > 1 ? base + "#" + n : base;
+  });
+}
+
 /* ---------- Търсене на опаковка (ключ: наш код + клиент) ----------
    Първо точно (код + клиент); ако няма — общ запис за кода (без клиент);
    ако и той липсва — единствен запис за кода (ако е само един). Връща spec или null. */
@@ -404,9 +419,10 @@ async function erpPackOrderOpen(orderId, moreIds) {
   }
   const v = erpView();
   const P = o.packing;
+  const ROW_KEYS = packRowKeysOf(o);   // уникални и при повторен код
   const rowState = i => {
     const l = (o.lines || [])[i] || {};
-    const key = String(l.code || i);
+    const key = ROW_KEYS[i];
     const r = P.rows[key] || {};
     const spec = erpPackFind(l.code, o.clientName);
     return {
@@ -595,7 +611,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         </tr></tfoot>
       </table>
       ${(() => { const sk = Object.keys(P.skip || {}).filter(k => P.skip[k]); if (!sk.length) return ""; const nameOf = k => { const l = (o.lines || []).find((l2, i2) => String(l2.code || i2) === k) || {}; return (l.code ? l.code + " · " : "") + (l.name || k); }; return `<div class="pko-skipbar">🚚 <b>Частично товарене</b> — няма да се товарят: ${sk.map(k => `<span class="pko-skipchip">${escapeHtml(nameOf(k))} <button type="button" class="pko-unskip" data-key="${escapeAttr(k)}" title="Върни реда в опаковката">↩</button></span>`).join(" ")}</div>`; })()}
-      ${(() => { const done = (o.lines || []).filter((l, i) => (erpToNum(l.qty) || 0) > 0 && packLeftQty(l) <= 0 && !((P.rows[String(l.code || i)] || {}).qty > 0)); if (!done.length) return ""; return `<div class="pko-donebar">✅ <b>Доставени изцяло</b> — не се товарят: ${done.map(l => `<span class="pko-donechip">${escapeHtml((l.code ? l.code + " · " : "") + (l.name || ""))} <span class="erp-muted">(${erpNum(erpToNum(l.qty) || 0)} бр.)</span></span>`).join(" ")}</div>`; })()}
+      ${(() => { const done = (o.lines || []).filter((l, i) => (erpToNum(l.qty) || 0) > 0 && packLeftQty(l) <= 0 && !((P.rows[ROW_KEYS[i]] || {}).qty > 0)); if (!done.length) return ""; return `<div class="pko-donebar">✅ <b>Доставени изцяло</b> — не се товарят: ${done.map(l => `<span class="pko-donechip">${escapeHtml((l.code ? l.code + " · " : "") + (l.name || ""))} <span class="erp-muted">(${erpNum(erpToNum(l.qty) || 0)} бр.)</span></span>`).join(" ")}</div>`; })()}
       <div class="costk-stats">
         <span>Сума на палетите: <b id="pko-palsum">${palletsUp}</b><span class="erp-muted" id="pko-palbrk">${smallCnt ? ` (${palletsUp - smallCnt} × 120×80 + ${smallCnt} × 60×80)` : ""}</span></span>
         <span>Опаковки: <b>${totals.boxes}</b></span>
@@ -633,7 +649,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         }
         const i = Number(tr.dataset.i);
         const l = (o.lines || [])[i] || {};
-        const key = String(l.code || i);
+        const key = ROW_KEYS[i];
         P.rows[key] = {
           kgPer: erpToNum((tr.querySelector(".pko-kg") || {}).value) || 0,
           boxType: ((tr.querySelector(".pko-box") || {}).value || "").trim(),
@@ -687,8 +703,9 @@ async function erpPackOrderOpen(orderId, moreIds) {
           for (const oc of o.__combined) {
             if (oc !== o.__combined[0]) {
               oc.packing = oc.packing || { rows: {}, palletKg: P.palletKg };
+              const ocKeys = packRowKeysOf(oc);
               (oc.lines || []).forEach((l, i) => {
-                const key = String(l.code || i);
+                const key = ocKeys[i];
                 // Спецификациите — да; ръчната ОБЩА бройка — не (тя е за общия товар).
                 if (P.rows[key]) { const { qty, ...spec } = P.rows[key]; oc.packing.rows[key] = spec; }
               });
@@ -699,7 +716,7 @@ async function erpPackOrderOpen(orderId, moreIds) {
         } else await erpSaveCO(o);
         // Дообучаване на картотеката: код+клиент → кг/брой, кашон, кашони/палет.
         (o.lines || []).forEach((l, i) => {
-          const r = P.rows[String(l.code || i)];
+          const r = P.rows[ROW_KEYS[i]];
           if (!r || !l.code) return;
           let spec = (PACKAGING || []).find(p => packNorm(p.code) === packNorm(l.code) && packNorm(p.clientName) === packNorm(o.clientName));
           if (!spec) { spec = { id: packNextId(), code: l.code, clientName: o.clientName || "" }; PACKAGING.push(spec); }
@@ -1092,8 +1109,9 @@ async function erpPackDocRows(o) {
     const rc = packRowCalc(st.qty, st.perBox, st.kgPer, st.unitMult);
     return { ...st, boxes: rc.boxes, bdText: rc.bdText, effQty: rc.effQty, pallets: (st.rideOn > 0 || !(rc.boxes > 0 && perPallet > 0)) ? 0 : rc.boxes / perPallet, netKg: rc.netKg };
   });
+  const docKeys = packRowKeysOf(o);   // същите ключове като екрана (код / „код#2")
   return (o.lines || []).map((l, i) => {
-    const key = String(l.code || i);
+    const key = docKeys[i];
     const r = (P.rows || {})[key] || {};
     const spec = erpPackFind(l.code, o.clientName);
     const mult = (r.unitMult != null ? Number(r.unitMult) : Number((spec || {}).unitMult)) || 1;
