@@ -915,8 +915,12 @@ function matreqRenderGroupSuppliers(box, m) {
   box.querySelector("#mr-back-root").addEventListener("click", () => { MATREQ_NAV.group = null; MATREQ_NAV.supplier = null; erpRenderMatRequests(true); });
   const q = box.querySelector("#mr-q");
   q.addEventListener("input", () => {
-    const s = q.value.toLowerCase().trim();
-    box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => { tr.style.display = !s || tr.textContent.toLowerCase().includes(s) ? "" : "none"; });
+    // По думи: всяка дума се търси в целия ред (името + 📝 описанието и пр.).
+    const words = q.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    box.querySelectorAll("tbody tr[data-mrs]").forEach(tr => {
+      const h = tr.textContent.toLowerCase();
+      tr.style.display = !words.length || words.every(w => h.includes(w)) ? "" : "none";
+    });
   });
   box.querySelectorAll("[data-mrs]").forEach(el => el.addEventListener("click", e => {
     if (el.tagName === "TR" && e.target.closest("button, select, input, .mr-pass, .mr-passcell, .mr-sdesc")) return;
@@ -1067,7 +1071,7 @@ function matreqRenderByMat(box) {
   box.innerHTML = `
     <div class="erp-toolbar" style="margin:0 0 4px;flex-wrap:wrap">${chips}</div>
     <div class="erp-toolbar" style="margin:0 0 6px">
-      <input type="search" id="mr-bm-q" placeholder="🔎 търси материал по име или код…" value="${escapeAttr(MATREQ_BM.q)}" autocomplete="off" style="min-width:260px" />
+      <input type="search" id="mr-bm-q" placeholder="🔎 търси: име / код / бележка / доставчик…" value="${escapeAttr(MATREQ_BM.q)}" autocomplete="off" style="min-width:260px" title="Търси по думи — всяка дума се търси в името, кода, 📝 бележката, доставчиците и „ползва се в". Напр. „боя Ню Мениджмънт"." />
       <span class="erp-count" id="mr-bm-n"></span>
       <span class="spacer"></span>
     </div>
@@ -1081,9 +1085,24 @@ function matreqRenderByMat(box) {
   const tbody = box.querySelector("#mr-bm-rows");
   const nEl = box.querySelector("#mr-bm-n");
   let shown = [];   // артикулите на екрана, по индекс (за select/qty/🛒)
+  // Търси се ПО ДУМИ (всяка дума трябва да се намери някъде) в: име, код,
+  // 📝 бележката („от кой доставчик какво вземаме" — по Данко, 04.11.2026),
+  // доставчиците и продуктите, в които се ползва. Така „боя Ню Мениджмънт"
+  // намира боята с бележка/употреба за Ню Мениджмънт.
+  const hayBase = a => {
+    if (a.__hay == null) {
+      let use = "";
+      try { use = (a.mid ? matreqMatProducts(a.mid, usage) : []).map(p => (p.code || "") + " " + (p.name || "")).join(" "); } catch (e) {}
+      a.__hay = (a.article + " " + (a.code || "") + " " + (a.supps || []).map(c => c.name).join(" ") + " " + use).toLowerCase();
+    }
+    return a.__hay;
+  };
   const paint = () => {
     const q = MATREQ_BM.q.toLowerCase().trim();
-    const list = q ? arts.filter(a => (a.article + " " + a.code).toLowerCase().includes(q)) : arts;
+    const words = q.split(/\s+/).filter(Boolean);
+    const list = words.length
+      ? arts.filter(a => { const h = hayBase(a) + " " + String(matreqNoteOf(a.mid, a.article)).toLowerCase(); return words.every(w => h.includes(w)); })
+      : arts;
     shown = list.slice(0, 300);
     nEl.textContent = list.length ? `${list.length} артикула${list.length > 300 ? " (първите 300 — стесни с търсачката)" : ""}` : "няма съвпадения";
     tbody.innerHTML = shown.map((a, i) => `<tr>
