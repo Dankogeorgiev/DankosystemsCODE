@@ -233,6 +233,7 @@ function csLastPurchase(mid) {
   const pur = (typeof erpPurchases !== "undefined" && erpPurchases) || [];
   let best = null;
   pur.forEach(o => (o.lines || []).forEach(l => {
+    if (o.docType === "credit") return;   // КИ (върната стока) не е покупна цена
     if (Number(l.materialId) !== Number(mid)) return;
     const price = erpToNum(l.unitPrice) || 0; if (!(price > 0)) return;
     const eur = (o.currency === "BGN") ? price / 1.95583 : price;

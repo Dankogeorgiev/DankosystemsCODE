@@ -43,7 +43,32 @@ function payLeft(p) {
 function payPartialTitle(p) {
   const list = (p && p.payments) || [];
   if (!list.length) return "";
-  return "Плащания: " + list.map(x => `${pybFmt(x.date)} — ${payMoney(x.amount)}`).join("; ");
+  return "Плащания: " + list.map(x => `${pybFmt(x.date)} — ${payMoney(x.amount)}${x.note ? " (" + x.note + ")" : ""}`).join("; ");
+}
+
+/* ➖ Кредитно известие → приспадане от НЕплатеното задължение по оригиналната
+   фактура („Към фактура №" + същият доставчик). Пита преди да пипне и се
+   прилага ЕДНОКРАТНО (o.creditApplied се пази в самото КИ). */
+async function erpPayApplyCredit(o) {
+  if (!o || o.docType !== "credit" || !o.creditToNo || o.creditApplied) return false;
+  await erpPayLoad();
+  const eq = (typeof erpPuEq === "function") ? erpPuEq : (s => String(s || "").replace(/\s+/g, "").toLowerCase());
+  const pb = (PAYABLES || []).find(p => !p.paid && eq(p.invoiceNo) === eq(o.creditToNo) && eq(p.supplier) === eq(o.supplierName));
+  if (!pb) return false;
+  const rate = (o.currency === "BGN") ? 1.95583 : 1;
+  const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { total: 0 };
+  const amt = Math.round(Math.abs(t.total) / rate * 100) / 100;
+  const left = payLeft(pb);
+  if (!(amt > 0) || !(left > 0)) return false;
+  const use = Math.min(amt, left);
+  if (!confirm(`➖ Кредитно известие № ${o.invoiceNo || "—"} (${use.toFixed(2)} EUR):\nда го ПРИСПАДНА ли от задължението по фактура № ${pb.invoiceNo} на ${pb.supplier}?\nОстава за плащане: ${(Math.round((left - use) * 100) / 100).toFixed(2)} EUR.`)) return false;
+  pb.payments = (pb.payments || []).concat([{ date: payToday(), amount: use, note: `КИ № ${o.invoiceNo || ""}` }]);
+  if (payLeft(pb) <= 0) { pb.paid = true; pb.paidDate = payToday(); }
+  await erpPaySave();
+  o.creditApplied = true;
+  try { if (typeof erpSavePurchase === "function") await erpSavePurchase(o); } catch (e) {}
+  alert(`✅ Приспаднато: ${use.toFixed(2)} EUR от фактура № ${pb.invoiceNo}.${pb.paid ? "\nЗадължението е ПОКРИТО изцяло." : `\nОстава за плащане: ${payLeft(pb).toFixed(2)} EUR.`}`);
+  return true;
 }
 
 async function erpPayLoad() {
@@ -554,6 +579,7 @@ async function erpPaySyncFromPurchase(o) {
   const rate = (o.currency === "BGN") ? 1.95583 : 1;
   const t = (typeof erpPuTotals === "function") ? erpPuTotals(o) : { base: 0, total: 0 };
   // Отложено (разсрочено) плащане, още неплатено → задължение. Ново поле payStatus
+  // (виж и erpPayApplyCredit — КИ приспада от задължението по оригинала)
   // има приоритет; старите записи падат към paymentMethod/termDays.
   const qualifies = !o.paid && (o.payStatus === "deferred" ||
     (!o.payStatus && o.paymentMethod === "Банка" && Number(o.termDays) > 0));

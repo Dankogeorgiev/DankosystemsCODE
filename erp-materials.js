@@ -278,6 +278,7 @@ async function erpMatSuppliersDialog(matId) {
   try { if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases(); } catch (e) {}
   const buys = [];
   ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => (o.lines || []).forEach(l => {
+    if (o.docType === "credit") return;   // КИ е ВРЪЩАНЕ, не доставка — вън от историята на доставките
     if (Number(l.materialId) !== Number(matId)) return;
     buys.push({
       date: String(o.date || ""), supplier: String(o.supplierName || "").trim() || "—",

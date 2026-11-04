@@ -275,6 +275,7 @@ function finVatMonth(ym) {
   let buy = 0, buyCnt = 0;
   (typeof erpPurchases !== "undefined" && erpPurchases || []).forEach(o => {
     if (String(o.date || "").slice(0, 7) !== ym) return;
+    if (o.docType === "goods") return;   // стоковата няма ДДС — той идва с покриващата фактура (иначе двойно)
     const t = erpPuTotals(o);
     buy += (erpPuCur(o) === "BGN") ? t.vat / RATE : t.vat;
     buyCnt++;

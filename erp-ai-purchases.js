@@ -224,6 +224,20 @@ async function erpPuAIRender(parsed, fileInfo, usage) {
     PAI_PRESET = null;
   }
   PAI = { parsed, fileInfo, usage, suppliers, supId: ctx.supId, supName: ctx.supName, invoiceNo: parsed.order_no || "", date: parsed.order_date || new Date().toISOString().slice(0, 10), currency: "EUR", bgnConverted, expenseType: etype, payStatus, termDays, dueDate, rows };
+  // КРЕДИТНО ИЗВЕСТИЕ, печатано с МИНУСИ (разчитачът чете дословно): само̀
+  // се разпознава — отметката „Кредитно известие (−)" се чеква, а числата се
+  // обръщат на плюс (конвенцията: положителни редове, знакът идва от вида).
+  // Иначе „✓ Потвърди" блокираше с „количество ≤ 0" без изход (04.11.2026).
+  {
+    const p0 = parsed || {};
+    const negNums = rows.some(r => (erpToNum(r.qty) || 0) < 0 || (erpToNum(r.unitPrice) || 0) < 0)
+      || (p0.net_total != null && Number(p0.net_total) < 0) || (p0.grand_total != null && Number(p0.grand_total) < 0);
+    if (negNums) {
+      PAI.docType = "credit";
+      rows.forEach(r => { if ((erpToNum(r.qty) || 0) < 0) r.qty = Math.abs(erpToNum(r.qty)); if ((erpToNum(r.unitPrice) || 0) < 0) r.unitPrice = Math.abs(erpToNum(r.unitPrice)); });
+      PAI.creditAuto = true;
+    }
+  }
   erpPuAIDraw();
 }
 
@@ -262,7 +276,7 @@ function erpPuAIDraw() {
           <label>Вид разход <select id="pai-etype"><option value="">— избери —</option>${PU_EXPENSE_TYPES.map(t => `<option value="${escapeAttr(t.k)}" ${t.k === (typeof erpPuTypeCanon === "function" ? erpPuTypeCanon(s.expenseType) : s.expenseType) ? "selected" : ""}>${(typeof erpPuTypeIcon === "function" ? erpPuTypeIcon(t) : (t.mat ? "🧱 " : ""))}${escapeHtml(t.k)}</option>`).join("")}</select></label>
           <label>Плащане <select id="pai-pay">${PU_PAY_OPTS.map(p => `<option value="${p.k}" ${s.payStatus === p.k ? "selected" : ""}>${p.label}</option>`).join("")}</select></label>
           <label id="pai-term-wrap" ${s.payStatus !== "deferred" ? 'style="display:none"' : ""}>Срок (дни) <input type="number" id="pai-term" min="0" value="${s.termDays ? escapeAttr(String(s.termDays)) : ""}" placeholder="напр. 30" />${s.dueDate ? `<span class="erp-muted" title="падеж от фактурата">→ ${erpDMY(s.dueDate)}</span>` : ""}</label>
-          <label class="erp-check" title="Кредитно известие (напр. от ИТТ/Тисен) — сумите влизат с МИНУС в разходите и ДДС-то и не създават задължение"><input type="checkbox" id="pai-credit" ${s.docType === "credit" ? "checked" : ""} /> Кредитно известие (−)</label>
+          <label class="erp-check" title="Кредитно известие (напр. от ИТТ/Тисен) — сумите влизат с МИНУС в разходите и ДДС-то и не създават задължение"><input type="checkbox" id="pai-credit" ${s.docType === "credit" ? "checked" : ""} /> Кредитно известие (−)${s.creditAuto ? ' <span class="erp-muted" title="Документът е с отрицателни числа — разпознато като кредитно известие; числата са обърнати на плюс, системата ги вади навсякъде">разпознато само̀</span>' : ""}</label>
         </div>
         <div id="pai-dup"></div>
         <p class="ai-legend"><span class="ai-c-high">●</span> висока (авто) · <span class="ai-c-mid">●</span> средна · <span class="ai-c-none">●</span> няма. Свържи всеки ред с наш материал (за склад) или го остави като разход. Класификацията идва от избрания Вид разход. Плащането се въвежда на следващата стъпка.</p>
@@ -305,7 +319,7 @@ function erpPuAIDraw() {
   document.getElementById("pai-cur").addEventListener("change", e => s.currency = e.target.value);
   document.getElementById("pai-etype").addEventListener("change", e => s.expenseType = e.target.value);
   const crEl = document.getElementById("pai-credit");
-  if (crEl) crEl.addEventListener("change", e => s.docType = e.target.checked ? "credit" : "invoice");
+  if (crEl) crEl.addEventListener("change", e => { s.docType = e.target.checked ? "credit" : "invoice"; erpPuAIDupCheck(); });
   document.getElementById("pai-pay").addEventListener("change", e => { s.payStatus = e.target.value; const w = document.getElementById("pai-term-wrap"); if (w) w.style.display = s.payStatus === "deferred" ? "" : "none"; });
   document.getElementById("pai-term").addEventListener("input", e => s.termDays = Number(e.target.value) || 0);
   if (typeof erpAISetupViewer === "function") erpAISetupViewer();
@@ -319,12 +333,22 @@ function erpPuAIDupCheck() {
   const box = document.getElementById("pai-dup"); if (!box) return;
   const s = PAI; box.innerHTML = "";
   if (!s || !s.invoiceNo || typeof erpPuEq !== "function") return;
-  const dups = ((typeof erpPurchases !== "undefined" && erpPurchases) || [])
+  // КИ се дублира само с КИ; фактура — с фактура (отделни номерации).
+  const isCr = p => p.docType === "credit";
+  const meCr = s.docType === "credit";
+  const all = ((typeof erpPurchases !== "undefined" && erpPurchases) || [])
     .filter(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
-  if (!dups.length) return;
+  const dups = all.filter(p => isCr(p) === meCr);
+  if (!dups.length) {
+    // КИ с номера на ОРИГИНАЛНАТА фактура: не е дубликат, а объркани полета.
+    const orig = meCr ? all.find(p => !isCr(p) && erpPuEq(p.supplierName) === erpPuEq(s.supName || "")) : null;
+    if (orig) box.innerHTML = `<div class="erp-warn" style="margin:6px 0;padding:8px 10px">
+      ℹ № ${escapeHtml(s.invoiceNo)} е номерът на ВЕЧЕ въведената фактура (${escapeHtml(erpDMY(orig.date) || "?")}). Кредитното известие има СВОЙ номер — напиши него в „№ Фактура"; номерът на оригинала се пази отделно при потвърждаване.</div>`;
+    return;
+  }
   const d = dups[0];
   box.innerHTML = `<div class="erp-error" style="margin:6px 0;padding:8px 10px">
-    ⚠ <b>Фактура № ${escapeHtml(s.invoiceNo)} ВЕЧЕ е въведена</b> — ${escapeHtml(d.supplierName || "?")} · ${escapeHtml(erpDMY(d.date) || "?")} · ${d.posted ? "ЗАПРИХОДЕНА" : "чернова"}${dups.length > 1 ? ` (и още ${dups.length - 1})` : ""}.
+    ⚠ <b>${meCr ? "Кредитно известие" : "Фактура"} № ${escapeHtml(s.invoiceNo)} ВЕЧЕ е въведено</b> — ${escapeHtml(d.supplierName || "?")} · ${escapeHtml(erpDMY(d.date) || "?")} · ${d.posted ? "ЗАПРИХОДЕНА" : "чернова"}${dups.length > 1 ? ` (и още ${dups.length - 1})` : ""}.
     <button class="btn btn-small" id="pai-dup-open">Отвори съществуващата</button></div>`;
   const b = box.querySelector("#pai-dup-open");
   if (b) b.addEventListener("click", () => {
@@ -339,7 +363,8 @@ function erpPuAITotalsBox() {
   const box = document.getElementById("pai-totals"); if (!box || !PAI) return;
   const s = PAI, p = s.parsed || {};
   const base = Math.round(s.rows.reduce((t, r) => t + (erpToNum(r.qty) || 0) * (erpToNum(r.unitPrice) || 0), 0) * 100) / 100;
-  const doc = p.net_total != null ? Math.round(Number(p.net_total) * 100) / 100 : null;
+  // При КИ документът е с минус, редовете при нас — с плюс → сверка по |abs|.
+  const doc = p.net_total != null ? Math.round((s.docType === "credit" ? Math.abs(Number(p.net_total)) : Number(p.net_total)) * 100) / 100 : null;
   const diff = doc != null ? Math.round((base - doc) * 100) / 100 : null;
   const cur = s.currency || "BGN";
   const ok = diff != null && Math.abs(diff) <= 0.02;
@@ -409,7 +434,10 @@ async function erpPuAIConfirm() {
   const s = PAI; const st = document.getElementById("pai-cstatus");
   if (!s.rows.length) { st.textContent = "⚠ Няма редове."; return; }
   const bad = s.rows.filter(r => !(erpToNum(r.qty) > 0));
-  if (bad.length) { alert("Има редове с количество ≤ 0."); return; }
+  if (bad.length) {
+    alert(`⚠ Редове с количество ≤ 0:\n${bad.slice(0, 6).map(r => `• ${r.article || r.desc || "ред " + (r.i + 1)} (к-во ${r.qty})`).join("\n")}\n\nКоличествата се пишат ПОЛОЖИТЕЛНИ — и при кредитно известие (знакът идва от отметката „Кредитно известие (−)", системата сама вади сумите). Поправи ги и натисни пак.`);
+    return;
+  }
   // ЗАДЪЛЖИТЕЛНИ реквизити (правило на Данко, 08.10.2026) — важи и за AI потока:
   // без доставчик и № на фактурата чернова НЕ се създава.
   {
@@ -422,17 +450,33 @@ async function erpPuAIConfirm() {
   // Дубликат: същият № на фактура вече въведен (напр. сканирана два пъти).
   try { if (typeof erpLoadPurchases === "function") await erpLoadPurchases(); } catch (e) {}   // свежа база — да хванем и въведеното междувременно
   if (s.invoiceNo && typeof erpPuEq === "function") {
-    const dups = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
+    const isCr = p => p.docType === "credit";
+    const meCr = s.docType === "credit";
+    const all = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(p => erpPuEq(p.invoiceNo) === erpPuEq(s.invoiceNo));
+    const dups = all.filter(p => isCr(p) === meCr);
     const same = dups.find(p => erpPuEq(p.supplierName) === erpPuEq(s.supName || ""));
-    if (same) { alert(`⛔ Фактура № ${s.invoiceNo} на ${same.supplierName || "?"} ВЕЧЕ е въведена (${same.posted ? "заприходена" : "чернова"}).\nЕднакви фактури не се записват — има я в списъка на Покупките.`); return; }
+    if (same) { alert(`⛔ ${meCr ? "Кредитно известие" : "Фактура"} № ${s.invoiceNo} на ${same.supplierName || "?"} ВЕЧЕ е въведено (${same.posted ? "заприходено" : "чернова"}).\nЕднакви документи не се записват — има го в списъка на Покупките.`); return; }
     if (dups[0] && !confirm(`⚠ Същият № ${s.invoiceNo} вече съществува при ДРУГ доставчик: ${dups[0].supplierName || "?"}.\nАко е съвпадение на номерациите — продължи.\nДа създам ли?`)) return;
+    // КИ с номера на ОРИГИНАЛНАТА фактура: местим го в „Към фактура №".
+    if (meCr && !s.creditToNo) {
+      const orig = all.find(p => !isCr(p) && erpPuEq(p.supplierName) === erpPuEq(s.supName || ""));
+      if (orig) {
+        s.creditToNo = orig.invoiceNo; s.creditToDate = orig.date || "";
+        alert(`ℹ № ${s.invoiceNo} е номерът на ОРИГИНАЛНАТА фактура (${erpDMY(orig.date) || "?"}) — запазих го като „към фактура №".\n\nВ „№ Фактура" горе напиши номера на САМОТО кредитно известие (пише го на документа) и натисни „✓ Потвърди" пак.`);
+        const el = document.getElementById("pai-no"); if (el) { el.value = ""; el.focus(); }
+        s.invoiceNo = "";
+        return;
+      }
+    }
   }
   // Сверка на сумите срещу документа — да не се заприходи с грешна стойност.
+  // При КИ документът често е с минус, а редовете при нас са с плюс → по |abs|.
   const p0 = s.parsed || {};
   if (p0.net_total != null) {
     const base = Math.round(s.rows.reduce((t, r) => t + (erpToNum(r.qty) || 0) * (erpToNum(r.unitPrice) || 0), 0) * 100) / 100;
-    const dif = Math.round((base - Number(p0.net_total)) * 100) / 100;
-    if (Math.abs(dif) > 0.02 && !confirm(`⚠ Сборът на редовете (${erpNum(base)}) се РАЗЛИЧАВА от основата по документа (${erpNum(p0.net_total)}) с ${erpNum(dif)}.\nПровери количествата и цените. Да продължа въпреки разликата?`)) return;
+    const docNet = s.docType === "credit" ? Math.abs(Number(p0.net_total)) : Number(p0.net_total);
+    const dif = Math.round((base - docNet) * 100) / 100;
+    if (Math.abs(dif) > 0.02 && !confirm(`⚠ Сборът на редовете (${erpNum(base)}) се РАЗЛИЧАВА от основата по документа (${erpNum(docNet)}) с ${erpNum(dif)}.\nПровери количествата и цените. Да продължа въпреки разликата?`)) return;
   }
   const btn = document.getElementById("pai-confirm"); if (btn) { btn.disabled = true; btn.textContent = "Създавам…"; }
   try {
@@ -447,6 +491,7 @@ async function erpPuAIConfirm() {
     }
     const purchase = {
       type: "фактура", docType: s.docType === "credit" ? "credit" : "invoice",
+      creditToNo: s.docType === "credit" ? (s.creditToNo || "") : "", creditToDate: s.docType === "credit" ? (s.creditToDate || "") : "",
       supplierName: s.supName || "", supplierId: s.supId || null, expenseType: s.expenseType || "",
       invoiceNo: s.invoiceNo || "", date: s.date || new Date().toISOString().slice(0, 10),
       payStatus: s.payStatus || "deferred", termDays: Number(s.termDays) || 0, dueDate: s.dueDate || "", paid: false, paidDate: "",

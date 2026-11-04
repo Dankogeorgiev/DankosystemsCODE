@@ -2138,9 +2138,9 @@ async function erpInvReport() {
         pBase += invRepEur(t.base, cur); pVat += invRepEur(t.vat, cur); pTot += eur;
         return [
           p.invoiceNo || "—", erpDMY(p.date) || "", p.supplierName || "",
-          p.docType === "goods" ? "Стокова разписка" : "Фактура", p.expenseType || "",
+          p.docType === "goods" ? "Стокова разписка" : p.docType === "credit" ? "Кредитно известие (−)" : "Фактура", p.expenseType || "",
           cur, invRepMoney(t.base), invRepMoney(t.vat), invRepMoney(t.total), invRepMoney(eur),
-          p.paid ? "платена" : "за плащане",
+          p.docType === "credit" ? "КИ — приспада се" : p.paid ? "платена" : "за плащане",
         ];
       });
       rows.push(["", "", "", "", "", "ОБЩО EUR", invRepMoney(pBase), invRepMoney(pVat), "", invRepMoney(pTot), `${pu.length} документа`]);

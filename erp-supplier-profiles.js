@@ -192,6 +192,7 @@ function suppBought() {
   if (SUPP_BOUGHT && SUPP_BOUGHT_SRC === src) return SUPP_BOUGHT;
   const bySupp = new Map();
   src.forEach(o => {
+    if (o.docType === "credit") return;   // КИ е връщане — не влиза в „купувано от"
     const sk = suppKey(suppCanon(o.supplierName)); if (!sk) return;   // старо и ново име = един доставчик
     if (!bySupp.has(sk)) bySupp.set(sk, new Map());
     const arts = bySupp.get(sk);

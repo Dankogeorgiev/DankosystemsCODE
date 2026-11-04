@@ -49,9 +49,13 @@ function erpPuTypeIcon(t) {
 // Нормализира № на фактура / име на доставчик за сравнение (интервали, водещи нули, регистър).
 function erpPuEq(s) { return String(s || "").replace(/\s+/g, "").replace(/^0+/, "").toLowerCase(); }
 // Други ЗАПИСИ със същия № на фактура (двойно въвеждане на една и съща фактура).
+// Кредитното известие е ОТДЕЛНА номерация: КИ се дублира само с друго КИ,
+// фактура — само с фактура/стокова. Иначе КИ „към фактура № Х" се блокираше
+// от самата фактура Х (Данко, 04.11.2026: „не можем да го въведем").
 function erpPuDupsOf(o) {
   if (!o.invoiceNo) return [];
-  return (erpPurchases || []).filter(p => String(p.id) !== String(o.id) && erpPuEq(p.invoiceNo) === erpPuEq(o.invoiceNo));
+  const isCr = p => p.docType === "credit";
+  return (erpPurchases || []).filter(p => String(p.id) !== String(o.id) && isCr(p) === isCr(o) && erpPuEq(p.invoiceNo) === erpPuEq(o.invoiceNo));
 }
 let erpPurchases = null;
 let erpPuFolder = "payable";   // payable | paid | all
@@ -209,11 +213,13 @@ function erpPuTotals(o) {
   });
   const rates = Object.keys(byRate).map(Number).sort((a, b) => b - a);
   const rate = rates.length === 1 ? rates[0] : Number(o.vatRate != null ? o.vatRate : 20);
-  // Кредитно известие: сумите се пишат ПОЛОЖИТЕЛНИ (както са на документа),
-  // но навсякъде в сметките влизат с МИНУС — намаляват разхода и ДДС кредита.
+  // Кредитно известие: влиза с МИНУС навсякъде — намалява разхода и ДДС
+  // кредита. Знакът се налага с abs(), за да е все минус и когато числата са
+  // въведени отрицателни (както ги печата документът) — иначе минус по минус
+  // правеше КИ, което УВЕЛИЧАВА разходите (04.11.2026).
   if (o.docType === "credit") {
-    base = -base; vat = -vat;
-    Object.keys(byRate).forEach(k => byRate[k] = -byRate[k]);
+    base = -Math.abs(base); vat = -Math.abs(vat);
+    Object.keys(byRate).forEach(k => byRate[k] = -Math.abs(byRate[k]));
   }
   return { base, vat, total: base + vat, rate, byRate, rates, mixed: rates.length > 1 };
 }
@@ -374,7 +380,8 @@ function erpNewPurchase(seed) {
   const today = new Date().toISOString().slice(0, 10);
   const s = seed || {};
   erpRenderPurchaseForm({
-    type: "фактура", docType: s.docType || "invoice",
+    // „Следващата" след кредитно известие е ФАКТУРА — КИ не се наследява.
+    type: "фактура", docType: s.docType === "credit" ? "invoice" : (s.docType || "invoice"),
     supplierName: s.supplierName || "", supplierId: s.supplierId || null,
     invoiceNo: "", date: s.date || today,
     payStatus: s.payStatus || "deferred", paymentMethod: s.paymentMethod || "Банка",
@@ -500,7 +507,7 @@ async function erpRenderPurchaseForm(o) {
     </div>`;
 
   const dtSel = document.getElementById("pu-doctype");
-  if (dtSel) dtSel.addEventListener("change", () => { o.docType = (dtSel.value === "goods" || dtSel.value === "credit") ? dtSel.value : "invoice"; erpRenderPurchaseForm(o); });
+  if (dtSel) dtSel.addEventListener("change", () => { o.docType = (dtSel.value === "goods" || dtSel.value === "credit") ? dtSel.value : "invoice"; if (o.docType === "credit") o.coversIds = []; erpRenderPurchaseForm(o); });
   const cvBtn = document.getElementById("pu-covers");
   if (cvBtn) cvBtn.addEventListener("click", () => erpPuCoversDialog(o));
   const bind = (id, k, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("input", () => { o[k] = el.value; if (fn) fn(); }); };
@@ -769,14 +776,18 @@ function erpPuStateBadge(o) {
    Казва ЯСНО дали е само записана, или е и заприходена в склада. */
 function erpPuAfterSave(o, posted) {
   const money = erpPuMoney(erpPuTotals(o).total, erpPuCur(o));
+  const cr = o.docType === "credit";
   const { wrap, close } = erpDialog(`
-    <h3>${posted ? "✅ Заприходена в склада" : "💾 Записана"}</h3>
+    <h3>${posted ? (cr ? "✅ Изписана от склада" : "✅ Заприходена в склада") : "💾 Записано"}</h3>
     <p class="hint">${posted
-      ? "Материалните редове са вдигнати в Склад материали и средните цени са обновени."
+      ? (cr ? "Върнатата стока е ИЗПИСАНА от Склад материали; сумите влизат с минус в разходите и ДДС-то."
+            : "Материалните редове са вдигнати в Склад материали и средните цени са обновени.")
       : (erpPuNeedsPost(o)
-        ? `⏳ Документът е записан, но материалните му редове ОЩЕ НЕ са в склада. Натисни бутона „💾 Запази и заприходи“, когато си готов.`
-        : "Документът е записан. Няма материални редове — складът не се пипа.")}</p>
-    <p><b>${escapeHtml((o.docType === "goods" ? "Стокова № " : "Фактура № ") + (o.invoiceNo || "—"))}</b> · ${escapeHtml(o.supplierName || "")} · ${escapeHtml(erpDMY(o.date) || "")} · <b>${money}</b></p>
+        ? (cr ? `⏳ Известието е записано, но върнатата стока ОЩЕ НЕ е изписана от склада. Натисни „💾 Запази и изпиши от склада“, когато си готов.`
+              : `⏳ Документът е записан, но материалните му редове ОЩЕ НЕ са в склада. Натисни бутона „💾 Запази и заприходи“, когато си готов.`)
+        : (cr ? "Кредитното известие е записано — сумите му влизат с МИНУС в разходите и ДДС-то. Няма материални редове, складът не се пипа."
+              : "Документът е записан. Няма материални редове — складът не се пипа."))}</p>
+    <p><b>${escapeHtml((o.docType === "goods" ? "Стокова № " : cr ? "Кредитно известие № " : "Фактура № ") + (o.invoiceNo || "—"))}</b>${cr && o.creditToNo ? ` <span class="erp-muted">към ф. № ${escapeHtml(o.creditToNo)}</span>` : ""} · ${escapeHtml(o.supplierName || "")} · ${escapeHtml(erpDMY(o.date) || "")} · <b>${money}</b></p>
     ${(typeof suppHasProfile === "function" && o.supplierName && !suppHasProfile(o.supplierName))
       ? `<div class="supp-newbar" style="margin:8px 0 0">🆕 <b>${escapeHtml(o.supplierName)}</b> няма попълнен паспорт за счетоводството.
            <span class="spacer" style="flex:1"></span>
@@ -837,6 +848,21 @@ async function erpPuSaveClick(o, opts) {
     const other = erpPuDupsOf(o)[0];
     if (other && !confirm(`⚠ Същият № ${o.invoiceNo} вече съществува при ДРУГ доставчик: ${other.supplierName || "?"} · ${erpDMY(other.date) || "?"}.\nАко е просто съвпадение на номерациите — продължи.\nДа запиша ли?`)) return;
   }
+  // КИ, въведено с номера на ОРИГИНАЛНАТА фактура: честата грешка. Номерът на
+  // фактурата отива в „Към фактура №", а известието има СВОЙ номер от документа.
+  if (!o.posted && o.docType === "credit" && o.invoiceNo) {
+    const orig = (erpPurchases || []).find(p => String(p.id) !== String(o.id) && p.docType !== "credit"
+      && erpPuEq(p.invoiceNo) === erpPuEq(o.invoiceNo) && erpPuEq(p.supplierName) === erpPuEq(o.supplierName));
+    if (orig && !erpPuEq(o.creditToNo)) {
+      o.creditToNo = orig.invoiceNo; o.creditToDate = orig.date || "";
+      alert(`ℹ № ${o.invoiceNo} е номерът на ВЕЧЕ въведената фактура на ${orig.supplierName || "?"} (${erpDMY(orig.date) || "?"}).\n\nПреместих го в „Към фактура №". В полето „№ Известие" напиши номера на САМОТО кредитно известие (пише го на документа) и натисни „Запази" пак.`);
+      const el = document.getElementById("pu-credit-ref"); if (el) el.value = o.creditToNo;
+      const dEl = document.getElementById("pu-credit-refdate"); if (dEl) dEl.value = o.creditToDate;
+      const noEl = document.getElementById("pu-invoice"); if (noEl) { noEl.value = ""; noEl.focus(); }
+      o.invoiceNo = "";
+      return;
+    }
+  }
   if (btn) { btn.disabled = true; btn.textContent = "Записва…"; }
   // Паспортите на доставчиците — за подсещането „нов доставчик без картон".
   try { if (typeof suppEnsureLoaded === "function") await suppEnsureLoaded(); } catch (e) {}
@@ -859,6 +885,8 @@ async function erpPuSaveClick(o, opts) {
   try {
     await erpSavePurchase(o); await erpLoadPurchases();
     try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
+    // КИ с „Към фактура №": предлага приспадане от неплатеното задължение.
+    try { if (typeof erpPayApplyCredit === "function") await erpPayApplyCredit(o); } catch (e) {}
     if (erpPuNeedsPost(o)) {
       await erpPostPurchase(o, { silent: true });   // пита за потвърждение; при успех пре-рендира формата
       const b2 = document.getElementById("pu-save");
@@ -1329,7 +1357,9 @@ async function erpPostPurchase(o, opts) {
   if (o.posted) { alert("Вече е заприходена."); return; }
   // Фактура, ПОКРИВАЩА стокови разписки: складът е вдигнат от стоковите —
   // тук се осчетоводяват само парите (сумата отива в разходите/плащането).
-  if (o.docType !== "goods" && (o.coversIds || []).length) { await erpPostCoveringInvoice(o); return; }
+  // КИ никога не минава по „покриваща фактура" (там sumInv > 0 заклещва) —
+  // стари остатъчни coversIds по кредитно се подминават.
+  if (o.docType !== "goods" && o.docType !== "credit" && (o.coversIds || []).length) { await erpPostCoveringInvoice(o); return; }
   const isCredit = o.docType === "credit";   // КИ = върната стока → изписване (минус)
   const matLines = (o.lines || []).filter(l => l.materialId && (erpToNum(l.qty) || 0) > 0);
   if (!matLines.length) { alert("Няма материални редове за заприходяване. Само редове, добавени с бутона Материал (склад), влизат в склада."); return; }
@@ -1377,12 +1407,13 @@ async function erpPostPurchase(o, opts) {
   const rate = erpPuCur(o) === "BGN" ? PU_EUR_BGN : 1;   // средните цени са в EUR
 
   const ref = `${isCredit ? "КИ" : "Фактура"} ${o.invoiceNo || "—"} · ${o.supplierName || ""}`.trim();
-  const moves = [], avgUpdates = [];
+  const moves = [], avgUpdates = [], under = [];
   for (const l of matLines) {
     const qty = erpToNum(l.qty) || 0;
     const priceEur = (erpToNum(l.unitPrice) || 0) / rate;
     if (isCredit) {
       // Върната стока: излиза от склада по текущата средна — средната НЕ се пипа.
+      if ((stockById[l.materialId] || 0) < qty) under.push(`• ${l.article || l.name || l.materialId}: налично ${erpNum(stockById[l.materialId] || 0)}, връщаме ${erpNum(qty)}`);
       moves.push({ material_id: l.materialId, kind: "изписване", quantity: -qty, ref, created_by: (typeof MY_ACCESS !== "undefined" && MY_ACCESS.email) || null });
       stockById[l.materialId] = (stockById[l.materialId] || 0) - qty;
       continue;
@@ -1395,6 +1426,7 @@ async function erpPostPurchase(o, opts) {
     }
     stockById[l.materialId] = (stockById[l.materialId] || 0) + qty;
   }
+  if (under.length && !confirm(`⚠ Складът няма толкова от:\n${under.slice(0, 8).join("\n")}\n\nИзписването ще свали наличността ПОД НУЛА (вероятно има неосчетоводени движения). Наистина ли да продължа?`)) { fail(); return; }
   const ins = await sb.from("stock_movements").insert(moves);
   if (ins.error) { fail("Грешка при движенията: " + ins.error.message); return; }
   for (const u of avgUpdates) { const { error } = await sb.from("materials").update({ avg_cost: u.avg }).eq("id", u.id); if (error) { alert("Движенията са заприходени, но една средна цена не се обнови: " + error.message); break; } }
@@ -1516,7 +1548,7 @@ async function erpPuAccountingXls() {
       const k = cur === "BGN" ? 1 / RATE : 1;
       gB += t.base * k; gV += t.vat * k; gT += t.total * k;
       return [
-        erpDMY(o.date) || "", kindBg(o), o.invoiceNo || "", o.supplierName || "",
+        erpDMY(o.date) || "", kindBg(o), o.invoiceNo || "", o.docType === "credit" ? (o.creditToNo || "") : "", o.supplierName || "",
         p.eik || "", p.vat || "", p.country || "", p.addr || "", p.iban || "",
         o.expenseType || "", (typeof suppLabel === "function" && typeof SUPP_KIND !== "undefined") ? suppLabel(SUPP_KIND, p.kind) : (p.kind || ""), p.account || "",
         p.whatWeBuy || "", (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 6).join(", "),
@@ -1525,20 +1557,23 @@ async function erpPuAccountingXls() {
         payTxt(o), o.dueDate ? erpDMY(o.dueDate) : "", o.posted ? "да" : "не", o.note || "",
       ];
     });
-    rows.push(["", "", "", "ОБЩО (" + docs.length + " документа)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", n2(gB), n2(gV), n2(gT), "", "", "", ""]);
+    rows.push(["", "", "", "", "ОБЩО (" + docs.length + " документа)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", n2(gB), n2(gV), n2(gT), "", "", "", ""]);
     const lineRows = [];
     docs.forEach(o => {
       const cur = erpPuCur(o);
+      // Редовете на КИ влизат с МИНУС в „Стойност" и носят маркер „КИ (−)".
+      const sgn = o.docType === "credit" ? -1 : 1;
+      const kindShort = o.docType === "credit" ? "КИ (−)" : o.docType === "goods" ? "Стокова" : "Фактура";
       (o.lines || []).forEach(l => {
-        const q = erpToNum(l.qty) || 0, up = erpToNum(l.unitPrice) || 0;
-        lineRows.push([erpDMY(o.date) || "", o.invoiceNo || "", o.supplierName || "", l.article || l.name || "", l.code || "", q, l.unit || "", n2(up), n2(q * up), cur]);
+        const q = Math.abs(erpToNum(l.qty) || 0), up = Math.abs(erpToNum(l.unitPrice) || 0);
+        lineRows.push([erpDMY(o.date) || "", kindShort, o.invoiceNo || "", o.supplierName || "", l.article || l.name || "", l.code || "", q, l.unit || "", n2(up), n2(sgn * q * up), cur]);
       });
     });
     reportExportXls("schetovodstvo-pokupki-" + m, "Покупки за счетоводството · " + m, [
       {
         title: "Фактури",
         headers: [
-          { label: "Дата" }, { label: "Вид" }, { label: "№ документ" }, { label: "Доставчик" },
+          { label: "Дата" }, { label: "Вид" }, { label: "№ документ" }, { label: "КИ към ф. №" }, { label: "Доставчик" },
           { label: "ЕИК" }, { label: "ДДС №" }, { label: "Държава" }, { label: "Адрес" }, { label: "IBAN" },
           { label: "Вид разход (ЕРП)" }, { label: "Вид на разхода (паспорт)" }, { label: "Счет. сметка" },
           { label: "Какво купуваме от него" }, { label: "Артикули по фактурата" },
@@ -1551,7 +1586,7 @@ async function erpPuAccountingXls() {
       {
         title: "Редове (всеки артикул)",
         headers: [
-          { label: "Дата" }, { label: "№ Фактура" }, { label: "Доставчик" }, { label: "Артикул" }, { label: "Код" },
+          { label: "Дата" }, { label: "Вид" }, { label: "№ документ" }, { label: "Доставчик" }, { label: "Артикул" }, { label: "Код" },
           { label: "К-во", num: true }, { label: "Мярка" }, { label: "Ед. цена", num: true }, { label: "Стойност", num: true }, { label: "Валута" },
         ],
         rows: lineRows,
