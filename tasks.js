@@ -1940,7 +1940,7 @@ function renderTasks() {
       <td class="t-actions" data-label="">
         ${usesDialog ? "" : `<input type="number" class="t-today" min="0" placeholder="бр. днес" />`}
         <button type="button" class="btn btn-small btn-primary t-add">Запиши</button>
-        ${(t.source && t.source.flow) ? `<button type="button" class="btn btn-small t-scrap" title="Брак при настройка — връща спешно нарязване към първата операция">⚠ Брак</button>` : ""}
+        ${(t.source && t.source.flow) ? `<button type="button" class="btn btn-small t-scrap" title="Брак при настройка — връща спешно нарязване към първата операция">⚠ Брак</button><button type="button" class="btn btn-small t-qr" title="QR етикет за палета — лепи се на палета, сканира се с телефон за отчитане по целия път на детайла">🏷 QR</button>` : ""}
         ${amWorker() ? "" : `${(Number(t.produced) || 0) > 0 ? '<button type="button" class="btn btn-small t-fix" title="Поправка на сгрешено вписване (напр. 321 вместо 21) — връща и складовите движения">🩹</button>' : ""}
         <button type="button" class="btn btn-small t-edit" title="Редакция">✎</button>
         <button type="button" class="btn btn-small t-move" title="Прехвърли операцията в друг цех">🔀 Цех</button>
@@ -1998,6 +1998,7 @@ function renderTasks() {
     const plg = tr.querySelector(".t-prod-log"); if (plg) plg.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); taskProdLogDialog(t); });
     const move = tr.querySelector(".t-move"); if (move) move.addEventListener("click", () => moveTaskWorkshop(t));
     const scrap = tr.querySelector(".t-scrap"); if (scrap) scrap.addEventListener("click", () => openScrapDialog(t));
+    const qrb = tr.querySelector(".t-qr"); if (qrb) qrb.addEventListener("click", e => { e.stopPropagation(); if (typeof qrPrintLabels === "function") qrPrintLabels([t]); else alert("QR модулът не е зареден — презареди (F5)."); });
     const del = tr.querySelector(".t-del"); if (del) del.addEventListener("click", () => deleteTask(t));
     const ask = tr.querySelector(".t-ask"); if (ask) ask.addEventListener("click", () => askTaskQuestion(t));
     const qv = tr.querySelector(".t-qview"); if (qv) qv.addEventListener("click", () => { msgFilterTask = t.id; renderMessages(); markMessagesSeen(); });
@@ -2093,7 +2094,7 @@ function renderBulkBar(rows, ws) {
 /* 🖨 Работен лист от МАРКИРАНИТЕ задачи — за раздаване в цеха.
    Редът е този от екрана (със сегашната подредба). При няколко цеха се
    разделя на цехове, за да отиде всеки лист където трябва. */
-function printSelectedTasks(visibleRows) {
+async function printSelectedTasks(visibleRows) {
   if (!selectedTasks.size) { alert("Първо маркирай задачи — с тикчетата отляво или с бутона за маркиране на показаните."); return; }
   const ids = new Set([...selectedTasks].map(String));
   let list = (visibleRows || []).filter(t => ids.has(String(t.id)));
@@ -2103,6 +2104,16 @@ function printSelectedTasks(visibleRows) {
     (TASKS || []).forEach(t => { if (ids.has(String(t.id)) && !have.has(String(t.id))) list.push(t); });
   }
   if (!list.length) { alert("Маркираните задачи вече не съществуват."); return; }
+
+  // Прозорецът се отваря ВЕДНАГА (иначе popup блокерът го спира), QR кодовете
+  // се добавят след зареждане на библиотеката — сканират се направо от листа.
+  const w = window.open("", "_blank");
+  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
+  try { w.document.write('<p style="font-family:sans-serif;padding:20px">Подготвям работния лист…</p>'); } catch (e) {}
+  let qrOn = false;
+  if (typeof qrLibLoad === "function" && list.some(t => t.source && t.source.flow)) {
+    try { await qrLibLoad(); qrOn = true; } catch (e) {}
+  }
 
   const opsAll = [...new Set(list.map(t => String(t.operation || "").trim()).filter(Boolean))];
   const wsAll = [...new Set(list.map(t => t.workshop || ""))];
@@ -2116,7 +2127,11 @@ function printSelectedTasks(visibleRows) {
     const cl = t.client || [...new Set(taskSeriesOrders(t).map(o => (o.client || "").trim()).filter(Boolean))].join(", ") || "СЕРИЯ";
     const nos = taskOrderNos(t);
     const asg = taskAssignees(t);
+    const qrCell = (qrOn && t.source && t.source.flow)
+      ? `<img src="${qrDataUrl(qrScanUrl(qrRootOf(t).id), 128)}" style="width:16mm;height:16mm;display:block" />`
+      : "";
     return `<tr><td>${i + 1}</td>
+      <td style="width:17mm;padding:2px">${qrCell}</td>
       <td>${escapeHtml(cl)}${nos.length ? `<br><small>№ ${escapeHtml(nos.join(", "))}</small>` : ""}</td>
       <td class="code">${escapeHtml(t.code || "")}</td>
       <td class="pname">${escapeHtml(t.product || "")}</td>
@@ -2126,7 +2141,7 @@ function printSelectedTasks(visibleRows) {
       <td>${escapeHtml(asg.join(", "))}</td>
       <td style="width:64px"></td><td style="width:74px"></td></tr>`;
   };
-  const head = `<thead><tr><th>№</th><th>Клиент / заявка</th><th>Код</th><th>Изделие</th><th>Операция${showWs ? " · цех" : ""}</th>
+  const head = `<thead><tr><th>№</th><th>QR</th><th>Клиент / заявка</th><th>Код</th><th>Изделие</th><th>Операция${showWs ? " · цех" : ""}</th>
     <th class="r">Кол.</th><th class="r">Готови</th><th class="r">Остават</th><th>Срок</th><th>Възложено на</th><th>Изработени</th><th>Подпис</th></tr></thead>`;
 
   let body = "";
@@ -2155,9 +2170,7 @@ function printSelectedTasks(visibleRows) {
     <h1>${escapeHtml(title)}</h1><h2>${escapeHtml(sub)}</h2>${body}
     <div class="sign"><span>Дал: ................................</span><span>Приел: ................................</span></div>
     </body></html>`;
-  const w = window.open("", "_blank");
-  if (!w) { alert("Изскачащият прозорец е блокиран. Разреши popup за сайта."); return; }
-  w.document.write(html); w.document.close(); w.focus();
+  try { w.document.open(); w.document.write(html); w.document.close(); w.focus(); } catch (e) { alert("Печатният прозорец се затвори."); }
 }
 
 /* 🔀 Групово прехвърляне в цех — за събиране на разпръсната операция.

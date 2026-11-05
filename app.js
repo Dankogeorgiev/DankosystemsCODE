@@ -1117,6 +1117,14 @@ async function onSignedIn(s) {
   session = s;
   document.getElementById("login").hidden = true;
   document.getElementById("config-error").hidden = true;
+  // 📷 QR СКАН-РЕЖИМ (от етикет на палет): #scan=<id> отваря САМО скан-екрана,
+  // без главния интерфейс — телефоните в цеха влизат с общия акаунт и остават
+  // влезли. Преди показването на .app-chrome, за да не светне нищо отдолу.
+  const qrHash = (location.hash.match(/#scan=(\d+)/) || [])[1];
+  if (qrHash && typeof qrScanOpen === "function") {
+    qrScanOpen(Number(qrHash));
+    return;
+  }
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
   document.getElementById("user-email").textContent = s.user?.email || "";
   await loadAccess(s.user?.email || "");

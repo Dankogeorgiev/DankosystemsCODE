@@ -1120,6 +1120,7 @@ async function erpRenderCOForm(o) {
     <div class="erp-toolbar"${nonstd ? ' style="border-left:4px solid #f59e0b;padding-left:8px"' : ""}>
       <button class="btn btn-small" id="co-back">← Назад към заявките</button>
       <span class="spacer"></span>
+      <button class="btn btn-small" id="co-qr" title="QR етикети за палетите — по един на детайл от пуснатото производство; сканират се с телефон за отчитане по цеховете">🏷 QR етикети</button>
       <button class="btn btn-small" id="co-print">🖨 Печат</button>
       ${canDelete ? '<button class="btn btn-small btn-danger" id="co-del">🗑 Изтрий заявката</button>' : ""}
       <button class="btn btn-small btn-primary" id="co-save">💾 Запази</button>
@@ -1273,6 +1274,8 @@ async function erpRenderCOForm(o) {
   document.getElementById("co-save").addEventListener("click", () => erpCOSaveClick(o));
   const printBtn = document.getElementById("co-print");
   if (printBtn) printBtn.addEventListener("click", () => erpPrintCO(o));
+  const qrBtn = document.getElementById("co-qr");
+  if (qrBtn) qrBtn.addEventListener("click", () => { if (typeof erpQRLabelsForOrder === "function") erpQRLabelsForOrder(o); else alert("QR модулът не е зареден — презареди (F5)."); });
   const delBtn = document.getElementById("co-del");
   if (delBtn) delBtn.addEventListener("click", () => erpCODelete(o));
   const fileInput = document.getElementById("co-file-input");
