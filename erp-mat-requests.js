@@ -1104,12 +1104,30 @@ function matreqRenderGroupGrid(box, groups) {
       <span class="erp-muted" style="font-size:12px">${m.size ? `${m.size} доставчици · ${docs} документа` : "няма покупки"}</span>
     </button>`;
   }).join("");
+  // 🛒📋 Голямата карта „Планувани за поръчка" (по Данко, 05.11.2026) —
+  // двойна широчина, долу вляво, за бърз достъп до плануваните материали.
+  const plannedCard = `<button type="button" class="btn" id="mr-planned-card"
+      style="grid-column:span 2;display:flex;align-items:center;gap:16px;padding:18px 22px;height:auto;white-space:normal;text-align:left;background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;border:none"
+      title="Материалите, маркирани в 🔬 Симулацията и Работния доклад с „Планувай за поръчка" — избираш доставчик (предложен от историята) и поръчваш">
+      <span style="font-size:46px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))">🛒</span>
+      <span style="display:flex;flex-direction:column;gap:3px">
+        <b style="font-size:17px">🗓 Планувани за поръчка</b>
+        <span id="mr-planned-card-n" style="font-size:12.5px;opacity:.9">${MATREQ_PLANNED ? `${MATREQ_PLANNED.length} материал${MATREQ_PLANNED.length === 1 ? "" : "а"} чака${MATREQ_PLANNED.length === 1 ? "" : "т"} поръчка` : "какво чака поръчка — виж"}</span>
+      </span>
+    </button>`;
   box.innerHTML = `
     <p class="hint">Групите материали от Покупки като папки. Влез в папка → доставчиците ѝ и какво сме купували от всеки → отметни артикули → 🛒 заявката се пише сама. „${MATREQ_NOGRP}" събира ВСИЧКО извън материалните групи — фактури без вид разход И с вид като Ток/Други разходи (вкл. грешно класираните): колоната „Вид (Покупки)" показва какъв е сега, а ➡ разпределя. Транспортните са си в Логистика → 🧾 Фактури транспорт.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-top:6px">${cards}</div>`;
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-top:6px">${cards}${plannedCard}</div>`;
   box.querySelectorAll("[data-mrg]").forEach(b => b.addEventListener("click", () => {
     MATREQ_NAV.group = b.dataset.mrg; MATREQ_NAV.supplier = null; erpRenderMatRequests(true);
   }));
+  const plBtn = box.querySelector("#mr-planned-card");
+  if (plBtn) plBtn.addEventListener("click", () => { MATREQ_NAV.view = "planned"; erpRenderMatRequests(true); });
+  // Броячът се пълни тихо, ако плануваните още не са теглени.
+  if (!MATREQ_PLANNED) matreqPlannedLoad().then(() => {
+    const el = box.querySelector("#mr-planned-card-n");
+    if (el && MATREQ_PLANNED) el.textContent = `${MATREQ_PLANNED.length} материал${MATREQ_PLANNED.length === 1 ? "" : "а"} чака${MATREQ_PLANNED.length === 1 ? "" : "т"} поръчка`;
+  }).catch(() => {});
 }
 
 function matreqRenderGroupSuppliers(box, m) {
