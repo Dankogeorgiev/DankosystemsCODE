@@ -321,6 +321,26 @@ async function leaveBalSave() {
   return true;
 }
 function leaveBalSaveSoon(cb) { clearTimeout(leaveBalSaveT); leaveBalSaveT = setTimeout(async () => { await leaveBalSave(); if (cb) cb(); }, 600); }
+
+/* Резервно копие ПРЕДИ импорт (по случката с объркания файл, 05.11.2026):
+   старото съдържание се пази в app_config id="leave_balance_backup", а бутонът
+   „↩ Върни импорта" го връща с един клик. Пази се само ПОСЛЕДНОТО копие. */
+async function leaveBalBackupWrite(snap) {
+  try {
+    await sb.from("app_config").upsert({ id: "leave_balance_backup", data: { saved: new Date().toISOString(), bal: snap }, updated_at: new Date().toISOString() });
+  } catch (e) { console.error("lb backup", e); }
+}
+async function leaveBalUndoImport(done) {
+  let row = null;
+  try { const { data } = await sb.from("app_config").select("data").eq("id", "leave_balance_backup").maybeSingle(); row = data && data.data; } catch (e) {}
+  if (!row || !row.bal) { alert("Няма запазено копие отпреди импорт — такова се прави автоматично при всеки импорт от файл (от днес нататък)."); return; }
+  const when = row.saved ? new Date(row.saved).toLocaleString("bg-BG") : "неизвестно кога";
+  const n = (row.bal.list || []).length;
+  if (!confirm(`Да върна ли „Оставащи отпуски“ каквато беше ПРЕДИ последния импорт от файл?\n(копие от ${when} · ${n} служители)`)) return;
+  LEAVE_BAL = JSON.parse(JSON.stringify(row.bal));
+  if (!Array.isArray(LEAVE_BAL.list)) LEAVE_BAL.list = [];
+  if (await leaveBalSave()) { if (done) done(); }
+}
 function leaveBalNextId() { let m = 0; (LEAVE_BAL.list || []).forEach(p => { if ((Number(p.id) || 0) > m) m = Number(p.id); }); return m + 1; }
 function lbNum(v) { const n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isNaN(n) ? 0 : n; }
 
@@ -379,6 +399,7 @@ async function erpRenderLeaveBalance(v) {
       <span class="erp-count">📊 Оставащи отпуски ${LEAVE_BAL_YEAR} — ${rows.length} служители</span>
       <span class="spacer"></span>
       <label class="btn btn-small co-attach-btn" title="Импорт от файла ОТПУСКИ (лист ${LEAVE_BAL_YEAR}): име, остатък, платен отпуск, ползвани по месеци">⤓ Импорт (xlsx)<input type="file" id="lb-file" accept=".xlsx,.xls" hidden /></label>
+      <button class="btn btn-small" id="lb-undo" title="Връща таблицата каквато беше ПРЕДИ последния импорт от файл — ако файлът е бил сбъркан. Копието се прави само при импорт.">↩ Върни импорта</button>
       <button class="btn btn-small" id="lb-add">+ Добави служител</button>
       <button class="btn btn-small" id="lb-back">← Молби и календар</button>
     </div>
@@ -403,6 +424,7 @@ async function erpRenderLeaveBalance(v) {
     if (await leaveBalSave()) rerender();
   });
   const fi = v.querySelector("#lb-file"); if (fi) fi.addEventListener("change", e => leaveBalImport(e.target.files[0], rerender));
+  const ub = v.querySelector("#lb-undo"); if (ub) ub.addEventListener("click", () => leaveBalUndoImport(rerender));
   v.querySelectorAll("[data-lbdel]").forEach(b => b.addEventListener("click", async () => {
     const p = LEAVE_BAL.list.find(x => x.id === Number(b.dataset.lbdel)); if (!p) return;
     if (!confirm(`Да махна ли ${p.name} от таблицата?`)) return;
@@ -425,6 +447,8 @@ async function leaveBalImport(file, done) {
   if (!file) return;
   if (typeof XLSX === "undefined") { alert("XLSX библиотеката не е заредена."); return; }
   try {
+    // Снимка ПРЕДИ каквато и да е промяна — за „↩ Върни импорта".
+    const snap = JSON.parse(JSON.stringify(LEAVE_BAL || { year: LEAVE_BAL_YEAR, list: [] }));
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
     const wsName = wb.SheetNames.find(n => n.trim() === String(LEAVE_BAL_YEAR)) || wb.SheetNames[wb.SheetNames.length - 1];
@@ -447,7 +471,8 @@ async function leaveBalImport(file, done) {
     });
     if (!added && !updated) { alert("Не намерих редове със служители в листа „" + wsName + "”."); return; }
     LEAVE_BAL.year = LEAVE_BAL_YEAR;
-    if (await leaveBalSave()) { alert(`Импорт готов (лист ${wsName}): ${added} нови, ${updated} обновени.`); if (done) done(); }
+    await leaveBalBackupWrite(snap);
+    if (await leaveBalSave()) { alert(`Импорт готов (лист ${wsName}): ${added} нови, ${updated} обновени.\n(Сбъркан файл? Бутонът „↩ Върни импорта“ връща старото.)`); if (done) done(); }
   } catch (e) { alert("Грешка при импорт: " + (e.message || e)); }
 }
 
@@ -572,6 +597,7 @@ async function attendImportFile(file, done) {
       const raw = XLSX.utils.sheet_to_json(wb.Sheets[wsName], { header: 1, defval: "" });
       const found = attendParseNames(raw);
       if (!found.length) { alert("В лист „" + wsName + "\u201C не намерих имена (търся „Трите имена по документ за самоличност\u201C)."); return; }
+      const snap = JSON.parse(JSON.stringify(LEAVE_BAL || { year: LEAVE_BAL_YEAR, list: [] }));
       let added = 0, updated = 0;
       const normN = x => String(x || "").toLowerCase().replace(/\s+/g, " ").trim();
       found.forEach(f => {
@@ -579,7 +605,7 @@ async function attendImportFile(file, done) {
         if (ex) { if (f.role && ex.role !== f.role) { ex.role = f.role; updated++; } }
         else { LEAVE_BAL.list.push({ id: leaveBalNextId(), name: f.name, role: f.role || "", carry: 0, entitle: 20, months: [] }); added++; }
       });
-      leaveBalSave().then(ok => {
+      leaveBalBackupWrite(snap).then(() => leaveBalSave()).then(ok => {
         if (ok) { alert(`✅ От лист „${wsName}\u201C: ${added} нови служители${updated ? ", " + updated + " обновени длъжности" : ""}.`); if (done) done(); }
       });
     };
@@ -651,7 +677,9 @@ async function attendImportCheckins(file, done) {
     const entries = attendParseCheckins(text);
     if (!entries.length) { alert("Не намерих чекирания във файла — очаквам колони „Час на събитие; …; Име\u201C (експортът от системата за чекиране)."); return; }
     await leavesLoad(); await leaveBalLoad(); await attendLoad();
+    const snap = JSON.parse(JSON.stringify(LEAVE_BAL || { year: LEAVE_BAL_YEAR, list: [] }));
     const r = attendApplyCheckins(entries);
+    if (r.added) await leaveBalBackupWrite(snap);
     const okBal = r.added ? await leaveBalSave() : true;
     const okAtt = await attendSave();
     if (okBal && okAtt) {
