@@ -21,12 +21,31 @@ const QR_WORKER_KEY = "qr_worker";          // името на служител�
 function qrLibLoad() {
   return new Promise((resolve, reject) => {
     if (window.QRCode) return resolve();
+    let done = false;
+    const fail = msg => { if (!done) { done = true; reject(new Error(msg)); } };
     const s = document.createElement("script");
     s.src = QR_LIB_SRC;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("QR библиотеката не се зареди — провери интернета."));
+    s.onload = () => { if (!done) { done = true; resolve(); } };
+    s.onerror = () => fail("QR библиотеката не се зареди — провери интернета.");
+    // Без таймаут висящото CDN оставя печата на „Подготвям…" завинаги.
+    setTimeout(() => fail("QR библиотеката се бави — печатът продължава без кодове."), 10000);
     document.head.appendChild(s);
   });
+}
+
+/* Тясна поправка по задача: чете СВЕЖИЯ ред от базата, променя само каквото
+   трябва (напр. часовника qrStart) и го записва веднага. Така прозорецът за
+   изгубване на чужд паралелен отчет е милисекунди, не секундите на tLoadTasks.
+   Връща true само при успешен запис. */
+async function qrPatchTask(id, mut) {
+  try {
+    const { data: row, error: e1 } = await sb.from("tasks").select("data").eq("id", id).maybeSingle();
+    if (e1 || !row || !row.data) return false;
+    const d = row.data;
+    mut(d);
+    const { error } = await sb.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", id);
+    return !error;
+  } catch (e) { return false; }
 }
 
 // PNG data-URL на QR код (за <img> в печатни прозорци — зарежда се мигновено).
@@ -219,11 +238,27 @@ function qrScanHost() {
 // Вход от app.js при #scan=<id> (и при смяна на hash-а със следващ код).
 async function qrScanOpen(taskId) {
   QR_SCAN_ID = Number(taskId);
+  // В скан-режим скритият цехов екран не се пре-рисува (бавно е на телефон),
+  // а проверката за материал мълчи — складовите данни не са заредени тук и
+  // иначе лъже „няма материал" за всичко (ERP.matById е празен).
+  if (!window.__qrPatched) {
+    window.__qrPatched = true;
+    try {
+      if (typeof renderTasks === "function") { const rt = renderTasks; renderTasks = function () { if (document.getElementById("qr-scan")) return; return rt.apply(this, arguments); }; }
+      if (typeof taskMaterialShort === "function") { const tms = taskMaterialShort; taskMaterialShort = function () { if (document.getElementById("qr-scan")) return null; return tms.apply(this, arguments); }; }
+    } catch (e) {}
+  }
   const host = qrScanHost();
   host.innerHTML = '<div class="qs-note" style="margin-top:40vh;font-size:16px">⏳ Зареждам задачите…</div>';
   try { if (typeof tLoadWorkers === "function") await tLoadWorkers(); } catch (e) {}
-  try { await tLoadTasks(); } catch (e) {
-    host.innerHTML = '<div class="qs-done-msg" style="background:#fee2e2;color:#991b1b">Грешка при зареждане. Провери интернета и опитай пак.</div>';
+  try { await tLoadTasks(); } catch (e) {}
+  // tLoadTasks НЕ хвърля при грешка — празният списък значи „не се зареди",
+  // не „задачата е изтрита". Разликата е важна за човека в цеха.
+  if (!TASKS || !TASKS.length) {
+    host.innerHTML = `<div class="qs-done-msg" style="background:#fee2e2;color:#991b1b">Не успях да заредя задачите — провери интернета.</div>
+      <div style="text-align:center;margin-top:14px"><button class="qs-b qs-start" style="min-width:60%" id="qs-retry">↻ Опитай пак</button></div>`;
+    const rb = host.querySelector("#qs-retry");
+    if (rb) rb.addEventListener("click", () => qrScanOpen(QR_SCAN_ID));
     return;
   }
   qrScanRender();
@@ -231,10 +266,15 @@ async function qrScanOpen(taskId) {
 
 function qrScanRender() {
   const host = qrScanHost();
+  // Стар отворен лист (Завърших/Брак) не бива да надживее новото състояние.
+  document.querySelectorAll(".qs-overlay").forEach(x => x.remove());
   const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s == null ? "" : s));
   const t0 = (TASKS || []).find(x => String(x.id) === String(QR_SCAN_ID));
   if (!t0) {
-    host.innerHTML = '<div class="qs-done-msg" style="background:#fee2e2;color:#991b1b">Този код не отговаря на активна задача (изтрита или архивирана). Питай майстора.</div>';
+    host.innerHTML = `<div class="qs-done-msg" style="background:#fee2e2;color:#991b1b">Този код не отговаря на активна задача (изтрита или архивирана). Питай майстора.</div>
+      <div style="text-align:center;margin-top:14px"><button class="qs-b qs-start" style="min-width:60%" id="qs-retry">↻ Провери пак</button></div>`;
+    const rb = host.querySelector("#qs-retry");
+    if (rb) rb.addEventListener("click", () => qrScanOpen(QR_SCAN_ID));
     return;
   }
   const chain = qrChainOf(qrRootOf(t0));
@@ -277,6 +317,7 @@ function qrScanRender() {
       <span style="flex:1"></span>
       <button class="qs-small" data-act="worker">✎ ${worker ? "смени" : "избери"}</button>
       <button class="qs-small" data-act="reload">↻</button>
+      <button class="qs-small" data-act="close" title="Затваря скан-екрана и връща нормалния изглед">✕</button>
     </div>
     ${allDone ? '<div class="qs-done-msg">🎉 Всички операции по детайла са завършени!</div>' : ""}
     ${rows}
@@ -286,7 +327,17 @@ function qrScanRender() {
     const act = b.dataset.act;
     const t = (TASKS || []).find(x => String(x.id) === String(b.dataset.tid));
     if (act === "reload") { await qrScanOpen(QR_SCAN_ID); return; }
-    if (act === "worker") { const n = await qrPickWorker(t0.workshop); if (n) qrScanRender(); return; }
+    if (act === "close") {
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      location.reload();
+      return;
+    }
+    if (act === "worker") {
+      // Смяната от заглавката предлага хората от ВСИЧКИ цехове по веригата,
+      // не само първия (сканиращият може да е от кой да е от тях).
+      const n = await qrPickWorker(chain.map(x => x.workshop).filter(Boolean));
+      if (n) qrScanRender(); return;
+    }
     if (!t) return;
     if (act === "start") await qrOpStart(t);
     else if (act === "finish") await qrOpFinish(t);
@@ -297,9 +348,11 @@ function qrScanRender() {
 // Служител: едри бутони от списъка на цеха + поле за друго име. Пази се на телефона.
 function qrPickWorker(workshop) {
   return new Promise(resolve => {
+    if (document.querySelector(".qs-overlay")) return resolve("");   // двоен тап
     const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s == null ? "" : s));
+    const wss = Array.isArray(workshop) ? workshop : [workshop];
     let names = [];
-    try { names = (typeof wsWorkersOf === "function") ? (wsWorkersOf(workshop) || []) : []; } catch (e) {}
+    try { if (typeof wsWorkersOf === "function") names = [...new Set(wss.flatMap(ws => wsWorkersOf(ws) || []))]; } catch (e) {}
     if (!names.length) { try { names = (typeof wsWorkersOf === "function") ? (wsWorkersOf("__all") || []) : []; } catch (e) {} }
     const ov = document.createElement("div");
     ov.className = "qs-overlay";
@@ -336,23 +389,30 @@ async function qrNeedWorker(t) {
   return w;
 }
 
-// ▶ ЗАПОЧВАМ: пуска часовника за този служител и го записва по задачата.
+// ▶ ЗАПОЧВАМ: пуска часовника за този служител. ТЯСНА поправка (qrPatchTask):
+// чете свежия ред и пипа само qrStart/assignees — пълният запис на целия
+// data блоб тук губеше паралелни отчети от други телефони/компютри.
 async function qrOpStart(t) {
   const w = await qrNeedWorker(t); if (!w) return;
-  try { await tLoadTasks(); } catch (e) {}
-  const fresh = (TASKS || []).find(x => String(x.id) === String(t.id)); if (!fresh) return;
-  fresh.qrStart = fresh.qrStart || {};
-  fresh.qrStart[w] = new Date().toISOString();
-  try { if (typeof taskSetAssignees === "function" && typeof taskAssignees === "function" && !taskAssignees(fresh).includes(w)) taskSetAssignees(fresh, [...taskAssignees(fresh), w]); } catch (e) {}
-  await tSaveTask(fresh);
+  const iso = new Date().toISOString();
+  const ok = await qrPatchTask(t.id, d => {
+    d.qrStart = d.qrStart || {};
+    d.qrStart[w] = iso;
+    const a = Array.isArray(d.assignees) ? d.assignees : (d.assignee ? [d.assignee] : []);
+    if (!a.includes(w)) { d.assignees = [...a, w]; d.assignee = d.assignees[0]; }
+  });
+  if (!ok) { alert("Не успях да запиша — провери интернета и опитай пак."); return; }
+  // локален синхрон, за да светне часовникът веднага
+  t.qrStart = t.qrStart || {}; t.qrStart[w] = iso;
   qrScanRender();
 }
 
 // ✅ ЗАВЪРШИХ: брой (предпопълнен), машина (едри бутони), минути (от часовника).
 async function qrOpFinish(t) {
+  if (document.querySelector(".qs-overlay")) return;   // двоен тап — листът вече е отворен
   const w = await qrNeedWorker(t); if (!w) return;
+  if (document.querySelector(".qs-overlay")) return;
   const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s == null ? "" : s));
-  try { await tLoadTasks(); } catch (e) {}
   let fresh = (TASKS || []).find(x => String(x.id) === String(t.id)); if (!fresh) return;
   const map = (typeof erpSeriesProduced === "function") ? erpSeriesProduced(TASKS) : {};
   const qty = Number(fresh.qty) || 0, prod = Number(fresh.produced) || 0;
@@ -360,7 +420,9 @@ async function qrOpFinish(t) {
   if (avail <= 0) { alert("В момента няма налични бройки за отчитане по тази операция (изчакай предишната)."); qrScanRender(); return; }
   const machines = (typeof MACHINES_BY_WORKSHOP !== "undefined" && MACHINES_BY_WORKSHOP[fresh.workshop]) || null;
   const startIso = fresh.qrStart && fresh.qrStart[w];
-  const elapsed = startIso ? Math.max(1, Math.round((Date.now() - new Date(startIso).getTime()) / 60000)) : "";
+  let elapsed = startIso ? Math.max(1, Math.round((Date.now() - new Date(startIso).getTime()) / 60000)) : "";
+  // Забравен от дни часовник не бива да налива огромни минути в ценообразуването.
+  if (elapsed > 600) elapsed = "";
 
   const ov = document.createElement("div");
   ov.className = "qs-overlay";
@@ -370,8 +432,8 @@ async function qrOpFinish(t) {
     <input type="number" id="qsf-qty" inputmode="numeric" min="1" value="${avail}" />
     ${machines ? `<label>На коя машина?</label><div class="qs-pick" id="qsf-mach">${machines.map(m => `<button type="button" data-m="${esc(m)}">${esc(m)}</button>`).join("")}</div>`
       : `<label>Машина (ако има)</label><input type="text" id="qsf-mach-free" placeholder="напр. преса / ръчно" />`}
-    <label>Време за тази работа (минути)${startIso ? " — от часовника, поправи ако трябва" : ""}</label>
-    <input type="number" id="qsf-min" inputmode="numeric" min="1" value="${elapsed}" placeholder="мин" />
+    <label>Време за тази работа (минути)${startIso && elapsed ? " — от часовника, поправи ако трябва" : ""}</label>
+    <input type="text" id="qsf-min" inputmode="decimal" value="${elapsed}" placeholder="мин (и 7,5 става)" />
     <div class="qs-actions">
       <button type="button" class="qs-cancel">Отказ</button>
       <button type="button" class="qs-ok">💾 Запиши</button>
@@ -391,22 +453,40 @@ async function qrOpFinish(t) {
     if (machines && !mach) { alert("Избери машина."); return; }
     const freeM = ov.querySelector("#qsf-mach-free");
     const machine = mach || (freeM ? freeM.value.trim() : "");
-    const mins = Number(ov.querySelector("#qsf-min").value);
+    const mins = Number(String(ov.querySelector("#qsf-min").value).replace(",", "."));
     if (!(mins > 0)) { alert("Въведи времето в минути (за ценообразуването)."); return; }
-    const okBtn = ov.querySelector(".qs-ok"); okBtn.disabled = true; okBtn.textContent = "⏳…";
+    const okBtn = ov.querySelector(".qs-ok");
+    if (okBtn.disabled) return;   // двоен тап по 💾
+    okBtn.disabled = true; okBtn.textContent = "⏳…";
     // Прясно състояние точно преди записа (двама може да отчитат едновременно).
     try { await tLoadTasks(); } catch (e) {}
     fresh = (TASKS || []).find(x => String(x.id) === String(t.id));
     if (!fresh) { ov.remove(); qrScanRender(); return; }
     const before = Number(fresh.produced) || 0;
-    const extra = { tOrder: { v: mins, unit: "мин", sec: Math.round(mins * 60) } };
+    const extra = { tOrder: { v: mins, unit: "min", sec: Math.round(mins * 60) } };
     if (machine) extra.machine = machine;
     try { await logProduction(fresh, n, extra, { worker: w }); }
     catch (e) { console.error("qr finish", e); }
     const after = Number(fresh.produced) || 0;
     if (after > before) {
-      // записано: часовникът за този служител се нулира
-      if (fresh.qrStart && fresh.qrStart[w]) { delete fresh.qrStart[w]; try { await tSaveTask(fresh); } catch (e) {} }
+      // tSaveTask/prodLogWrite гълтат грешките си — проверяваме, че записът
+      // НАИСТИНА е стигнал базата (телефон с паднала връзка показваше успех).
+      let saved = false;
+      try {
+        const { data: chkRow } = await sb.from("tasks").select("data").eq("id", fresh.id).maybeSingle();
+        saved = !!chkRow && (Number(chkRow.data && chkRow.data.produced) || 0) >= after;
+      } catch (e) {}
+      if (!saved) {
+        alert("⚠ Отчетът може да НЕ е записан — няма връзка с базата. Провери интернета, натисни ↻ и виж дали бройката е влязла, преди да отчиташ пак.");
+        ov.remove();
+        await qrScanOpen(QR_SCAN_ID);
+        return;
+      }
+      // записано: часовникът за този служител се нулира (тясна поправка)
+      if (fresh.qrStart && fresh.qrStart[w]) {
+        delete fresh.qrStart[w];
+        try { await qrPatchTask(fresh.id, d => { if (d.qrStart) delete d.qrStart[w]; }); } catch (e) {}
+      }
       ov.remove();
       await qrScanOpen(QR_SCAN_ID);
     } else {
@@ -418,7 +498,9 @@ async function qrOpFinish(t) {
 
 // ⚠ Брак — както в цеха: отива в brakLog и връща нужда към първата операция.
 async function qrOpScrap(t) {
+  if (document.querySelector(".qs-overlay")) return;   // двоен тап
   const w = await qrNeedWorker(t); if (!w) return;
+  if (document.querySelector(".qs-overlay")) return;
   const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s == null ? "" : s));
   const ov = document.createElement("div");
   ov.className = "qs-overlay";
@@ -437,20 +519,33 @@ async function qrOpScrap(t) {
   ov.querySelector(".qs-cancel").addEventListener("click", () => ov.remove());
   ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
   ov.querySelector(".qs-ok").addEventListener("click", async () => {
-    const n = Number(ov.querySelector("#qss-qty").value);
+    const n = Number(String(ov.querySelector("#qss-qty").value).replace(",", "."));
     if (!(n > 0)) { alert("Въведи брой."); return; }
+    const okBtn = ov.querySelector(".qs-ok");
+    if (okBtn.disabled) return;   // двоен тап = двоен брак
+    okBtn.disabled = true; okBtn.textContent = "⏳…";
     const note = ov.querySelector("#qss-note").value.trim();
     try { await tLoadTasks(); } catch (e) {}
     const fresh = (TASKS || []).find(x => String(x.id) === String(t.id));
     if (!fresh) { ov.remove(); qrScanRender(); return; }
-    if (typeof reportSetupScrap === "function") { try { await reportSetupScrap(fresh, n, note ? note + " (от телефона: " + w + ")" : "от телефона: " + w); } catch (e) { console.error("qr scrap", e); } }
+    if (typeof reportSetupScrap === "function") {
+      // reportSetupScrap пише „кой" от MY_WORKER — иначе бракът се води на
+      // възложения по задачата, не на сканиращия.
+      const prevMW = (typeof MY_WORKER !== "undefined") ? MY_WORKER : null;
+      try { MY_WORKER = w; } catch (e) {}
+      try { await reportSetupScrap(fresh, n, note ? note + " (от телефона)" : "от телефона"); }
+      catch (e) { console.error("qr scrap", e); }
+      finally { try { MY_WORKER = prevMW; } catch (e) {} }
+    }
     ov.remove();
     await qrScanOpen(QR_SCAN_ID);
   });
 }
 
-// Сканиране на НОВ код, докато екранът е отворен (камерата смени само hash-а).
+// Сканиране на НОВ код: и когато скан-екранът е отворен, и когато камерата
+// смени hash-а на вече отворен таб с нормалния интерфейс (Android Chrome
+// преизползва таба) — скан-екранът ляга отгоре, ✕ го затваря.
 window.addEventListener("hashchange", () => {
   const m = location.hash.match(/#scan=(\d+)/);
-  if (m && document.getElementById("qr-scan")) qrScanOpen(Number(m[1]));
+  if (m) qrScanOpen(Number(m[1]));
 });

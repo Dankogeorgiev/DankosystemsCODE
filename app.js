@@ -1159,6 +1159,9 @@ function onSignedOut() {
   samples = [];
   currentId = null;
   MY_ACCESS = { isAdmin: true };
+  // Скан-екранът (QR) е плътен слой върху всичко — без това логин формата
+  // остава скрита под него и телефонът изглежда „забит".
+  const qs = document.getElementById("qr-scan"); if (qs) qs.remove();
   const tm = document.getElementById("tasks-modal"); if (tm) tm.hidden = true;
   const cm = document.getElementById("contacts-modal"); if (cm) cm.hidden = true;
   const layout = document.querySelector(".layout"); if (layout) layout.style.display = "";
