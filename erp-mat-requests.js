@@ -456,9 +456,10 @@ function matreqSuppForMat(code, name, mid) {
    „Винкел A x B x t"             → t·(A + B − t)
    „ГВ/СВ/Ламарина t мм"          → лист: t/1000·ρ·(1.25×2.5 м)
    „… Ø d" (автоматно, кръгла)    → плътен кръг: π/4·d²
-   Прът = 6 м, лист = 1250×2500 — ориентир, закръгля се НАГОРЕ (цели бройки).
-   (по Данко, 05.11.2026) */
-const MATREQ_BAR_M = 6, MATREQ_SHEET_M = [1.25, 2.5], MATREQ_RHO = 7850;
+   Прът: профили/тръби = 6 м, АВТОМАТНАТА (плътното) = 3 м; ламарината се
+   дава И В ДВАТА формата — 1000×2000 и 1250×2500 (по Данко, 05.11.2026).
+   Закръгля се НАГОРЕ към цели бройки. */
+const MATREQ_BAR_M = 6, MATREQ_BAR_SOLID_M = 3, MATREQ_SHEETS = [[1, 2], [1.25, 2.5]], MATREQ_RHO = 7850;
 function matreqMetalGuess(name, kg) {
   kg = Number(kg) || 0;
   if (!(kg > 0)) return null;
@@ -480,22 +481,31 @@ function matreqMetalGuess(name, kg) {
   } else if ((m = s.match(new RegExp("(?:^|[^а-я])(?:гв|св|ламарина|лист)[^0-9x]*" + N + "\\s*мм")))) {
     const t = +m[1];
     if (!(t > 0 && t <= 60)) return null;
-    const perSheet = (t / 1000) * MATREQ_RHO * MATREQ_SHEET_M[0] * MATREQ_SHEET_M[1];
-    return { pieces: Math.ceil(kg / perSheet - 1e-9), per: Math.round(perSheet * 100) / 100, noun: "листа", detail: `лист ${MATREQ_SHEET_M[0] * 1000}×${MATREQ_SHEET_M[1] * 1000} · ${t} мм` };
+    const opts = MATREQ_SHEETS.map(([w, l]) => {
+      const per = (t / 1000) * MATREQ_RHO * w * l;
+      return { size: `${w * 1000}×${l * 1000}`, per: Math.round(per * 100) / 100, pieces: Math.ceil(kg / per - 1e-9) };
+    });
+    return { sheet: true, opts, noun: "листа", detail: `ламарина ${t} мм` };
   } else if ((m = s.match(new RegExp("ø\\s*" + N))) || (/автоматно|кръгла стомана|кръг /.test(s) && (m = s.match(new RegExp("(?:^|[^0-9.])" + N + "(?:[^0-9.]|$)"))))) {
     const d = +m[1];
     if (!(d > 1 && d <= 300)) return null;
     area = Math.PI / 4 * d * d; what = "плътен кръг Ø" + d;
   } else return null;
-  const perBar = area * 1e-6 * MATREQ_RHO * MATREQ_BAR_M;
+  // Автоматната (плътният кръг) върви на 3-метрови пръти; профилите — на 6 м.
+  const barM = /плътен кръг/.test(what) ? MATREQ_BAR_SOLID_M : MATREQ_BAR_M;
+  const perBar = area * 1e-6 * MATREQ_RHO * barM;
   if (!(perBar > 0)) return null;
-  return { pieces: Math.ceil(kg / perBar - 1e-9), per: Math.round(perBar * 100) / 100, noun: "пръта", detail: `${what} · прът ${MATREQ_BAR_M} м` };
+  return { pieces: Math.ceil(kg / perBar - 1e-9), per: Math.round(perBar * 100) / 100, noun: "пръта", detail: `${what} · прът ${barM} м` };
 }
 /* Малкият сив ред „≈ N пръта" под килограмите (само при мярка кг). */
 function matreqMetalGuessHtml(name, kg, unit) {
   if (!/^\s*кг/i.test(String(unit || ""))) return "";
   const g = matreqMetalGuess(name, kg);
   if (!g) return "";
+  if (g.sheet) {
+    const tip = `Предположение: ${g.detail} — ${g.opts.map(o => `лист ${o.size} ≈ ${o.per} кг`).join("; ")}. Закръглено НАГОРЕ към цели листове.`;
+    return `<div class="erp-muted" style="font-size:11px;white-space:nowrap" title="${escapeAttr(tip)}">≈ ${g.opts.map(o => `${o.pieces} л. ${o.size}`).join(" · ")}</div>`;
+  }
   return `<div class="erp-muted" style="font-size:11px;white-space:nowrap" title="Предположение по името на материала: ${escapeAttr(g.detail)} ≈ ${escapeAttr(String(g.per))} кг/брой. Закръглено НАГОРЕ към цели бройки.">≈ ${g.pieces} ${escapeHtml(g.noun)}</div>`;
 }
 
