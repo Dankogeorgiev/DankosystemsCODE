@@ -179,7 +179,28 @@ async function erpSimulateProduction(lines, opts) {
   erpSimShow({
     title: opts.title || "", waves, stalls, missing: Object.values(missingMap), external: Object.values(externalMap),
     orderedTop, producedTop, topQty, buyList, seriesCount: keys.length, fromStock, produceList, lines,
+    grossList: erpSimGrossMaterials(lines),
   });
+}
+
+/* 📐 БРУТО нуждата от материал за ЦЯЛАТА заявка: пълно разбиване на
+   рецептата за поръчаните бройки — НЕ гледа нито склада с материали, нито
+   готовите изделия/детайли (по Данко, 05.11.2026). За сравнение с нетния
+   списък „Купи", който вади наличното. */
+function erpSimGrossMaterials(lines) {
+  const acc = {};
+  const walk = (pid, mult, anc) => {
+    (ERP.linesByProduct[pid] || []).forEach(l => {
+      if (l.material_id) acc[l.material_id] = (acc[l.material_id] || 0) + (Number(l.quantity) || 0) * mult;
+      else if (l.child_product_id && !anc.has(l.child_product_id))
+        walk(l.child_product_id, mult * (Number(l.quantity) || 1), new Set([...anc, l.child_product_id]));
+    });
+  };
+  (lines || []).forEach(l => { if (l.productId) walk(l.productId, Number(l.qty) || 1, new Set([l.productId])); });
+  return Object.keys(acc).map(mid => {
+    const m = ERP.matById[mid] || {};
+    return { code: m.code || "", name: m.name || "", unit: m.unit || "", need: acc[mid] };
+  }).filter(r => r.need > 0).sort((a, b) => b.need - a.need);
 }
 
 // Показва резултата от симулацията.
@@ -244,6 +265,12 @@ function erpSimShow(r) {
         <h4 style="margin:14px 0 6px">🛒 Трябва да се купи материал</h4>
         <table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num">Купи</th><th>Мярка</th></tr></thead>
         <tbody>${r.buyList.map(b => `<tr class="erp-below"><td>${escapeHtml(b.code)}</td><td>${escapeHtml(b.name)}</td><td class="num">${simNum(b.need)}</td><td class="num">${simNum(b.have)}</td><td class="num"><b>${simNum(b.buy)}</b></td><td>${escapeHtml(b.unit)}</td></tr>`).join("")}</tbody></table>
+      ` : ""}
+
+      ${(r.grossList || []).length ? `
+        <h4 style="margin:14px 0 6px">📐 Колко материал е нужен за заявката <span class="rt-muted">(брутно — цялата рецепта, без да гледа склада и готовите изделия)</span></h4>
+        <table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Нужно общо</th><th>Мярка</th></tr></thead>
+        <tbody>${r.grossList.map(g => `<tr><td>${escapeHtml(g.code)}</td><td>${escapeHtml(g.name)}</td><td class="num"><b>${simNum(g.need)}</b></td><td>${escapeHtml(g.unit)}</td></tr>`).join("")}</tbody></table>
       ` : ""}
 
       <h4 style="margin:14px 0 6px">🌊 Ход по вълни <span class="rt-muted">(докъдето стига)</span></h4>
