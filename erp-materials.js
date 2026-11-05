@@ -4,6 +4,7 @@
 
 let erpMatSearch = "";
 let erpMatOnlyBelow = false;
+let erpMatGroup = "";       // 📂 филтър: само една група („«без»" = без група)
 
 // Мярката вече е в килограми? (кг, kg, килограм…)
 function erpUnitIsKg(unit) {
@@ -36,6 +37,8 @@ function erpRenderMaterials() {
     (m.name || "").toLowerCase().includes(q) ||
     (m.group_name || "").toLowerCase().includes(q));
   if (erpMatOnlyBelow) rows = rows.filter(m => m.below_min);
+  // 📂 Филтър по група (по Данко, 05.11.2026): само избраната.
+  if (erpMatGroup) rows = rows.filter(m => erpMatGroup === "«без»" ? !(m.group_name || "").trim() : (m.group_name || "") === erpMatGroup);
   rows.sort((a, b) => bgCmp(a.name, b.name));
   const totalRows = rows.length;
   const MAT_CAP = 400;                       // повече редове бавят рисуването; търсенето стеснява
@@ -50,6 +53,15 @@ function erpRenderMaterials() {
   v.innerHTML = `
     <div class="erp-toolbar">
       <input type="search" id="erp-mat-search" placeholder="Търси код, име, група… (Enter)" value="${escapeAttr(erpMatSearch)}" />
+      ${(() => {
+        const groups = [...new Set(ERP.materials.map(m => (m.group_name || "").trim()).filter(Boolean))].sort((a, b) => bgCmp(a, b));
+        const hasNone = ERP.materials.some(m => !(m.group_name || "").trim());
+        return `<select id="erp-mat-group" title="Показва само една група материали (групите идват от самите материали). Клик върху групата в таблицата прави същото.">
+          <option value="">📂 Всички групи</option>
+          ${groups.map(g => `<option value="${escapeAttr(g)}" ${g === erpMatGroup ? "selected" : ""}>${escapeHtml(g)}</option>`).join("")}
+          ${hasNone ? `<option value="«без»" ${erpMatGroup === "«без»" ? "selected" : ""}>— без група —</option>` : ""}
+        </select>`;
+      })()}
       <label class="erp-check"><input type="checkbox" id="erp-mat-below" ${erpMatOnlyBelow ? "checked" : ""} /> Само липсващите</label>
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} материала${belowCount ? ` · <span class="erp-warn">${belowCount} под минимум</span>` : ""}</span>
@@ -69,7 +81,7 @@ function erpRenderMaterials() {
           <tr class="${m.below_min ? "erp-below" : ""}">
             <td data-label="Код">${escapeHtml(m.code || "—")}</td>
             <td data-label="Име">${escapeHtml(m.name || "")}</td>
-            <td data-label="Група">${escapeHtml(m.group_name || "")}</td>
+            <td data-label="Група" class="erp-clickable" data-grp="${escapeAttr((m.group_name || "").trim() || "«без»")}" title="Клик: показва само тази група">${escapeHtml(m.group_name || "")}</td>
             <td data-label="Вид">${m.is_purchased ? "Покупни" : "Метал"}</td>
             <td class="num" data-label="Наличност">${erpNum(m.stock)}${m.below_min ? " ⚠" : ""}</td>
             <td data-label="Мярка">${escapeHtml(m.unit || "")}</td>
@@ -95,6 +107,12 @@ function erpRenderMaterials() {
   document.getElementById("erp-mat-below").addEventListener("change", e => {
     erpMatOnlyBelow = e.target.checked; erpRenderMaterials();
   });
+  const grpSel = document.getElementById("erp-mat-group");
+  if (grpSel) grpSel.addEventListener("change", () => { erpMatGroup = grpSel.value; erpRenderMaterials(); });
+  v.querySelectorAll("td[data-grp]").forEach(td => td.addEventListener("click", () => {
+    erpMatGroup = erpMatGroup === td.dataset.grp ? "" : td.dataset.grp;   // втори клик маха филтъра
+    erpRenderMaterials();
+  }));
   document.getElementById("erp-mat-add").addEventListener("click", () => erpEditMaterial(null));
   const needBtn = document.getElementById("erp-mat-needed");
   if (needBtn) needBtn.addEventListener("click", erpMatNeededDialog);
