@@ -392,6 +392,125 @@ async function matreqNotesLoad(force) {
 }
 function matreqNoteKey(mid, article) { return mid ? "m" + mid : "a:" + String(article || "").trim().toLowerCase(); }
 function matreqNoteOf(mid, article) { const r = (MATREQ_NOTES || {})[matreqNoteKey(mid, article)]; return (r && r.note) || ""; }
+
+/* ---------- 🗓 ПЛАНУВАНИ ЗА ПОРЪЧКА (по Данко, 05.11.2026) ----------
+   От Симулацията на производство се избират материали с тикчета и „Планувай
+   за поръчка" — влизат тук. В таба се избират пак с тикчета и се поръчват,
+   с предложен доставчик от историята на Покупките (последният пръв).
+   Пази се в app_config id="planned_orders": { list: [{id, mid, code, name,
+   unit, qty, from (заявката), at, by}] }. */
+let MATREQ_PLANNED = null;
+async function matreqPlannedLoad() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "planned_orders").maybeSingle();
+    MATREQ_PLANNED = (data && data.data && data.data.list) || [];
+  } catch (e) { MATREQ_PLANNED = MATREQ_PLANNED || []; }
+  return MATREQ_PLANNED;
+}
+async function matreqPlannedSave() {
+  const { error } = await sb.from("app_config").upsert({ id: "planned_orders", data: { list: MATREQ_PLANNED || [] }, updated_at: new Date().toISOString() });
+  if (error) { alert("Грешка при запис на плануваните: " + error.message); return false; }
+  return true;
+}
+/* Вика се от Симулацията: добавя избраните материали към плануваните. */
+async function matreqPlannedAdd(items, from) {
+  await matreqPlannedLoad();
+  const at = new Date().toISOString().slice(0, 10);
+  const by = (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "";
+  (items || []).forEach((it, i) => MATREQ_PLANNED.push({
+    id: Date.now() + "-" + i, mid: it.mid || null, code: it.code || "", name: it.name || "",
+    unit: it.unit || "", qty: Number(it.qty) || 0, from: from || "", at, by,
+  }));
+  return matreqPlannedSave();
+}
+/* Доставчиците, от които Е КУПУВАН материалът (от Покупките): последният
+   пръв, с последната му цена в EUR. Кредитните известия не се броят. */
+function matreqSuppForMat(code, name, mid) {
+  const by = new Map();
+  const nm = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    if (o.docType === "credit") return;
+    (o.lines || []).forEach(l => {
+      const hit = (mid && Number(l.materialId) === Number(mid))
+        || (code && String(l.code || "").trim() === String(code).trim())
+        || (nm && String(l.article || l.name || "").toLowerCase().replace(/\s+/g, " ").trim() === nm);
+      if (!hit) return;
+      const sup = String(o.supplierName || "").trim(); if (!sup) return;
+      const k = sup.toLowerCase();
+      const g = by.get(k) || { name: sup, last: "", priceEur: 0 };
+      const d = String(o.date || "");
+      if (d >= g.last) {
+        g.last = d;
+        const pr = erpToNum(l.unitPrice) || 0;
+        if (pr) g.priceEur = (o.currency === "BGN") ? Math.round(pr / 1.95583 * 10000) / 10000 : pr;
+      }
+      by.set(k, g);
+    });
+  });
+  return [...by.values()].sort((a, b) => String(b.last).localeCompare(String(a.last)));
+}
+async function matreqRenderPlanned(box) {
+  box.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
+  await matreqPlannedLoad();
+  const list = (MATREQ_PLANNED || []).slice();
+  const rows = list.map((r, i) => ({ ...r, i, supps: matreqSuppForMat(r.code, r.name, r.mid) }));
+  box.innerHTML = `
+    <div class="erp-toolbar" style="margin:0 0 6px">
+      <label class="erp-inline"><input type="checkbox" id="pl-all" /> всички</label>
+      <button class="btn btn-small btn-primary" id="pl-order" title="Отваря заявка към избрания доставчик с маркираните материали. Ако са към различни доставчици — група по група.">🛒 Поръчай избраните</button>
+      <button class="btn btn-small btn-danger" id="pl-del" title="Маха маркираните от плануваните (напр. вече поръчани или отпаднали)">🗑 Махни избраните</button>
+      <span class="spacer"></span>
+      <span class="erp-count">${rows.length} план${rows.length === 1 ? "иран" : "ирани"} материал${rows.length === 1 ? "" : "а"}</span>
+    </div>
+    <p class="hint">Материалите идват от 🔬 Симулацията („🛒 Планувай за поръчка"). Доставчикът е предложен от историята на Покупките — последният, от когото е купувано, с последната му цена. Смени го от падащото, ако искаш друг.</p>
+    ${rows.length ? `<table class="report-table erp-table">
+      <thead><tr><th class="pay-chk"></th><th>Код</th><th>Материал</th><th class="num">К-во</th><th>Мярка</th><th>От заявка</th><th>Планувано</th><th>Доставчик (предложен)</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td class="pay-chk"><input type="checkbox" class="pl-sel" data-id="${escapeAttr(String(r.id))}" /></td>
+        <td class="t-code">${escapeHtml(r.code || "")}</td>
+        <td><b>${escapeHtml(r.name || "")}</b></td>
+        <td class="num"><input type="number" class="pl-qty" data-id="${escapeAttr(String(r.id))}" value="${escapeAttr(String(r.qty || ""))}" step="any" min="0" style="width:88px" title="Количество за поръчка — може да се коригира, запазва се само̀" /></td>
+        <td>${escapeHtml(r.unit || "")}</td>
+        <td class="erp-muted" style="font-size:12px">${escapeHtml(r.from || "—")}</td>
+        <td>${escapeHtml(typeof erpDMY === "function" ? erpDMY(r.at) : r.at)}</td>
+        <td>${r.supps.length
+          ? `<select class="pl-sup" data-id="${escapeAttr(String(r.id))}" style="max-width:230px">${r.supps.slice(0, 6).map((c, j) => `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}${c.last ? ` · ${typeof erpDMY === "function" ? erpDMY(c.last) : c.last}` : ""}</option>`).join("")}</select>`
+          : `<input type="text" class="pl-sup" data-id="${escapeAttr(String(r.id))}" placeholder="няма история — напиши доставчик" style="max-width:220px" />`}</td>
+      </tr>`).join("")}</tbody>
+    </table>` : `<p class="report-empty">Няма планувани материали. Пусни 🔬 Симулация на заявка и маркирай с тикчетата кое да се поръча.</p>`}`;
+  const allCb = box.querySelector("#pl-all");
+  if (allCb) allCb.addEventListener("change", () => box.querySelectorAll(".pl-sel").forEach(cb => cb.checked = allCb.checked));
+  box.querySelectorAll(".pl-qty").forEach(inp => inp.addEventListener("change", async () => {
+    const r = (MATREQ_PLANNED || []).find(x => String(x.id) === inp.dataset.id);
+    if (r) { r.qty = erpToNum(inp.value) || 0; await matreqPlannedSave(); }
+  }));
+  const selected = () => [...box.querySelectorAll(".pl-sel:checked")].map(cb => {
+    const r = (MATREQ_PLANNED || []).find(x => String(x.id) === cb.dataset.id);
+    const supEl = box.querySelector(`.pl-sup[data-id="${cb.dataset.id}"]`);
+    return r ? { ...r, supplier: (supEl && supEl.value || "").trim() } : null;
+  }).filter(Boolean);
+  const delBtn = box.querySelector("#pl-del");
+  if (delBtn) delBtn.addEventListener("click", async () => {
+    const sel = selected();
+    if (!sel.length) { alert("Маркирай с тикчетата кои да махна."); return; }
+    if (!confirm(`Да махна ли ${sel.length} ред${sel.length === 1 ? "" : "а"} от плануваните?`)) return;
+    const ids = new Set(sel.map(r => String(r.id)));
+    MATREQ_PLANNED = (MATREQ_PLANNED || []).filter(r => !ids.has(String(r.id)));
+    if (await matreqPlannedSave()) matreqRenderPlanned(box);
+  });
+  const ordBtn = box.querySelector("#pl-order");
+  if (ordBtn) ordBtn.addEventListener("click", () => {
+    const sel = selected();
+    if (!sel.length) { alert("Маркирай с тикчетата какво да поръчам."); return; }
+    const noSup = sel.filter(r => !r.supplier);
+    if (noSup.length) { alert("Без доставчик са: " + noSup.map(r => r.name).join(", ") + ".\nИзбери/напиши доставчик на реда."); return; }
+    const groups = new Map();
+    sel.forEach(r => { const k = r.supplier; (groups.get(k) || groups.set(k, []).get(k)).push(r); });
+    const [firstSup, firstRows] = [...groups.entries()][0];
+    if (groups.size > 1 && !confirm(`Избраните са към ${groups.size} доставчици. Отварям заявка към ПЪРВИЯ (${firstSup}) — после поръчай и останалите групи.`)) return;
+    erpMatReqCompose(firstRows.map(r => ({ code: r.code || "", name: r.name, qty: r.qty || 1, unit: r.unit || "бр." })), null, firstSup);
+  });
+}
 async function matreqNoteSave(key, note) {
   try {
     if (!key || typeof sb === "undefined" || !sb) return;
@@ -797,6 +916,7 @@ async function erpRenderMatRequests(keepCache) {
       <button class="btn btn-small ${view === "missing" ? "btn-primary" : ""}" id="mr-v-miss" title="Какво няма да стигне за пуснатите в производство заявки — с предложен доставчик и групова поръчка">⚠ Липсващи по заявки</button>
       <button class="btn btn-small ${view === "bymat" ? "btn-primary" : ""}" id="mr-v-bymat" title="Намери материала по име/код → виж от кой доставчик е купуван → 🛒 заявка">🔎 Търсене по материал</button>
       <button class="btn btn-small ${view === "breakdown" ? "btn-primary" : ""}" id="mr-breakdown" title="Избери клиентска заявка → суровините за остатъка ѝ срещу наличното — какво трябва да се поръча">🧮 Разбивка по заявка</button>
+      <button class="btn btn-small ${view === "planned" ? "btn-primary" : ""}" id="mr-v-plan" title="Материалите, маркирани в 🔬 Симулацията с „Планувай за поръчка" — избираш с тикчета и поръчваш, с предложен доставчик от историята">🗓 Планувани за поръчка${(MATREQ_PLANNED || []).length ? ` (${MATREQ_PLANNED.length})` : ""}</button>
       <span class="spacer"></span>
       <button class="btn btn-small" id="mr-refresh" title="Проверява за НОВИ фактури и доставчици и казва какво е намерил. Твоята подредба (преместеното и скритото) НЕ се пипа — тя е записана в облака.">↻ Обнови</button>
       <button class="btn btn-small btn-primary" id="mr-new" title="Заявка на свободен текст — за доставчик или материал без история в Покупки">+ Нова заявка (свободна)</button>
@@ -806,6 +926,7 @@ async function erpRenderMatRequests(keepCache) {
   v.querySelector("#mr-v-reg").addEventListener("click", () => { if (MATREQ_NAV.view !== "register") { MATREQ_NAV.view = "register"; erpRenderMatRequests(); } });
   v.querySelector("#mr-v-miss").addEventListener("click", () => { if (MATREQ_NAV.view !== "missing") { MATREQ_NAV.view = "missing"; erpRenderMatRequests(); } });
   v.querySelector("#mr-v-bymat").addEventListener("click", () => { if (MATREQ_NAV.view !== "bymat") { MATREQ_NAV.view = "bymat"; erpRenderMatRequests(); } });
+  v.querySelector("#mr-v-plan").addEventListener("click", () => { if (MATREQ_NAV.view !== "planned") { MATREQ_NAV.view = "planned"; erpRenderMatRequests(); } });
   v.querySelector("#mr-new").addEventListener("click", () => erpMatReqCompose([]));
   v.querySelector("#mr-breakdown").addEventListener("click", () => { if (MATREQ_NAV.view !== "breakdown") { MATREQ_NAV.view = "breakdown"; erpRenderMatRequests(); } });
   v.querySelector("#mr-refresh").addEventListener("click", async () => {
@@ -837,6 +958,7 @@ async function erpRenderMatRequests(keepCache) {
   if (view === "folders") matreqRenderFolders(box);
   else if (view === "breakdown") matreqRenderBreakdown(box);
   else if (view === "bymat") matreqRenderByMat(box);
+  else if (view === "planned") matreqRenderPlanned(box);
   else if (view === "missing") {
     if (typeof erpRenderMissingMaterials === "function") erpRenderMissingMaterials(box);
     else box.innerHTML = `<p class="erp-warn">Модулът „Липсващи материали" не е зареден.</p>`;

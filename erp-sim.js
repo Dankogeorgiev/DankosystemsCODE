@@ -199,7 +199,7 @@ function erpSimGrossMaterials(lines) {
   (lines || []).forEach(l => { if (l.productId) walk(l.productId, Number(l.qty) || 1, new Set([l.productId])); });
   return Object.keys(acc).map(mid => {
     const m = ERP.matById[mid] || {};
-    return { code: m.code || "", name: m.name || "", unit: m.unit || "", need: acc[mid] };
+    return { mid: Number(mid), code: m.code || "", name: m.name || "", unit: m.unit || "", need: acc[mid] };
   }).filter(r => r.need > 0).sort((a, b) => b.need - a.need);
 }
 
@@ -269,8 +269,12 @@ function erpSimShow(r) {
 
       ${(r.grossList || []).length ? `
         <h4 style="margin:14px 0 6px">📐 Колко материал е нужен за заявката <span class="rt-muted">(брутно — цялата рецепта, без да гледа склада и готовите изделия)</span></h4>
-        <table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Нужно общо</th><th>Мярка</th></tr></thead>
-        <tbody>${r.grossList.map(g => `<tr><td>${escapeHtml(g.code)}</td><td>${escapeHtml(g.name)}</td><td class="num"><b>${simNum(g.need)}</b></td><td>${escapeHtml(g.unit)}</td></tr>`).join("")}</tbody></table>
+        <table class="report-table erp-table"><thead><tr><th class="pay-chk"><input type="checkbox" id="sim-gm-all" title="Маркирай всички" /></th><th>Код</th><th>Материал</th><th class="num">Нужно общо</th><th>Мярка</th></tr></thead>
+        <tbody>${r.grossList.map((g, i) => `<tr><td class="pay-chk"><input type="checkbox" class="sim-gm-sel" data-i="${i}" /></td><td>${escapeHtml(g.code)}</td><td>${escapeHtml(g.name)}</td><td class="num"><b>${simNum(g.need)}</b></td><td>${escapeHtml(g.unit)}</td></tr>`).join("")}</tbody></table>
+        <div class="erp-co-actions" style="margin:6px 0 0">
+          <button class="btn btn-small btn-primary" id="sim-plan" title="Маркираните материали влизат в Заявки за материали → 🗓 Планувани за поръчка — там се избира доставчик (предложен от историята) и се поръчва">🛒 Планувай за поръчка</button>
+          <span class="erp-muted" id="sim-plan-st">избери с тикчетата кое да се поръчва</span>
+        </div>
       ` : ""}
 
       <h4 style="margin:14px 0 6px">🌊 Ход по вълни <span class="rt-muted">(докъдето стига)</span></h4>
@@ -291,6 +295,25 @@ function erpSimShow(r) {
   if (pr) pr.addEventListener("click", () => erpSimPrint(wrap, r.title));
   const cb = wrap.querySelector("#sim-codes");
   if (cb) cb.addEventListener("click", () => erpSimCodesDialog(r.lines, r.title));
+  // 🛒 Планувай за поръчка: маркираните материали → Заявки за материали →
+  // 🗓 Планувани за поръчка (по Данко, 05.11.2026).
+  const allGm = wrap.querySelector("#sim-gm-all");
+  if (allGm) allGm.addEventListener("change", () => wrap.querySelectorAll(".sim-gm-sel").forEach(x => x.checked = allGm.checked));
+  const planBtn = wrap.querySelector("#sim-plan");
+  if (planBtn) planBtn.addEventListener("click", async () => {
+    const sel = [...wrap.querySelectorAll(".sim-gm-sel:checked")].map(x => (r.grossList || [])[Number(x.dataset.i)]).filter(Boolean);
+    const st = wrap.querySelector("#sim-plan-st");
+    if (!sel.length) { alert("Маркирай с тикчетата кои материали да се планират."); return; }
+    if (typeof matreqPlannedAdd !== "function") { alert("Модулът „Заявки за материали“ не е зареден."); return; }
+    planBtn.disabled = true; planBtn.textContent = "Записвам…";
+    const ok = await matreqPlannedAdd(sel.map(g => ({ mid: g.mid, code: g.code, name: g.name, unit: g.unit, qty: g.need })), r.title || "");
+    planBtn.disabled = false; planBtn.textContent = "🛒 Планувай за поръчка";
+    if (ok) {
+      wrap.querySelectorAll(".sim-gm-sel:checked").forEach(x => x.checked = false);
+      if (allGm) allGm.checked = false;
+      if (st) st.textContent = `✅ ${sel.length} материал${sel.length === 1 ? "" : "а"} са в Заявки за материали → 🗓 Планувани за поръчка`;
+    }
+  });
 }
 
 // Пълен списък на ВСИЧКИ кодове (детайли/възли + крайно изделие), участващи в
