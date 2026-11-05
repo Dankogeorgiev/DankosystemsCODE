@@ -449,6 +449,56 @@ function matreqSuppForMat(code, name, mid) {
   });
   return [...by.values()].sort((a, b) => String(b.last).localeCompare(String(a.last)));
 }
+/* ---------- 📏 Колко ПРЪТА / ЛИСТА са толкова килограма ----------
+   Предположение по ИМЕТО на материала (формулите от calc-metali, ρ=7850):
+   „Тръба [ГВ/СВ] A x B x t"      → кух профил: (A·B − (A−2t)(B−2t)) мм²
+   „Тръба кръгла D x t"           → π/4·(D² − (D−2t)²)
+   „Винкел A x B x t"             → t·(A + B − t)
+   „ГВ/СВ/Ламарина t мм"          → лист: t/1000·ρ·(1.25×2.5 м)
+   „… Ø d" (автоматно, кръгла)    → плътен кръг: π/4·d²
+   Прът = 6 м, лист = 1250×2500 — ориентир, закръгля се НАГОРЕ (цели бройки).
+   (по Данко, 05.11.2026) */
+const MATREQ_BAR_M = 6, MATREQ_SHEET_M = [1.25, 2.5], MATREQ_RHO = 7850;
+function matreqMetalGuess(name, kg) {
+  kg = Number(kg) || 0;
+  if (!(kg > 0)) return null;
+  const s = String(name || "").toLowerCase().replace(/,/g, ".").replace(/[х×]/g, "x");
+  const N = "(\\d+(?:\\.\\d+)?)";
+  let m, area = 0, what = "";
+  if (/тръба/.test(s) && /кръгла/.test(s) && (m = s.match(new RegExp(N + "\\s*x\\s*" + N)))) {
+    const D = +m[1], t = +m[2];
+    if (!(D > 0 && t > 0 && t <= D / 2)) return null;
+    area = Math.PI / 4 * (D * D - Math.pow(Math.max(0, D - 2 * t), 2)); what = "кръгла тръба";
+  } else if (/тръба/.test(s) && (m = s.match(new RegExp(N + "\\s*x\\s*" + N + "\\s*x\\s*" + N)))) {
+    const a = +m[1], b = +m[2], t = +m[3];
+    if (!(a > 0 && b > 0 && t > 0 && t <= Math.min(a, b) / 2)) return null;
+    area = a * b - Math.max(0, a - 2 * t) * Math.max(0, b - 2 * t); what = "профилна тръба";
+  } else if (/винкел/.test(s) && (m = s.match(new RegExp(N + "\\s*x\\s*" + N + "\\s*x\\s*" + N)))) {
+    const a = +m[1], b = +m[2], t = +m[3];
+    if (!(t > 0 && t <= Math.min(a, b))) return null;
+    area = t * (a + b - t); what = "винкел";
+  } else if ((m = s.match(new RegExp("(?:^|[^а-я])(?:гв|св|ламарина|лист)[^0-9x]*" + N + "\\s*мм")))) {
+    const t = +m[1];
+    if (!(t > 0 && t <= 60)) return null;
+    const perSheet = (t / 1000) * MATREQ_RHO * MATREQ_SHEET_M[0] * MATREQ_SHEET_M[1];
+    return { pieces: Math.ceil(kg / perSheet - 1e-9), per: Math.round(perSheet * 100) / 100, noun: "листа", detail: `лист ${MATREQ_SHEET_M[0] * 1000}×${MATREQ_SHEET_M[1] * 1000} · ${t} мм` };
+  } else if ((m = s.match(new RegExp("ø\\s*" + N))) || (/автоматно|кръгла стомана|кръг /.test(s) && (m = s.match(new RegExp("(?:^|[^0-9.])" + N + "(?:[^0-9.]|$)"))))) {
+    const d = +m[1];
+    if (!(d > 1 && d <= 300)) return null;
+    area = Math.PI / 4 * d * d; what = "плътен кръг Ø" + d;
+  } else return null;
+  const perBar = area * 1e-6 * MATREQ_RHO * MATREQ_BAR_M;
+  if (!(perBar > 0)) return null;
+  return { pieces: Math.ceil(kg / perBar - 1e-9), per: Math.round(perBar * 100) / 100, noun: "пръта", detail: `${what} · прът ${MATREQ_BAR_M} м` };
+}
+/* Малкият сив ред „≈ N пръта" под килограмите (само при мярка кг). */
+function matreqMetalGuessHtml(name, kg, unit) {
+  if (!/^\s*кг/i.test(String(unit || ""))) return "";
+  const g = matreqMetalGuess(name, kg);
+  if (!g) return "";
+  return `<div class="erp-muted" style="font-size:11px;white-space:nowrap" title="Предположение по името на материала: ${escapeAttr(g.detail)} ≈ ${escapeAttr(String(g.per))} кг/брой. Закръглено НАГОРЕ към цели бройки.">≈ ${g.pieces} ${escapeHtml(g.noun)}</div>`;
+}
+
 /* Доставките на материала СЛЕД дадена дата (от Покупките: фактури + стокови
    разписки; кредитните известия се ВАЖДАТ — върната стока). Връща общото
    количество и документите (за подсказката). */
@@ -491,7 +541,7 @@ async function matreqRenderPlanned(box) {
         <td class="pay-chk"><input type="checkbox" class="pl-sel" data-id="${escapeAttr(String(r.id))}" /></td>
         <td class="t-code">${escapeHtml(r.code || "")}</td>
         <td><b>${escapeHtml(r.name || "")}</b></td>
-        <td class="num"><input type="number" class="pl-qty" data-id="${escapeAttr(String(r.id))}" value="${escapeAttr(String(r.qty || ""))}" step="any" min="0" style="width:88px" title="Количество за поръчка — може да се коригира, запазва се само̀" /></td>
+        <td class="num"><input type="number" class="pl-qty" data-id="${escapeAttr(String(r.id))}" value="${escapeAttr(String(r.qty || ""))}" step="any" min="0" style="width:88px" title="Количество за поръчка — може да се коригира, запазва се само̀" />${matreqMetalGuessHtml(r.name, r.qty, r.unit)}</td>
         <td>${escapeHtml(r.unit || "")}</td>
         <td class="erp-muted" style="font-size:12px">${escapeHtml(r.from || "—")}</td>
         <td>${escapeHtml(typeof erpDMY === "function" ? erpDMY(r.at) : r.at)}</td>
@@ -500,7 +550,7 @@ async function matreqRenderPlanned(box) {
           const left = Math.max(0, Math.round(((Number(r.qty) || 0) - got.total) * 1000) / 1000);
           const covered = (Number(r.qty) || 0) > 0 && left <= 0;
           return `<td class="num" ${got.docs.length ? `title="${escapeAttr(got.docs.slice(0, 6).join("\n"))}"` : ""}>${got.total ? `<b>${erpNum(got.total)}</b>` : "—"}</td>
-        <td class="num">${covered ? '<b style="color:#166534">✓ покрито</b>' : `<b style="color:#b91c1c">${erpNum(left)}</b>`}</td>`;
+        <td class="num">${covered ? '<b style="color:#166534">✓ покрито</b>' : `<b style="color:#b91c1c">${erpNum(left)}</b>${matreqMetalGuessHtml(r.name, left, r.unit)}`}</td>`;
         })()}
         <td>${r.supps.length
           ? `<select class="pl-sup" data-id="${escapeAttr(String(r.id))}" style="max-width:230px">${r.supps.slice(0, 6).map((c, j) => `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}${c.last ? ` · ${typeof erpDMY === "function" ? erpDMY(c.last) : c.last}` : ""}</option>`).join("")}</select>`
