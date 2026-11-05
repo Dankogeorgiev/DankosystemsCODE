@@ -486,7 +486,7 @@ async function matreqRenderPlanned(box) {
     </div>
     <p class="hint">Материалите идват от 🔬 Симулацията („🛒 Планувай за поръчка"). Доставчикът е предложен от историята на Покупките — последният, от когото е купувано, с последната му цена. Смени го от падащото, ако искаш друг.</p>
     ${rows.length ? `<table class="report-table erp-table">
-      <thead><tr><th class="pay-chk"></th><th>Код</th><th>Материал</th><th class="num">К-во</th><th>Мярка</th><th>От заявка</th><th>Планувано</th><th class="num" title="Доставките на материала СЛЕД датата на плануване (фактури + стокови; кредитните се важдат)">Доставено след</th><th class="num" title="Колко още трябва: плануваното минус доставеното след датата">ОСТАВА</th><th>Доставчик (предложен)</th></tr></thead>
+      <thead><tr><th class="pay-chk"></th><th>Код</th><th>Материал</th><th class="num">К-во</th><th>Мярка</th><th>От заявка</th><th>Планувано</th><th class="num" title="Доставките на материала СЛЕД датата на плануване (фактури + стокови; кредитните се важдат)">Доставено след</th><th class="num" title="Колко още трябва: плануваното минус доставеното след датата">ОСТАВА</th><th>Доставчик (предложен)</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td class="pay-chk"><input type="checkbox" class="pl-sel" data-id="${escapeAttr(String(r.id))}" /></td>
         <td class="t-code">${escapeHtml(r.code || "")}</td>
@@ -505,10 +505,20 @@ async function matreqRenderPlanned(box) {
         <td>${r.supps.length
           ? `<select class="pl-sup" data-id="${escapeAttr(String(r.id))}" style="max-width:230px">${r.supps.slice(0, 6).map((c, j) => `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}${c.last ? ` · ${typeof erpDMY === "function" ? erpDMY(c.last) : c.last}` : ""}</option>`).join("")}</select>`
           : `<input type="text" class="pl-sup" data-id="${escapeAttr(String(r.id))}" placeholder="няма история — напиши доставчик" style="max-width:220px" />`}</td>
+        <td class="erp-row-actions"><button type="button" class="btn btn-small btn-primary pl-buy" data-id="${escapeAttr(String(r.id))}" title="Поръчай ТОЗИ материал към избрания доставчик — отваря се попълнена заявка. За няколко материала към един доставчик: тикчетата + „🛒 Поръчай избраните" горе.">🛒</button></td>
       </tr>`).join("")}</tbody>
     </table>` : `<p class="report-empty">Няма планувани материали. Пусни 🔬 Симулация на заявка и маркирай с тикчетата кое да се поръча.</p>`}`;
   const allCb = box.querySelector("#pl-all");
   if (allCb) allCb.addEventListener("change", () => box.querySelectorAll(".pl-sel").forEach(cb => cb.checked = allCb.checked));
+  // 🛒 на реда: бърза поръчка на ЕДИНИЯ материал към избрания му доставчик.
+  box.querySelectorAll(".pl-buy").forEach(b => b.addEventListener("click", () => {
+    const r = (MATREQ_PLANNED || []).find(x => String(x.id) === b.dataset.id);
+    if (!r) return;
+    const supEl = box.querySelector(`.pl-sup[data-id="${b.dataset.id}"]`);
+    const sup = (supEl && supEl.value || "").trim();
+    if (!sup) { alert("Избери/напиши доставчик на реда."); return; }
+    erpMatReqCompose([{ code: r.code || "", name: r.name, qty: r.qty || 1, unit: r.unit || "бр." }], null, sup);
+  }));
   box.querySelectorAll(".pl-qty").forEach(inp => inp.addEventListener("change", async () => {
     const r = (MATREQ_PLANNED || []).find(x => String(x.id) === inp.dataset.id);
     if (r) { r.qty = erpToNum(inp.value) || 0; await matreqPlannedSave(); }
