@@ -157,7 +157,10 @@ body {
 .btn-pulse:hover { background: #0284c7; }
 
 /* Пулс — табло на собственика */
-#pulse-view { padding: 8px 16px 16px; }
+/* Скролът: кутията (.tasks-box) е overflow:hidden, затова изгледът ВЪТРЕ трябва
+   да скролира сам (както #tasks-view и другите на ред ~352) — иначе на телефона
+   се вижда само първият месец и надолу не мърда. */
+#pulse-view { padding: 8px 16px 16px; overflow: auto; flex: 1 1 auto; min-height: 0; }
 .pulse-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 14px 0 18px; }
 .pulse-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; text-align: center; box-shadow: var(--shadow); }
 .pulse-val { font-size: 30px; font-weight: 800; color: var(--ink); line-height: 1.1; }
