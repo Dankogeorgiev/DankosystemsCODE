@@ -384,13 +384,13 @@ function erpPuCreditsFor(o) {
     && String(p.id) !== String(o.id)
     && erpPuEq(p.creditToNo) === erpPuEq(o.invoiceNo)
     && erpPuEq(p.supplierName) === erpPuEq(o.supplierName));
-  let total = 0;
+  let total = 0, base = 0;
   list.forEach(p => {
-    const tt = erpPuTotals(p).total;   // отрицателен
-    const eur = erpPuCur(p) === "BGN" ? tt / PU_EUR_BGN : tt;
-    total += erpPuCur(o) === "BGN" ? eur * PU_EUR_BGN : eur;
+    const t = erpPuTotals(p);   // отрицателни
+    const k = (erpPuCur(p) === "BGN" ? 1 / PU_EUR_BGN : 1) * (erpPuCur(o) === "BGN" ? PU_EUR_BGN : 1);
+    total += t.total * k; base += t.base * k;
   });
-  return { list, total: Math.round(total * 100) / 100 };
+  return { list, total: Math.round(total * 100) / 100, base: Math.round(base * 100) / 100 };
 }
 
 /* Нова фактура-разход. По подразбиране е в ЕВРО (BGN остава за избор при
@@ -941,8 +941,7 @@ async function erpPuSaveClick(o, opts) {
   try {
     await erpSavePurchase(o); await erpLoadPurchases();
     try { if (typeof erpPaySyncFromPurchase === "function") await erpPaySyncFromPurchase(o); } catch (e) {}   // Банка+срок → Задължения
-    // КИ с „Към фактура №": предлага приспадане от неплатеното задължение.
-    try { if (typeof erpPayApplyCredit === "function") await erpPayApplyCredit(o); } catch (e) {}
+
     if (erpPuNeedsPost(o)) {
       await erpPostPurchase(o, { silent: true });   // пита за потвърждение; при успех пре-рендира формата
       const b2 = document.getElementById("pu-save");

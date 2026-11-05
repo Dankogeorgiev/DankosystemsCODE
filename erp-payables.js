@@ -574,6 +574,13 @@ async function erpPaySyncFromPurchase(o) {
   if (o.docType === "goods" || o.docType === "credit") {
     const i = (PAYABLES || []).findIndex(p => p.srcPurchaseId === o.id && !p.paid);
     if (i >= 0) { PAYABLES.splice(i, 1); await erpPaySave(); }
+    // КИ („Към фактура №"): преизчислява задължението на ОРИГИНАЛА — то
+    // става НЕТО (фактурата минус КИ-тата) право в сумата (Данко, 05.11.2026).
+    if (o.docType === "credit" && o.creditToNo && typeof erpPurchases !== "undefined" && erpPurchases && typeof erpPuEq === "function") {
+      const orig = erpPurchases.find(p => p.docType !== "credit" && p.docType !== "goods"
+        && erpPuEq(p.invoiceNo) === erpPuEq(o.creditToNo) && erpPuEq(p.supplierName) === erpPuEq(o.supplierName));
+      if (orig) return erpPaySyncFromPurchase(orig);
+    }
     return;
   }
   const rate = (o.currency === "BGN") ? 1.95583 : 1;
@@ -584,21 +591,38 @@ async function erpPaySyncFromPurchase(o) {
   const qualifies = !o.paid && (o.payStatus === "deferred" ||
     (!o.payStatus && o.paymentMethod === "Банка" && Number(o.termDays) > 0));
   const idx = (PAYABLES || []).findIndex(p => p.srcPurchaseId === o.id);
+  // ➖ КИ-тата към фактурата: задължението е НЕТО (Данко, 05.11.2026).
+  const crf = (typeof erpPuCreditsFor === "function") ? erpPuCreditsFor(o) : { list: [], base: 0, total: 0 };
   if (qualifies) {
+    const netBase = t.base + (crf.base || 0), netVat = t.total + (crf.total || 0);
+    // КИ покрива фактурата изцяло → няма какво да се плаща, редът пада.
+    if (crf.list.length && netVat <= 0.004) {
+      if (idx >= 0 && !PAYABLES[idx].paid) { PAYABLES.splice(idx, 1); await erpPaySave(); }
+      return;
+    }
     const fields = {
       dueDate: o.dueDate || (typeof erpPuDueDate === "function" ? erpPuDueDate(o) : ""),
       termDays: Number(o.termDays) || 0,
       invoiceNo: o.invoiceNo || "",
       docDate: o.date || "",
       supplier: o.supplierName || "",
-      article: (o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 2).join(", ") || o.note || "",
-      amount: Math.round((t.base / rate) * 100) / 100,
-      amountVat: Math.round((t.total / rate) * 100) / 100,
+      article: ((o.lines || []).map(l => l.article || l.name).filter(Boolean).slice(0, 2).join(", ") || o.note || "")
+        + (crf.list.length ? ` · − КИ № ${crf.list.map(p => p.invoiceNo || "—").join(", ")}` : ""),
+      amount: Math.round((netBase / rate) * 100) / 100,
+      amountVat: Math.round((netVat / rate) * 100) / 100,
       currency: "EUR", payMethod: "Банка", srcPurchaseId: o.id,
       iban: o.supplierIban || "",   // от AI фактурата — редът го носи и без паспорт
     };
     if (idx >= 0) {
-      if (!PAYABLES[idx].paid) Object.assign(PAYABLES[idx], fields);
+      if (!PAYABLES[idx].paid) {
+        // Старото „приспадане като плащане" (бележка „КИ № …") се маха —
+        // същите КИ-та вече са в намалената сума (без двойно броене).
+        if (crf.list.length) {
+          const nos = new Set(crf.list.map(p => erpPuEq(p.invoiceNo)));
+          PAYABLES[idx].payments = (PAYABLES[idx].payments || []).filter(x => !(x && x.note && /^КИ № /.test(x.note) && nos.has(erpPuEq(String(x.note).replace(/^КИ № /, "")))));
+        }
+        Object.assign(PAYABLES[idx], fields);
+      }
     } else PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", forToday: false, ...fields });
     await erpPaySave();
   } else if (idx >= 0 && !PAYABLES[idx].paid) {
