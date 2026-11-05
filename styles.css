@@ -192,6 +192,8 @@ body {
   #pulse-view td.pum-nt::before { flex: none; margin-bottom: 3px; }
   #pulse-view input.pum-note { width: 100%; }
   #pulse-view .erp-table td:empty { display: none; }
+  /* 16px спира авто-мащабирането на iOS при докосване на поле (както .erp-co-form). */
+  #pulse-view .erp-table input { font-size: 16px; }
 }
 
 /* Контакти */
