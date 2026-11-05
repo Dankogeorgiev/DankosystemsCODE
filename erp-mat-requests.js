@@ -435,7 +435,9 @@ function matreqSuppForMat(code, name, mid) {
         || (code && String(l.code || "").trim() === String(code).trim())
         || (nm && String(l.article || l.name || "").toLowerCase().replace(/\s+/g, " ").trim() === nm);
       if (!hit) return;
-      const sup = String(o.supplierName || "").trim(); if (!sup) return;
+      // Преименувана фирма (Тисенкруп → ТК Акселис) се брои като ЕДИН
+      // доставчик — предложението носи НОВОТО име (matreqCanon/алиасите).
+      const sup = matreqCanon(o.supplierName); if (!sup) return;
       const k = sup.toLowerCase();
       const g = by.get(k) || { name: sup, last: "", priceEur: 0 };
       const d = String(o.date || "");
