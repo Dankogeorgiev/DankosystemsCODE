@@ -174,6 +174,60 @@ async function erpQRLabelsForOrder(o) {
 /* ---------- 📷 СКАН-ЕКРАНЪТ (телефон) ---------- */
 
 let QR_SCAN_ID = null;
+let QR_DRAW_CACHE = {};   // id на корена → списък чертежи (да не теглим при всеки рендер)
+
+/* Чертежите на детайла за скан-екрана: 📎 файловете по задачите от веригата
+   + чертежите от Склад детайли (products.drawings по код) + нестандартните
+   (app_config quick_items). Дедуп по url. */
+async function qrDrawingsOf(chain) {
+  const rootId = chain[0] && chain[0].id;
+  if (rootId != null && QR_DRAW_CACHE[rootId]) return QR_DRAW_CACHE[rootId];
+  const out = [];
+  const seen = new Set();
+  const push = f => { if (f && f.url && !seen.has(f.url)) { seen.add(f.url); out.push({ name: f.name || "", type: f.type || "", url: f.url }); } };
+  chain.forEach(t => (t.files || []).forEach(push));
+  const code = String(chain[0] && chain[0].code || "").trim();
+  if (code) {
+    try {
+      const { data } = await sb.from("products").select("drawings").ilike("code", code).limit(2);
+      (data || []).forEach(r => (Array.isArray(r.drawings) ? r.drawings : []).forEach(push));
+    } catch (e) {}
+    if (!out.length) {
+      try {
+        const { data } = await sb.from("app_config").select("data").eq("id", "quick_items").maybeSingle();
+        const by = (data && data.data && data.data.byId) || {};
+        Object.values(by).forEach(e => {
+          if (String(e && e.code || "").trim().toLowerCase() === code.toLowerCase()) (e.files || []).forEach(push);
+        });
+      } catch (e) {}
+    }
+  }
+  if (rootId != null) QR_DRAW_CACHE[rootId] = out;
+  return out;
+}
+
+function qrDrawKind(f) {
+  const t = String(f.type || "").toLowerCase(), u = String(f.url || f.name || "").toLowerCase().split("?")[0];
+  if (t.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(u)) return "image";
+  if (t === "application/pdf" || /\.pdf$/.test(u)) return "pdf";
+  return "other";
+}
+
+// Пълни секцията #qs-draws, след като чертежите се изтеглят (кешира се).
+async function qrFillDrawings(chain) {
+  const holder = document.getElementById("qs-draws");
+  if (!holder) return;
+  let files = [];
+  try { files = await qrDrawingsOf(chain); } catch (e) {}
+  if (!document.getElementById("qs-draws")) return;   // екранът е сменен междувременно
+  if (!files.length) { holder.innerHTML = ""; return; }
+  const esc = (typeof escapeHtml === "function") ? escapeHtml : (s => String(s == null ? "" : s));
+  holder.innerHTML = `<div class="qs-draw">
+    ${files.map(f => qrDrawKind(f) === "image"
+      ? `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" alt="${esc(f.name || "чертеж")}" loading="lazy" /></a>`
+      : `<a class="qs-draw-btn" href="${esc(f.url)}" target="_blank" rel="noopener">📄 ${esc(f.name || "Чертеж")} — отвори</a>`).join("")}
+  </div>`;
+}
 
 function qrWorkerGet() { try { return localStorage.getItem(QR_WORKER_KEY) || ""; } catch (e) { return ""; } }
 function qrWorkerSet(name) { try { if (name) localStorage.setItem(QR_WORKER_KEY, name); else localStorage.removeItem(QR_WORKER_KEY); } catch (e) {} }
@@ -200,6 +254,10 @@ function qrScanCss() {
     #qr-scan .qs-opname{font-size:17px;font-weight:700}
     #qr-scan .qs-opmeta{font-size:13px;color:#475569;margin-top:2px}
     #qr-scan .qs-timer{font-size:14px;color:#b45309;font-weight:700;margin-top:6px}
+    #qr-scan .qs-draw{margin-bottom:10px}
+    #qr-scan .qs-draw img{width:100%;border-radius:14px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);display:block;margin-bottom:8px}
+    #qr-scan .qs-draw-btn{display:block;background:#fff;border-radius:12px;padding:14px;margin-bottom:8px;
+      font-size:16px;font-weight:700;color:#1d4ed8;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.08)}
     #qr-scan .qs-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
     #qr-scan button{font:inherit;border:0;border-radius:12px;cursor:pointer}
     #qr-scan .qs-b{flex:1 1 40%;min-height:52px;font-size:16px;font-weight:700;color:#fff}
@@ -319,9 +377,12 @@ function qrScanRender() {
       <button class="qs-small" data-act="reload">↻</button>
       <button class="qs-small" data-act="close" title="Затваря скан-екрана и връща нормалния изглед">✕</button>
     </div>
+    <div id="qs-draws"></div>
     ${allDone ? '<div class="qs-done-msg">🎉 Всички операции по детайла са завършени!</div>' : ""}
     ${rows}
     <div class="qs-note">Сканирай същия код след всяка операция — екранът показва докъде е стигнал детайлът.</div>`;
+
+  qrFillDrawings(chain);   // чертежите се дотеглят отзад (с кеш)
 
   host.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async () => {
     const act = b.dataset.act;
