@@ -179,6 +179,20 @@ body {
 .pulse-danger { color: #dc2626; font-weight: 600; }
 .pulse-warn { color: #b45309; font-weight: 600; }
 .pulse-ts { text-align: right; margin-top: 12px; font-size: 12px; }
+/* 📅 Месечни резултати: полето + „авто:" стоят заедно (на телефона клетката е flex). */
+.pum-ov { display: inline-block; text-align: right; }
+.erp-table input.pum-note { width: 200px; }  /* бие общото input[type="text"]{width:100%} */
+/* Телефон: месечната таблица е карта на месец (erp.css прави превръщането и
+   etiketite от data-label) — тук само месецът става заглавна лента на картата
+   и бележките/детайлите минават на цяла ширина, за да не се чупи редът. */
+@media (max-width: 760px) {
+  #pulse-view .erp-table tfoot { display: block; }
+  #pulse-view td.pum-m { display: flex; justify-content: flex-start; text-align: left; font-size: 16px; background: #e0f2fe; margin: -8px -10px 6px; padding: 8px 10px; border-radius: 10px 10px 0 0; }
+  #pulse-view td.pum-nt { flex-direction: column; align-items: stretch; text-align: left; }
+  #pulse-view td.pum-nt::before { flex: none; margin-bottom: 3px; }
+  #pulse-view input.pum-note { width: 100%; }
+  #pulse-view .erp-table td:empty { display: none; }
+}
 
 /* Контакти */
 .contacts-table th, .contacts-table td { font-size: 13px; vertical-align: top; }

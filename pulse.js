@@ -444,7 +444,9 @@ async function pulseMonthly(v) {
   };
   const ovCell = (m, k, man, auto, title) => {
     const has = !(man[k] === undefined || man[k] === null || man[k] === "");
-    return `<input type="number" step="any" class="pum-in" data-m="${m}" data-k="${k}" value="${has ? escapeAttr(String(man[k])) : ""}" placeholder="${escapeAttr((Math.round(auto * 100) / 100).toFixed(2))}" title="${escapeAttr(title)}" style="width:96px;text-align:right${has ? ";border-color:#f59e0b;font-weight:700" : ""}" />${has ? `<div class="erp-muted" style="font-size:10.5px" title="Автоматичната стойност — изчисти полето, за да се върне">авто: ${eur(auto)}</div>` : ""}`;
+    // span.pum-ov държи полето + „авто:" заедно — на телефона клетката е flex ред
+    // (етикет вляво, стойност вдясно) и без обвивката се разпиляват.
+    return `<span class="pum-ov"><input type="number" step="any" class="pum-in" data-m="${m}" data-k="${k}" value="${has ? escapeAttr(String(man[k])) : ""}" placeholder="${escapeAttr((Math.round(auto * 100) / 100).toFixed(2))}" title="${escapeAttr(title)}" style="width:96px;text-align:right${has ? ";border-color:#f59e0b;font-weight:700" : ""}" />${has ? `<div class="erp-muted" style="font-size:10.5px" title="Автоматичната стойност — изчисти полето, за да се върне">авто: ${eur(auto)}</div>` : ""}</span>`;
   };
   const rows = months.map(m => {
     const man = manual[m] || {};
@@ -466,19 +468,21 @@ async function pulseMonthly(v) {
     const salesT = inv + c005;
     const result = salesT - pur - sal - osig - credits - other - vatDue;
     aiData.push({ m, inv, c005, salesT, pur, sal, osig, credits, other, vatDue, result });
+    // data-label-ите са за телефона: там редът става карта и етикетът на всяка
+    // стойност идва от атрибута (erp.css прави td::before от data-label).
     return `<tr>
-      <td><b>${mLabel(m)}</b>${hist ? ' <span title="История, пренесена от ексела — отпреди Системата. Числата се коригират ръчно като всички; празно поле = числото от ексела.">📜</span>' : ""}</td>
-      <td class="num">${ovCell(m, "ovInv", man, invA, "Фактурите (авто) — напиши число само ако искаш да КОРИГИРАШ месеца на ръка; празно = автоматичното")}</td>
-      <td class="num" title="Сборът от регистъра „Стокови/005" отдолу — поправя се ТАМ (редовете и 🧹 старите)">${dash(c005)}</td>
-      <td class="num" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
-      <td class="num">${ovCell(m, "ovPur", man, purA, "Разходите от Покупки (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
-      <td class="num">${ovCell(m, "ovSal", man, salA, "Заплатите от Месечния отчет (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
-      <td class="num">${osigAuto ? ovCell(m, "ovOsig", man, osigAuto, "Осигуровките от Ведомостта (авто) — напиши число за ръчна корекция; празно = автоматичното") : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
-      <td class="num">${inp(m, "credits", man.credits !== undefined ? man.credits : (hist ? hist.credits : ""), "Вноски по кредити за месеца, €")}</td>
-      <td class="num">${inp(m, "other", man.other, "Други разходи за месеца (извън Покупките), €")}</td>
-      <td class="num">${ovCell(m, "ovVat", man, vatA, "ДДС резултатът (авто): положително = за внасяне (вади се), отрицателно = за възстановяване (добавя се). Напиши число за ръчна корекция; празно = автоматичното")}</td>
-      <td class="num" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
-      <td><input type="text" class="pum-note" data-m="${m}" value="${escapeAttr(man.note || (hist && hist.note) || "")}" placeholder="бележка…" style="width:200px" /></td>
+      <td class="pum-m" data-label=""><b>${mLabel(m)}</b>${hist ? ' <span title="История, пренесена от ексела — отпреди Системата. Числата се коригират ръчно като всички; празно поле = числото от ексела.">📜</span>' : ""}</td>
+      <td class="num" data-label="Фактури (авто)">${ovCell(m, "ovInv", man, invA, "Фактурите (авто) — напиши число само ако искаш да КОРИГИРАШ месеца на ръка; празно = автоматичното")}</td>
+      <td class="num" data-label="005 / стокови" title="Сборът от регистъра „Стокови/005“ отдолу — поправя се ТАМ (редовете и 🧹 старите)">${dash(c005)}</td>
+      <td class="num" data-label="ОБЩО продажби" style="background:#f0f9ff"><b>${eur(salesT)}</b></td>
+      <td class="num" data-label="Разходи (авто)">${ovCell(m, "ovPur", man, purA, "Разходите от Покупки (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
+      <td class="num" data-label="Заплати (авто)">${ovCell(m, "ovSal", man, salA, "Заплатите от Месечния отчет (авто) — напиши число за ръчна корекция; празно = автоматичното")}</td>
+      <td class="num" data-label="Осигуровки">${osigAuto ? ovCell(m, "ovOsig", man, osigAuto, "Осигуровките от Ведомостта (авто) — напиши число за ръчна корекция; празно = автоматичното") : inp(m, "osig", man.osig, "Няма ведомост за месеца — въведи осигуровките на ръка, €")}</td>
+      <td class="num" data-label="Кредити">${inp(m, "credits", man.credits !== undefined ? man.credits : (hist ? hist.credits : ""), "Вноски по кредити за месеца, €")}</td>
+      <td class="num" data-label="Други разходи">${inp(m, "other", man.other, "Други разходи за месеца (извън Покупките), €")}</td>
+      <td class="num" data-label="ДДС ±">${ovCell(m, "ovVat", man, vatA, "ДДС резултатът (авто): положително = за внасяне (вади се), отрицателно = за възстановяване (добавя се). Напиши число за ръчна корекция; празно = автоматичното")}</td>
+      <td class="num" data-label="РЕЗУЛТАТ" style="background:${result >= 0 ? "#f0fdf4" : "#fef2f2"}"><b style="color:${result >= 0 ? "#166534" : "#b91c1c"}">${eur(result)}</b></td>
+      <td class="pum-nt" data-label="Бележки"><input type="text" class="pum-note" data-m="${m}" value="${escapeAttr(man.note || (hist && hist.note) || "")}" placeholder="бележка…" /></td>
     </tr>`;
   }).join("");
 
@@ -512,12 +516,12 @@ async function pulseMonthly(v) {
           ["inv", "c005", "salesT", "pur", "sal", "osig", "credits", "other", "vatDue", "result"].forEach(k => { a[k] = (a[k] || 0) + (Number(x[k]) || 0); });
           return a;
         }, {});
-        const td = (n, extra) => `<td class="num" style="font-weight:700;${extra || ""}">${eur(n)}</td>`;
+        const td = (lbl, n, extra) => `<td class="num" data-label="${lbl}" style="font-weight:700;${extra || ""}">${eur(n)}</td>`;
         return `<tr style="border-top:2px solid #94a3b8;background:#f8fafc">
-          <td><b>ОБЩО (${aiData.length} месеца)</b></td>
-          ${td(t.inv)}${td(t.c005)}${td(t.salesT, "background:#e0f2fe")}${td(t.pur)}${td(t.sal)}${td(t.osig)}${td(t.credits)}${td(t.other)}${td(t.vatDue)}
-          <td class="num" style="background:${t.result >= 0 ? "#dcfce7" : "#fee2e2"}"><b style="color:${t.result >= 0 ? "#166534" : "#b91c1c"};font-size:15px">${eur(t.result)}</b></td>
-          <td></td>
+          <td class="pum-m" data-label=""><b>ОБЩО (${aiData.length} месеца)</b></td>
+          ${td("Фактури", t.inv)}${td("005 / стокови", t.c005)}${td("ОБЩО продажби", t.salesT, "background:#e0f2fe")}${td("Разходи", t.pur)}${td("Заплати", t.sal)}${td("Осигуровки", t.osig)}${td("Кредити", t.credits)}${td("Други разходи", t.other)}${td("ДДС ±", t.vatDue)}
+          <td class="num" data-label="РЕЗУЛТАТ" style="background:${t.result >= 0 ? "#dcfce7" : "#fee2e2"}"><b style="color:${t.result >= 0 ? "#166534" : "#b91c1c"};font-size:15px">${eur(t.result)}</b></td>
+          <td data-label=""></td>
         </tr>`;
       })()}</tfoot>
     </table></div>
@@ -537,11 +541,11 @@ async function pulseMonthly(v) {
       <thead><tr><th>Дата</th><th>Клиент</th><th class="num">Сума</th><th>Неплатено</th><th></th></tr></thead>
       <tbody>${(c005Store.list || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map(r => `
         <tr style="${r.unpaid ? "background:#fef2f2" : ""}">
-          <td><input type="date" class="p5-f" data-id="${r.id}" data-f="date" value="${escapeAttr(r.date || "")}" style="width:135px" title="Датата се записва веднага при промяна" /></td>
-          <td><input type="text" class="p5-f" data-id="${r.id}" data-f="client" value="${escapeAttr(r.client || "")}" style="width:100%;min-width:140px;font-weight:700" title="Клиентът се записва веднага при промяна" /></td>
-          <td class="num"><input type="number" step="any" class="p5-f" data-id="${r.id}" data-f="amount" value="${escapeAttr(String(r.amount != null ? r.amount : ""))}" style="width:100px;text-align:right;font-weight:700" title="Сумата се записва веднага при промяна и сборът на месеца се преизчислява" /></td>
-          <td><label class="erp-inline"><input type="checkbox" class="p5-up" data-id="${r.id}" ${r.unpaid ? "checked" : ""} /> ${r.unpaid ? `<b style="color:#b91c1c">не е платил</b>` : "платено"}</label></td>
-          <td><button class="btn btn-small btn-danger p5-del" data-id="${r.id}" title="Изтрива записа НАПЪЛНО — сумата ПАДА от месечния сбор">×</button></td>
+          <td data-label="Дата"><input type="date" class="p5-f" data-id="${r.id}" data-f="date" value="${escapeAttr(r.date || "")}" style="width:135px" title="Датата се записва веднага при промяна" /></td>
+          <td data-label="Клиент"><input type="text" class="p5-f" data-id="${r.id}" data-f="client" value="${escapeAttr(r.client || "")}" style="width:100%;min-width:140px;font-weight:700" title="Клиентът се записва веднага при промяна" /></td>
+          <td class="num" data-label="Сума €"><input type="number" step="any" class="p5-f" data-id="${r.id}" data-f="amount" value="${escapeAttr(String(r.amount != null ? r.amount : ""))}" style="width:100px;text-align:right;font-weight:700" title="Сумата се записва веднага при промяна и сборът на месеца се преизчислява" /></td>
+          <td data-label="Плащане"><label class="erp-inline"><input type="checkbox" class="p5-up" data-id="${r.id}" ${r.unpaid ? "checked" : ""} /> ${r.unpaid ? `<b style="color:#b91c1c">не е платил</b>` : "платено"}</label></td>
+          <td data-label=""><button class="btn btn-small btn-danger p5-del" data-id="${r.id}" title="Изтрива записа НАПЪЛНО — сумата ПАДА от месечния сбор">×</button></td>
         </tr>`).join("") || `<tr><td colspan="5" class="report-empty">Няма записи — добави първия отгоре.</td></tr>`}
       </tbody>
     </table>
@@ -660,13 +664,13 @@ async function pulseActivity(v) {
     (d.list || []).forEach(e => { const l = actLabel(e) + (e.op === "delete" ? " (изтриване)" : ""); counts[l] = (counts[l] || 0) + 1; });
     const summary = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([l, n]) => `${escapeHtml(l)} ×${n}`).join(" · ");
     const first = (d.list[0] || {}).t || "", last = (d.list[d.list.length - 1] || {}).t || "";
-    const detail = (d.list || []).slice(-400).map(e => `<tr><td>${escapeHtml(e.t || "")}</td><td>${escapeHtml(actLabel(e))}</td><td>${escapeHtml(e.op === "delete" ? "изтриване" : "запис")}</td><td class="erp-muted">${escapeHtml(e.id || "")}</td></tr>`).join("");
+    const detail = (d.list || []).slice(-400).map(e => `<tr><td data-label="Час">${escapeHtml(e.t || "")}</td><td data-label="Модул">${escapeHtml(actLabel(e))}</td><td data-label="Действие">${escapeHtml(e.op === "delete" ? "изтриване" : "запис")}</td><td class="erp-muted" data-label="Обект">${escapeHtml(e.id || "")}</td></tr>`).join("");
     return `<tr>
-      <td><b>${dmy(d.day)}</b></td>
-      <td><b>${escapeHtml(actName(d.email))}</b></td>
-      <td>${first ? `${escapeHtml(first.slice(0, 5))}–${escapeHtml(last.slice(0, 5))}` : "—"}</td>
-      <td class="num">${(d.list || []).length}</td>
-      <td>${summary || "—"}
+      <td data-label="Ден"><b>${dmy(d.day)}</b></td>
+      <td data-label="Служител"><b>${escapeHtml(actName(d.email))}</b></td>
+      <td data-label="От–до">${first ? `${escapeHtml(first.slice(0, 5))}–${escapeHtml(last.slice(0, 5))}` : "—"}</td>
+      <td class="num" data-label="Действия">${(d.list || []).length}</td>
+      <td class="pum-nt" data-label="Какво (по модули)">${summary || "—"}
         <details style="margin-top:4px"><summary style="cursor:pointer" class="erp-muted">подробно</summary>
         <table class="report-table erp-table" style="margin-top:4px;max-width:720px"><thead><tr><th>Час</th><th>Модул</th><th>Действие</th><th>Обект</th></tr></thead><tbody>${detail}</tbody></table></details>
       </td></tr>`;
