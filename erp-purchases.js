@@ -357,19 +357,40 @@ function erpPuFillRows() {
   const cnt = document.getElementById("pu-count"); if (cnt) cnt.textContent = rows.length + " фактури";
   tb.innerHTML = rows.map(o => {
     const t = erpPuTotals(o);
+    const crf = erpPuCreditsFor(o);   // КИ-тата към тази фактура (нетото в списъка)
     const cls = [...new Set((o.lines || []).map(l => l.groupName).filter(Boolean))].slice(0, 2).join(", ");
     return `<tr class="erp-clickable" data-id="${o.id}">
       <td data-label="Дата">${erpDMY(o.date)}</td>
-      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b>${o.docType === "goods" ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e">СР${o.coveredByNo ? " ✓ф. " + escapeHtml(o.coveredByNo) : ""}</span>` : o.docType === "credit" ? ` <span class="erp-co-status" style="background:#fee2e2;color:#991b1b" title="Кредитно известие — влиза с минус в разходите и ДДС-то">КИ −</span>` : ((o.coversIds || []).length ? ` <span class="erp-co-status" style="background:#e0e7ff;color:#3730a3">покрива ${(o.coversIds || []).length} СР</span>` : "")}</td>
+      <td data-label="№ Фактура"><b>${escapeHtml(o.invoiceNo || "—")}</b>${o.docType === "goods" ? ` <span class="erp-co-status" style="background:#fef3c7;color:#92400e">СР${o.coveredByNo ? " ✓ф. " + escapeHtml(o.coveredByNo) : ""}</span>` : o.docType === "credit" ? ` <span class="erp-co-status" style="background:#fee2e2;color:#991b1b" title="Кредитно известие — влиза с минус в разходите и ДДС-то${o.creditToNo ? `; към фактура № ${escapeAttr(o.creditToNo)}` : ""}">КИ −${o.creditToNo ? ` → ф.${escapeHtml(o.creditToNo)}` : ""}</span>` : ((o.coversIds || []).length ? ` <span class="erp-co-status" style="background:#e0e7ff;color:#3730a3">покрива ${(o.coversIds || []).length} СР</span>` : "")}${crf.list.length ? ` <span class="erp-co-status" style="background:#fee2e2;color:#991b1b" title="Към тази фактура има кредитно известие: ${escapeAttr(crf.list.map(p => "№ " + (p.invoiceNo || "—") + " · " + erpDMY(p.date)).join("; "))} — сумата в списъка е НЕТО (след КИ)">− КИ</span>` : ""}</td>
       <td data-label="Доставчик">${escapeHtml(o.supplierName || "")}</td>
       <td data-label="Класификация">${o.expenseType ? `<b>${erpPuTypeIsMat(o.expenseType) ? "🧱 " : ""}${escapeHtml(o.expenseType)}</b>${cls ? " · " : ""}` : ""}${escapeHtml(cls || (o.expenseType ? "" : "—"))}</td>
-      <td class="num" data-label="Сума">${erpPuMoney(t.total, erpPuCur(o))}</td>
+      <td class="num" data-label="Сума">${crf.list.length
+        ? `<b>${erpPuMoney(t.total + crf.total, erpPuCur(o))}</b><div class="erp-muted" style="font-size:11px;white-space:nowrap">от ${erpPuMoney(t.total, erpPuCur(o))} − КИ ${erpPuMoney(-crf.total, erpPuCur(o))}</div>`
+        : erpPuMoney(t.total, erpPuCur(o))}</td>
       <td data-label="Плащане">${escapeHtml(erpPuPayLabel(o))}</td>
       <td data-label="Статус">${o.posted ? '<span class="erp-co-status" style="background:#dcfce7;color:#166534">заприходена</span>' : '<span class="erp-co-status" style="background:#dbeafe;color:#1e40af">въведена</span>'} ${erpPuPayBadge(o)}</td>
       <td class="erp-row-actions"><button class="btn btn-small" data-open="${o.id}">Отвори →</button></td>
     </tr>`; }).join("") || `<tr><td colspan="8" class="report-empty">Няма фактури. Натисни „+ Нова фактура".</td></tr>`;
   tb.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpOpenPurchase(b.dataset.open); }));
   tb.querySelectorAll("tr[data-id]").forEach(tr => tr.addEventListener("click", () => erpOpenPurchase(tr.dataset.id)));
+}
+
+/* ➖ КИ-тата, издадени КЪМ дадена фактура („Към фактура №" + същият
+   доставчик). Връща списъка и сбора им (ОТРИЦАТЕЛЕН, във валутата на
+   фактурата) — за да се вижда колко остава „след КИ" (Данко, 05.11.2026). */
+function erpPuCreditsFor(o) {
+  if (!o || o.docType === "credit" || !o.invoiceNo) return { list: [], total: 0 };
+  const list = ((typeof erpPurchases !== "undefined" && erpPurchases) || []).filter(p => p.docType === "credit"
+    && String(p.id) !== String(o.id)
+    && erpPuEq(p.creditToNo) === erpPuEq(o.invoiceNo)
+    && erpPuEq(p.supplierName) === erpPuEq(o.supplierName));
+  let total = 0;
+  list.forEach(p => {
+    const tt = erpPuTotals(p).total;   // отрицателен
+    const eur = erpPuCur(p) === "BGN" ? tt / PU_EUR_BGN : tt;
+    total += erpPuCur(o) === "BGN" ? eur * PU_EUR_BGN : eur;
+  });
+  return { list, total: Math.round(total * 100) / 100 };
 }
 
 /* Нова фактура-разход. По подразбиране е в ЕВРО (BGN остава за избор при
@@ -631,7 +652,13 @@ function erpPuTotalsBox(o) {
     <tr><td>Данъчна основа</td><td class="num">${erpPuMoney(t.base, cur)}</td></tr>
     ${vatRows}
     ${t.mixed ? `<tr><td class="erp-muted">Σ ДДС (смесени ставки)</td><td class="num">${erpPuMoney(t.vat, cur)}</td></tr>` : ""}
-    <tr class="grand"><td><b>Общо с ДДС</b></td><td class="num"><b>${erpPuMoney(t.total, cur)}${eur}</b></td></tr></table>`;
+    <tr class="grand"><td><b>Общо с ДДС</b></td><td class="num"><b>${erpPuMoney(t.total, cur)}${eur}</b></td></tr>
+    ${(() => {
+      const crf = erpPuCreditsFor(o);
+      if (!crf.list.length) return "";
+      return `<tr><td style="color:#991b1b">➖ Кредитни известия към нея (${crf.list.map(p => "№ " + escapeHtml(p.invoiceNo || "—")).join(", ")})</td><td class="num" style="color:#991b1b">${erpPuMoney(crf.total, cur)}</td></tr>
+    <tr class="grand"><td><b>ЗА ПЛАЩАНЕ след КИ</b></td><td class="num"><b>${erpPuMoney(t.total + crf.total, cur)}</b></td></tr>`;
+    })()}</table>`;
 }
 
 /* ---------- Самообучение от историята ----------
