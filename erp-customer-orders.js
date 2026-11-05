@@ -18,10 +18,10 @@ function erpCOSortRows(rows) {
   if (erpCOStatusFilter) out = out.filter(o => (o.status || "нова") === erpCOStatusFilter);
   if (erpCOClientFilter) out = out.filter(o => (o.clientName || "") === erpCOClientFilter);
   // Завършените се крият щом отметката е сложена — И ПРИ ТЪРСЕНЕ (Данко,
-  // 04.11.2026: търсенето по клиент показваше завършени въпреки отметката).
+  // 04.11.2026), И „приключилите на практика" с остава 0 (05.11.2026).
   // Само изрично избран статус от падащото меню ги вади (иначе филтър
   // „завършена" + отметката би дал празен списък).
-  if (erpCOHideDone && !erpCOStatusFilter) out = out.filter(o => (o.status || "нова") !== "завършена");
+  if (erpCOHideDone && !erpCOStatusFilter) out = out.filter(o => !erpCODoneish(o));
   const val = o => erpCOValueLeft(o);   // подрежда се по ОСТАВАЩАТА стойност
   const S = String;
   const cmp = {
@@ -163,6 +163,25 @@ function erpCOValueLeft(o) {
     const d = Math.min(Math.max(0, Number(l.delivered) || 0), q);
     return s + (q - d) * (erpToNum(l.unitPrice) || 0);
   }, 0);
+}
+/* „Приключила на практика" (за „Скрий завършените", по Данко 05.11.2026):
+   статус „завършена" ИЛИ нищо не остава — нито стойност, нито недоставени
+   бройки (хваща и заявки с „остава 0", чийто статус никой не е сменил).
+   Изключение: ПРАЗНА заявка, създадена ДНЕС, остава видима — тепърва се пълни. */
+function erpCODoneish(o) {
+  if ((o.status || "нова") === "завършена") return true;
+  if (erpCOValueLeft(o) > 0.004) return false;
+  const lines = o.lines || [];
+  const qtyLeft = lines.reduce((s, l) => {
+    const q = erpToNum(l.qty) || 0;
+    const d = Math.min(Math.max(0, Number(l.delivered) || 0), q);
+    return s + (q - d);
+  }, 0);
+  if (qtyLeft > 0.004) return false;
+  // Нищо не е ПОРЪЧВАНО (празна/чернова без количества) + е от ДНЕС → видима.
+  const everOrdered = lines.some(l => (erpToNum(l.qty) || 0) > 0);
+  if (!everOrdered && String(o.date || "") >= new Date().toISOString().slice(0, 10)) return false;
+  return true;
 }
 function erpCOValueCell(o) {
   const tot = erpCOValue(o), left = erpCOValueLeft(o);
@@ -612,7 +631,7 @@ async function erpCOAllDrawings(o, btn) {
 }
 function erpRenderCOMobileList(v) {
   const q = (erpCOQuery || "").toLowerCase().trim();
-  const all = (erpCOList || []).filter(o => !erpCOHideDone || (o.status || "нова") !== "завършена");
+  const all = (erpCOList || []).filter(o => !erpCOHideDone || !erpCODoneish(o));
   const menuBtn = `<button class="btn btn-small" id="co-mob-menu" title="Показва/крие лентата с всички модули">☰ Меню</button>`;
   const wireCommon = () => {
     const mb = v.querySelector("#co-mob-menu");
@@ -844,7 +863,7 @@ async function erpRenderCustomerOrders() {
         <select id="erp-co-sort">${sortOpts.map(([k, l]) => `<option value="${k}" ${k === erpCOSort ? "selected" : ""}>${l}</option>`).join("")}</select>
       </label>
       <button class="btn btn-small ${erpCOSort === "plan" ? "btn-primary" : ""}" id="erp-co-byplan" title="Подрежда заявките по Плана за товарене: ТАЗИ СЕДМИЦА, ДРУГАТА СЕДМИЦА, нататък — и накрая без план. Повторен клик връща по срок.">🚚 По плана</button>
-      <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(o => (o.status || "нова") === "завършена").length; return n ? ` (${n})` : ""; })()}</label>
+      <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(erpCODoneish).length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
       ${typeof erpOrdersInbox === "function" ? '<button class="btn btn-small" id="erp-co-inbox" title="Писмата от danko.orders@gmail.com, които агентът е разчел — чакат одобрение">📥 Входящи</button>' : ""}
