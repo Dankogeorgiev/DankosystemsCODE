@@ -237,7 +237,7 @@ function qrScanHost() {
 
 // Вход от app.js при #scan=<id> (и при смяна на hash-а със следващ код).
 async function qrScanOpen(taskId) {
-  QR_SCAN_ID = Number(taskId);
+  QR_SCAN_ID = String(taskId);   // id-то е число ИЛИ uuid — сравняваме като текст
   // В скан-режим скритият цехов екран не се пре-рисува (бавно е на телефон),
   // а проверката за материал мълчи — складовите данни не са заредени тук и
   // иначе лъже „няма материал" за всичко (ERP.matById е празен).
@@ -546,6 +546,6 @@ async function qrOpScrap(t) {
 // смени hash-а на вече отворен таб с нормалния интерфейс (Android Chrome
 // преизползва таба) — скан-екранът ляга отгоре, ✕ го затваря.
 window.addEventListener("hashchange", () => {
-  const m = location.hash.match(/#scan=(\d+)/);
-  if (m) qrScanOpen(Number(m[1]));
+  const m = location.hash.match(/#scan=([A-Za-z0-9-]+)/);
+  if (m) qrScanOpen(m[1]);
 });

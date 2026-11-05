@@ -1120,9 +1120,10 @@ async function onSignedIn(s) {
   // 📷 QR СКАН-РЕЖИМ (от етикет на палет): #scan=<id> отваря САМО скан-екрана,
   // без главния интерфейс — телефоните в цеха влизат с общия акаунт и остават
   // влезли. Преди показването на .app-chrome, за да не светне нищо отдолу.
-  const qrHash = (location.hash.match(/#scan=(\d+)/) || [])[1];
+  // ID-то може да е и число, и UUID — не само цифри (хвана ни на живо).
+  const qrHash = (location.hash.match(/#scan=([A-Za-z0-9-]+)/) || [])[1];
   if (qrHash && typeof qrScanOpen === "function") {
-    qrScanOpen(Number(qrHash));
+    qrScanOpen(qrHash);
     return;
   }
   document.querySelectorAll(".app-chrome").forEach(el => el.hidden = false);
