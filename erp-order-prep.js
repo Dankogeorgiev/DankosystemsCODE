@@ -61,16 +61,20 @@ async function erpOrderPrepBuild(o) {
       mats = (r.rows || []).map(x => {
         const m = (typeof ERP !== "undefined" && ERP.matById && (ERP.matById[x.material_id] || ERP.matById[String(x.material_id)])) || {};
         const have = Math.max(0, Number(m.stock) || 0);
-        return { ...x, have, buy: Math.max(0, Math.round((x.required - have) * 1000) / 1000) };
+        return { ...x, code: m.code || "", have, buy: Math.max(0, Math.round((x.required - have) * 1000) / 1000) };
       }).sort((a, b) => b.buy - a.buy || a.name.localeCompare(b.name, "bg"));
-      // Правило на Данко (01.11): материал със запас ≥ 20% НАД нужното не
-      // се показва — списъкът остава само с интересните (на ръба или липсващи).
-      const shown = mats.filter(x => x.have < x.required * 1.2);
-      const hidden = mats.length - shown.length;
+      // Показват се ВСИЧКИ необходими материали (Данко, 05.11.2026 — отмени
+      // старото правило „запас ≥ 20% над нужното се крие" от 01.11).
+      const shown = mats;
+      const hidden = 0;
+      // Тикчетата (по Данко, 05.11): избираш материали → „🛒 Планувай за
+      // поръчка" в главата на секцията → Заявки за материали → 🗓 Планувани.
+      // Плануваната бройка е НЕДОСТИГЪТ, а ако няма — цялото Нужно.
+      // В печата колоната с тикчетата се крие (.op-mat-chk).
       return {
-        key: "mats", title: "В · 🧱 Материали по рецептите", html: (r.head || "") + (shown.length ? `
-      <table class="oprep-t"><thead><tr><th>Материал</th><th>Нужно</th><th>Налично</th><th>НЕДОСТИГ</th></tr></thead>
-      <tbody>${shown.map(x => `<tr${x.buy > 0 ? ' style="background:#fef2f2"' : ""}><td>${esc(x.name)}</td><td>${erpNum(x.required)} ${esc(x.unit)}</td><td>${erpNum(x.have)}</td><td>${x.buy > 0 ? `<b style="color:#b91c1c">${erpNum(x.buy)} ${esc(x.unit)}</b>` : "—"}</td></tr>`).join("")}</tbody></table>` : (mats.length ? `<p style="color:#166534"><b>✅ Всички материали са с достатъчен запас.</b></p>` : "<p>Няма материали по рецептите.</p>"))
+        key: "mats", title: "В · 🧱 Материали по рецептите", tools: "mats", html: (r.head || "") + (shown.length ? `
+      <table class="oprep-t"><thead><tr><th class="op-mat-chk" style="width:26px" title="Избери за „Планувай за поръчка"">✔</th><th>Материал</th><th>Нужно</th><th>Налично</th><th>НЕДОСТИГ</th></tr></thead>
+      <tbody>${shown.map(x => `<tr${x.buy > 0 ? ' style="background:#fef2f2"' : ""}><td class="op-mat-chk"><input type="checkbox" class="op-mat-sel" data-mid="${escapeAttr(String(x.material_id || ""))}" data-code="${escapeAttr(x.code)}" data-name="${escapeAttr(x.name)}" data-unit="${escapeAttr(x.unit || "")}" data-qty="${escapeAttr(String(x.buy > 0 ? x.buy : x.required))}" /></td><td>${esc(x.name)}</td><td>${erpNum(x.required)} ${esc(x.unit)}</td><td>${erpNum(x.have)}</td><td>${x.buy > 0 ? `<b style="color:#b91c1c">${erpNum(x.buy)} ${esc(x.unit)}</b>` : "—"}</td></tr>`).join("")}</tbody></table>` : (mats.length ? `<p style="color:#166534"><b>✅ Всички материали са с достатъчен запас.</b></p>` : "<p>Няма материали по рецептите.</p>"))
       + (hidden > 0 ? `<p class="hint">🫥 ${hidden} ${hidden === 1 ? "материал" : "материала"} със запас над 20% над нужното ${hidden === 1 ? "е скрит" : "са скрити"}.</p>` : ""),
       };
     }, err => { matsErr = true; return { key: "mats", title: "В · 🧱 Материали по рецептите", html: err }; }));
@@ -174,7 +178,8 @@ function erpRenderOrderPrepTab() {
           <label class="erp-inline" style="font-size:12px" title="Да влезе ли секцията в Печат/PDF"><input type="checkbox" class="op-inc" ${s.inc === false ? "" : "checked"} /> в печата</label>
           <button type="button" class="btn btn-small op-print-one" data-i="${i}" title="Печат САМО на тази секция — с корекциите от екрана, които се и записват в доклада">🖨</button>
           ${s.tools === "cut" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-labels" title="Палетните етикети на разкроя — печат">🏷 Етикети</button><button type="button" class="btn btn-small op-draws" title="Чертежите на изделията и възлите от разкроя — поръчаните най-отгоре">📄 Чертежи</button>'
-            : s.tools === "pack" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-pack-open" title="Отваря опаковката на ТАЗИ заявка (кашони, тегла, палети) — попълваш и се връщаш с ↻ Преизчисли">🎁 Опаковка на заявката</button><button type="button" class="btn btn-small op-pack-last" title="Копира опаковъчните данни (кашони, тегла, палети) от последната заявка на клиента със същите изделия — бройките са си на новата заявка">⏮ Както последния път</button>' : ""}
+            : s.tools === "pack" ? '<span class="spacer"></span><button type="button" class="btn btn-small op-pack-open" title="Отваря опаковката на ТАЗИ заявка (кашони, тегла, палети) — попълваш и се връщаш с ↻ Преизчисли">🎁 Опаковка на заявката</button><button type="button" class="btn btn-small op-pack-last" title="Копира опаковъчните данни (кашони, тегла, палети) от последната заявка на клиента със същите изделия — бройките са си на новата заявка">⏮ Както последния път</button>'
+            : s.tools === "mats" ? '<span class="spacer"></span><button type="button" class="btn btn-small btn-primary op-plan-mats" title="Маркираните с тикче материали отиват в Заявки за материали → 🗓 Планувани за поръчка (бройката е НЕДОСТИГЪТ, а без недостиг — цялото Нужно)">🛒 Планувай за поръчка</button>' : ""}
         </div>
         <div class="oprep-body" contenteditable="true" data-i="${i}">${s.html}</div>
       </div>`).join("")}</div>`;
@@ -201,7 +206,7 @@ function erpRenderOrderPrepTab() {
     const inc = collect().filter(s => s.inc !== false && s.inc);
     if (!inc.length) { alert("Отметни поне една секция „в печата“."); return; }
     const body = inc.map(s => `<h2 style="margin:14px 0 6px;border-bottom:2px solid #000;padding-bottom:3px">${escapeHtml(s.title)}</h2>${s.html}
-      <style>.oprep-t{width:100%;border-collapse:collapse;margin:6px 0}.oprep-t th,.oprep-t td{border:1.2px solid #000;padding:4px 7px;font-size:11.5px;text-align:left}.oprep-t th{background:#efefef}</style>`).join("");
+      <style>.oprep-t{width:100%;border-collapse:collapse;margin:6px 0}.oprep-t th,.oprep-t td{border:1.2px solid #000;padding:4px 7px;font-size:11.5px;text-align:left}.oprep-t th{background:#efefef}.op-mat-chk{display:none}</style>`).join("");
     const fname = `${o.clientName || "клиент"}-${o.ourNo || ""}`.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
     if (typeof invPrintWindow === "function") invPrintWindow(fname, body, "bg");
     else {
@@ -213,7 +218,7 @@ function erpRenderOrderPrepTab() {
   });
   // 🖨 Печат на ОТДЕЛНА секция (по Данко, 01.11.2026): взема текущия текст
   // от екрана (с корекциите) и ГО ЗАПИСВА в доклада, после печата само нея.
-  const OPREP_T_CSS = `<style>.oprep-t{width:100%;border-collapse:collapse;margin:6px 0}.oprep-t th,.oprep-t td{border:1.2px solid #000;padding:4px 7px;font-size:11.5px;text-align:left}.oprep-t th{background:#efefef}</style>`;
+  const OPREP_T_CSS = `<style>.oprep-t{width:100%;border-collapse:collapse;margin:6px 0}.oprep-t th,.oprep-t td{border:1.2px solid #000;padding:4px 7px;font-size:11.5px;text-align:left}.oprep-t th{background:#efefef}.op-mat-chk{display:none}</style>`;
   const saveQuiet = async () => {
     o.processing = { sections: collect().filter(s => s.key !== "err"), updatedAt: new Date().toISOString(), updatedBy: (typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "" };
     try {
@@ -234,6 +239,22 @@ function erpRenderOrderPrepTab() {
     if (typeof invPrintWindow === "function") invPrintWindow(fname, body, "bg");
     else alert("Печатният модул не е зареден.");
     await saveQuiet();   // корекциите от екрана остават в доклада
+  }));
+  // 🛒 Планувай за поръчка (секция В): маркираните материали → Заявки за
+  // материали → 🗓 Планувани за поръчка (по Данко, 05.11.2026).
+  v.querySelectorAll(".op-plan-mats").forEach(b => b.addEventListener("click", async () => {
+    const sec = b.closest(".oprep-sec");
+    const sel = sec ? [...sec.querySelectorAll(".op-mat-sel:checked")] : [];
+    if (!sel.length) { alert("Маркирай с тикчетата кои материали да се планират за поръчка."); return; }
+    if (typeof matreqPlannedAdd !== "function") { alert("Модулът „Заявки за материали“ не е зареден."); return; }
+    b.disabled = true;
+    const items = sel.map(x => ({ mid: Number(x.dataset.mid) || null, code: x.dataset.code || "", name: x.dataset.name || "", unit: x.dataset.unit || "", qty: erpToNum(x.dataset.qty) || 0 }));
+    const ok = await matreqPlannedAdd(items, `${o.ourNo || ""} · ${o.clientName || ""}`.trim());
+    b.disabled = false;
+    if (ok) {
+      sel.forEach(x => x.checked = false);
+      alert(`✅ ${items.length} материал${items.length === 1 ? "" : "а"} са в Заявки за материали → 🗓 Планувани за поръчка.\nТам избираш доставчик (предложен от историята) и поръчваш.`);
+    }
   }));
   v.querySelector("#op-rebuild").addEventListener("click", async () => {
     if (!confirm("Свеж разчет от склада, рецептите и опаковките?\nРъчните редакции НА ЕКРАНА се губят (запазеното в заявката остава, докато не натиснеш „💾 Запази“).")) return;
