@@ -449,11 +449,33 @@ function matreqSuppForMat(code, name, mid) {
   });
   return [...by.values()].sort((a, b) => String(b.last).localeCompare(String(a.last)));
 }
+/* Доставките на материала СЛЕД дадена дата (от Покупките: фактури + стокови
+   разписки; кредитните известия се ВАЖДАТ — върната стока). Връща общото
+   количество и документите (за подсказката). */
+function matreqDeliveredSince(code, name, mid, sinceIso) {
+  const nm = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  let total = 0;
+  const docs = [];
+  ((typeof erpPurchases !== "undefined" && erpPurchases) || []).forEach(o => {
+    if (String(o.date || "") < String(sinceIso || "")) return;
+    const sign = o.docType === "credit" ? -1 : 1;
+    (o.lines || []).forEach(l => {
+      const hit = (mid && Number(l.materialId) === Number(mid))
+        || (code && String(l.code || "").trim() === String(code).trim())
+        || (nm && String(l.article || l.name || "").toLowerCase().replace(/\s+/g, " ").trim() === nm);
+      if (!hit) return;
+      const q = erpToNum(l.qty) || 0; if (!q) return;
+      total += sign * q;
+      docs.push(`${typeof erpDMY === "function" ? erpDMY(o.date) : o.date} · ${o.supplierName || "?"} · ${sign < 0 ? "−" : ""}${q}${o.docType === "credit" ? " (КИ)" : o.docType === "goods" ? " (стокова)" : ""}`);
+    });
+  });
+  return { total: Math.round(total * 1000) / 1000, docs };
+}
 async function matreqRenderPlanned(box) {
   box.innerHTML = `<p class="erp-loading">Зареждане…</p>`;
   await matreqPlannedLoad();
   const list = (MATREQ_PLANNED || []).slice();
-  const rows = list.map((r, i) => ({ ...r, i, supps: matreqSuppForMat(r.code, r.name, r.mid) }));
+  const rows = list.map((r, i) => ({ ...r, i, supps: matreqSuppForMat(r.code, r.name, r.mid), got: matreqDeliveredSince(r.code, r.name, r.mid, r.at) }));
   box.innerHTML = `
     <div class="erp-toolbar" style="margin:0 0 6px">
       <label class="erp-inline"><input type="checkbox" id="pl-all" /> всички</label>
@@ -464,7 +486,7 @@ async function matreqRenderPlanned(box) {
     </div>
     <p class="hint">Материалите идват от 🔬 Симулацията („🛒 Планувай за поръчка"). Доставчикът е предложен от историята на Покупките — последният, от когото е купувано, с последната му цена. Смени го от падащото, ако искаш друг.</p>
     ${rows.length ? `<table class="report-table erp-table">
-      <thead><tr><th class="pay-chk"></th><th>Код</th><th>Материал</th><th class="num">К-во</th><th>Мярка</th><th>От заявка</th><th>Планувано</th><th>Доставчик (предложен)</th></tr></thead>
+      <thead><tr><th class="pay-chk"></th><th>Код</th><th>Материал</th><th class="num">К-во</th><th>Мярка</th><th>От заявка</th><th>Планувано</th><th class="num" title="Доставките на материала СЛЕД датата на плануване (фактури + стокови; кредитните се важдат)">Доставено след</th><th class="num" title="Колко още трябва: плануваното минус доставеното след датата">ОСТАВА</th><th>Доставчик (предложен)</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td class="pay-chk"><input type="checkbox" class="pl-sel" data-id="${escapeAttr(String(r.id))}" /></td>
         <td class="t-code">${escapeHtml(r.code || "")}</td>
@@ -473,6 +495,13 @@ async function matreqRenderPlanned(box) {
         <td>${escapeHtml(r.unit || "")}</td>
         <td class="erp-muted" style="font-size:12px">${escapeHtml(r.from || "—")}</td>
         <td>${escapeHtml(typeof erpDMY === "function" ? erpDMY(r.at) : r.at)}</td>
+        ${(() => {
+          const got = r.got || { total: 0, docs: [] };
+          const left = Math.max(0, Math.round(((Number(r.qty) || 0) - got.total) * 1000) / 1000);
+          const covered = (Number(r.qty) || 0) > 0 && left <= 0;
+          return `<td class="num" ${got.docs.length ? `title="${escapeAttr(got.docs.slice(0, 6).join("\n"))}"` : ""}>${got.total ? `<b>${erpNum(got.total)}</b>` : "—"}</td>
+        <td class="num">${covered ? '<b style="color:#166534">✓ покрито</b>' : `<b style="color:#b91c1c">${erpNum(left)}</b>`}</td>`;
+        })()}
         <td>${r.supps.length
           ? `<select class="pl-sup" data-id="${escapeAttr(String(r.id))}" style="max-width:230px">${r.supps.slice(0, 6).map((c, j) => `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}${c.last ? ` · ${typeof erpDMY === "function" ? erpDMY(c.last) : c.last}` : ""}</option>`).join("")}</select>`
           : `<input type="text" class="pl-sup" data-id="${escapeAttr(String(r.id))}" placeholder="няма история — напиши доставчик" style="max-width:220px" />`}</td>
