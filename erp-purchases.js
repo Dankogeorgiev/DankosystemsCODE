@@ -695,6 +695,33 @@ function erpPuWireProfileChips(o) {
   }));
 }
 
+/* 📂 Групите материали като БУТОНИ в избора (по Данко, 05.11.2026 — „най-
+   бавно е въвеждането на фактури за метали"): при Вид разход „Метали"
+   излизат само металните групи (Ламарина лист, Тръби, Кръгове…) — клик =
+   списъкът се стеснява до групата, комбинира се с търсенето. */
+function puMatGroups(expenseType) {
+  const all = [...new Set(((typeof ERP !== "undefined" && ERP.materials) || []).map(m => (m.group_name || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "bg"));
+  const metals = all.filter(g => /^метал/i.test(g));
+  return /метал/i.test(String(expenseType || "")) && metals.length ? metals : all;
+}
+function puMatGroupChips(hostEl, expenseType, onPick) {
+  const groups = puMatGroups(expenseType);
+  let grp = "";
+  const short = g => g.replace(/^Метали\s*[-–—]\s*/i, "");
+  const paint = () => {
+    hostEl.innerHTML = groups.length
+      ? `<button type="button" class="btn btn-small ${!grp ? "btn-primary" : ""}" data-g="">Всички</button>`
+        + groups.map(g => `<button type="button" class="btn btn-small ${g === grp ? "btn-primary" : ""}" data-g="${escapeAttr(g)}" title="${escapeAttr(g)}">${escapeHtml(short(g))}</button>`).join("")
+      : "";
+    hostEl.querySelectorAll("[data-g]").forEach(b => b.addEventListener("click", () => { grp = b.dataset.g; paint(); onPick(grp); }));
+  };
+  paint();
+  return { get: () => grp };
+}
+function puMatInGroup(grp) {
+  const all = (typeof ERP !== "undefined" && ERP.materials) || [];
+  return grp ? all.filter(m => (m.group_name || "").trim() === grp) : all;
+}
 async function erpPuAddMaterial(o) {
   if (typeof ERP === "undefined" || !ERP.materials || !ERP.materials.length) {
     try { await erpEnsureLoaded(); } catch (e) { alert("Складът не можа да се зареди: " + (e.message || e)); return; }
@@ -702,11 +729,13 @@ async function erpPuAddMaterial(o) {
   const { wrap, close } = erpDialog(`
     <h3>Добави материал (влиза в склада)</h3>
     <input type="search" id="pu-pp-q" placeholder="търси код или име…" />
+    <div id="pu-pp-grps" style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0"></div>
     <div id="pu-pp-list" class="erp-lp-list"></div>
     <div class="erp-dialog-actions"><button class="btn" id="pu-pp-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#pu-pp-list");
+  const chips = puMatGroupChips(wrap.querySelector("#pu-pp-grps"), o.expenseType, () => render(wrap.querySelector("#pu-pp-q").value));
   const render = q => {
-    const list = puMatFilter(ERP.materials, q);
+    const list = puMatFilter(puMatInGroup(chips.get()), q);
     listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">${escapeHtml(m.unit || "")}${m.avg_cost ? " · " + erpEur(m.avg_cost) : ""}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => {
       const m = ERP.matById[Number(b.dataset.id)];

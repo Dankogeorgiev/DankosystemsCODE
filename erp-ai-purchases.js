@@ -415,11 +415,18 @@ function erpPuAIPick(r) {
     <h3>Свържи с материал (за склад)</h3>
     <p class="hint" style="margin:0 0 6px">${escapeHtml(r.desc || "")}</p>
     <input type="search" id="paip-q" placeholder="търси код или име…" />
+    <div id="paip-grps" style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0"></div>
     <div id="paip-list" class="erp-lp-list"></div>
     <div class="erp-dialog-actions"><button class="btn" id="paip-clear">Само разход (без материал)</button><button class="btn" id="paip-cancel">Затвори</button></div>`);
   const listEl = wrap.querySelector("#paip-list");
+  // 📂 Групите като бутони (по Данко, 05.11): при доставчик на метали видът
+  // „Метали" идва сам от паметта → излизат само металните групи.
+  const chips = (typeof puMatGroupChips === "function")
+    ? puMatGroupChips(wrap.querySelector("#paip-grps"), (PAI && PAI.expenseType) || "", () => render(wrap.querySelector("#paip-q").value))
+    : { get: () => "" };
   const render = q => {
-    const list = puMatFilter(ERP.materials || [], q);   // по думи, без изискване за словоред
+    const base = (typeof puMatInGroup === "function") ? puMatInGroup(chips.get()) : (ERP.materials || []);
+    const list = puMatFilter(base, q);   // по думи, без изискване за словоред
     listEl.innerHTML = list.slice(0, 80).map(m => `<button type="button" class="erp-lp-item" data-id="${m.id}"><b>${escapeHtml(m.code || "")}</b> ${escapeHtml(m.name || "")} <span class="erp-muted">${escapeHtml(m.unit || "")}</span></button>`).join("") || `<p class="report-empty">Няма съвпадения.</p>`;
     listEl.querySelectorAll(".erp-lp-item").forEach(b => b.addEventListener("click", () => { const m = ERP.matById[Number(b.dataset.id)]; r.materialId = m.id; r.code = m.code; r.article = m.name; r.groupName = m.group_name || r.groupName; r.unit = m.unit || r.unit; r.confidence = "high"; r.userPicked = true; close(); erpPuAIRedrawRow(r); }));
   };
