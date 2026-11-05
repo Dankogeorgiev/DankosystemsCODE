@@ -284,6 +284,19 @@ async function erpLoadAll() {
 
     const firstErr = matsRaw.error || stock.error || prods.error || ops.error || lines.error;
     if (firstErr) throw firstErr;
+    // ПРЕДПАЗИТЕЛ (Данко, 05.11.2026: „складът изведнъж показа 0 материала"):
+    // празен отговор БЕЗ грешка почти винаги значи ИЗТЕКЛА СЕСИЯ — RLS реже
+    // всичко тихо. Не заместваме заредените данни с празно, а казваме какво
+    // става (презареждането връща логина и всичко се оправя).
+    if (!(matsRaw.data || []).length) {
+      let noSession = false;
+      try { const { data } = await sb.auth.getSession(); noSession = !(data && data.session); } catch (e) {}
+      if (noSession || (ERP.materials || []).length) {
+        throw new Error(noSession
+          ? "Сесията е изтекла — презареди страницата (F5) и влез отново. Данните са си в облака."
+          : "Облакът върна 0 материала, а имаше заредени. Презареди страницата (F5); ако се повтори, кажи на Данко.");
+      }
+    }
     ERP.opRoutingSaved = (routing && routing.data && routing.data.data && routing.data.data.byCode) || {};
     ERP.detailRouting = (detailRoute && detailRoute.data && detailRoute.data.data && detailRoute.data.data.byKey) || {};
     // Тегло на 1 мярка (кг) за материали, които НЕ са в кг — за наличности в килограми.
