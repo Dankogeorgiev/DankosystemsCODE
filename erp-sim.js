@@ -173,7 +173,7 @@ async function erpSimulateProduction(lines, opts) {
   });
   const buyList = Object.keys(matNeed).map(mid => {
     const m = ERP.matById[mid] || {}; const need = matNeed[mid]; const have = Math.max(0, Number(m.stock) || 0);
-    return { code: m.code || "", name: m.name || "", unit: m.unit || "", need, have, buy: Math.max(0, need - have) };
+    return { mid: Number(mid), code: m.code || "", name: m.name || "", unit: m.unit || "", need, have, buy: Math.max(0, need - have) };
   }).filter(r => r.buy > 0).sort((a, b) => b.buy - a.buy);
 
   erpSimShow({
@@ -264,13 +264,13 @@ function erpSimShow(r) {
       ${r.buyList.length ? `
         <h4 style="margin:14px 0 6px">🛒 Трябва да се купи материал</h4>
         <table class="report-table erp-table"><thead><tr><th>Код</th><th>Материал</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num">Купи</th><th>Мярка</th></tr></thead>
-        <tbody>${r.buyList.map(b => `<tr class="erp-below"><td>${escapeHtml(b.code)}</td><td>${escapeHtml(b.name)}</td><td class="num">${simNum(b.need)}</td><td class="num">${simNum(b.have)}</td><td class="num"><b>${simNum(b.buy)}</b>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(b.name, b.buy, b.unit) : ""}</td><td>${escapeHtml(b.unit)}</td></tr>`).join("")}</tbody></table>
+        <tbody>${r.buyList.map(b => `<tr class="erp-below"><td>${escapeHtml(b.code)}</td><td>${escapeHtml(b.name)}</td><td class="num">${simNum(b.need)}</td><td class="num">${simNum(b.have)}</td><td class="num"><b>${simNum(b.buy)}</b>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(b.name, b.buy, b.unit, b.mid) : ""}</td><td>${escapeHtml(b.unit)}</td></tr>`).join("")}</tbody></table>
       ` : ""}
 
       ${(r.grossList || []).length ? `
         <h4 style="margin:14px 0 6px">📐 Колко материал е нужен за заявката <span class="rt-muted">(брутно — цялата рецепта, без да гледа склада и готовите изделия)</span></h4>
         <table class="report-table erp-table"><thead><tr><th class="pay-chk"><input type="checkbox" id="sim-gm-all" title="Маркирай всички" /></th><th>Код</th><th>Материал</th><th class="num">Нужно общо</th><th>Мярка</th></tr></thead>
-        <tbody>${r.grossList.map((g, i) => `<tr><td class="pay-chk"><input type="checkbox" class="sim-gm-sel" data-i="${i}" /></td><td>${escapeHtml(g.code)}</td><td>${escapeHtml(g.name)}</td><td class="num"><b>${simNum(g.need)}</b>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(g.name, g.need, g.unit) : ""}</td><td>${escapeHtml(g.unit)}</td></tr>`).join("")}</tbody></table>
+        <tbody>${r.grossList.map((g, i) => `<tr><td class="pay-chk"><input type="checkbox" class="sim-gm-sel" data-i="${i}" /></td><td>${escapeHtml(g.code)}</td><td>${escapeHtml(g.name)}</td><td class="num"><b>${simNum(g.need)}</b>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(g.name, g.need, g.unit, g.mid) : ""}</td><td>${escapeHtml(g.unit)}</td></tr>`).join("")}</tbody></table>
         <div class="erp-co-actions" style="margin:6px 0 0">
           <button class="btn btn-small btn-primary" id="sim-plan" title="Маркираните материали влизат в Заявки за материали → 🗓 Планувани за поръчка — там се избира доставчик (предложен от историята) и се поръчва">🛒 Планувай за поръчка</button>
           <span class="erp-muted" id="sim-plan-st">избери с тикчетата кое да се поръчва</span>

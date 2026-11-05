@@ -150,9 +150,9 @@ async function erpRenderMissingMaterials(box) {
       ${chk(r, r.missing)}
       <td data-label="Материал"><b>${escapeHtml(r.code)}</b> ${escapeHtml(r.name)}</td>
       <td data-label="Мярка">${escapeHtml(r.unit)}</td>
-      <td class="num" data-label="Нужен (оставащо)">${erpNum(r.need)}${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.need, r.unit) : ""}</td>
+      <td class="num" data-label="Нужен (оставащо)">${erpNum(r.need)}${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.need, r.unit, r.mid) : ""}</td>
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
-      <td class="num" data-label="Ще липсва"><span class="erp-warn">${erpNum(r.missing)} ⚠</span>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.missing, r.unit) : ""}</td>
+      <td class="num" data-label="Ще липсва"><span class="erp-warn">${erpNum(r.missing)} ⚠</span>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.missing, r.unit, r.mid) : ""}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>
       <td data-label="Поръчай от">${suppSel(r)}</td>
       <td data-label="Поръчка">${buy1(r)}</td>
@@ -163,7 +163,7 @@ async function erpRenderMissingMaterials(box) {
       ${chk(r, Math.max(0, r.min - r.stock) || r.min)}
       <td data-label="Материал"><b>${escapeHtml(r.code)}</b> ${escapeHtml(r.name)}</td>
       <td data-label="Мярка">${escapeHtml(r.unit)}</td>
-      <td class="num" data-label="Нужен (оставащо)">${erpNum(r.need)}${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.need, r.unit) : ""}</td>
+      <td class="num" data-label="Нужен (оставащо)">${erpNum(r.need)}${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.need, r.unit, r.mid) : ""}</td>
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Минимум">${erpNum(r.min)}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>

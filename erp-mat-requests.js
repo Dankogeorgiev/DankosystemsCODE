@@ -460,9 +460,17 @@ function matreqSuppForMat(code, name, mid) {
    дава И В ДВАТА формата — 1000×2000 и 1250×2500 (по Данко, 05.11.2026).
    Закръгля се НАГОРЕ към цели бройки. */
 const MATREQ_BAR_M = 6, MATREQ_BAR_SOLID_M = 3, MATREQ_SHEETS = [[1, 2], [1.25, 2.5]], MATREQ_RHO = 7850;
-function matreqMetalGuess(name, kg) {
+/* Групата на материала по id (за „Байц 4 мм" името мълчи, групата
+   „Метали - Ламарина лист" казва какво е — по Данко, 05.11.2026). */
+function matreqMetalGroupOf(midOrGroup) {
+  if (typeof midOrGroup === "string") return midOrGroup;
+  const m = (typeof ERP !== "undefined" && ERP.matById && midOrGroup && (ERP.matById[midOrGroup] || ERP.matById[String(midOrGroup)])) || null;
+  return (m && (m.group_name || m.group)) || "";
+}
+function matreqMetalGuess(name, kg, midOrGroup) {
   kg = Number(kg) || 0;
   if (!(kg > 0)) return null;
+  const grp = String(matreqMetalGroupOf(midOrGroup) || "").toLowerCase();
   const s = String(name || "").toLowerCase().replace(/,/g, ".").replace(/[х×]/g, "x");
   const N = "(\\d+(?:\\.\\d+)?)";
   let m, area = 0, what = "";
@@ -478,7 +486,8 @@ function matreqMetalGuess(name, kg) {
     const a = +m[1], b = +m[2], t = +m[3];
     if (!(t > 0 && t <= Math.min(a, b))) return null;
     area = t * (a + b - t); what = "винкел";
-  } else if ((m = s.match(new RegExp("(?:^|[^а-я])(?:гв|св|ламарина|лист)[^0-9x]*" + N + "\\s*мм")))) {
+  } else if ((m = s.match(new RegExp("(?:^|[^а-я])(?:гв|св|ламарина|лист)[^0-9x]*" + N + "\\s*мм")))
+      || (/ламарина|лист/.test(grp) && !/тръба|винкел|ø/.test(s) && (m = s.match(new RegExp("(?:^|[^0-9x.])" + N + "\\s*мм"))))) {
     const t = +m[1];
     if (!(t > 0 && t <= 60)) return null;
     const opts = MATREQ_SHEETS.map(([w, l]) => {
@@ -498,9 +507,9 @@ function matreqMetalGuess(name, kg) {
   return { pieces: Math.ceil(kg / perBar - 1e-9), per: Math.round(perBar * 100) / 100, noun: "пръта", detail: `${what} · прът ${barM} м` };
 }
 /* Малкият сив ред „≈ N пръта" под килограмите (само при мярка кг). */
-function matreqMetalGuessHtml(name, kg, unit) {
+function matreqMetalGuessHtml(name, kg, unit, midOrGroup) {
   if (!/^\s*кг/i.test(String(unit || ""))) return "";
-  const g = matreqMetalGuess(name, kg);
+  const g = matreqMetalGuess(name, kg, midOrGroup);
   if (!g) return "";
   if (g.sheet) {
     const tip = `Предположение: ${g.detail} — ${g.opts.map(o => `лист ${o.size} ≈ ${o.per} кг`).join("; ")}. Закръглено НАГОРЕ към цели листове.`;
@@ -551,7 +560,7 @@ async function matreqRenderPlanned(box) {
         <td class="pay-chk"><input type="checkbox" class="pl-sel" data-id="${escapeAttr(String(r.id))}" /></td>
         <td class="t-code">${escapeHtml(r.code || "")}</td>
         <td><b>${escapeHtml(r.name || "")}</b></td>
-        <td class="num"><input type="number" class="pl-qty" data-id="${escapeAttr(String(r.id))}" value="${escapeAttr(String(r.qty || ""))}" step="any" min="0" style="width:88px" title="Количество за поръчка — може да се коригира, запазва се само̀" />${matreqMetalGuessHtml(r.name, r.qty, r.unit)}</td>
+        <td class="num"><input type="number" class="pl-qty" data-id="${escapeAttr(String(r.id))}" value="${escapeAttr(String(r.qty || ""))}" step="any" min="0" style="width:88px" title="Количество за поръчка — може да се коригира, запазва се само̀" />${matreqMetalGuessHtml(r.name, r.qty, r.unit, r.mid)}</td>
         <td>${escapeHtml(r.unit || "")}</td>
         <td class="erp-muted" style="font-size:12px">${escapeHtml(r.from || "—")}</td>
         <td>${escapeHtml(typeof erpDMY === "function" ? erpDMY(r.at) : r.at)}</td>
@@ -560,7 +569,7 @@ async function matreqRenderPlanned(box) {
           const left = Math.max(0, Math.round(((Number(r.qty) || 0) - got.total) * 1000) / 1000);
           const covered = (Number(r.qty) || 0) > 0 && left <= 0;
           return `<td class="num" ${got.docs.length ? `title="${escapeAttr(got.docs.slice(0, 6).join("\n"))}"` : ""}>${got.total ? `<b>${erpNum(got.total)}</b>` : "—"}</td>
-        <td class="num">${covered ? '<b style="color:#166534">✓ покрито</b>' : `<b style="color:#b91c1c">${erpNum(left)}</b>${matreqMetalGuessHtml(r.name, left, r.unit)}`}</td>`;
+        <td class="num">${covered ? '<b style="color:#166534">✓ покрито</b>' : `<b style="color:#b91c1c">${erpNum(left)}</b>${matreqMetalGuessHtml(r.name, left, r.unit, r.mid)}`}</td>`;
         })()}
         <td>${r.supps.length
           ? `<select class="pl-sup" data-id="${escapeAttr(String(r.id))}" style="max-width:230px">${r.supps.slice(0, 6).map((c, j) => `<option value="${escapeAttr(c.name)}" ${j === 0 ? "selected" : ""}>${escapeHtml(c.name)}${c.priceEur ? ` · ${Math.round(c.priceEur * 100) / 100} €` : ""}${c.last ? ` · ${typeof erpDMY === "function" ? erpDMY(c.last) : c.last}` : ""}</option>`).join("")}</select>`
