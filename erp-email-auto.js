@@ -475,3 +475,62 @@ ${items}
     text, datalist: "mc-contacts",
   });
 }
+
+/* ---------- ✉ Мейли за фактура (Данко, 06.11.2026) ----------
+   Списък на всички ИЗПРАТЕНИ по имейл фактури, групирани по клиент:
+   № и тип на документа, кога е изпратен и на кой имейл (o.emailedAt /
+   o.emailedTo се пишат при реално изпращане — Brevo потвърди). Отгоре на
+   групата стои и ЗАПОМНЕНИЯТ имейл на клиента (extra_mails.lastTo) —
+   този, който излиза сам при следващата фактура. Отваря се от
+   Клиенти/Доставчици, до „Запитване до доставчици". */
+async function erpInvMailsDialog() {
+  try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
+  let lastTo = {};
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "extra_mails").maybeSingle();
+    lastTo = (data && data.data && data.data.lastTo) || {};
+  } catch (e) {}
+  const sent = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).filter(o => o.emailedAt);
+  const { wrap, close } = erpDialog(`
+    <h3>✉ Мейли за фактура</h3>
+    <div class="erp-toolbar" style="margin:0 0 8px">
+      <input type="search" id="im-q" placeholder="🔎 клиент / имейл / № фактура" style="flex:1;min-width:200px" />
+      <span class="erp-count" id="im-count"></span>
+    </div>
+    <div id="im-out" style="max-height:62vh;overflow:auto"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="im-close">Затвори</button></div>`);
+  try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
+  wrap.querySelector("#im-close").addEventListener("click", close);
+  const fmt = ts => ts ? new Date(ts).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+  const paint = () => {
+    const q = (wrap.querySelector("#im-q").value || "").trim().toLowerCase();
+    const list = sent.filter(o => !q || `${(o.client && o.client.name) || ""} ${o.emailedTo || ""} ${o.docNo || ""}`.toLowerCase().includes(q));
+    const by = new Map();
+    list.forEach(o => { const c = (o.client && o.client.name) || "— без клиент —"; if (!by.has(c)) by.set(c, []); by.get(c).push(o); });
+    const groups = [...by.entries()].map(([name, docs]) => {
+      docs.sort((a, b) => String(b.emailedAt).localeCompare(String(a.emailedAt)));
+      return { name, docs, last: docs[0].emailedAt };
+    }).sort((a, b) => String(b.last).localeCompare(String(a.last)));
+    wrap.querySelector("#im-count").textContent = `${groups.length} клиенти · ${list.length} изпратени`;
+    wrap.querySelector("#im-out").innerHTML = groups.map(g => {
+      const mem = lastTo[String(g.name).trim().toLowerCase()] || "";
+      return `
+      <h4 class="erp-group-head" style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">${escapeHtml(g.name)}
+        ${mem ? `<span class="erp-muted" style="font-size:12.5px;font-weight:400" title="Запомненият фактурен имейл на клиента — излиза сам при следващата фактура към него">запомнен: <b>${escapeHtml(mem)}</b></span>` : ""}</h4>
+      <table class="report-table erp-table" style="margin-bottom:12px">
+        <thead><tr><th>№</th><th>Тип</th><th>Дата на документа</th><th>Изпратена на</th><th>Имейл</th></tr></thead>
+        <tbody>${g.docs.map(o => {
+          const k = (typeof INV_KINDS !== "undefined" && INV_KINDS[o.kind]) || {};
+          return `<tr>
+          <td data-label="№"><b>${escapeHtml(o.docNo || "—")}</b></td>
+          <td data-label="Тип">${escapeHtml(k.label || o.kind || "")}</td>
+          <td data-label="Дата на документа">${(typeof erpDMY === "function") ? erpDMY(o.issueDate) : escapeHtml(o.issueDate || "")}</td>
+          <td data-label="Изпратена на">${fmt(o.emailedAt)}</td>
+          <td data-label="Имейл">${escapeHtml(o.emailedTo || "—")}</td>
+        </tr>`; }).join("")}</tbody>
+      </table>`;
+    }).join("") || `<p class="report-empty">Няма изпратени фактури${q ? " по това търсене" : " още"}. Фактурата влиза тук, щом бъде изпратена с „✉ Изпрати" (от списъка във Фактуриране или при издаване).</p>`;
+  };
+  wrap.querySelector("#im-q").addEventListener("input", paint);
+  paint();
+}

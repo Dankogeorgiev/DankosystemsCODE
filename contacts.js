@@ -672,5 +672,11 @@ function cInit() {
   document.getElementById("btn-add-contact").addEventListener("click", () => renderContactForm(null));
   document.getElementById("btn-inquiry").addEventListener("click", renderInquiryForm);
   document.getElementById("btn-inquiry-reg").addEventListener("click", renderInquiryRegistry);
+  // ✉ Мейли за фактура (Данко, 06.11.2026) — списъкът живее в erp-email-auto.js.
+  const bim = document.getElementById("btn-inv-mails");
+  if (bim) bim.addEventListener("click", () => {
+    if (typeof erpInvMailsDialog === "function") erpInvMailsDialog();
+    else alert("Модулът с имейлите не е зареден — презареди (F5).");
+  });
 }
 document.addEventListener("DOMContentLoaded", cInit);
