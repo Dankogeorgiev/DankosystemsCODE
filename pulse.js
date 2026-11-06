@@ -23,13 +23,16 @@ async function renderPulse() {
     <div class="pr-row" style="margin-bottom:8px">
       <button class="btn btn-small ${PULSE_TAB === "today" ? "btn-primary" : ""}" id="pu-nav-t">⚡ Днес</button>
       <button class="btn btn-small ${PULSE_TAB === "monthly" ? "btn-primary" : ""}" id="pu-nav-m">📅 Месечни резултати</button>
+      <button class="btn btn-small ${PULSE_TAB === "clients" ? "btn-primary" : ""}" id="pu-nav-c">👥 Клиенти (AI)</button>
       <button class="btn btn-small ${PULSE_TAB === "activity" ? "btn-primary" : ""}" id="pu-nav-a">👣 Активност</button>
     </div><div id="pulse-body"><p class="erp-loading">Зареждане на пулса…</p></div>`;
   view.querySelector("#pu-nav-t").addEventListener("click", () => { PULSE_TAB = "today"; renderPulse(); });
   view.querySelector("#pu-nav-m").addEventListener("click", () => { PULSE_TAB = "monthly"; renderPulse(); });
+  view.querySelector("#pu-nav-c").addEventListener("click", () => { PULSE_TAB = "clients"; renderPulse(); });
   view.querySelector("#pu-nav-a").addEventListener("click", () => { PULSE_TAB = "activity"; renderPulse(); });
   const body = view.querySelector("#pulse-body");
   if (PULSE_TAB === "monthly") await pulseMonthly(body);
+  else if (PULSE_TAB === "clients") await pulseClients(body);
   else if (PULSE_TAB === "activity") await pulseActivity(body);
   else await pulseRenderToday(body);
 }
@@ -635,6 +638,149 @@ async function pulseMonthly(v) {
     c005Store.list.splice(i, 1);
     if (await pulseC005Save(c005Store)) pulseMonthly(v);
   }));
+}
+
+/* ---------- 👥 Клиенти (AI) — анализ на заявките по клиенти ----------
+   (Данко, 06.11.2026) За избран период: за всеки клиент — колко заявки и за
+   колко пари, растат ли или намаляват (първа срещу втора половина на
+   периода), какво поръчва най-често, с каква повтаряемост (среден брой дни
+   между заявки) и СПИСЪК НА ВСИЧКИ заявки. Бутонът „🤖 AI анализ" праща
+   същите данни (всички заявки, ред по ред) на Claude през Edge функцията
+   „assistant" и Данко може да си говори с него върху тях. */
+let PULSE_CLI_MONTHS = 12;
+async function pulseClients(v) {
+  v.innerHTML = `<p class="erp-loading">Чета заявките…</p>`;
+  const num = x => (typeof erpToNum === "function") ? erpToNum(x) : (Number(x) || 0);
+  const toEur = (n, cur) => cur === "BGN" ? n / 1.95583 : n;
+  const lineNet = arr => (arr || []).reduce((a, l) => a + num(l.qty) * num(l.unitPrice), 0);
+  const eur = n => (Number(n) || 0).toLocaleString("bg-BG", { maximumFractionDigits: 0 }) + " €";
+  const dmy = s => String(s || "").split("-").reverse().join(".");
+
+  let orders = [];
+  try {
+    const { data, error } = await erpSelectAll("customer_orders", "data");
+    if (error) throw error;
+    orders = (data || []).map(r => r.data || {});
+  } catch (e) {
+    v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const since = PULSE_CLI_MONTHS
+    ? new Date(today.getFullYear(), today.getMonth() - PULSE_CLI_MONTHS, today.getDate()).toISOString().slice(0, 10)
+    : "";
+  // Датата на заявката; без дата — срокът. Съвсем без дата не влиза в периода.
+  const dOf = o => String(o.date || o.deadline || "");
+  const inPeriod = orders.filter(o => { const d = dOf(o); return d && (!since || d >= since) && d <= todayIso; });
+
+  // Групиране по клиент + сметки.
+  const byClient = new Map();
+  inPeriod.forEach(o => {
+    const c = (o.clientName || "— без клиент —").trim() || "— без клиент —";
+    if (!byClient.has(c)) byClient.set(c, []);
+    byClient.get(c).push(o);
+  });
+  const periodStart = since || inPeriod.map(dOf).sort()[0] || todayIso;
+  const midTime = (new Date(periodStart).getTime() + new Date(todayIso).getTime()) / 2;
+  const valOf = o => toEur(lineNet(o.lines), o.currency || "EUR");
+
+  const clients = [...byClient.entries()].map(([name, list]) => {
+    list.sort((a, b) => dOf(a).localeCompare(dOf(b)));
+    const total = list.reduce((s, o) => s + valOf(o), 0);
+    // Тенденция: стойността в първата срещу втората половина на периода.
+    let v1 = 0, v2 = 0, n1 = 0, n2 = 0;
+    list.forEach(o => { const t = new Date(dOf(o)).getTime(); if (t < midTime) { v1 += valOf(o); n1++; } else { v2 += valOf(o); n2++; } });
+    // От 2 заявки нагоре — една заявка не е тенденция.
+    const trend = (list.length < 2 || (v1 < 1 && v2 < 1)) ? "—"
+      : v2 > v1 * 1.15 ? "↑ расте"
+      : v2 < v1 * 0.85 ? "↓ намалява" : "→ равно";
+    // Повтаряемост: среден брой дни между поредните заявки.
+    let rhythm = 0;
+    if (list.length >= 2) {
+      const ds = list.map(o => new Date(dOf(o)).getTime());
+      rhythm = Math.round((ds[ds.length - 1] - ds[0]) / (ds.length - 1) / 864e5);
+    }
+    // Колко дни от последната заявка (за риска „отдавна не е поръчвал").
+    const lastGap = Math.round((today.getTime() - new Date(dOf(list[list.length - 1])).getTime()) / 864e5);
+    // Най-често поръчваните изделия: в колко заявки участват + общо бройки.
+    const prod = new Map();
+    list.forEach(o => {
+      const seen = new Set();
+      (o.lines || []).forEach(l => {
+        const k = String(l.code || l.name || "?").trim() || "?";
+        const p = prod.get(k) || { code: k, name: String(l.name || "").trim(), orders: 0, qty: 0 };
+        p.qty += num(l.qty);
+        if (!seen.has(k)) { p.orders++; seen.add(k); }
+        if (!p.name && l.name) p.name = String(l.name).trim();
+        prod.set(k, p);
+      });
+    });
+    const top = [...prod.values()].sort((a, b) => b.orders - a.orders || b.qty - a.qty).slice(0, 3);
+    return { name, list, total, trend, v1, v2, n1, n2, rhythm, lastGap, top, prod };
+  }).sort((a, b) => b.total - a.total);
+
+  const periodLabel = PULSE_CLI_MONTHS ? `последните ${PULSE_CLI_MONTHS} месеца` : "цялата история";
+  const rows = clients.map(c => `
+    <tr>
+      <td class="pum-m" data-label=""><b>${escapeHtml(c.name)}</b></td>
+      <td class="num" data-label="Заявки"><b>${c.list.length}</b></td>
+      <td class="num" data-label="Стойност"><b>${eur(c.total)}</b></td>
+      <td data-label="Тенденция" title="Първа половина на периода: ${escapeAttr(eur(c.v1))} (${c.n1} заявки) · втора: ${escapeAttr(eur(c.v2))} (${c.n2} заявки)">${c.trend === "↑ расте" ? `<b style="color:#166534">${c.trend}</b>` : c.trend === "↓ намалява" ? `<b style="color:#b91c1c">${c.trend}</b>` : c.trend}</td>
+      <td data-label="Ритъм" title="Среден брой дни между заявките; в скоби — преди колко дни беше последната">${c.rhythm ? `~${c.rhythm} дни` : "еднократно"} <span class="erp-muted">(посл. преди ${c.lastGap} дни)</span></td>
+      <td class="pum-nt" data-label="Най-често поръчва">${c.top.map(p => `${escapeHtml(p.code)}${p.name && p.name !== p.code ? " " + escapeHtml(p.name.slice(0, 28)) : ""} <span class="erp-muted">(${p.orders} заявки, ${Math.round(p.qty)} бр)</span>`).join("<br>") || "—"}</td>
+      <td class="pum-nt" data-label="Всички заявки">
+        <details><summary style="cursor:pointer" class="erp-muted">покажи ${c.list.length} заявки</summary>
+          ${c.list.slice().reverse().map(o => `<div style="padding:3px 0;border-bottom:1px dashed #e2e8f0;font-size:12.5px">
+            <b>${dmy(dOf(o))}</b> · № ${escapeHtml(o.ourNo || "—")} · ${escapeHtml(o.status || "нова")} · <b>${eur(valOf(o))}</b><br>
+            <span class="erp-muted">${(o.lines || []).map(l => `${escapeHtml(String(l.code || l.name || "?"))}×${num(l.qty)}`).join(", ")}</span>
+          </div>`).join("")}
+        </details>
+      </td>
+    </tr>`).join("");
+
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">👥 ${clients.length} клиенти · ${inPeriod.length} заявки за ${periodLabel}</span>
+      <label class="erp-inline">Период <select id="puc-period">${[[3, "3 месеца"], [6, "6 месеца"], [12, "12 месеца"], [24, "24 месеца"], [0, "всичко"]].map(([m, l]) => `<option value="${m}" ${m === PULSE_CLI_MONTHS ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <span class="spacer"></span>
+      ${typeof puaChatMount === "function" ? '<button class="btn btn-small btn-primary" id="puc-ai" title="Claude разглежда всеки клиент и всичките му заявки за периода: ръст/спад, какво поръчва, ритъм, рискове — и после отговаря на въпроси">🤖 AI анализ</button>' : ""}
+    </div>
+    <div id="puc-ai-out"></div>
+    <table class="report-table erp-table">
+      <thead><tr><th>Клиент</th><th class="num">Заявки</th><th class="num">Стойност</th><th title="Стойността във втората половина на периода срещу първата">Тенденция</th><th title="Среден брой дни между заявките">Ритъм</th><th>Най-често поръчва</th><th>Всички заявки</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="report-empty">Няма заявки за периода.</td></tr>`}</tbody>
+    </table>
+    <p class="hint">Стойностите са без ДДС, в EUR. <b>Тенденция</b> сравнява парите във втората половина на периода с първата (±15% = „равно"). <b>Ритъм</b> е средният брой дни между заявките на клиента. „Всички заявки" разгъва пълния списък — най-новите отгоре. AI анализът получава всяка заявка ред по ред.</p>`;
+
+  v.querySelector("#puc-period").addEventListener("change", e => { PULSE_CLI_MONTHS = Number(e.target.value) || 0; pulseClients(v); });
+
+  const aiBtn = v.querySelector("#puc-ai");
+  if (aiBtn) aiBtn.addEventListener("click", () => {
+    const box = v.querySelector("#puc-ai-out");
+    // Данните за Claude: всеки клиент с числата + ВСИЧКИ заявки ред по ред.
+    let withNames = true;
+    const build = (maxPerClient) => clients.map(c => {
+      const legend = withNames
+        ? "\nПродукти: " + [...c.prod.values()].filter(p => p.name && p.name !== p.code).slice(0, 30).map(p => `${p.code}=${p.name.slice(0, 40)}`).join("; ")
+        : "";
+      let lines = c.list.map(o => `${dOf(o)} №${o.ourNo || "?"} [${o.status || "нова"}] ${Math.round(valOf(o))}€: ${(o.lines || []).map(l => `${String(l.code || l.name || "?")}×${num(l.qty)}`).join(", ")}`);
+      let cut = "";
+      if (maxPerClient && lines.length > maxPerClient) { cut = `\n(и още ${lines.length - maxPerClient} по-стари заявки — извън извадката)`; lines = lines.slice(-maxPerClient); }
+      return `=== ${c.name} — ${c.list.length} заявки, ${Math.round(c.total)} €, тенденция ${c.trend} (1-ва половина ${Math.round(c.v1)} € / 2-ра ${Math.round(c.v2)} €), ритъм ${c.rhythm ? "~" + c.rhythm + " дни" : "еднократно"}, последна преди ${c.lastGap} дни${legend}\n${lines.join("\n")}${cut}`;
+    }).join("\n\n");
+    let txt = build(0);
+    if (txt.length > 90000) { withNames = false; txt = build(0); }
+    if (txt.length > 90000) txt = build(60);
+    const system = `Ти си търговският анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Получаваш заявките от клиенти за период (${periodLabel}), групирани по клиент, с ВСИЧКИ заявки ред по ред (дата, номер, статус, стойност в EUR без ДДС, изделия код×брой). Дай анализ НА БЪЛГАРСКИ, по клиент (почни от най-големите):
+1) Тенденцията му — расте/пада/стабилен и КАКВО точно се променя (стойност, честота, асортимент);
+2) Какво поръчва най-често и има ли ясен ритъм на поръчване; съответства ли последната заявка на ритъма или клиентът „замлъква" (риск от отлив — отбележи го ЯСНО);
+3) Опиши заявките му за периода — кратко, хронологично, с номерата и забележителното (големи, необичайни, повтарящи се);
+4) Накрая: общи изводи и 2-3 практични препоръки (кого да събудим, на кого да предложим рамкова заявка, къде расте потенциал).
+Пиши стегнато, с числата от данните. Последният месец може да е непълен — не го тълкувай като срив. После отговаряй на уточненията на Данко: каже ли нещо да се има предвид или игнорира — преработи анализа.`;
+    puaChatMount(box, system, txt, 8000);
+  });
 }
 
 /* ---------- 👣 Активност — кой какво е свършил ----------

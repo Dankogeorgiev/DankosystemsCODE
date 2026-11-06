@@ -156,7 +156,7 @@ function puaSummaryText(d) {
 }
 
 /* Общият канал към Claude (Edge функцията „assistant" — ключът не е тук). */
-async function puaClaudeCall(system, messages) {
+async function puaClaudeCall(system, messages, maxTokens) {
   const cfg = window.DANKO_CONFIG || {};
   if (!cfg.SUPABASE_URL) throw new Error("Няма връзка с облака.");
   let token = cfg.SUPABASE_ANON_KEY;
@@ -166,7 +166,7 @@ async function puaClaudeCall(system, messages) {
   const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/assistant", {
     method: "POST",
     headers: { "Content-Type": "application/json", "apikey": cfg.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token },
-    body: JSON.stringify({ system, messages: trimmed, max_tokens: 1600 }),
+    body: JSON.stringify({ system, messages: trimmed, max_tokens: maxTokens || 1600 }),
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j.error || ("HTTP " + res.status));
@@ -176,7 +176,7 @@ async function puaClaudeCall(system, messages) {
 /* 💬 ЧАТ с Claude върху анализа (Данко, 24.10.2026): първият отговор е
    коментарът, а отдолу Данко пише какво да се има предвид / какво да се
    игнорира и Claude преработва. Данните стоят в първото (скрито) съобщение. */
-function puaChatMount(box, system, dataText) {
+function puaChatMount(box, system, dataText, maxTokens) {
   const msgs = [];
   // Логът скролва САМ (max-height), а полето за писане стои ВИНАГИ видимо
   // под него — иначе дългият анализ го избутваше извън екрана (Пулс).
@@ -200,7 +200,7 @@ function puaChatMount(box, system, dataText) {
     busy = true;
     msgs.push({ role: "user", content: userText });
     paint(true);
-    try { msgs.push({ role: "assistant", content: await puaClaudeCall(system, msgs) }); }
+    try { msgs.push({ role: "assistant", content: await puaClaudeCall(system, msgs, maxTokens) }); }
     catch (e) { msgs.push({ role: "assistant", content: "⚠ Claude не отговори: " + (e.message || e) + "\n(Таблиците долу са пълни и без него. Опитай пак след минута.)" }); }
     busy = false;
     paint(false);
