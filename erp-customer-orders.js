@@ -5,7 +5,11 @@
    Ползва ERP/erpDialog/erpBuildTasks/erpToNum/erpNum/erpEur от другите erp-*.js. */
 
 let erpCOList = null;       // заредени заявки
-let erpCOSort = "deadline"; // подредба на списъка
+// Подредба на списъка. По подразбиране „Клиент (папки)" — Данко, 06.11.2026:
+// клиентите излизат като папки, вътре заявките им. Изборът се помни на
+// устройството (localStorage), така че който предпочита „Срок", си го връща.
+let erpCOSort = (function () { try { return localStorage.getItem("co_sort") || "client"; } catch (e) { return "client"; } })();
+function erpCOSortRemember() { try { localStorage.setItem("co_sort", erpCOSort); } catch (e) {} }
 let erpCOQuery = "";        // търсене в списъка
 let erpCOHideDone = true;   // скрий завършените (по подразбиране)
 let erpCOStatusFilter = ""; // филтър по статус
@@ -439,6 +443,7 @@ function erpCOListHtml(rows) {
   let out = "";
   for (const [c, list] of groups) {
     const open = erpCOOpenClients.has(c);   // всеки клиент е в папка (и с 1 заявка)
+    list.sort((a, b) => String(a.deadline || "9999").localeCompare(String(b.deadline || "9999")));   // в папката: най-близкият срок отгоре
     const sum = list.reduce((s, o) => s + erpCOValueLeft(o), 0);
     out += `<tr class="co-folder erp-clickable" data-folder="${escapeAttr(c)}"><td colspan="11">${open ? "📂 ▾" : "📁 ▸"} <b>${escapeHtml(c)}</b> — ${list.length} ${list.length === 1 ? "заявка" : "заявки"} <span class="sell-cell erp-muted" title="Само недоставеното">· остава ${erpEur(sum)}</span><span class="erp-muted" style="float:right">${open ? "скрий" : "отвори"}</span></td></tr>`;
     if (open) out += list.map(erpCORowHtml).join("");
@@ -854,7 +859,7 @@ async function erpRenderCustomerOrders() {
 
   const rows = erpCOSortRows(erpCOList.slice());
   const sortOpts = [
-    ["deadline", "Срок на доставка"], ["plan", "🚚 План за товарене (по седмици)"], ["client", "Клиент (А→Я)"], ["date", "Дата (нови отгоре)"],
+    ["deadline", "Срок на доставка"], ["plan", "🚚 План за товарене (по седмици)"], ["client", "📁 Клиент (папки)"], ["date", "Дата (нови отгоре)"],
     ["ourNo", "Наш №"], ["status", "Статус"], ["value", "Остатъчна стойност (голяма отгоре)"],
   ];
   const statusOpts = ["нова", "в производство", "готова за продажба", "частично завършена", "завършена"];
@@ -902,12 +907,14 @@ async function erpRenderCustomerOrders() {
   const sortSel = document.getElementById("erp-co-sort");
   if (sortSel) sortSel.addEventListener("change", async e => {
     erpCOSort = e.target.value;
+    erpCOSortRemember();
     if (erpCOSort === "plan") { try { if (typeof lpEnsureItems === "function") await lpEnsureItems(); } catch (err) {} }
     erpRenderCustomerOrders();   // целият екран — бутонът „🚚 По плана" да свети вярно
   });
   const byPlan = document.getElementById("erp-co-byplan");
   if (byPlan) byPlan.addEventListener("click", async () => {
     erpCOSort = erpCOSort === "plan" ? "deadline" : "plan";
+    erpCOSortRemember();
     if (erpCOSort === "plan") { try { if (typeof lpEnsureItems === "function") await lpEnsureItems(); } catch (err) {} }
     erpRenderCustomerOrders();
   });
