@@ -675,7 +675,8 @@ function cInit() {
   // ✉ Мейли за фактура (Данко, 06.11.2026) — списъкът живее в erp-email-auto.js.
   const bim = document.getElementById("btn-inv-mails");
   if (bim) bim.addEventListener("click", () => {
-    if (typeof erpInvMailsDialog === "function") erpInvMailsDialog();
+    // В ЕКРАНА, не изскачащ прозорец (Данко, 06.11.2026).
+    if (typeof erpInvMailsView === "function") erpInvMailsView(document.getElementById("contacts-view"), () => renderContacts());
     else alert("Модулът с имейлите не е зареден — презареди (F5).");
   });
 }

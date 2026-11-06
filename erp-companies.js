@@ -262,7 +262,7 @@ function compRenderDirectory(v) {
   v.querySelector("#comp-tab-all").addEventListener("click", () => toCards(""));
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
-  v.querySelector("#comp-invmails").addEventListener("click", () => { if (typeof erpInvMailsDialog === "function") erpInvMailsDialog(); else alert("Модулът с имейлите не е зареден — презареди (F5)."); });
+  v.querySelector("#comp-invmails").addEventListener("click", () => { if (typeof erpInvMailsView === "function") erpInvMailsView(v, () => erpRenderCompanies()); else alert("Модулът с имейлите не е зареден — презареди (F5)."); });
   v.querySelector("#comp-newc").addEventListener("click", () => {
     if (typeof renderContactForm !== "function") return;
     const m = document.getElementById("contacts-modal");
@@ -455,7 +455,7 @@ async function erpRenderCompanies() {
   v.querySelector("#comp-tab-all").addEventListener("click", () => { compKindF = ""; erpRenderCompanies(); });
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
-  v.querySelector("#comp-invmails").addEventListener("click", () => { if (typeof erpInvMailsDialog === "function") erpInvMailsDialog(); else alert("Модулът с имейлите не е зареден — презареди (F5)."); });
+  v.querySelector("#comp-invmails").addEventListener("click", () => { if (typeof erpInvMailsView === "function") erpInvMailsView(v, () => erpRenderCompanies()); else alert("Модулът с имейлите не е зареден — презареди (F5)."); });
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null, { kind: compKindF || undefined }));
   v.querySelectorAll("[data-compopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCard(Number(b.dataset.compopen)); }));
   v.querySelectorAll("tr[data-comp]").forEach(tr => tr.addEventListener("click", () => compCard(Number(tr.dataset.comp))));

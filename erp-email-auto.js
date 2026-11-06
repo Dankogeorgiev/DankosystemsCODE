@@ -481,9 +481,12 @@ ${items}
    № и тип на документа, кога е изпратен и на кой имейл (o.emailedAt /
    o.emailedTo се пишат при реално изпращане — Brevo потвърди). Отгоре на
    групата стои и ЗАПОМНЕНИЯТ имейл на клиента (extra_mails.lastTo) —
-   този, който излиза сам при следващата фактура. Отваря се от
-   Клиенти/Доставчици, до „Запитване до доставчици". */
-async function erpInvMailsDialog() {
+   този, който излиза сам при следващата фактура.
+   ВАЖНО (Данко, 06.11.2026): отваря се В ЕКРАНА (в раздела, с „← Назад"),
+   НЕ като изскачащ прозорец — справките и списъците не са диалози. */
+async function erpInvMailsView(v, onBack) {
+  if (!v) return;
+  v.innerHTML = `<p class="erp-loading">Чета изпратените фактури…</p>`;
   try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
   let lastTo = {};
   try {
@@ -491,19 +494,19 @@ async function erpInvMailsDialog() {
     lastTo = (data && data.data && data.data.lastTo) || {};
   } catch (e) {}
   const sent = ((typeof erpInvoices !== "undefined" && erpInvoices) || []).filter(o => o.emailedAt);
-  const { wrap, close } = erpDialog(`
-    <h3>✉ Мейли за фактура</h3>
-    <div class="erp-toolbar" style="margin:0 0 8px">
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <button class="btn btn-small" id="im-back">← Назад</button>
+      <span class="erp-count"><b>✉ Мейли за фактура</b></span>
       <input type="search" id="im-q" placeholder="🔎 клиент / имейл / № фактура" style="flex:1;min-width:200px" />
       <span class="erp-count" id="im-count"></span>
     </div>
-    <div id="im-out" style="max-height:62vh;overflow:auto"></div>
-    <div class="erp-dialog-actions"><button class="btn" id="im-close">Затвори</button></div>`);
-  try { wrap.querySelector(".erp-dialog-box").classList.add("erp-dialog-wide"); } catch (e) {}
-  wrap.querySelector("#im-close").addEventListener("click", close);
+    <div id="im-out"></div>
+    <p class="hint">Тук влиза всяка фактура, изпратена с „✉ Изпрати" през Системата (след потвърждение от пощата). „Запомнен" е фактурният имейл, който излиза сам при следващата фактура към клиента.</p>`;
+  v.querySelector("#im-back").addEventListener("click", () => { if (typeof onBack === "function") onBack(); });
   const fmt = ts => ts ? new Date(ts).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
   const paint = () => {
-    const q = (wrap.querySelector("#im-q").value || "").trim().toLowerCase();
+    const q = (v.querySelector("#im-q").value || "").trim().toLowerCase();
     const list = sent.filter(o => !q || `${(o.client && o.client.name) || ""} ${o.emailedTo || ""} ${o.docNo || ""}`.toLowerCase().includes(q));
     const by = new Map();
     list.forEach(o => { const c = (o.client && o.client.name) || "— без клиент —"; if (!by.has(c)) by.set(c, []); by.get(c).push(o); });
@@ -511,8 +514,8 @@ async function erpInvMailsDialog() {
       docs.sort((a, b) => String(b.emailedAt).localeCompare(String(a.emailedAt)));
       return { name, docs, last: docs[0].emailedAt };
     }).sort((a, b) => String(b.last).localeCompare(String(a.last)));
-    wrap.querySelector("#im-count").textContent = `${groups.length} клиенти · ${list.length} изпратени`;
-    wrap.querySelector("#im-out").innerHTML = groups.map(g => {
+    v.querySelector("#im-count").textContent = `${groups.length} клиенти · ${list.length} изпратени`;
+    v.querySelector("#im-out").innerHTML = groups.map(g => {
       const mem = lastTo[String(g.name).trim().toLowerCase()] || "";
       return `
       <h4 class="erp-group-head" style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">${escapeHtml(g.name)}
@@ -531,6 +534,6 @@ async function erpInvMailsDialog() {
       </table>`;
     }).join("") || `<p class="report-empty">Няма изпратени фактури${q ? " по това търсене" : " още"}. Фактурата влиза тук, щом бъде изпратена с „✉ Изпрати" (от списъка във Фактуриране или при издаване).</p>`;
   };
-  wrap.querySelector("#im-q").addEventListener("input", paint);
+  v.querySelector("#im-q").addEventListener("input", paint);
   paint();
 }
