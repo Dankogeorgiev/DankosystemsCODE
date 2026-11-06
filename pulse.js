@@ -23,7 +23,7 @@ async function renderPulse() {
     <div class="pr-row" style="margin-bottom:8px">
       <button class="btn btn-small ${PULSE_TAB === "today" ? "btn-primary" : ""}" id="pu-nav-t">⚡ Днес</button>
       <button class="btn btn-small ${PULSE_TAB === "monthly" ? "btn-primary" : ""}" id="pu-nav-m">📅 Месечни резултати</button>
-      <button class="btn btn-small ${PULSE_TAB === "clients" ? "btn-primary" : ""}" id="pu-nav-c">👥 Клиенти (AI)</button>
+      <button class="btn btn-small ${PULSE_TAB === "clients" ? "btn-primary" : ""}" id="pu-nav-c">🤖 AI анализи</button>
       <button class="btn btn-small ${PULSE_TAB === "activity" ? "btn-primary" : ""}" id="pu-nav-a">👣 Активност</button>
     </div><div id="pulse-body"><p class="erp-loading">Зареждане на пулса…</p></div>`;
   view.querySelector("#pu-nav-t").addEventListener("click", () => { PULSE_TAB = "today"; renderPulse(); });
@@ -32,7 +32,7 @@ async function renderPulse() {
   view.querySelector("#pu-nav-a").addEventListener("click", () => { PULSE_TAB = "activity"; renderPulse(); });
   const body = view.querySelector("#pulse-body");
   if (PULSE_TAB === "monthly") await pulseMonthly(body);
-  else if (PULSE_TAB === "clients") await pulseClients(body);
+  else if (PULSE_TAB === "clients") await pulseAI(body);
   else if (PULSE_TAB === "activity") await pulseActivity(body);
   else await pulseRenderToday(body);
 }
@@ -640,7 +640,85 @@ async function pulseMonthly(v) {
   }));
 }
 
-/* ---------- 👥 Клиенти (AI) — анализ на заявките по клиенти ----------
+/* ---------- 🤖 AI анализи — трите анализа на едно място ----------
+   (Данко, 06.11.2026) Под-табове: „📦 Анализ поръчки" (заявките по клиенти,
+   pulseClients), „🧾 Анализ продажби" (фактурите — inva* от erp-pu-analysis)
+   и „🛒 Анализ покупки" (разходите — pua*). Продажбите и покупките ползват
+   СЪЩИТЕ функции като диалозите в Фактуриране/Покупки, но излизат на цял
+   екран в таба: таблиците веднага, AI коментарът — с бутон. */
+let PULSE_AI_SUB = "orders";
+async function pulseAI(v) {
+  v.innerHTML = `
+    <div class="pr-row" style="margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn btn-small ${PULSE_AI_SUB === "orders" ? "btn-primary" : ""}" id="puai-o">📦 Анализ поръчки</button>
+      <button class="btn btn-small ${PULSE_AI_SUB === "sales" ? "btn-primary" : ""}" id="puai-s">🧾 Анализ продажби</button>
+      <button class="btn btn-small ${PULSE_AI_SUB === "purch" ? "btn-primary" : ""}" id="puai-p">🛒 Анализ покупки</button>
+    </div><div id="puai-body"></div>`;
+  v.querySelector("#puai-o").addEventListener("click", () => { PULSE_AI_SUB = "orders"; pulseAI(v); });
+  v.querySelector("#puai-s").addEventListener("click", () => { PULSE_AI_SUB = "sales"; pulseAI(v); });
+  v.querySelector("#puai-p").addEventListener("click", () => { PULSE_AI_SUB = "purch"; pulseAI(v); });
+  const body = v.querySelector("#puai-body");
+  if (PULSE_AI_SUB === "sales") await pulseAIInline(body, "inva");
+  else if (PULSE_AI_SUB === "purch") await pulseAIInline(body, "pua");
+  else await pulseClients(body);
+}
+
+/* Продажби/Покупки на цял екран: същите build/render/AI функции като
+   диалозите, с избор на период От/До месец. По подразбиране — последните
+   12 месеца. Таблиците се строят веднага; Claude коментира при натискане. */
+async function pulseAIInline(v, kind) {
+  const isPu = kind === "pua";
+  if ((isPu && typeof puaBuild !== "function") || (!isPu && typeof invaBuild !== "function")) {
+    v.innerHTML = `<p class="report-empty">Модулът на анализа не е зареден — презареди (F5).</p>`;
+    return;
+  }
+  v.innerHTML = `<p class="erp-loading">Чета документите…</p>`;
+  try {
+    if (isPu) {
+      if (typeof erpLoadPurchases === "function" && (typeof erpPurchases === "undefined" || !erpPurchases)) await erpLoadPurchases();
+    } else {
+      if (typeof erpLoadInvoices === "function" && (typeof erpInvoices === "undefined" || !erpInvoices)) await erpLoadInvoices();
+      if (typeof erpInvLoadSeries === "function") await erpInvLoadSeries();
+    }
+  } catch (e) {
+    v.innerHTML = `<div class="erp-error"><h3>Грешка при зареждане</h3><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+  const now = new Date();
+  const toDef = now.toISOString().slice(0, 7);
+  const fd = new Date(now.getFullYear(), now.getMonth() - 11, 1);   // последните 12 месеца
+  const fromDef = `${fd.getFullYear()}-${String(fd.getMonth() + 1).padStart(2, "0")}`;
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <span class="erp-count">${isPu ? "🛒 Покупките (разходите) за периода" : "🧾 Продажбите (издадените фактури) за периода"}</span>
+      <label class="erp-inline">От <input type="month" id="puai-from" value="${fromDef}" /></label>
+      <label class="erp-inline">До <input type="month" id="puai-to" value="${toDef}" /></label>
+      <span class="spacer"></span>
+      <button class="btn btn-small btn-primary" id="puai-ai" title="Claude коментира числата — и после отговаря на въпроси и уточнения">🤖 AI анализ</button>
+    </div>
+    <div id="puai-out"></div>`;
+  let lastD = null;
+  const run = () => {
+    const from = v.querySelector("#puai-from").value || fromDef;
+    const to = v.querySelector("#puai-to").value || toDef;
+    const d = (isPu ? puaBuild : invaBuild)(from, to);
+    lastD = d;
+    const out = v.querySelector("#puai-out");
+    out.innerHTML = d.count
+      ? (isPu ? puaRender : invaRender)(d)
+      : `<p class="report-empty">Няма документи в периода ${escapeHtml(from)} – ${escapeHtml(to)}.</p>`;
+  };
+  v.querySelector("#puai-from").addEventListener("change", run);
+  v.querySelector("#puai-to").addEventListener("change", run);
+  v.querySelector("#puai-ai").addEventListener("click", () => {
+    if (!lastD || !lastD.count) { alert("Няма документи в периода."); return; }
+    const box = v.querySelector(isPu ? "#pua-ai" : "#inva-ai");
+    if (box) (isPu ? puaAiComment : invaAiComment)(lastD, box);
+  });
+  run();
+}
+
+/* ---------- 📦 Анализ поръчки — заявките по клиенти ----------
    (Данко, 06.11.2026) За избран период: за всеки клиент — колко заявки и за
    колко пари, растат ли или намаляват (първа срещу втора половина на
    периода), какво поръчва най-често, с каква повтаряемост (среден брой дни
@@ -746,8 +824,6 @@ async function pulseClients(v) {
       <label class="erp-inline">Период <select id="puc-period">${[[3, "3 месеца"], [6, "6 месеца"], [12, "12 месеца"], [24, "24 месеца"], [0, "всичко"]].map(([m, l]) => `<option value="${m}" ${m === PULSE_CLI_MONTHS ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <span class="spacer"></span>
       ${typeof puaChatMount === "function" ? '<button class="btn btn-small btn-primary" id="puc-ai" title="Claude разглежда всеки клиент и всичките му заявки за периода: ръст/спад, какво поръчва, ритъм, рискове — и после отговаря на въпроси">🤖 AI анализ</button>' : ""}
-      ${typeof erpPuAnalysisDialog === "function" ? '<button class="btn btn-small" id="puc-pu" title="Готовият анализ на разходите (същият като в Покупки): по вид, металите в килограми с Ø €/кг, топ доставчици, по месеци — и коментар от Claude">🛒 Покупките (AI)</button>' : ""}
-      ${typeof erpInvAnalysisDialog === "function" ? '<button class="btn btn-small" id="puc-inv" title="Готовият анализ на продажбите (същият като във Фактуриране): топ клиенти и продукти по фактури, износ срещу вътрешен пазар, по месеци — и коментар от Claude">🧾 Продажбите (AI)</button>' : ""}
     </div>
     <div id="puc-ai-out"></div>
     <table class="report-table erp-table">
@@ -757,11 +833,6 @@ async function pulseClients(v) {
     <p class="hint">Стойностите са без ДДС, в EUR. <b>Тенденция</b> сравнява парите във втората половина на периода с първата (±15% = „равно"). <b>Ритъм</b> е средният брой дни между заявките на клиента. „Всички заявки" разгъва пълния списък — най-новите отгоре. AI анализът получава всяка заявка ред по ред.</p>`;
 
   v.querySelector("#puc-period").addEventListener("change", e => { PULSE_CLI_MONTHS = Number(e.target.value) || 0; pulseClients(v); });
-  // Готовите анализи от Покупки и Фактуриране — същите прозорци, отваряеми и оттук.
-  const puBtn = v.querySelector("#puc-pu");
-  if (puBtn) puBtn.addEventListener("click", () => erpPuAnalysisDialog());
-  const invBtn = v.querySelector("#puc-inv");
-  if (invBtn) invBtn.addEventListener("click", () => erpInvAnalysisDialog());
 
   const aiBtn = v.querySelector("#puc-ai");
   if (aiBtn) aiBtn.addEventListener("click", () => {

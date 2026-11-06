@@ -106,7 +106,7 @@ function puaRender(d) {
     <h4 class="erp-group-head">📦 Какво влиза в склада (заприходявани редове)</h4>
     <p style="margin:4px 0"><b>${d.stock.lines}</b> складови реда за <b>${puaF2(d.stock.eur)} EUR</b>. В склада влиза всеки ред, добавен с „Материал (склад)" — независимо от вида разход на фактурата.</p>
     <table class="report-table erp-table"><thead><tr><th>Група (склад)</th><th class="num">Редове</th><th class="num">EUR</th><th>Вид разход</th><th>Примери</th></tr></thead>
-      <tbody>${sgRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${x.n}</td><td class="num">${puaF2(x.eur)}</td><td>${escapeHtml([...x.types].join(", "))}</td><td class="erp-muted">${escapeHtml(x.ex.join(" · "))}</td></tr>`).join("")}</tbody></table>
+      <tbody>${sgRows.map(([k, x]) => `<tr><td data-label=""><b>${escapeHtml(k)}</b></td><td class="num" data-label="Редове">${x.n}</td><td class="num" data-label="EUR">${puaF2(x.eur)}</td><td data-label="Вид разход">${escapeHtml([...x.types].join(", "))}</td><td class="erp-muted" data-label="Примери">${escapeHtml(x.ex.join(" · "))}</td></tr>`).join("")}</tbody></table>
     ${nmRows.length ? `<p style="margin:6px 0;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px">⚠ <b>Складови редове под НЕ-материален вид разход:</b><br>${nmRows.map(([k, x]) => `• <b>${escapeHtml(k)}</b> — ${x.n} реда (${puaF2(x.eur)} EUR)${x.ex.length ? ": " + escapeHtml(x.ex.join(" · ")) : ""}`).join("<br>")}<br><span class="erp-muted">Тези редове СА влезли в склада. Ако видът е верен, значи и той вкарва материали — кажи да го отбележим като материален (🧱).</span></p>` : `<p class="hint">Всички складови редове са под материалните видове (🧱). ✔</p>`}
     ${matIdle.length ? `<p class="hint">ℹ Материални видове с фактури, но БЕЗ нито един складов ред в периода: <b>${escapeHtml(matIdle.join(", "))}</b> — редовете им са въведени като „разход/услуга" и НЕ са вдигнали наличности.</p>` : ""}` : "";
   return `
@@ -114,20 +114,20 @@ function puaRender(d) {
     <div id="pua-ai" style="margin:8px 0"></div>
     <h4 class="erp-group-head">По вид разход</h4>
     <table class="report-table erp-table"><thead><tr><th>Вид</th><th class="num">Сума (EUR)</th><th class="num">Дял</th><th class="num">Фактури</th></tr></thead>
-      <tbody>${typeRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${puaF2(x.sum)}</td><td class="num">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+      <tbody>${typeRows.map(([k, x]) => `<tr><td data-label=""><b>${escapeHtml(k)}</b></td><td class="num" data-label="Сума (EUR)">${puaF2(x.sum)}</td><td class="num" data-label="Дял">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num" data-label="Фактури">${x.n}</td></tr>`).join("")}</tbody></table>
     ${stockHtml}
     ${d.metals.kg ? `<h4 class="erp-group-head">Метали в килограми</h4>
     <p style="margin:4px 0">Общо <b>${erpNum(Math.round(d.metals.kg))} кг</b> за <b>${puaF2(d.metals.eur)} EUR</b> · Ø <b>${puaF2(d.metals.eur / d.metals.kg)} €/кг</b></p>
     <table class="report-table erp-table"><thead><tr><th>Подвид</th><th class="num">Кг</th><th class="num">EUR</th><th class="num">Ø €/кг</th></tr></thead>
-      <tbody>${kindRows.map(([k, x]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${erpNum(Math.round(x.kg))}</td><td class="num">${puaF2(x.eur)}</td><td class="num">${x.kg ? puaF2(x.eur / x.kg) : "—"}</td></tr>`).join("")}</tbody></table>
+      <tbody>${kindRows.map(([k, x]) => `<tr><td data-label="">${escapeHtml(k)}</td><td class="num" data-label="Кг">${erpNum(Math.round(x.kg))}</td><td class="num" data-label="EUR">${puaF2(x.eur)}</td><td class="num" data-label="Ø €/кг">${x.kg ? puaF2(x.eur / x.kg) : "—"}</td></tr>`).join("")}</tbody></table>
     <table class="report-table erp-table"><thead><tr><th>Месец</th><th class="num">Кг</th><th class="num">Ø €/кг</th></tr></thead>
-      <tbody>${mm.map(([m, x]) => `<tr><td>${escapeHtml(m)}</td><td class="num">${erpNum(Math.round(x.kg))}</td><td class="num">${x.kg ? puaF2(x.eur / x.kg) : "—"}</td></tr>`).join("")}</tbody></table>` : ""}
+      <tbody>${mm.map(([m, x]) => `<tr><td data-label="">${escapeHtml(m)}</td><td class="num" data-label="Кг">${erpNum(Math.round(x.kg))}</td><td class="num" data-label="Ø €/кг">${x.kg ? puaF2(x.eur / x.kg) : "—"}</td></tr>`).join("")}</tbody></table>` : ""}
     <h4 class="erp-group-head">Топ доставчици</h4>
     <table class="report-table erp-table"><thead><tr><th>Доставчик</th><th class="num">Сума (EUR)</th><th class="num">Фактури</th></tr></thead>
-      <tbody>${vendorRows.map(([k, x]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${puaF2(x.sum)}</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+      <tbody>${vendorRows.map(([k, x]) => `<tr><td data-label="">${escapeHtml(k)}</td><td class="num" data-label="Сума (EUR)">${puaF2(x.sum)}</td><td class="num" data-label="Фактури">${x.n}</td></tr>`).join("")}</tbody></table>
     <h4 class="erp-group-head">По месеци</h4>
     <table class="report-table erp-table"><thead><tr><th>Месец</th><th class="num">Сума (EUR)</th></tr></thead>
-      <tbody>${monthRows.map(([m, s]) => `<tr><td>${escapeHtml(m)}</td><td class="num">${puaF2(s)}</td></tr>`).join("")}</tbody></table>`;
+      <tbody>${monthRows.map(([m, s]) => `<tr><td data-label="">${escapeHtml(m)}</td><td class="num" data-label="Сума (EUR)">${puaF2(s)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 /* Компактното резюме за Claude (кратко, за да не гори токени). */
@@ -297,16 +297,16 @@ function invaRender(d) {
     <div id="inva-ai" style="margin:8px 0"></div>
     <h4 class="erp-group-head">Пазари</h4>
     <table class="report-table erp-table"><thead><tr><th>Пазар</th><th class="num">Сума (EUR)</th><th class="num">Дял</th><th class="num">Фактури</th></tr></thead>
-      <tbody>${serRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${puaF2(x.sum)}</td><td class="num">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+      <tbody>${serRows.map(([k, x]) => `<tr><td data-label=""><b>${escapeHtml(k)}</b></td><td class="num" data-label="Сума (EUR)">${puaF2(x.sum)}</td><td class="num" data-label="Дял">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num" data-label="Фактури">${x.n}</td></tr>`).join("")}</tbody></table>
     <h4 class="erp-group-head">Топ клиенти</h4>
     <table class="report-table erp-table"><thead><tr><th>Клиент</th><th class="num">Сума (EUR)</th><th class="num">Дял</th><th class="num">Фактури</th></tr></thead>
-      <tbody>${cliRows.map(([k, x]) => `<tr><td><b>${escapeHtml(k)}</b></td><td class="num">${puaF2(x.sum)}</td><td class="num">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table>
+      <tbody>${cliRows.map(([k, x]) => `<tr><td data-label=""><b>${escapeHtml(k)}</b></td><td class="num" data-label="Сума (EUR)">${puaF2(x.sum)}</td><td class="num" data-label="Дял">${d.total ? Math.round(x.sum / d.total * 100) : 0}%</td><td class="num" data-label="Фактури">${x.n}</td></tr>`).join("")}</tbody></table>
     <h4 class="erp-group-head">Топ продукти</h4>
     <table class="report-table erp-table"><thead><tr><th>Продукт</th><th class="num">Бройки</th><th class="num">Сума (EUR)</th><th class="num">Ø цена</th></tr></thead>
-      <tbody>${prodRows.map(([k, x]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${erpNum(Math.round(x.qty))}</td><td class="num">${puaF2(x.eur)}</td><td class="num">${x.qty ? puaF2(x.eur / x.qty) : "—"}</td></tr>`).join("")}</tbody></table>
+      <tbody>${prodRows.map(([k, x]) => `<tr><td data-label="">${escapeHtml(k)}</td><td class="num" data-label="Бройки">${erpNum(Math.round(x.qty))}</td><td class="num" data-label="Сума (EUR)">${puaF2(x.eur)}</td><td class="num" data-label="Ø цена">${x.qty ? puaF2(x.eur / x.qty) : "—"}</td></tr>`).join("")}</tbody></table>
     <h4 class="erp-group-head">По месеци</h4>
     <table class="report-table erp-table"><thead><tr><th>Месец</th><th class="num">Фактурирано (EUR)</th></tr></thead>
-      <tbody>${monthRows.map(([m, s]) => `<tr><td>${escapeHtml(m)}</td><td class="num">${puaF2(s)}</td></tr>`).join("")}</tbody></table>`;
+      <tbody>${monthRows.map(([m, s]) => `<tr><td data-label="">${escapeHtml(m)}</td><td class="num" data-label="Фактурирано (EUR)">${puaF2(s)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function invaSummaryText(d) {
