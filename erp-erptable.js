@@ -106,9 +106,11 @@ async function erpRenderETable(v) {
     <div class="erp-toolbar">
       <span class="erp-count">Таблица ЕРП · седмичен отчет (${rows.length})</span>
       <span class="spacer"></span>
+      ${typeof puaChatMount === "function" ? '<button class="btn btn-small" id="et-ai" title="Claude разглежда всички седмични редове: вземания/задължения и съотношението, ликвидността (банка, разлика), оборотите, заявките, материалите — тенденции, аномалии и препоръки. После отговаря на въпроси.">🤖 AI анализ</button>' : ""}
       <button class="btn btn-small" id="et-csv">⤓ Excel</button>
       <button class="btn btn-small btn-primary" id="et-add">+ Нов ред (понеделник)</button>
     </div>
+    <div id="et-ai-out"></div>
     <div class="pay-scroll"><table class="report-table erp-table et-table">
       <thead><tr>
         <th class="num">№ седм.</th><th>Дата</th><th class="num">Задължения</th><th class="num">Вземания</th><th class="num">Съотн.</th><th class="num">Разлика</th>
@@ -139,6 +141,23 @@ async function erpRenderETable(v) {
   v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); erpETEdit(Number(b.dataset.edit), v); }));
   v.querySelectorAll("tr[data-i]").forEach(tr => tr.addEventListener("click", () => erpETEdit(Number(tr.dataset.i), v)));
   v.querySelector("#et-csv").addEventListener("click", () => erpETExport(rows, calc));
+
+  // 🤖 AI анализ на седмичните редове (Данко, 06.11.2026) — през общия чат
+  // към Edge функцията „assistant" (puaChatMount от erp-pu-analysis.js).
+  const aiBtn = v.querySelector("#et-ai");
+  if (aiBtn) aiBtn.addEventListener("click", () => {
+    if (!rows.length) { alert("Още няма редове за анализ."); return; }
+    const box = v.querySelector("#et-ai-out");
+    const M = x => Math.round(Number(x) || 0);
+    const txt = rows.map(r => {
+      const c = calc(r);
+      return `седм.${etWeekNo(r.date)} (${r.date}): задължения ${M(r.liabilities)}, вземания ${M(r.receivables)}, съотн ${c.ratio != null ? Math.round(c.ratio * 100) / 100 : "-"}, разлика ${M(c.diff)}, заявки ${M(r.orders)}, банка ${M(r.bank)}, материали ${r.materialTons != null && r.materialTons !== "" ? r.materialTons : "-"} т, външен ${M(r.extTurnover)}, вътрешен ${M(r.intTurnover)}, инвестиции ${M(r.investments)}${r.note ? `, бележка: ${r.note}` : ""}`;
+    }).join("\n");
+    const system = `Ти си финансовият анализатор на „Данко Системс" (металообработваща фирма, Пловдив). Получаваш седмичния отчет на фирмата — ред на седмица (понеделник) с: задължения и вземания (€ с ДДС), съотношение = вземания÷задължения, разлика = вземания−задължения, стойност на активните заявки, банкова наличност, наличности материали в тонове, външен оборот (износ, без ДДС) и вътрешен оборот (с ДДС) за изминалата седмица, инвестиции, бележка. Дай конкретен анализ НА БЪЛГАРСКИ (12-18 изречения, с булети):
+1) Вземания срещу задължения — накъде върви съотношението и здравословно ли е; 2) Ликвидността — банката и разликата, има ли опасни седмици; 3) Оборотите (външен/вътрешен) — тенденция, сезонност, слаби седмици; 4) Заявките (бъдещата работа) — пълни ли се фунията или изтънява; 5) Материалите в тонове — трупане или топене на склада; 6) Инвестициите и бележките — какво личи от тях; 7) Аномалии и резки скокове — посочи седмиците; 8) 2-3 практични препоръки. Пиши стегнато, с числата от данните. Най-новият ред може да е от текущия понеделник — автоматичен и още непълен (банката се въвежда на ръка), не го тълкувай като срив.
+После отговаряй на уточненията на Данко: каже ли нещо да се има предвид или игнорира — преработи анализа.`;
+    puaChatMount(box, system, txt, 3000);
+  });
 }
 
 function erpETEdit(index, v) {
