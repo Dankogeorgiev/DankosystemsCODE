@@ -234,6 +234,7 @@ function compRenderDirectory(v) {
       <span class="spacer"></span>
       <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
       <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
+      <button class="btn btn-small" id="comp-invmails" title="Всички изпратени по имейл фактури по клиенти: № на документа, кога е изпратен и на кой имейл — плюс запомнения имейл, който излиза сам при следващата фактура">✉ Мейли за фактура</button>
       <button class="btn btn-small" id="comp-newc" title="Нов запис в указателя — фирма, лице, телефон, имейл, категория, бележка">+ Нов контакт</button>
       <button class="btn btn-small btn-primary" id="comp-add" title="Нова фирма с реквизити (за фактури/заявки)">+ Нов Клиент/Доставчик</button>
     </div>
@@ -261,6 +262,7 @@ function compRenderDirectory(v) {
   v.querySelector("#comp-tab-all").addEventListener("click", () => toCards(""));
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
+  v.querySelector("#comp-invmails").addEventListener("click", () => { if (typeof erpInvMailsDialog === "function") erpInvMailsDialog(); else alert("Модулът с имейлите не е зареден — презареди (F5)."); });
   v.querySelector("#comp-newc").addEventListener("click", () => {
     if (typeof renderContactForm !== "function") return;
     const m = document.getElementById("contacts-modal");
@@ -432,6 +434,7 @@ async function erpRenderCompanies() {
       <span class="spacer"></span>
       <button class="btn btn-small" id="comp-inq" title="Изпрати запитване по имейл до избрани доставчици">📨 Запитване до доставчици</button>
       <button class="btn btn-small" id="comp-inqreg" title="Регистър на изпратените запитвания">📋 Регистър запитвания</button>
+      <button class="btn btn-small" id="comp-invmails" title="Всички изпратени по имейл фактури по клиенти: № на документа, кога е изпратен и на кой имейл — плюс запомнения имейл, който излиза сам при следващата фактура">✉ Мейли за фактура</button>
       <button class="btn btn-small btn-primary" id="comp-add">+ Нов Клиент/Доставчик</button>
     </div>
     <p class="hint">Картонът на фирмата събира ВСИЧКО: реквизити (за фактурите), хора с роли (🧾 кой получава фактурите · 📨 кой получава поръчките · 📥 кой ни праща заявки) и какво търгуваме (пълни се само̀ от Покупки/Заявки). Фирмите в сиво са само от указателя Контакти — отвори картона им и цъкни ➕ Създай реквизити. Търсенето рови и в 🚚 адресите за доставка (Consignee от износните фактури).${delivNew ? ` <b style="color:#166534">🚚 Току-що попълних ${delivNew} адреса за доставка от фактурите.</b>` : ""}</p>
@@ -452,6 +455,7 @@ async function erpRenderCompanies() {
   v.querySelector("#comp-tab-all").addEventListener("click", () => { compKindF = ""; erpRenderCompanies(); });
   v.querySelector("#comp-inq").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("form"); });
   v.querySelector("#comp-inqreg").addEventListener("click", () => { if (typeof openContactsInquiry === "function") openContactsInquiry("registry"); });
+  v.querySelector("#comp-invmails").addEventListener("click", () => { if (typeof erpInvMailsDialog === "function") erpInvMailsDialog(); else alert("Модулът с имейлите не е зареден — презареди (F5)."); });
   v.querySelector("#comp-add").addEventListener("click", () => erpEditPartner(null, { kind: compKindF || undefined }));
   v.querySelectorAll("[data-compopen]").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); compCard(Number(b.dataset.compopen)); }));
   v.querySelectorAll("tr[data-comp]").forEach(tr => tr.addEventListener("click", () => compCard(Number(tr.dataset.comp))));
