@@ -746,6 +746,8 @@ async function pulseClients(v) {
       <label class="erp-inline">Период <select id="puc-period">${[[3, "3 месеца"], [6, "6 месеца"], [12, "12 месеца"], [24, "24 месеца"], [0, "всичко"]].map(([m, l]) => `<option value="${m}" ${m === PULSE_CLI_MONTHS ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <span class="spacer"></span>
       ${typeof puaChatMount === "function" ? '<button class="btn btn-small btn-primary" id="puc-ai" title="Claude разглежда всеки клиент и всичките му заявки за периода: ръст/спад, какво поръчва, ритъм, рискове — и после отговаря на въпроси">🤖 AI анализ</button>' : ""}
+      ${typeof erpPuAnalysisDialog === "function" ? '<button class="btn btn-small" id="puc-pu" title="Готовият анализ на разходите (същият като в Покупки): по вид, металите в килограми с Ø €/кг, топ доставчици, по месеци — и коментар от Claude">🛒 Покупките (AI)</button>' : ""}
+      ${typeof erpInvAnalysisDialog === "function" ? '<button class="btn btn-small" id="puc-inv" title="Готовият анализ на продажбите (същият като във Фактуриране): топ клиенти и продукти по фактури, износ срещу вътрешен пазар, по месеци — и коментар от Claude">🧾 Продажбите (AI)</button>' : ""}
     </div>
     <div id="puc-ai-out"></div>
     <table class="report-table erp-table">
@@ -755,6 +757,11 @@ async function pulseClients(v) {
     <p class="hint">Стойностите са без ДДС, в EUR. <b>Тенденция</b> сравнява парите във втората половина на периода с първата (±15% = „равно"). <b>Ритъм</b> е средният брой дни между заявките на клиента. „Всички заявки" разгъва пълния списък — най-новите отгоре. AI анализът получава всяка заявка ред по ред.</p>`;
 
   v.querySelector("#puc-period").addEventListener("change", e => { PULSE_CLI_MONTHS = Number(e.target.value) || 0; pulseClients(v); });
+  // Готовите анализи от Покупки и Фактуриране — същите прозорци, отваряеми и оттук.
+  const puBtn = v.querySelector("#puc-pu");
+  if (puBtn) puBtn.addEventListener("click", () => erpPuAnalysisDialog());
+  const invBtn = v.querySelector("#puc-inv");
+  if (invBtn) invBtn.addEventListener("click", () => erpInvAnalysisDialog());
 
   const aiBtn = v.querySelector("#puc-ai");
   if (aiBtn) aiBtn.addEventListener("click", () => {
