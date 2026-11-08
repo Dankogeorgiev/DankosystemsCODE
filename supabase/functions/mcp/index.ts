@@ -473,11 +473,114 @@ const TOOLS: Tool[] = [
       return { clients: groups.length, totalSent: list.length, groups };
     },
   },
+  {
+    name: "purchases_list",
+    description: "ПОКУПКИ (фактурите от доставчици): № на фактурата, доставчик, вид разход, тип (Фактура / Кредитно известие − / Стокова разписка), дата, сума без ДДС, ДДС и общо в EUR. Кредитните са с минус. Филтри: месец, доставчик, вид разход, търсене.",
+    inputSchema: { type: "object", properties: {
+      month: { type: "string", description: "Месец ГГГГ-ММ (напр. 2026-10)" },
+      supplier: { type: "string", description: "Част от името на доставчика" },
+      expense_type: { type: "string", description: "Вид разход (напр. Метали, Транспорт, Инвестиции)" },
+      q: { type: "string", description: "Търсене в № / доставчик / вид" },
+      limit: { type: "number", description: "Най-много документи (по подразбиране 60, таван 300)" },
+    } },
+    run: async (a) => {
+      const rows = await dbFetch("purchases?select=id,data");
+      let list = rows.map((r) => ({ id: r.id, ...(r.data || {}) }));
+      if (a.month) list = list.filter((o) => String(o.date || "").slice(0, 7) === String(a.month));
+      if (a.supplier) list = list.filter((o) => String(o.supplierName || "").toLowerCase().includes(String(a.supplier).toLowerCase()));
+      if (a.expense_type) list = list.filter((o) => String(o.expenseType || "").toLowerCase().includes(String(a.expense_type).toLowerCase()));
+      const qq = String(a.q || "").toLowerCase();
+      if (qq) list = list.filter((o) => `${o.invoiceNo || ""} ${o.supplierName || ""} ${o.expenseType || ""}`.toLowerCase().includes(qq));
+      list.sort((x, y) => String(y.date || "").localeCompare(String(x.date || "")));
+      const lim = Math.min(Number(a.limit) || 60, 300);
+      const kindOf = (o: any) => o.docType === "credit" ? "Кредитно известие" : o.docType === "goods" ? "Стокова разписка" : "Фактура";
+      const out = list.slice(0, lim).map((o) => {
+        const t = puTotals(o);
+        const cur = o.currency || "BGN";
+        return { invoiceNo: o.invoiceNo || null, supplier: o.supplierName || "", expenseType: o.expenseType || null,
+          kind: kindOf(o), date: o.date || null, baseEur: r2(toEur(t.base, cur)), vatEur: r2(toEur(t.vat, cur)),
+          totalEur: r2(toEur(t.total, cur)), creditToNo: o.creditToNo || null };
+      });
+      // Сборът за разходите е като в Пулса: БЕЗ стоковите разписки (не са разход).
+      const sumBase = list.filter((o) => o.docType !== "goods").reduce((s, o) => s + toEur(puTotals(o).base, o.currency || "BGN"), 0);
+      return { count: list.length, shown: out.length, truncated: list.length > out.length,
+        totalBaseEurWithoutGoods: r2(sumBase), purchases: out };
+    },
+  },
+  {
+    name: "sales_list",
+    description: "ПРОДАЖБИ (експедициите, които движат склада): № на продажбата, клиент, дата, осчетоводена ли е, редове (код/име/брой/цена) и стойност без ДДС в EUR.",
+    inputSchema: { type: "object", properties: {
+      month: { type: "string", description: "Месец ГГГГ-ММ" },
+      client: { type: "string", description: "Част от името на клиента" },
+      limit: { type: "number", description: "Най-много продажби (по подразбиране 60, таван 300)" },
+    } },
+    run: async (a) => {
+      const rows = await dbFetch("sales?select=id,posted,data");
+      let list = rows.map((r) => ({ id: r.id, posted: r.posted, ...(r.data || {}) }));
+      if (a.month) list = list.filter((o) => String(o.date || "").slice(0, 7) === String(a.month));
+      if (a.client) list = list.filter((o) => String(o.clientName || (o.client && o.client.name) || "").toLowerCase().includes(String(a.client).toLowerCase()));
+      list.sort((x, y) => String(y.date || "").localeCompare(String(x.date || "")));
+      const lim = Math.min(Number(a.limit) || 60, 300);
+      const out = list.slice(0, lim).map((o) => ({
+        saleNo: o.saleNo || null, client: o.clientName || (o.client && o.client.name) || "", date: o.date || null,
+        posted: !!o.posted, totalEur: r2(toEur(lineNet(o.lines), o.currency || "EUR")),
+        lines: (o.lines || []).map((l: any) => ({ code: l.code || null, name: l.name || "", qty: num(l.qty), unitPrice: num(l.unitPrice) })),
+      }));
+      return { count: list.length, shown: out.length, truncated: list.length > out.length, sales: out };
+    },
+  },
+  {
+    name: "workshop_tasks",
+    description: "Активните (незавършени) производствени задачи по цехове: цех, операция, код и име на детайла, произведени/пуснати бройки. Филтър по цех. Показва какво се работи в момента.",
+    inputSchema: { type: "object", properties: {
+      workshop: { type: "string", description: "Част от името на цеха (напр. Лазери, Абкант)" },
+      limit: { type: "number", description: "Най-много задачи (по подразбиране 100, таван 300)" },
+    } },
+    run: async (a) => {
+      // Само незавършените — филтър в базата, да не теглим хилядите готови.
+      const rows = await dbFetch("tasks?select=id,done,data&done=eq.false");
+      let list = rows.map((r) => ({ ...(r.data || {}) }))
+        .filter((t: any) => !String(t.workshop || "").includes("\u00A6"))   // архивните цехове („¦арх:") вън
+        .filter((t: any) => { const q = Number(t.qty) || 0, p = Number(t.produced) || 0; return !(q > 0 && p >= q); });
+      if (a.workshop) list = list.filter((t: any) => String(t.workshop || "").toLowerCase().includes(String(a.workshop).toLowerCase()));
+      list.sort((x: any, y: any) => String(x.workshop || "").localeCompare(String(y.workshop || ""), "bg") || String(x.deadline || "9999").localeCompare(String(y.deadline || "9999")));
+      const lim = Math.min(Number(a.limit) || 100, 300);
+      const out = list.slice(0, lim).map((t: any) => ({
+        workshop: t.workshop || "", operation: t.operation || "", code: t.code || null, product: t.product || "",
+        qty: Number(t.qty) || 0, produced: Number(t.produced) || 0, deadline: t.deadline || null,
+        forStock: !!(t.source && t.source.stock),
+      }));
+      return { count: list.length, shown: out.length, truncated: list.length > out.length, tasks: out };
+    },
+  },
+  {
+    name: "transport_loads",
+    description: "Логистика — товарите: фактура, клиент, дестинация, превозвач, камион, дата и статус (заявен/натоварен…).",
+    inputSchema: { type: "object", properties: {
+      client: { type: "string", description: "Част от името на клиента" },
+      status: { type: "string", description: "Статус (напр. заявен, натоварен)" },
+      limit: { type: "number", description: "Най-много товари (по подразбиране 40, таван 200)" },
+    } },
+    run: async (a) => {
+      const d = await cfg("logistics_loads");
+      let list = ((d && d.loads) || []).slice();
+      if (a.client) list = list.filter((l: any) => String(l.client || "").toLowerCase().includes(String(a.client).toLowerCase()));
+      if (a.status) list = list.filter((l: any) => String(l.status || "").toLowerCase().includes(String(a.status).toLowerCase()));
+      list.sort((x: any, y: any) => String(y.date || y.at || "").localeCompare(String(x.date || x.at || "")));
+      const lim = Math.min(Number(a.limit) || 40, 200);
+      const out = list.slice(0, lim).map((l: any) => ({
+        invoiceNo: l.invNo || null, orderNo: l.ourNo || null, client: l.client || "", dest: l.dest || null,
+        carrier: l.carrier || null, vehicle: l.vehicle || null, date: l.date || null, status: l.status || null, note: l.note || null,
+      }));
+      return { count: list.length, shown: out.length, truncated: list.length > out.length, loads: out };
+    },
+  },
 ];
 
 /* ---------- MCP протоколът (Streamable HTTP, без сесии) ---------- */
 const PROTOCOLS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
-const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.0.0" };
+const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.1.0" };
 
 function rpcResult(id: any, result: any) { return { jsonrpc: "2.0", id, result }; }
 function rpcError(id: any, code: number, message: string) { return { jsonrpc: "2.0", id: id === undefined ? null : id, error: { code, message } }; }
