@@ -55,6 +55,17 @@ async function dbFetch(path: string): Promise<any[]> {
   }
   return out;
 }
+async function dbFetchRange(path: string, offset: number, limit: number): Promise<any[]> {
+  const url = ENV("SUPABASE_URL").replace(/\/$/, "") + "/rest/v1/" + path + (path.includes("?") ? "&" : "?") + "order=id";
+  const key = ENV("SUPABASE_SERVICE_ROLE_KEY");
+  const res = await fetch(url, {
+    headers: { apikey: key, Authorization: "Bearer " + key, Range: `${offset}-${offset + limit - 1}`, Prefer: "count=none" },
+  });
+  if (!res.ok) throw new Error(`База: HTTP ${res.status} за ${path.split("?")[0]}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows)) throw new Error("База: неочакван отговор.");
+  return rows;
+}
 async function cfg(id: string): Promise<any> {
   const rows = await dbFetch(`app_config?id=eq.${encodeURIComponent(id)}&select=data`);
   return (rows[0] && rows[0].data) || null;
@@ -698,11 +709,86 @@ const TOOLS: Tool[] = [
         invoices: out.slice(0, lim) };
     },
   },
+  /* ---------- Общият достъп: ВСИЧКО от Системата (само пълният ключ) ----------
+     Вместо справка за всеки екран: списък на източниците + четене на коя да е
+     таблица/регистър. САМО четене (PostgREST GET); имената се проверяват срещу
+     белия списък и строг формат — нищо друго не може да се „вмъкне" в заявката. */
+  {
+    name: "list_data_sources",
+    description: "СЛУЖЕБНА: списък на ВСИЧКИ източници на данни в Системата — таблиците (с какво има вътре) и регистрите в app_config (настройки, Пулс, вземания, задължения, логистика, заплати…). Ползвай я, когато готовите справки не покриват въпроса, после чети с read_table / read_config.",
+    sensitive: true,
+    inputSchema: { type: "object", properties: {} },
+    run: async () => {
+      const cfgIds = await dbFetch("app_config?select=id");
+      return {
+        tables: {
+          customer_orders: "заявки от клиенти (данните в data)", invoices: "фактури (data; doc_no, posted, kind)",
+          purchases: "покупки/доставни фактури (data)", sales: "продажби/експедиции (data, posted)",
+          tasks: "производствени задачи по цехове (data; done)", production_log: "дневник на произведеното",
+          materials: "склад материали", products: "склад детайли (изделия)", recipe_lines: "рецептите (редове)",
+          operations: "операциите по изделие", product_movements: "движения на детайли", stock_movements: "движения на материали",
+          contacts: "указателят Клиенти/Доставчици (data)", partners: "стари партньори", samples: "мостри",
+          messages: "съобщения в Системата", orders_inbox: "входящи клиентски файлове", packing_archive: "архив опаковки",
+          crm_jobs: "CRM задачи", v_material_stock: "ИЗГЛЕД: наличност материали", v_product_stock: "ИЗГЛЕД: наличност детайли",
+          v_product_cost: "ИЗГЛЕД: себестойност на детайл",
+        },
+        app_config_ids: cfgIds.map((r) => r.id),
+        hint: "Повечето таблици пазят същинските данни в колоната data (JSON). РЪЧНИТЕ БЕЛЕЖКИ И ОПИСАНИЯ на Данко са вътре в тези данни: полета note/бележка по заявки (customer_orders), покупки, контакти, материали, Пулса (pulse_monthly: note по месец), Таблица ЕРП (erp_weekly_table: note по седмица), регистъра 005 и др. app_config: read_config с конкретното id.",
+      };
+    },
+  },
+  {
+    name: "read_table",
+    description: "СЛУЖЕБНА: чете произволна таблица от Системата (САМО четене). Подай table (от list_data_sources), по избор select (колони), прост филтър (column + op: eq/like/ilike/gte/lte + value) и limit. За таблици с колона data JSON-ът се връща суров — ти го тълкуваш.",
+    sensitive: true,
+    inputSchema: { type: "object", required: ["table"], properties: {
+      table: { type: "string", description: "Име на таблица от list_data_sources" },
+      select: { type: "string", description: "Колони през запетая (по подразбиране всички)" },
+      filter_column: { type: "string", description: "Колона за филтър (може и JSON път: data->>поле)" },
+      filter_op: { type: "string", description: "eq | like | ilike | gte | lte (по подразбиране eq)" },
+      filter_value: { type: "string", description: "Стойност за филтъра (за like ползвай % като джокер)" },
+      limit: { type: "number", description: "Най-много редове (по подразбиране 100, таван 1000)" },
+      offset: { type: "number", description: "Прескочи първите N реда (за прелистване)" },
+    } },
+    run: async (a) => {
+      const TABLES = new Set(["app_config", "contacts", "crm_jobs", "customer_orders", "invoices", "materials", "messages", "operations", "orders_inbox", "packing_archive", "partners", "product_movements", "production_log", "products", "purchases", "recipe_lines", "sales", "samples", "stock_movements", "tasks", "v_material_stock", "v_product_cost", "v_product_stock"]);
+      const table = String(a.table || "").trim();
+      if (!TABLES.has(table)) return { error: `Непозната таблица „${table}\u201c — виж list_data_sources.` };
+      const colOk = (x: string) => /^[a-zA-Z0-9_,>*\-\s]*$/.test(x);   // колони/JSON пътеки/*, нищо служебно
+      const sel = String(a.select || "*").replace(/\s+/g, "");
+      if (!colOk(sel)) return { error: "Невалидни колони в select." };
+      let path = `${table}?select=${encodeURIComponent(sel) || "*"}`;
+      if (a.filter_column) {
+        const fc = String(a.filter_column).trim();
+        if (!colOk(fc)) return { error: "Невалидна колона за филтър." };
+        const op = ["eq", "like", "ilike", "gte", "lte"].includes(String(a.filter_op)) ? String(a.filter_op) : "eq";
+        path += `&${fc}=${op}.${encodeURIComponent(String(a.filter_value == null ? "" : a.filter_value))}`;
+      }
+      const lim = Math.min(Math.max(Number(a.limit) || 100, 1), 1000);
+      const off = Math.max(Number(a.offset) || 0, 0);
+      const rows = await dbFetchRange(path, off, lim);
+      return { table, count: rows.length, possiblyMore: rows.length === lim, offset: off, rows };
+    },
+  },
+  {
+    name: "read_config",
+    description: "СЛУЖЕБНА: чете един регистър от app_config по id (виж списъка в list_data_sources) — настройки, Пулс, вземания/задължения, логистика, заплати (payroll_…), отпуски и т.н. Връща суровия JSON.",
+    sensitive: true,
+    inputSchema: { type: "object", required: ["id"], properties: {
+      id: { type: "string", description: "Id на записа в app_config (напр. receivables, pulse_monthly, payroll_m_2026-10)" },
+    } },
+    run: async (a) => {
+      const id = String(a.id || "").trim();
+      if (!/^[a-zA-Z0-9_\-\.]{1,80}$/.test(id)) return { error: "Невалидно id." };
+      const data = await cfg(id);
+      return data === null ? { id, error: "Няма такъв запис." } : { id, data };
+    },
+  },
 ];
 
 /* ---------- MCP протоколът (Streamable HTTP, без сесии) ---------- */
 const PROTOCOLS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
-const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.3.0" };
+const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.4.0" };
 
 function rpcResult(id: any, result: any) { return { jsonrpc: "2.0", id, result }; }
 function rpcError(id: any, code: number, message: string) { return { jsonrpc: "2.0", id: id === undefined ? null : id, error: { code, message } }; }
