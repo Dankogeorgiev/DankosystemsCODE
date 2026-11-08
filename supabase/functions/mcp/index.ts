@@ -655,11 +655,54 @@ const TOOLS: Tool[] = [
         note: "Осигуровките са от ведомостта (месец назад), изцяло за сметка на фирмата — НЕ влизат в „ОБЩО получено“. Всичко към НАП = осигуровките на списъка + „извън списъка“." };
     },
   },
+  {
+    name: "transport_costs",
+    description: "Колко плащаме за ТРАНСПОРТ: транспортните фактури от Покупки (вид разход „Транспорт…\u201c или доставчик от категория Транспорт/логистика в указателя) с дата, превозвач, сума без ДДС в EUR, дестинация и палети (от Логистиката) и ОТКЪС ОТ ТЕКСТА на редовете — там обикновено пише за кой клиент/курс е. Търсенето рови и в текста (напр. клиент или град). Кредитните са с минус.",
+    inputSchema: { type: "object", properties: {
+      q: { type: "string", description: "Търсене в превозвач / дестинация / текста на редовете (напр. име на клиент или град)" },
+      months: { type: "number", description: "Период назад в месеци (по подразбиране 6; 0 = всичко)" },
+      limit: { type: "number", description: "Най-много фактури (по подразбиране 80, таван 300)" },
+    } },
+    run: async (a) => {
+      const [puRows, conRows, logi] = await Promise.all([
+        dbFetch("purchases?select=id,data"), dbFetch("contacts?select=data"), cfg("logistics_loads"),
+      ]);
+      const norm = (x: unknown) => String(x || "").toLowerCase().replace(/\s+/g, " ").trim();
+      const carriers = new Set(conRows.map((r) => r.data || {})
+        .filter((c: any) => /транспорт/i.test(c.category || "")).map((c: any) => norm(c.company)));
+      const tcost = (logi && logi.tcost) || {};
+      const m = a.months == null ? 6 : Number(a.months) || 0;
+      const since = m ? (() => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString().slice(0, 10); })() : "";
+      let list = puRows.map((r) => ({ id: r.id, ...(r.data || {}) }))
+        .filter((p: any) => /^транспорт/i.test(p.expenseType || "") || (p.supplierName && carriers.has(norm(p.supplierName))))
+        .filter((p: any) => !since || String(p.date || "") >= since);
+      const row = (p: any) => {
+        const t = puTotals(p);
+        const tc = tcost[String(p.id)] || {};
+        const txt = ((p.lines || []).map((l: any) => [l.article, l.name].filter(Boolean).join(" ")).join(" · ") + " " + (p.note || "")).trim();
+        const palM = txt.match(/(\d{1,3})\s*(?:бр\.?\s*)?(?:евро\s*)?(?:пале|pallet|pal\b)/i);
+        return { date: p.date || null, carrier: p.supplierName || "", invoiceNo: p.invoiceNo || null,
+          kind: p.docType === "credit" ? "Кредитно известие" : "Фактура",
+          baseEur: r2(toEur(t.base, p.currency || "BGN")),
+          dest: tc.dest || null, pallets: Number(tc.pallets) || (palM ? Number(palM[1]) : null),
+          text: txt.slice(0, 180) || null };
+      };
+      let out = list.map(row);
+      const qq = norm(a.q);
+      if (qq) out = out.filter((x: any) => norm(`${x.carrier} ${x.dest || ""} ${x.text || ""}`).includes(qq));
+      out.sort((x: any, y: any) => String(y.date || "").localeCompare(String(x.date || "")));
+      const lim = Math.min(Number(a.limit) || 80, 300);
+      return { count: out.length, shown: Math.min(out.length, lim), truncated: out.length > lim,
+        totalBaseEur: r2(out.reduce((s: number, x: any) => s + x.baseEur, 0)),
+        note: "Връзката „транспорт → клиент\u201c не е структурно поле: търси по текста на редовете и дестинацията. Ако търсенето по клиент не хване нищо, вероятно името не е писано във фактурата на превозвача.",
+        invoices: out.slice(0, lim) };
+    },
+  },
 ];
 
 /* ---------- MCP протоколът (Streamable HTTP, без сесии) ---------- */
 const PROTOCOLS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
-const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.2.0" };
+const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.3.0" };
 
 function rpcResult(id: any, result: any) { return { jsonrpc: "2.0", id, result }; }
 function rpcError(id: any, code: number, message: string) { return { jsonrpc: "2.0", id: id === undefined ? null : id, error: { code, message } }; }
