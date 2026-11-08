@@ -25,14 +25,21 @@ const ENV = (k: string) => {
 };
 
 const BGN = 1.95583;
-const num = (x: unknown) => Number(String(x == null ? "" : x).replace(",", ".")) || 0;
+const num = (x: unknown) => {   // огледало на erpToNum (erp.js): интервали/валута/NaN
+  if (x === null || x === undefined || x === "") return 0;
+  if (typeof x === "number") return isNaN(x) ? 0 : x;
+  const n = parseFloat(String(x).replace(/\s+/g, "").replace(",", ".").replace(/[^\d.\-]/g, ""));
+  return isNaN(n) ? 0 : n;
+};
 const r2 = (x: number) => Math.round((Number(x) || 0) * 100) / 100;
 const toEur = (n: number, cur: string) => (cur === "BGN" ? n / BGN : n);
 const lineNet = (arr: any[]) => (arr || []).reduce((s, l) => s + num(l.qty) * num(l.unitPrice), 0);
 
 /* ---------- Четене от базата (PostgREST, на страници по 1000) ---------- */
 async function dbFetch(path: string): Promise<any[]> {
-  const url = ENV("SUPABASE_URL").replace(/\/$/, "") + "/rest/v1/" + path;
+  // order=id е ЗАДЪЛЖИТЕЛЕН: без ORDER BY PostgREST не гарантира реда и
+  // страниците по Range могат да повтарят/пропускат редове.
+  const url = ENV("SUPABASE_URL").replace(/\/$/, "") + "/rest/v1/" + path + (path.includes("?") ? "&" : "?") + "order=id";
   const key = ENV("SUPABASE_SERVICE_ROLE_KEY");
   const out: any[] = [];
   const PAGE = 1000;
@@ -59,12 +66,20 @@ const coValueLeft = (o: any) => (o.lines || []).reduce((s: number, l: any) => {
   const d = Math.min(Math.max(0, Number(l.delivered) || 0), q);
   return s + (q - d) * num(l.unitPrice);
 }, 0);
-const coDoneish = (o: any) => {
-  const st = o.status || "нова";
-  if (st === "завършена") return true;
+const coDoneish = (o: any) => {   // огледало на erpCODoneish
+  if ((o.status || "нова") === "завършена") return true;
+  if (coValueLeft(o) > 0.004) return false;
   const lines = o.lines || [];
-  if (!lines.length) return false;
-  return lines.every((l: any) => (Number(l.delivered) || 0) >= num(l.qty));
+  const qtyLeft = lines.reduce((s: number, l: any) => {
+    const q = num(l.qty);
+    const d = Math.min(Math.max(0, Number(l.delivered) || 0), q);
+    return s + (q - d);
+  }, 0);
+  if (qtyLeft > 0.004) return false;
+  // Нищо не е ПОРЪЧВАНО (празна/чернова без количества) + е от ДНЕС → видима.
+  const everOrdered = lines.some((l: any) => num(l.qty) > 0);
+  if (!everOrdered && String(o.date || "") >= new Date().toISOString().slice(0, 10)) return false;
+  return true;
 };
 const invTotals = (o: any) => {
   const base = lineNet(o.lines);
@@ -72,7 +87,11 @@ const invTotals = (o: any) => {
   const sign = o.kind === "credit" ? -1 : 1;
   return { base: base * sign, vat: base * rate / 100 * sign, total: base * (1 + rate / 100) * sign, rate };
 };
-const puLineVat = (o: any, l: any) => Number(l.vatRate != null ? l.vatRate : (o.vatRate != null ? o.vatRate : 20));
+const puLineVat = (o: any, l: any) => {   // огледало на erpPuLineVat: "" = ставката на документа; NaN → 0
+  const raw = (l.vatRate != null && l.vatRate !== "") ? l.vatRate : ((o.vatRate != null && o.vatRate !== "") ? o.vatRate : 20);
+  const n = Number(raw);
+  return isNaN(n) ? 0 : n;
+};
 const puTotals = (o: any) => {
   let base = 0, vat = 0;
   (o.lines || []).forEach((l: any) => {
@@ -110,7 +129,7 @@ const TOOLS: Tool[] = [
       const out = list.slice(0, lim).map((o) => ({
         no: o.ourNo || null, clientNo: o.clientNo || null, client: o.clientName || "",
         date: o.date || null, deadline: o.deadline || null, status: o.status || "нова",
-        totalEur: r2(lineNet(o.lines)), leftEur: r2(coValueLeft(o)),
+        totalEur: r2(toEur(lineNet(o.lines), o.currency || "EUR")), leftEur: r2(toEur(coValueLeft(o), o.currency || "EUR")),
         lines: (o.lines || []).map((l: any) => ({ code: l.code || null, name: l.name || "", qty: num(l.qty), delivered: Number(l.delivered) || 0, unitPrice: num(l.unitPrice) })),
       }));
       return { count: list.length, shown: out.length, truncated: list.length > out.length, orders: out };
@@ -132,17 +151,23 @@ const TOOLS: Tool[] = [
       const m = a.months == null ? 12 : Number(a.months) || 0;
       const since = m ? new Date(today.getFullYear(), today.getMonth() - m, today.getDate()).toISOString().slice(0, 10) : "";
       const dOf = (o: any) => String(o.date || o.deadline || "");
-      const list = all.filter((o) => String(o.clientName || "").toLowerCase().includes(nameQ))
+      // Частичното име НЕ слива различни клиенти: при повече от едно съвпадащо
+      // ИМЕ искаме уточнение, вместо да съберем оборота на двама в едно.
+      const matchedNames = [...new Set(all.map((o) => String(o.clientName || "")).filter((n) => n && n.toLowerCase().includes(nameQ)))];
+      if (!matchedNames.length) return { client: a.client, orders: 0, note: "Няма клиент с такова име." };
+      if (matchedNames.length > 1) return { matchedClients: matchedNames.sort(), note: "Няколко клиенти отговарят на името — повтори с точното име." };
+      const exact = matchedNames[0];
+      const list = all.filter((o) => String(o.clientName || "") === exact)
         .filter((o) => { const d = dOf(o); return d && (!since || d >= since) && d <= todayIso; })
         .sort((x, y) => dOf(x).localeCompare(dOf(y)));
-      if (!list.length) return { client: a.client, orders: 0, note: "Няма заявки за периода." };
+      if (!list.length) return { client: exact, orders: 0, note: "Няма заявки за периода." };
       const val = (o: any) => toEur(lineNet(o.lines), o.currency || "EUR");
       const total = list.reduce((s, o) => s + val(o), 0);
       const start = since || dOf(list[0]);
       const mid = (new Date(start).getTime() + today.getTime()) / 2;
       let v1 = 0, v2 = 0;
       list.forEach((o) => { if (new Date(dOf(o)).getTime() < mid) v1 += val(o); else v2 += val(o); });
-      const trend = list.length < 2 ? "—" : v2 > v1 * 1.15 ? "расте" : v2 < v1 * 0.85 ? "намалява" : "равно";
+      const trend = (list.length < 2 || (v1 < 1 && v2 < 1)) ? "—" : v2 > v1 * 1.15 ? "расте" : v2 < v1 * 0.85 ? "намалява" : "равно";
       const ds = list.map((o) => new Date(dOf(o)).getTime());
       const rhythmDays = list.length >= 2 ? Math.round((ds[ds.length - 1] - ds[0]) / (ds.length - 1) / 864e5) : null;
       const lastGapDays = Math.round((today.getTime() - ds[ds.length - 1]) / 864e5);
@@ -162,7 +187,7 @@ const TOOLS: Tool[] = [
         client: list[0].clientName, orders: list.length, totalEur: r2(total),
         trend, firstHalfEur: r2(v1), secondHalfEur: r2(v2), rhythmDays, lastGapDays,
         topProducts: top.map((p) => ({ ...p, qty: Math.round(p.qty) })),
-        list: list.slice().reverse().map((o) => ({ no: o.ourNo || null, date: dOf(o), status: o.status || "нова", valueEur: r2(val(o)), leftEur: r2(coValueLeft(o)) })),
+        list: list.slice().reverse().map((o) => ({ no: o.ourNo || null, date: dOf(o), status: o.status || "нова", valueEur: r2(val(o)), leftEur: r2(toEur(coValueLeft(o), o.currency || "EUR")) })),
       };
     },
   },
@@ -225,7 +250,7 @@ const TOOLS: Tool[] = [
     run: async (a) => {
       const rows = await dbFetch("invoices?select=id,doc_no,posted,kind,data");
       let list = rows.map((r) => ({ id: r.id, docNo: r.doc_no, posted: r.posted, kindDb: r.kind, ...(r.data || {}) }))
-        .filter((o) => o.posted && o.kind !== "proforma" && o.status !== "анулирана");
+        .filter((o) => o.posted && o.kind !== "proforma" && o.status !== "анулирана" && o.status !== "сторнирана");
       if (a.month) list = list.filter((o) => String(o.issueDate || "").slice(0, 7) === String(a.month));
       if (a.client) list = list.filter((o) => String((o.client && o.client.name) || "").toLowerCase().includes(String(a.client).toLowerCase()));
       list.sort((x, y) => String(y.issueDate || "").localeCompare(String(x.issueDate || "")));
@@ -233,7 +258,7 @@ const TOOLS: Tool[] = [
       const out = list.slice(0, lim).map((o) => {
         const t = invTotals(o);
         return { no: o.docNo, kind: o.kind, client: (o.client && o.client.name) || "", date: o.issueDate || null,
-          baseEur: r2(toEur(t.base, o.currency || "EUR")), totalWithVat: r2(t.total), currency: o.currency || "EUR",
+          baseEur: r2(toEur(t.base, o.currency || "EUR")), totalWithVatEur: r2(toEur(t.total, o.currency || "EUR")), currency: o.currency || "EUR",
           dueDate: o.dueDate || null, emailedAt: o.emailedAt || null, emailedTo: o.emailedTo || null };
       });
       const sum = list.reduce((s, o) => s + toEur(invTotals(o).base, o.currency || "EUR"), 0);
@@ -247,14 +272,17 @@ const TOOLS: Tool[] = [
     run: async (a) => {
       const d = await cfg("receivables");
       const today = new Date().toISOString().slice(0, 10);
-      let list = ((d && d.list) || []).filter((p: any) => !p.paid);
+      // Стоковите разписки НЕ са вземания за събиране — чакат фактуриране
+      // (правило на Данко, 07.10.2026; както екранът Вземания).
+      let list = ((d && d.list) || []).filter((p: any) => !p.paid && (p.docType || "Фактура") !== "Стокова");
       if (a.client) list = list.filter((p: any) => String(p.client || "").toLowerCase().includes(String(a.client).toLowerCase()));
       const out = list.map((p: any) => {
         const paidPart = (p.payments || []).reduce((s: number, x: any) => s + num(x.amount), 0);
         const left = r2(num(p.amount) - paidPart);
-        return { client: p.client || "", invoiceNo: p.invoiceNo || null, dueDate: p.dueDate || null,
+        return { client: p.client || "", invoiceNo: p.invoiceNo || null, docType: p.docType || "Фактура", dueDate: p.dueDate || null,
           amountEur: r2(num(p.amount)), paidEur: r2(paidPart), leftEur: left, overdue: !!(p.dueDate && p.dueDate < today) };
-      }).filter((x: any) => x.leftEur > 0).sort((x: any, y: any) => String(x.dueDate || "9999").localeCompare(String(y.dueDate || "9999")));
+      }).filter((x: any) => x.leftEur !== 0)   // кредитните известия стоят с МИНУС — вадят се от общото, не се крият
+        .sort((x: any, y: any) => String(x.dueDate || "9999").localeCompare(String(y.dueDate || "9999")));
       return { count: out.length, totalLeftEur: r2(out.reduce((s: number, x: any) => s + x.leftEur, 0)),
         overdueLeftEur: r2(out.filter((x: any) => x.overdue).reduce((s: number, x: any) => s + x.leftEur, 0)), receivables: out };
     },
@@ -323,7 +351,13 @@ const TOOLS: Tool[] = [
             const fri = (e && e.fri) || {};
             const isNew = Object.values(fri).some((x: any) => x && typeof x === "object" && (("b" in x) || ("c" in x)));
             if (isNew) Object.values(fri).forEach((x: any) => { salBy[m] = (salBy[m] || 0) + (Number(x && x.b) || 0) + (Number(x && x.c) || 0) + (Number(x && x.o) || 0); });
-            else salBy[m] = (salBy[m] || 0) + (Number(e && e.net) || 0);   // стар формат — чистото (може да се разминава с дребни суми)
+            else Object.values(fri).forEach((x: any) => {
+              // СТАР формат {w,o} или число: Пулсът (payFriNormalize→payFriBreakdown)
+              // дава b+c = w+o и добавя o отделно → w + 2o. Огледално, за да съвпада.
+              const w = (x && typeof x === "object") ? (Number(x.w) || 0) : (Number(x) || 0);
+              const o2 = (x && typeof x === "object") ? (Number(x.o) || 0) : 0;
+              salBy[m] = (salBy[m] || 0) + w + o2 + o2;
+            });
             salBy[m] = (salBy[m] || 0) + (Number((e && e.rz || {}).sum) || 0);
           });
         } else if (/^payroll_osig_\d{4}-\d{2}$/.test(id)) {
@@ -388,14 +422,13 @@ const TOOLS: Tool[] = [
       const ords = await dbFetch("customer_orders?select=id,data");
       const o = ords.map((r) => ({ id: r.id, ...(r.data || {}) })).find((x) => String(x.ourNo || "").trim() === no);
       if (!o) return { error: `Няма заявка с наш № ${no}.` };
-      // orderIds в задачите може да е от числа ИЛИ от низове (стари/нови записи) —
-      // jsonb „съдържа" (cs) различава типовете, затова питаме и по двата начина.
-      const asNum = encodeURIComponent(JSON.stringify([Number(o.id)]));
+      // id-тата на заявките са UUID (низове). Грешка от базата се ОСТАВЯ да
+      // гръмне (isError за извикването) — не се представя като „няма задачи".
       const asStr = encodeURIComponent(JSON.stringify([String(o.id)]));
-      let tasks = await dbFetch(`tasks?select=id,done,data&data->source->orderIds=cs.${asNum}`).catch(() => []);
-      if (!tasks.length) tasks = await dbFetch(`tasks?select=id,done,data&data->source->orderIds=cs.${asStr}`).catch(() => []);
+      const tasks = await dbFetch(`tasks?select=id,done,data&data->source->orderIds=cs.${asStr}`);
       const ops = tasks.map((r: any) => ({ done: r.done, ...(r.data || {}) }))
         .filter((t: any) => ((t.source || {}).orderIds || []).map(String).includes(String(o.id)))
+        .filter((t: any) => (t.source || {}).kind === "series")   // само поточните операции (не мостри и др.)
         .map((t: any) => ({ code: t.code || null, product: t.product || "", operation: t.operation || "", workshop: t.workshop || "",
           produced: Number(t.produced) || 0, qty: Number(t.qty) || 0,
           finished: !!(t.done || (Number(t.qty) > 0 && Number(t.produced) >= Number(t.qty))) }));
@@ -447,14 +480,14 @@ const PROTOCOLS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
 const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.0.0" };
 
 function rpcResult(id: any, result: any) { return { jsonrpc: "2.0", id, result }; }
-function rpcError(id: any, code: number, message: string) { return { jsonrpc: "2.0", id, error: { code, message } }; }
+function rpcError(id: any, code: number, message: string) { return { jsonrpc: "2.0", id: id === undefined ? null : id, error: { code, message } }; }
 
 function tokenOk(req: Request): boolean {
   const want = ENV("MCP_TOKEN");
   if (!want || want.length < 20) return false;   // без (или с къс) секрет функцията е заключена
   const u = new URL(req.url);
   const parts = u.pathname.split("/").filter(Boolean);
-  const got = parts[parts.length - 1] !== "mcp" ? parts[parts.length - 1] : (u.searchParams.get("token") || req.headers.get("x-mcp-token") || "");
+  const got = parts[parts.length - 1] !== "mcp" ? parts[parts.length - 1] : (req.headers.get("x-mcp-token") || "");
   if (!got || got.length !== want.length) return false;
   let diff = 0;
   for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
@@ -463,6 +496,7 @@ function tokenOk(req: Request): boolean {
 
 async function handleRpc(msg: any): Promise<any | null> {
   const { id, method, params } = msg || {};
+  if (typeof method !== "string" || !method) return rpcError(id, -32600, "Invalid Request.");
   if (method === "initialize") {
     const asked = params && params.protocolVersion;
     return rpcResult(id, {
@@ -500,7 +534,8 @@ const handler = async (req: Request): Promise<Response> => {
   if (req.method !== "POST") return new Response(null, { status: 405, headers: H });
   let body: any;
   try { body = await req.json(); } catch { return new Response(JSON.stringify(rpcError(null, -32700, "Невалиден JSON.")), { status: 400, headers: H }); }
-  if (Array.isArray(body)) {   // batch (стар протокол)
+  if (Array.isArray(body)) {   // batch (стар протокол) — с таван, да не громи базата
+    if (!body.length || body.length > 20) return new Response(JSON.stringify(rpcError(null, -32600, "Batch до 20 заявки.")), { status: 400, headers: H });
     const answers = (await Promise.all(body.map(handleRpc))).filter((x) => x !== null);
     return answers.length ? new Response(JSON.stringify(answers), { headers: H }) : new Response(null, { status: 202, headers: H });
   }
