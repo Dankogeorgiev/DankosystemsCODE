@@ -103,7 +103,7 @@ const puTotals = (o: any) => {
 };
 
 /* ---------- Инструментите (само четене) ---------- */
-type Tool = { name: string; description: string; inputSchema: any; run: (a: any) => Promise<any> };
+type Tool = { name: string; description: string; inputSchema: any; sensitive?: boolean; run: (a: any) => Promise<any> };
 
 const TOOLS: Tool[] = [
   {
@@ -576,28 +576,113 @@ const TOOLS: Tool[] = [
       return { count: list.length, shown: out.length, truncated: list.length > out.length, loads: out };
     },
   },
+  {
+    name: "payroll_month",
+    description: "ЗАПЛАТИ — Месечният отчет по служители (ЧУВСТВИТЕЛНО, само за пълния ключ): за всеки — банка, CODE 005, надник, извънреден, бонус, различни, ОБЩО получено и осигуровките от ведомостта. Формулите са като екрана „Месечен отчет“ в Системата. Сумите са в EUR.",
+    sensitive: true,
+    inputSchema: { type: "object", properties: {
+      month: { type: "string", description: "Месец ГГГГ-ММ (по подразбиране текущият)" },
+    } },
+    run: async (a) => {
+      const month = /^\d{4}-\d{2}$/.test(String(a.month || "")) ? String(a.month) : new Date().toISOString().slice(0, 7);
+      const [Y, M] = month.split("-").map(Number);
+      const payRows = await dbFetch("app_config?select=id,data&id=like.payroll%25");
+      // Петъците на месеца — за разпределянето на старите формати (като payFridays).
+      const fridays: string[] = [];
+      { const d = new Date(Y, M - 1, 1);
+        while (d.getMonth() === M - 1) { if (d.getDay() === 5) fridays.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); d.setDate(d.getDate() + 1); } }
+      const tot: any = {};
+      const g = (name: string) => tot[name] || (tot[name] = { bank: 0, cash: 0, nadnik: 0, overtime: 0, bonus: 0, rz: 0, osig: 0 });
+      // 1) Седмичните записи (payroll_ГГГГ-ММ-ДД) с понеделник в месеца.
+      payRows.filter((r: any) => /^payroll_\d{4}-\d{2}-\d{2}$/.test(String(r.id || ""))).forEach((r: any) => {
+        const mon = (r.data && r.data.monday) || String(r.id).replace("payroll_", "");
+        const d = new Date(mon + "T00:00:00");
+        if (d.getFullYear() !== Y || d.getMonth() + 1 !== M) return;
+        const e = (r.data && r.data.entries) || {};
+        Object.keys(e).forEach((name) => {
+          const row = e[name] || {};
+          const t = g(name);
+          ["bank", "cash", "nadnik", "overtime", "bonus"].forEach((k) => { t[k] += Number(row[k]) || 0; });
+        });
+      });
+      // 2) „По петъци" (payroll_m_<месец>): банка → банка, 005 → CODE 005,
+      //    отделно платените извънредни → извънреден, РАЗЛИЧНИ → rz
+      //    (огледало на payComputeMonth/payFriNormalize/payFriBreakdown).
+      const mRow = payRows.find((r: any) => String(r.id) === "payroll_m_" + month);
+      Object.entries(((mRow || {}).data || {}).entries || {}).forEach(([name, r0]: any[]) => {
+        const r = r0 || {};
+        const fri = r.fri || {};
+        const isNew = Object.values(fri).some((x: any) => x && typeof x === "object" && (("b" in x) || ("c" in x)));
+        let b = 0, c = 0, oSep = 0;
+        if (isNew) {
+          Object.values(fri).forEach((x: any) => {
+            if (!x || typeof x !== "object") return;
+            b += Number(x.b) || 0; c += Number(x.c) || 0;
+            if (!x.i) oSep += Number(x.o) || 0;   // i=1 → извънредният е ВЪТРЕ в банка/005
+          });
+        } else {
+          // Стар формат {w,o}/число: разпределяне банка→005 по натрупване спрямо net.
+          const net = Number(r.net) || 0; let cum = 0;
+          fridays.forEach((iso) => {
+            const x = (fri as any)[iso];
+            const w = (x && typeof x === "object") ? (Number(x.w) || 0) : (Number(x) || 0);
+            const o = (x && typeof x === "object") ? (Number(x.o) || 0) : 0;
+            const amt = w + o;
+            const bb = Math.min(amt, Math.max(0, net - cum));
+            b += bb; c += amt - bb; cum += amt; oSep += o;
+          });
+        }
+        const rz = Number((r.rz || {}).sum) || 0;
+        if (!(b || c || oSep || rz)) return;
+        const t = g(name);
+        t.bank += b; t.cash += c; t.overtime += oSep; t.rz += rz;
+      });
+      // 3) Осигуровките от ведомостта (payroll_osig_<месец>).
+      const oRow = payRows.find((r: any) => String(r.id) === "payroll_osig_" + month);
+      const osigBy = ((oRow || {}).data || {}).byName || {};
+      Object.keys(osigBy).forEach((name) => { g(name).osig += Number(osigBy[name]) || 0; });
+      const extraOsig = (((oRow || {}).data || {}).extra || []).map((x: any) => ({ who: x.raw || "", osigEur: r2(Number(x.osig) || 0) }));
+      const workers = Object.keys(tot).sort((x, y) => x.localeCompare(y, "bg")).map((name) => {
+        const t = tot[name];
+        const total = t.bank + t.cash + t.nadnik + t.overtime + t.bonus + t.rz;
+        return { name, bankEur: r2(t.bank), code005Eur: r2(t.cash), nadnikEur: r2(t.nadnik), overtimeEur: r2(t.overtime),
+          bonusEur: r2(t.bonus), othersEur: r2(t.rz), totalReceivedEur: r2(total), osigEur: r2(t.osig) };
+      }).filter((w: any) => w.totalReceivedEur || w.osigEur);
+      const sum = (k: string) => r2(workers.reduce((s: number, w: any) => s + (w[k] || 0), 0));
+      return { month, workers,
+        totals: { totalReceivedEur: sum("totalReceivedEur"), bankEur: sum("bankEur"), code005Eur: sum("code005Eur"), osigEur: sum("osigEur") },
+        extraOsig, extraOsigTotalEur: r2(extraOsig.reduce((s: number, x: any) => s + x.osigEur, 0)),
+        note: "Осигуровките са от ведомостта (месец назад), изцяло за сметка на фирмата — НЕ влизат в „ОБЩО получено“. Всичко към НАП = осигуровките на списъка + „извън списъка“." };
+    },
+  },
 ];
 
 /* ---------- MCP протоколът (Streamable HTTP, без сесии) ---------- */
 const PROTOCOLS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
-const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.1.0" };
+const SERVER_INFO = { name: "danko-systems-erp", title: "Данко Системс — СИСТЕМАТА", version: "1.2.0" };
 
 function rpcResult(id: any, result: any) { return { jsonrpc: "2.0", id, result }; }
 function rpcError(id: any, code: number, message: string) { return { jsonrpc: "2.0", id: id === undefined ? null : id, error: { code, message } }; }
 
-function tokenOk(req: Request): boolean {
-  const want = ENV("MCP_TOKEN");
-  if (!want || want.length < 20) return false;   // без (или с къс) секрет функцията е заключена
-  const u = new URL(req.url);
-  const parts = u.pathname.split("/").filter(Boolean);
-  const got = parts[parts.length - 1] !== "mcp" ? parts[parts.length - 1] : (req.headers.get("x-mcp-token") || "");
-  if (!got || got.length !== want.length) return false;
+function tokenEq(want: string, got: string): boolean {
+  if (!want || want.length < 20 || !got || got.length !== want.length) return false;
   let diff = 0;
   for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
   return diff === 0;
 }
+/* Два ключа: MCP_TOKEN = ПЪЛЕН достъп (вкл. заплатите);
+   MCP_TOKEN_LIMITED (по избор) = всичко БЕЗ чувствителните справки.
+   Данко решава кой ключ на кого да даде. */
+function tokenAccess(req: Request): "full" | "limited" | null {
+  const u = new URL(req.url);
+  const parts = u.pathname.split("/").filter(Boolean);
+  const got = parts[parts.length - 1] !== "mcp" ? parts[parts.length - 1] : (req.headers.get("x-mcp-token") || "");
+  if (tokenEq(ENV("MCP_TOKEN"), got)) return "full";
+  if (tokenEq(ENV("MCP_TOKEN_LIMITED"), got)) return "limited";
+  return null;
+}
 
-async function handleRpc(msg: any): Promise<any | null> {
+async function handleRpc(msg: any, access: "full" | "limited"): Promise<any | null> {
   const { id, method, params } = msg || {};
   if (typeof method !== "string" || !method) return rpcError(id, -32600, "Invalid Request.");
   if (method === "initialize") {
@@ -612,12 +697,16 @@ async function handleRpc(msg: any): Promise<any | null> {
   if (method === "notifications/initialized" || String(method || "").startsWith("notifications/")) return null;   // без отговор
   if (method === "ping") return rpcResult(id, {});
   if (method === "tools/list") {
-    return rpcResult(id, { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) });
+    const visible = TOOLS.filter((t) => !(t as any).sensitive || access === "full");
+    return rpcResult(id, { tools: visible.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) });
   }
   if (method === "tools/call") {
     const name = params && params.name;
     const tool = TOOLS.find((t) => t.name === name);
     if (!tool) return rpcError(id, -32602, `Няма инструмент „${name}".`);
+    if ((tool as any).sensitive && access !== "full") {
+      return rpcResult(id, { content: [{ type: "text", text: "Този ключ няма достъп до тази справка." }], isError: true });
+    }
     try {
       const res = await tool.run((params && params.arguments) || {});
       return rpcResult(id, { content: [{ type: "text", text: JSON.stringify(res) }], isError: false });
@@ -631,7 +720,8 @@ async function handleRpc(msg: any): Promise<any | null> {
 const handler = async (req: Request): Promise<Response> => {
   const H = { "content-type": "application/json", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version, mcp-session-id, x-mcp-token", "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS" };
   if (req.method === "OPTIONS") return new Response("ok", { headers: H });
-  if (!tokenOk(req)) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: H });
+  const access = tokenAccess(req);
+  if (!access) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: H });
   if (req.method === "GET") return new Response(null, { status: 405, headers: H });     // няма SSE поток — stateless
   if (req.method === "DELETE") return new Response(null, { status: 200, headers: H });
   if (req.method !== "POST") return new Response(null, { status: 405, headers: H });
@@ -639,10 +729,10 @@ const handler = async (req: Request): Promise<Response> => {
   try { body = await req.json(); } catch { return new Response(JSON.stringify(rpcError(null, -32700, "Невалиден JSON.")), { status: 400, headers: H }); }
   if (Array.isArray(body)) {   // batch (стар протокол) — с таван, да не громи базата
     if (!body.length || body.length > 20) return new Response(JSON.stringify(rpcError(null, -32600, "Batch до 20 заявки.")), { status: 400, headers: H });
-    const answers = (await Promise.all(body.map(handleRpc))).filter((x) => x !== null);
+    const answers = (await Promise.all(body.map((m: any) => handleRpc(m, access)))).filter((x) => x !== null);
     return answers.length ? new Response(JSON.stringify(answers), { headers: H }) : new Response(null, { status: 202, headers: H });
   }
-  const ans = await handleRpc(body);
+  const ans = await handleRpc(body, access);
   return ans === null ? new Response(null, { status: 202, headers: H }) : new Response(JSON.stringify(ans), { headers: H });
 };
 
