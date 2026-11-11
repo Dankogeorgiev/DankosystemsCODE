@@ -175,7 +175,9 @@ async function erpRenderReceivables() {
       ${tab("paid", "✓ Платени (архив)")}
       <input type="search" id="recv-q" placeholder="🔎 клиент / № фактура…" value="${escapeAttr(recvQuery)}" style="min-width:180px" autocomplete="off" />
       <span class="spacer"></span>
-      <button class="btn btn-small" id="recv-audit" title="100% сверка: всяка издадена фактура има ли вземане с точната сума? Липсващите/различните се показват и могат да се оправят с 1 клик.">🔍 Сверка с фактурите</button>
+      <button class="btn btn-small" id="recv-audit" title="100% сверка: всяка издадена фактура има ли вземане с точната сума? Липсващите/различните се показват и могат да се оправят с 1 клик. Преди да пише, пази снимка — „↩ Върни последната сверка" я връща.">🔍 Сверка с фактурите</button>
+      ${recvAuditMistakeRows().length ? `<button class="btn btn-small btn-danger" id="recv-undo-1111" title="Неволната сверка от 11.11.2026 добави стари (юли–август) фактури като неплатени вземания. Бутонът маха ТОЧНО тези редове и изчезва.">↩ Махни сверката от 11.11 (${recvAuditMistakeRows().length})</button>` : ""}
+      <button class="btn btn-small" id="recv-undo-audit" title="Връща Вземанията каквито са били ТОЧНО ПРЕДИ последната сверка (снимката се прави автоматично при всяка сверка занапред)">↩ Върни последната сверка</button>
     </div>
     <div class="pay-cards">
       ${card("Σ Общо за събиране (само фактури)", unpaid, "pay-card-total")}
@@ -214,6 +216,25 @@ async function erpRenderReceivables() {
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpRecvPartialDialog(Number(b.dataset.part))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
   v.querySelectorAll("[data-fix]").forEach(b => b.addEventListener("click", () => erpRecvEdit(Number(b.dataset.fix))));
+  const undo1111 = v.querySelector("#recv-undo-1111");
+  if (undo1111) undo1111.addEventListener("click", async () => {
+    const bad = recvAuditMistakeRows();
+    if (!bad.length) { alert("Няма останали редове от онази сверка."); return; }
+    if (!confirm(`↩ Махам ${bad.length} вземания, добавени от неволната сверка на 11.11.2026 (стари фактури юли–август, без нито едно плащане).\nРеалните вземания НЕ се пипат. Продължавам?`)) return;
+    const ids = new Set(bad.map(p => String(p.id)));
+    for (let i = RECEIVABLES.length - 1; i >= 0; i--) if (ids.has(String(RECEIVABLES[i].id))) RECEIVABLES.splice(i, 1);
+    if (await erpRecvSave()) { alert(`✓ Махнати ${bad.length} реда.`); erpRenderReceivables(); }
+  });
+  const undoAudit = v.querySelector("#recv-undo-audit");
+  if (undoAudit) undoAudit.addEventListener("click", async () => {
+    let snap = null;
+    try { const { data } = await sb.from("app_config").select("data").eq("id", "recv_audit_backup").maybeSingle(); snap = data && data.data; } catch (e) {}
+    if (!snap || !Array.isArray(snap.list)) { alert("Няма запазена снимка — снимка се прави автоматично при всяка сверка ОТСЕГА нататък."); return; }
+    const when = snap.saved ? new Date(snap.saved).toLocaleString("bg-BG") : "?";
+    if (!confirm(`↩ Връщам Вземанията каквито са били на ${when} (точно преди последната сверка).\nВСИЧКО, правено по Вземанията СЛЕД този момент, ще се загуби. Продължавам?`)) return;
+    RECEIVABLES = JSON.parse(JSON.stringify(snap.list));
+    if (await erpRecvSave()) { alert("✓ Върнато."); erpRenderReceivables(); }
+  });
   const auditBtn = v.querySelector("#recv-audit");
   if (auditBtn) auditBtn.addEventListener("click", () => erpRecvAudit(auditBtn));
   v.querySelectorAll("[data-mergefrom]").forEach(b => b.addEventListener("click", async () => {
@@ -561,6 +582,18 @@ function erpRecvPrint(items) {
   w.document.write(html); w.document.close(); w.focus();
 }
 
+/* ↩ Еднократно (Данко, 11.11.2026): неволната сверка добави 23 СТАРИ фактури
+   (юли–август, отпреди модула Вземания) като „неплатени" — редове id 593–615,
+   всичките без нито едно плащане. Разпознаваме ги по тези белези и ги махаме
+   с бутона; след това той изчезва. Нищо друго не отговаря на критериите. */
+function recvAuditMistakeRows() {
+  return (RECEIVABLES || []).filter(p => {
+    const n = Number(p.id) || 0;
+    return n >= 593 && n <= 615 && !p.paid && p.srcInvoiceId
+      && !(p.payments || []).length && String(p.docDate || "") < "2026-09-01";
+  });
+}
+
 /* ---------- 🔍 СВЕРКА: всички издадени фактури ↔ Вземания (100%) ----------
    За всяка ИЗДАДЕНА фактура (без проформите): има ли вземане (по srcInvoiceId
    или по № на фактурата) и съвпада ли сумата. Липсващите и различните се
@@ -599,7 +632,9 @@ async function erpRecvAudit(btn) {
     if (diff.length) lines.push(`РАЗЛИЧНА СУМА (неплатени, ${diff.length}):\n` + diff.map(x => `• №${x.o.docNo}: във Вземания ${recvMoney(x.rec.amount)}, по фактурата ${recvMoney(x.want)} EUR`).join("\n"));
     if (okPaid.length) lines.push(`ВНИМАНИЕ — платени с различна сума (не ги пипам, ${okPaid.length}):\n` + okPaid.map(x => `• №${x.o.docNo}: платено ${recvMoney(x.rec.amount)}, по фактурата ${recvMoney(x.want)} EUR`).join("\n"));
     lines.push(`Наред: ${okCnt} фактури.`);
-    if (!confirm(`🔍 СВЕРКА — открити разлики:\n\n${lines.join("\n\n")}\n\nДа ОПРАВЯ ли автоматично? (добавям липсващите, поправям сумите на неплатените)`)) return;
+    if (!confirm(`🔍 СВЕРКА — открити разлики:\n\n${lines.join("\n\n")}\n\nДа ОПРАВЯ ли автоматично? (добавям липсващите, поправям сумите на неплатените)\n\nПреди записа се пази снимка — „↩ Върни последната сверка" я връща.`)) return;
+    // Предпазител (Данко, 11.11.2026): снимка на Вземанията ПРЕДИ сверката да пише.
+    try { await sb.from("app_config").upsert({ id: "recv_audit_backup", data: { saved: new Date().toISOString(), list: JSON.parse(JSON.stringify(RECEIVABLES)) }, updated_at: new Date().toISOString() }); } catch (e) { if (!confirm("⚠ Снимката за връщане НЕ се записа (" + (e.message || e) + ").\nДа продължа ли ВЪПРЕКИ това?")) return; }
     for (const x of missing) { try { await erpRecvSyncFromInvoice(x.o); } catch (e) {} }
     for (const x of diff) { x.rec.amount = x.want; x.rec.docType = kindLbl(x.o); }
     await erpRecvSave();
