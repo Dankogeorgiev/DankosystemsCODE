@@ -1,0 +1,191 @@
+name: Вземания — сравнение с резервното копие (и връщане на сумите)
+
+# След неволната „🔍 Сверка с фактурите" (11.11.2026): сравнява ВЗЕМАНИЯТА
+# в базата със снощното (или избрано) резервно копие и установява:
+#   • кои НЕплатени вземания са с ПРОМЕНЕНА сума спрямо копието;
+#   • кои редове са ДОБАВЕНИ след копието (ги докладва, не ги пипа —
+#     за тях има бутон „↩ Махни сверката от 11.11" в самата Система).
+#
+# Подробният списък с промените се записва В БАЗАТА (app_config ред
+# 'recv_audit_diff') — в публичния лог излизат САМО БРОЙКИ, никакви
+# клиенти и суми (хранилището е публично!).
+#
+# ПУСКАНЕ: Actions → този workflow → Run workflow.
+#   • копие: 'auto' = най-новото копие ПРЕДИ последната промяна на реда
+#     (т.е. отпреди сверката); или дата ГГГГ-ММ-ДД.
+#   • запис: без отметка = само сравнява и записва списъка recv_audit_diff;
+#     с отметка = ВРЪЩА старите суми на неплатените променени редове
+#     (текущото първо се пази в 'receivables_pre_restore').
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_date:
+        description: "Кое копие: 'auto' или дата ГГГГ-ММ-ДД"
+        default: "auto"
+      apply:
+        description: "Да ВЪРНА ли старите суми? (без отметка = само сравнение)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    env:
+      DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DB_PASS: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+      GH_TOKEN: ${{ github.token }}
+      INPUT_DATE: ${{ github.event.inputs.backup_date }}
+      INPUT_APPLY: ${{ github.event.inputs.apply }}
+    steps:
+      - name: Проверка на настройките и връзката
+        run: |
+          set -euo pipefail
+          [ -n "$DB_URL" ] || { echo "::error::Липсва secret SUPABASE_DB_URL."; exit 1; }
+          [ -n "$PASS" ]   || { echo "::error::Липсва secret BACKUP_PASSPHRASE."; exit 1; }
+          URL="$(printf '%s' "$DB_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          rest="${URL#*://}"; userinfo="${rest%%@*}"; hostpart="${rest#*@}"
+          user="${userinfo%%:*}"; hostport="${hostpart%%/*}"
+          host="${hostport%%:*}"; port="${hostport#*:}"
+          if [ "$port" = "$host" ]; then port=5432; fi
+          case "$hostpart" in
+            */*) dbname="${hostpart#*/}"; dbname="${dbname%%\?*}";;
+            *)   dbname="";;
+          esac
+          if [ -z "$dbname" ]; then dbname=postgres; fi
+          echo "Връзка: потребител=$user · хост=$host:$port"
+          { echo "PGHOST_=$host"; echo "PGPORT_=$port"; echo "PGUSER_=$user"; echo "PGDB_=$dbname"; } >> $GITHUB_ENV
+
+      - name: Кога са пипани Вземанията за последно
+        run: |
+          set -euo pipefail
+          run_psql() {
+            if [ -n "${DB_PASS:-}" ]; then
+              docker run --rm -v "$PWD:/w" -w /w -e PGPASSWORD="$DB_PASS" postgres:17-alpine \
+                psql -h "$PGHOST_" -p "$PGPORT_" -U "$PGUSER_" -d "$PGDB_" "$@"
+            else
+              URL="$(printf '%s' "$DB_URL" | tr -d '\r\n')"
+              docker run --rm -v "$PWD:/w" -w /w postgres:17-alpine psql "$URL" "$@"
+            fi
+          }
+          declare -f run_psql > psql_fn.sh
+          CUR_EPOCH=$(run_psql -At -c "select coalesce(extract(epoch from updated_at)::bigint, 0) from app_config where id='receivables'")
+          CUR_HUMAN=$(run_psql -At -c "select coalesce(to_char(updated_at at time zone 'Europe/Sofia', 'YYYY-MM-DD HH24:MI'), 'няма') from app_config where id='receivables'")
+          CUR_CNT=$(run_psql -At -c "select coalesce(jsonb_array_length(data->'list'), 0) from app_config where id='receivables'")
+          echo "Сега в базата: $CUR_CNT реда Вземания · последна промяна: $CUR_HUMAN (бълг. време)"
+          { echo "CUR_EPOCH=$CUR_EPOCH"; echo "CUR_CNT=$CUR_CNT"; echo "CUR_HUMAN=$CUR_HUMAN"; } >> $GITHUB_ENV
+
+      - name: Избор и сваляне на копието
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" > arts.json
+          if [ "$INPUT_DATE" = "auto" ]; then
+            pick=$(jq -r --argjson cur "$CUR_EPOCH" '
+              [.artifacts[]
+               | select(.name | startswith("supabase-backup-"))
+               | select(.expired | not)
+               | {id, name, created_at, ep: (.created_at | fromdateiso8601)}
+               | select(.ep < $cur)]
+              | sort_by(.ep) | last
+              | if . == null then "" else "\(.id)\t\(.name)\t\(.created_at)" end' arts.json)
+          else
+            pick=$(jq -r --arg n "supabase-backup-$INPUT_DATE" '
+              [.artifacts[]
+               | select(.name == $n or .name == ($n + "-full"))
+               | select(.expired | not)]
+              | sort_by(.created_at) | last
+              | if . == null then "" else "\(.id)\t\(.name)\t\(.created_at)" end' arts.json)
+          fi
+          [ -n "$pick" ] || { echo "::error::Не намерих подходящо копие (вход: $INPUT_DATE, промяна: $CUR_HUMAN)."; exit 1; }
+          AID=$(printf '%s' "$pick" | cut -f1)
+          ANAME=$(printf '%s' "$pick" | cut -f2)
+          AAT=$(printf '%s' "$pick" | cut -f3)
+          echo "Избрано копие: $ANAME (правено $AAT)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$AID/zip" > art.zip
+          unzip -o art.zip
+          ls -lh supabase-*.tar.gpg
+          { echo "ANAME=$ANAME"; echo "AAT=$AAT"; } >> $GITHUB_ENV
+
+      - name: Отключване и изваждане на реда
+        run: |
+          set -euo pipefail
+          GPGF=$(ls supabase-*.tar.gpg | head -1)
+          gpg --batch --yes --passphrase "$PASS" --decrypt --output backup.tar "$GPGF"
+          tar -xf backup.tar
+          DUMP=$(ls supabase-*.dump | head -1)
+          docker run --rm -v "$PWD:/w" -w /w postgres:17-alpine \
+            pg_restore --data-only -t app_config -f /w/appcfg.sql "/w/$DUMP"
+          awk '/^COPY public\.app_config /{f=1} f{print} f && /^\\\.$/{exit}' appcfg.sql > block.sql
+          sed -i 's/^COPY public\.app_config /COPY r /' block.sql
+          grep -q '^COPY r ' block.sql || { echo "::error::В копието няма таблица app_config."; exit 1; }
+          # Личните данни не напускат машината.
+          rm -f backup.tar "$GPGF" appcfg.sql supabase-*.dump supabase-*.sql art.zip
+
+      - name: Сравнение / връщане на сумите
+        run: |
+          set -euo pipefail
+          . psql_fn.sh
+          {
+            echo "\\set ON_ERROR_STOP on"
+            echo "BEGIN;"
+            echo "CREATE TEMP TABLE r (LIKE public.app_config);"
+            echo "\\i block.sql"
+            echo "DO \$\$ BEGIN"
+            echo "  IF NOT EXISTS (SELECT 1 FROM r WHERE id='receivables') THEN"
+            echo "    RAISE EXCEPTION 'В копието няма ред receivables';"
+            echo "  END IF;"
+            echo "END \$\$;"
+            # Разгъване на двата списъка и сравнение по id на реда.
+            echo "CREATE TEMP TABLE old_l AS SELECT e FROM r, jsonb_array_elements(r.data->'list') e WHERE r.id='receivables';"
+            echo "CREATE TEMP TABLE new_l AS SELECT e, ord FROM public.app_config a, jsonb_array_elements(a.data->'list') WITH ORDINALITY t(e, ord) WHERE a.id='receivables';"
+            echo "CREATE TEMP TABLE amt_diffs AS"
+            echo "  SELECT (n.e->>'id') AS rid,"
+            echo "         coalesce(nullif(replace(o.e->>'amount', ',', '.'), '')::numeric, 0) AS old_amt,"
+            echo "         coalesce(nullif(replace(n.e->>'amount', ',', '.'), '')::numeric, 0) AS new_amt,"
+            echo "         o.e->>'invoiceNo' AS inv"
+            echo "  FROM old_l o JOIN new_l n ON (o.e->>'id') = (n.e->>'id')"
+            echo "  WHERE coalesce(n.e->>'paid', 'false') <> 'true'"
+            echo "    AND abs(coalesce(nullif(replace(o.e->>'amount', ',', '.'), '')::numeric, 0)"
+            echo "          - coalesce(nullif(replace(n.e->>'amount', ',', '.'), '')::numeric, 0)) > 0.005;"
+            echo "SELECT 'ПРОМЕНЕНИ СУМИ (неплатени): ' || count(*) AS info FROM amt_diffs;"
+            echo "SELECT 'ДОБАВЕНИ след копието: ' || count(*) AS info FROM new_l n WHERE NOT EXISTS (SELECT 1 FROM old_l o WHERE (o.e->>'id') = (n.e->>'id'));"
+            echo "SELECT 'ИЗТРИТИ след копието: ' || count(*) AS info FROM old_l o WHERE NOT EXISTS (SELECT 1 FROM new_l n WHERE (n.e->>'id') = (o.e->>'id'));"
+            # Подробностите → В БАЗАТА (не в публичния лог).
+            echo "INSERT INTO public.app_config (id, data, updated_at)"
+            echo "  SELECT 'recv_audit_diff', jsonb_build_object("
+            echo "    'saved', to_char(now() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),"
+            echo "    'backup', '${ANAME}', 'backupAt', '${AAT}',"
+            echo "    'changes', coalesce((SELECT jsonb_agg(jsonb_build_object('id', rid, 'invoiceNo', inv, 'old', old_amt, 'new', new_amt) ORDER BY rid) FROM amt_diffs), '[]'::jsonb),"
+            echo "    'added', coalesce((SELECT jsonb_agg(n.e->>'id' ORDER BY (n.e->>'id')) FROM new_l n WHERE NOT EXISTS (SELECT 1 FROM old_l o WHERE (o.e->>'id') = (n.e->>'id'))), '[]'::jsonb)"
+            echo "  ), now()"
+            echo "  ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now();"
+            if [ "$INPUT_APPLY" = "true" ]; then
+              # Предпазител: текущото състояние се пази преди записа.
+              echo "INSERT INTO public.app_config (id, data, updated_at)"
+              echo "  SELECT 'receivables_pre_restore', data, now() FROM public.app_config WHERE id='receivables'"
+              echo "  ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now();"
+              # Връщане на старите суми САМО на неплатените редове от списъка с промени,
+              # и САМО ако сумата им още е тази, която сверката е записала.
+              echo "UPDATE public.app_config a SET data = jsonb_set(a.data, '{list}', ("
+              echo "  SELECT jsonb_agg("
+              echo "    CASE WHEN d.rid IS NOT NULL"
+              echo "              AND coalesce(n.e->>'paid', 'false') <> 'true'"
+              echo "              AND abs(coalesce(nullif(replace(n.e->>'amount', ',', '.'), '')::numeric, 0) - d.new_amt) <= 0.005"
+              echo "         THEN jsonb_set(n.e, '{amount}', to_jsonb(d.old_amt))"
+              echo "         ELSE n.e END ORDER BY n.ord)"
+              echo "  FROM new_l n LEFT JOIN amt_diffs d ON (n.e->>'id') = d.rid"
+              echo ")), updated_at = now() WHERE a.id='receivables';"
+              echo "SELECT 'ЗАПИСАНО: върнати ' || count(*) || ' суми; старото е в receivables_pre_restore' AS done FROM amt_diffs;"
+              echo "COMMIT;"
+            else
+              echo "COMMIT;"   # записваме САМО recv_audit_diff (списъка с промените)
+              echo "SELECT 'САМО СРАВНЕНИЕ: подробностите са записани в recv_audit_diff. За връщане на сумите пусни пак с отметката.' AS note;"
+            fi
+          } > run.sql
+          run_psql -f run.sql
+          rm -f block.sql run.sql
