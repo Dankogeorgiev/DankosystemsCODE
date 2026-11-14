@@ -235,23 +235,16 @@ async function erpPayFridaysView(v) {
   const fridays = payFridays(Y, M);
   const entries = await erpPayLoadMonth(erpPayMonth);
   const { byWs, order } = erpPayRoster();
-
-  // Нормализирани петъци за всеки служител (за редовете и за отметките в шапката на цеха).
+  // БЕЗ цехови групи (Данко, 14.11.2026): всички по АЗБУЧЕН РЕД, с номерация.
+  // Цеховата отметка „По банка" е махната — груповото ѝ местене обърка
+  // плащания; всичко се управлява от полетата на всеки служител.
+  const allEmps = order.flatMap(ws => byWs[ws]).sort((a, b) => String(a.name).localeCompare(String(b.name), "bg"));
   const friByEmp = {};
-  order.forEach(ws => byWs[ws].forEach(e => { friByEmp[e.name] = payFriNormalize(entries[e.name] || {}, fridays); }));
+  allEmps.forEach(e => { friByEmp[e.name] = payFriNormalize(entries[e.name] || {}, fridays); });
 
   const inp = (cls, name, val, extra) => `<input type="number" class="${cls}" data-name="${escapeAttr(name)}" ${extra || ""} step="any" value="${val != null && val !== "" ? escapeAttr(String(val)) : ""}" />`;
   const friBreak3 = (b, c, o) => `🏦 ${payEur(b)}<br>005 ${payEur(c)}<br>Изв. ${payEur(o)}`;
-  // Ред-заглавие на цеха: под всеки петък — отметка „По банка" (цялата седмица по банка).
-  const wsHeadRow = ws => {
-    const checks = fridays.map(f => {
-      let b = 0, c = 0; byWs[ws].forEach(e => { const x = friByEmp[e.name][f.iso]; b += x.b; c += x.c; });
-      const checked = c === 0 && b > 0;
-      return `<td class="pf-wscol"><label class="pf-wsbank"><input type="checkbox" class="pf-bankchk" data-ws="${escapeAttr(ws)}" data-iso="${f.iso}" ${checked ? "checked" : ""} /> По банка</label></td>`;
-    }).join("");
-    return `<tr class="pay-ws"><td colspan="4"><b>${escapeHtml(ws)}</b></td>${checks}<td colspan="4"></td></tr>`;
-  };
-  const empRow = e => {
+  const empRow = (e, idx) => {
     const r = entries[e.name] || {};
     const friN = friByEmp[e.name];
     const rz = r.rz || {};
@@ -269,7 +262,7 @@ async function erpPayFridaysView(v) {
     const net = Number(r.net) || 0;
     const sum = sumB + sumC + sumO;
     return `<tr data-row="${escapeAttr(e.name)}">
-      <td>${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button>
+      <td><b style="color:#64748b">${idx + 1}.</b> ${escapeHtml(e.name)} <button class="btn btn-small pf-rm" data-name="${escapeAttr(e.name)}" title="Махни служителя">×</button>
         <div style="margin-top:2px;white-space:nowrap">🏦 <span class="t-code pf-iban-val" data-name="${escapeAttr(e.name)}" style="font-size:10px">${e.iban ? escapeHtml(e.iban) : `<span class="erp-muted">— няма сметка</span>`}</span>
         <button class="btn btn-small pf-iban-edit" data-name="${escapeAttr(e.name)}" title="Редакция на банковата сметка на служителя (за преводите)">✎</button>
         <input type="text" class="pf-iban-note" data-name="${escapeAttr(e.name)}" value="${escapeAttr(e.ibanNote || "")}" placeholder="бележка…" title="Коментар към сметката (напр. нова сметка от октомври) — записва се веднага" style="width:110px;font-size:10.5px;padding:2px 6px" /></div></td>
@@ -320,7 +313,7 @@ async function erpPayFridaysView(v) {
         <th class="num">ОБЩО</th>
       </tr></thead>
       <tbody>
-        ${order.map(ws => wsHeadRow(ws) + byWs[ws].map(empRow).join("")).join("") ||
+        ${allEmps.map((e, i) => empRow(e, i)).join("") ||
           `<tr><td colspan="${fridays.length + 8}" class="report-empty">Няма служители. Добави с бутона горе.</td></tr>`}
       </tbody>
       <tfoot><tr class="pf-foot">
@@ -335,7 +328,7 @@ async function erpPayFridaysView(v) {
         <td class="num pf-tot" id="pf-gtot"></td>
       </tr></tfoot>
     </table></div>
-    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — пренасят се за всеки следващ месец. <b>🔒 Променя ги само Данко</b>; промяната важи САМО занапред — миналите петъци пазят записаните суми. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Отметката <b>„По банка"</b> под всеки петък (на реда на цеха) прехвърля цялата седмична сума на всички в цеха към <b>по банка</b>; махнеш ли я — към <b>005</b> (напр. служителят има пари по банка, но е болничен и се дава 005). После можеш да коригираш отделен служител ръчно.<br><b>ПО БАНКА</b> (чистото за месеца) се попълва АВТОМАТИЧНО от „🤖 Ведомост" в Месечния отчет и се <b>РАЗПРЕДЕЛЯ САМО̀ по петъците</b>: банката се налива отпред-назад — всеки петък взима по банка до дължимото си (СЕДМИЧНО + извънредните му), а щом банката свърши, остатъкът от дължимото отива в Седм. 005; празно ПО БАНКА → всичко в 005. Пипнеш ли <b>ПО БАНКА</b>, <b>СЕДМИЧНО</b> или <b>Извънредни</b>, разпределението се преизчислява наново — от днес нататък (при извънредни — от техния петък); минали петъци НЕ се пипат. Ръчна поправка на Седм. банка/005 не се преразпределя — ръчното е господар, но ако „От банка" надвиши ПО БАНКА, колоната се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
+    <p class="hint"><b>ДНЕВНО</b> и <b>СЕДМИЧНО</b> са ставки на служителя — пренасят се за всеки следващ месец. <b>🔒 Променя ги само Данко</b>; промяната важи САМО занапред — миналите петъци пазят записаните суми. Всеки петък има три полета: <b>Седм. банка</b> (плащане по банка), <b>Седм. 005</b> (плащане по CODE 005) и <b>Извънредни</b>. Под тях се вижда разбивката 🏦 банка / 005 / Изв. Колоните <b>От банка</b> и <b>CODE 005</b> сумират съответните полета за месеца.<br>Служителите са <b>по азбучен ред, с номера</b> (без цехови групи). Кое по банка и кое по 005 се управлява от полетата на всеки служител поотделно.<br><b>ПО БАНКА</b> (чистото за месеца) се попълва АВТОМАТИЧНО от „🤖 Ведомост" в Месечния отчет и се <b>РАЗПРЕДЕЛЯ САМО̀ по петъците</b>: банката се налива отпред-назад — всеки петък взима по банка до дължимото си (СЕДМИЧНО + извънредните му), а щом банката свърши, остатъкът от дължимото отива в Седм. 005; празно ПО БАНКА → всичко в 005. Пипнеш ли <b>ПО БАНКА</b>, <b>СЕДМИЧНО</b> или <b>Извънредни</b>, разпределението се преизчислява наново — от днес нататък (при извънредни — от техния петък); минали петъци НЕ се пипат. Ръчна поправка на Седм. банка/005 не се преразпределя — ръчното е господар, но ако „От банка" надвиши ПО БАНКА, колоната се оцветява. <b>РАЗЛИЧНИ</b> (Сума + Бел.) влиза в ОБЩО, но не в разбивката банка/005. Сумите са в евро.<br><b>Запазване:</b> „💾 ЗАПАЗИ" записва всичко; таблицата се <b>авто-запазва на всеки 2 минути</b>.<br><b>⤓ Excel (месеца)</b> сваля чиста таблица: Цех · Служител · <b>ПО БАНКА</b> · <b>CODE 005</b> · ОБЩО, с Данко най-отгоре и два сбора най-долу — без него и с него. Взема това, което е в таблицата в момента — и още незаписаното.</p>`;
 
   const pfShift = dir => { const d = new Date(Y, M - 1 + dir, 1); erpPayMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; erpPayFridaysView(v); };
   v.querySelector("#pf-m-prev").addEventListener("click", () => pfShift(-1));
@@ -409,12 +402,6 @@ async function erpPayFridaysView(v) {
      от fromIso нататък; миналите петъци НЕ се пипат (платеното си остава).
      Ръчна поправка на Седм. банка / Седм. 005 НЕ преразпределя — ръчното е
      господар. Служител без СЕДМИЧНО ставка не се разпределя автоматично. */
-  // Отметките „По банка" на цеховете следват реалните стойности (c=0 и b>0).
-  const syncBankChecks = () => v.querySelectorAll(".pf-bankchk").forEach(chk => {
-    let b = 0, c = 0;
-    (byWs[chk.dataset.ws] || []).forEach(e => { const esc = CSS.escape(e.name); b += friVal("pf-frib", esc, chk.dataset.iso); c += friVal("pf-fric", esc, chk.dataset.iso); });
-    chk.checked = c === 0 && b > 0;
-  });
   const redistribute = (name, fromIso) => {
     const esc = CSS.escape(name);
     const weekly = Number((v.querySelector(`.pf-sedm[data-name="${esc}"]`) || {}).value) || 0;
@@ -438,7 +425,7 @@ async function erpPayFridaysView(v) {
       if (bEl) { bEl.value = String(map[f.iso].b || 0); bEl.dataset.inc = map[f.iso].i ? "1" : "0"; }
       if (cEl) cEl.value = String(map[f.iso].c || 0);
     });
-    recompute(name); recomputeFooter(); syncBankChecks();
+    recompute(name); recomputeFooter();
   };
   // Датата „днес" се смята В МОМЕНТА на пипането (локално време, payIso) —
   // екранът може да стои отворен с дни, а toISOString е UTC и след полунощ бърка.
@@ -525,22 +512,6 @@ async function erpPayFridaysView(v) {
     v.querySelectorAll(`.pf-frib[data-name="${esc}"], .pf-fric[data-name="${esc}"]`).forEach(x => { delete x.dataset.manual; });
     redistribute(b.dataset.name, whole ? null : payIso(new Date()));
   }));
-  // Отметка „По банка" за петък в даден цех: премества седмичната сума банка⇄005 за всички в цеха.
-  v.querySelectorAll(".pf-bankchk").forEach(chk => chk.addEventListener("change", () => {
-    const ws = chk.dataset.ws, iso = chk.dataset.iso, toBank = chk.checked;
-    (byWs[ws] || []).forEach(e => {
-      const esc = CSS.escape(e.name);
-      const bEl = v.querySelector(`.pf-frib[data-name="${esc}"][data-iso="${iso}"]`);
-      const cEl = v.querySelector(`.pf-fric[data-name="${esc}"][data-iso="${iso}"]`);
-      if (!bEl || !cEl) return;
-      const b = Number(bEl.value) || 0, c = Number(cEl.value) || 0;
-      if (toBank) { bEl.value = String(b + c); cEl.value = "0"; }
-      else { cEl.value = String(b + c); bEl.value = "0"; }
-      bEl.dataset.manual = "1"; cEl.dataset.manual = "1";   // ръчно решение — заключва петъка
-      recompute(e.name);
-    });
-    recomputeFooter();
-  }));
   recomputeFooter();
   payApplyFilter(v);
 
@@ -567,7 +538,7 @@ async function erpPayFridaysView(v) {
       const osn = wrap.querySelector("#pfb-osn").value.trim();
       const r2x = x => Math.round((Number(x) || 0) * 100) / 100;
       const out = [], noIban = [];
-      order.forEach(ws => byWs[ws].forEach(e => {
+      allEmps.forEach(e => {
         const esc = CSS.escape(e.name);
         if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
         const b = friVal("pf-frib", esc, iso);
@@ -576,7 +547,7 @@ async function erpPayFridaysView(v) {
         // 09.10.2026) — попълва се в банкирането или после с ✎ под името.
         if (!e.iban) noIban.push(`${e.name} — ${r2x(b)} €`);
         out.push([String(e.name).toUpperCase(), e.iban || "", r2x(b), osn]);
-      }));
+      });
       if (!out.length) { alert("Няма служители със сума по банка за този петък."); return; }
       out.sort((a, b) => a[0].localeCompare(b[0], "bg"));
       const sheet = XLSX.utils.aoa_to_sheet(out);
@@ -606,7 +577,7 @@ async function erpPayFridaysView(v) {
       const n2 = x => (Math.round((Number(x) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       let gC = 0, gO = 0;
       const rows = [];
-      order.forEach(ws => byWs[ws].forEach(e => {
+      allEmps.forEach(e => {
         const esc = CSS.escape(e.name);
         if (!v.querySelector(`tr[data-row="${esc}"]`)) return;
         const c = friVal("pf-fric", esc, iso);
@@ -614,7 +585,7 @@ async function erpPayFridaysView(v) {
         if (!(c > 0 || o > 0)) return;
         gC += c; gO += o;
         rows.push([ws, e.name, n2(c), o ? n2(o) : "", n2(c + o)]);
-      }));
+      });
       if (!rows.length) { alert("За този петък няма суми в брой (Седм. 005)."); return; }
       const nPpl = rows.length;
       rows.push(["", `ОБЩО ЗА РАЗДАВАНЕ (${nPpl} души)`, n2(gC), gO ? n2(gO) : "", n2(gC + gO)]);
