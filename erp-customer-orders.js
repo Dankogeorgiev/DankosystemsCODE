@@ -1206,6 +1206,7 @@ async function erpRenderCOForm(o) {
         ${o.production ? '<button class="btn btn-small btn-danger" id="co-withdraw">⬅ Изтегли от производство</button>' : ""}
         <button class="btn btn-small" id="co-email" title="Отваря готово писмо до клиента, че поръчката е готова">✉ Съобщи на клиента (готова)</button>
         <button class="btn btn-small" id="co-sale">🧾 Създай продажба</button>
+        ${o.id && typeof pmOpen === "function" ? `<button class="btn btn-small" id="co-palman" title="Ръчен палетен опис: пишеш код и бройка, името и килограмите излизат сами (и се пренаписват на ръка). Пази се на заявката; печата бланката с „ПАЛЕТ № 1, 2, 3…“.">📋 Палетен опис${o.palletManual && (o.palletManual.pallets || []).some(p => (p.rows || []).length) ? " ✓" : ""}</button>` : ""}
       </div>
 
       <h4 class="erp-group-head">Придружаващи документи</h4>
@@ -1366,6 +1367,8 @@ async function erpRenderCOForm(o) {
     if (typeof erpMailOrderDialog === "function") erpMailOrderDialog(o);
     else if (typeof erpEmailOrderReady === "function") erpEmailOrderReady(o);
   });
+  const palmanBtn = document.getElementById("co-palman");
+  if (palmanBtn) palmanBtn.addEventListener("click", () => pmOpen(o));
   const saleBtn = document.getElementById("co-sale");
   if (saleBtn) saleBtn.addEventListener("click", () => {
     if (!(o.lines || []).length) { alert("Добави поне един продукт."); return; }
