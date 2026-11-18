@@ -92,6 +92,7 @@ const PYB_SORTS = [
   ["doc", "Дата на документа (нови отгоре)"],
   ["amount", "Сума (голяма отгоре)"],
   ["invoice", "№ на фактурата"],
+  ["added", "🆕 Последно добавени (нови отгоре)"],
 ];
 function pybSortRows(rows) {
   const S = String;
@@ -107,6 +108,8 @@ function pybSortRows(rows) {
     doc: (a, b) => S(b.docDate || "").localeCompare(S(a.docDate || "")) || sec(a, b),
     amount: (a, b) => (payLeft(b) || payNum(b.amountVat)) - (payLeft(a) || payNum(a.amountVat)) || sec(a, b),
     invoice: (a, b) => S(a.invoiceNo || "").localeCompare(S(b.invoiceNo || ""), "bg", { numeric: true }),
+    // „Какво е въвела колежката": редът на добавяне = поредните id-та.
+    added: (a, b) => (Number(b.id) || 0) - (Number(a.id) || 0),
   }[pybSort] || (() => 0);
   return rows.slice().sort(cmp);
 }
@@ -205,6 +208,7 @@ async function erpRenderPayables() {
         <select id="pyb-supplier"><option value="">Всички</option>${supplierOpts.map(s => `<option ${s === pybSupplier ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}</select></label>
       <label class="erp-inline">Подреди по
         <select id="pyb-sort">${PYB_SORTS.map(([k, l]) => `<option value="${k}" ${k === pybSort ? "selected" : ""}>${pybFilter === "paid" && k === "due" ? "Платена на (последните отгоре)" : l}</option>`).join("")}</select></label>
+      <button class="btn btn-small ${pybSort === "added" ? "btn-primary" : ""}" id="pyb-lastadded" title="Показва фактурите в реда, в който са въвеждани — най-новите отгоре (за да видиш какво е добавила колежката). Повторен клик връща по падеж.">🆕 Последно добавени</button>
       ${pybSupplier ? '<button class="btn btn-small" id="pyb-clearf">✕ Изчисти филтъра</button>' : ""}
       <span class="spacer"></span>
       <span class="erp-count">${rows.length} ${rows.length === 1 ? "фактура" : "фактури"} · ${payMoney(rows.reduce((s, p) => s + (pybFilter === "paid" ? payNum(p.amountVat) : payLeft(p)), 0))} EUR</span>
@@ -240,7 +244,7 @@ async function erpRenderPayables() {
           <td><b>${pybFmt(p.dueDate)}</b></td>
           <td class="num">${dl == null ? "" : (dl < 0 ? `<span class="pay-neg">${dl}</span>` : dl)}</td>
           <td>${escapeHtml(p.invoiceNo || "")}</td>
-          <td>${pybFmt(p.docDate)}</td>
+          <td>${pybFmt(p.docDate)}${p.addedAt ? `<div class="erp-muted" style="font-size:10.5px" title="Кога фактурата е въведена в Задължения">+ ${new Date(p.addedAt).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>` : ""}</td>
           <td>${escapeHtml(p.supplier || "")}<div class="erp-muted" style="font-size:11px;white-space:nowrap">IBAN: ${(() => { const ib = payIban(p); return ib ? escapeHtml(ib) : "—"; })()} <a href="#" class="pay-iban-edit" data-sup="${escapeAttr(p.supplier || "")}" title="Въведи/поправи IBAN — записва се в паспорта на доставчика и важи за всичките му фактури">✎</a></div></td>
           <td class="pay-art" title="${escapeAttr(p.article || "")}">${escapeHtml(p.article || "")}</td>
           <td class="num">${payMoney(p.amount)}</td>
@@ -292,6 +296,8 @@ async function erpRenderPayables() {
     rec.iban = clean; rec.ibanSrc = "manual";
     if (await suppSave()) erpRenderPayables();
   }));
+  const laBtn = document.getElementById("pyb-lastadded");
+  if (laBtn) laBtn.addEventListener("click", () => { pybSort = pybSort === "added" ? "due" : "added"; erpRenderPayables(); });
   const sSel = document.getElementById("pyb-sort");
   if (sSel) sSel.addEventListener("change", e => { pybSort = e.target.value; erpRenderPayables(); });
   const supSel = document.getElementById("pyb-supplier");
@@ -449,7 +455,7 @@ async function erpPayImport(file) {
           review.push(`№${invoiceNo} ${supplier}: в Системата ${(payNum(ex.amount)).toFixed(2)}, във файла ${rec.amount.toFixed(2)}`);
         return;
       }
-      PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", imported: true, ...rec });
+      PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", imported: true, addedAt: new Date().toISOString(), ...rec });
       added++;
     });
     if (await erpPaySave()) {
@@ -545,7 +551,7 @@ async function erpPayAuditPurchases() {
       const rate = (erpPuCur(o) === "BGN") ? RATE : 1;
       const t = erpPuTotals(o);
       PAYABLES.push({
-        id: payNextId(), paid: false, paidDate: "", forToday: false,
+        id: payNextId(), paid: false, paidDate: "", forToday: false, addedAt: new Date().toISOString(),
         dueDate: o.dueDate || (typeof erpPuDueDate === "function" ? erpPuDueDate(o) : ""),
         termDays: Number(o.termDays) || 0, invoiceNo: o.invoiceNo || "", docDate: o.date || "",
         supplier: o.supplierName || "",
@@ -623,7 +629,7 @@ async function erpPaySyncFromPurchase(o) {
         }
         Object.assign(PAYABLES[idx], fields);
       }
-    } else PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", forToday: false, ...fields });
+    } else PAYABLES.push({ id: payNextId(), paid: false, paidDate: "", forToday: false, addedAt: new Date().toISOString(), ...fields });
     await erpPaySave();
   } else if (idx >= 0 && !PAYABLES[idx].paid) {
     const pb = PAYABLES[idx];
