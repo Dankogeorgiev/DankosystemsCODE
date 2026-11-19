@@ -584,7 +584,7 @@ async function erpPayFridaysView(v) {
         const o = friInc(esc, iso) ? 0 : friVal("pf-frio", esc, iso);
         if (!(c > 0 || o > 0)) return;
         gC += c; gO += o;
-        rows.push([ws, e.name, n2(c), o ? n2(o) : "", n2(c + o)]);
+        rows.push([e.ws || "", e.name, n2(c), o ? n2(o) : "", n2(c + o)]);
       });
       if (!rows.length) { alert("За този петък няма суми в брой (Седм. 005)."); return; }
       const nPpl = rows.length;
