@@ -537,3 +537,88 @@ async function erpInvMailsView(v, onBack) {
   v.querySelector("#im-q").addEventListener("input", paint);
   paint();
 }
+
+/* ---------- ✉ Напомняне за плащане (Вземания) — Данко, 20.11.2026 ----------
+   От реда на неплатено вземане: готово ЛЮБЕЗНО напомнително писмо до СЪЩИЯ
+   имейл, на който е пратена фактурата при издаване (емайлът на фактурата →
+   запомненият на клиента → ролята „получава фактури"). Прикача копие на
+   фактурата, когато я намери. След реално изпращане бележи на вземането
+   кога и на кого е напомнено. */
+async function erpRecvRemindMail(p, onDone) {
+  if (!p || p.paid) return;
+  try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
+  const inv = (p.srcInvoiceId && typeof erpInvoices !== "undefined" && erpInvoices)
+    ? erpInvoices.find(o => String(o.id) === String(p.srcInvoiceId))
+    : null;
+  const clientKey = p.client || "";
+  // Имейлът: 1) на който е пратена фактурата; 2) запомненият фактурен на клиента;
+  // 3) ролята „получава фактури" от картона; 4) контактът на клиента.
+  let to = (inv && inv.emailedTo) || "";
+  if (!to) { try { to = await erpMailLastToGet(clientKey); } catch (e) {} }
+  if (!to && typeof compInvoiceEmail === "function") { try { const r = await compInvoiceEmail(inv && inv.clientId, clientKey); if (r && r.email) to = r.email; } catch (e) {} }
+  if (!to && typeof erpPartnerEmail === "function") { try { const r = await erpPartnerEmail("customer", inv && inv.clientId, clientKey); if (r && r.email) to = r.email; } catch (e) {} }
+  const en = /[A-Za-z]/.test(clientKey) && !/[А-Яа-я]/.test(clientKey);
+  const num2 = n => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(en ? "en-GB" : "bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtD = d => (typeof erpDMY === "function") ? erpDMY(d) : (d || "");
+  const paidPart = (p.payments || []).reduce((s, x) => s + (Number(String(x.amount).replace(",", ".")) || 0), 0);
+  const left = Math.round(((Number(String(p.amount).replace(",", ".")) || 0) - paidPart) * 100) / 100;
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueDays = p.dueDate && p.dueDate < today ? Math.round((new Date(today) - new Date(p.dueDate)) / 864e5) : 0;
+  const s = (typeof ERP_SELLER !== "undefined" && ERP_SELLER) || {};
+  const sEn = (en && typeof ERP_SELLER_EN !== "undefined" && ERP_SELLER_EN) || s;
+  const bank = (en ? sEn : s).iban ? (en
+    ? `\nBank details: IBAN ${(sEn.iban || s.iban)}${(sEn.bic || s.bic) ? " · BIC " + (sEn.bic || s.bic) : ""}`
+    : `\nПлащане по банка: IBAN ${s.iban}${s.bic ? " · BIC " + s.bic : ""}`) : "";
+  const dueTxt = en
+    ? (p.dueDate ? (overdueDays > 0 ? `was due on ${fmtD(p.dueDate)} (${overdueDays} days ago)` : `is due on ${fmtD(p.dueDate)}`) : "is awaiting payment")
+    : (p.dueDate ? (overdueDays > 0 ? `е с падеж ${fmtD(p.dueDate)} (изтекъл преди ${overdueDays} дни)` : `е с падеж ${fmtD(p.dueDate)}`) : "очаква плащане");
+  const partTxt = paidPart > 0
+    ? (en ? `\nWe have received ${num2(paidPart)} EUR so far; the outstanding balance is ${num2(left)} EUR.` : `\nДо момента по нея са получени ${num2(paidPart)} EUR; остатъкът за плащане е ${num2(left)} EUR.`)
+    : "";
+  const subject = en
+    ? `Kind payment reminder — invoice No ${p.invoiceNo || ""} — DANKO SYSTEMS Ltd.`
+    : `Любезно напомняне за плащане — фактура № ${p.invoiceNo || ""} — ${s.name || "Данко Системс"}`;
+  const text = en
+    ? `Dear Sir or Madam,
+
+May we kindly remind you that invoice No ${p.invoiceNo || ""}${p.docDate ? ` dated ${fmtD(p.docDate)}` : ""}, amounting to ${num2(p.amount)} EUR, ${dueTxt}.${partTxt}
+
+We know that our clients value our work and the effort we put into every order, so we are sure this is simply an oversight.
+
+If the payment has already been arranged, please accept our thanks and kindly disregard this message.${bank}
+
+Best regards,
+DANKO SYSTEMS Ltd.`
+    : `Здравейте,
+
+Позволяваме си любезно да Ви напомним, че фактура № ${p.invoiceNo || ""}${p.docDate ? ` от ${fmtD(p.docDate)}` : ""}, на стойност ${num2(p.amount)} EUR, ${dueTxt}.${partTxt}
+
+Знаем, че нашите клиенти ценят нашия труд и усилията, които влагаме във всяка поръчка, затова сме сигурни, че става въпрос за пропуск.
+
+Ако плащането вече е наредено, моля приемете нашите благодарности и не обръщайте внимание на това писмо.${bank}
+
+Поздрави,
+екип ${s.name || "Данко Системс"}`;
+  // Копие на фактурата — когато я намерим (не е задължително за напомнянето).
+  let attachments = [];
+  if (inv && typeof erpInvPdfBase64 === "function") {
+    try {
+      const b64 = await erpInvPdfBase64(inv);
+      if (b64) attachments = [{ name: (en ? "Invoice" : "Faktura") + "-" + String(inv.docNo || p.invoiceNo || "").replace(/[^\w.-]+/g, "_") + ".pdf", content: b64 }];
+    } catch (e) {}
+  }
+  const extra = await erpMailExtraGet(clientKey).catch(() => []);
+  erpMailComposeDialog({
+    clientKey, extra, attachments,
+    title: "✉ Напомняне за плащане — ф. № " + (p.invoiceNo || "—") + " → " + (clientKey || "клиента") + (en ? " (EN)" : ""),
+    to, subject, text,
+    onSent: async toV => {
+      try {
+        p.remindedAt = new Date().toISOString();
+        p.remindedTo = toV || "";
+        if (typeof erpRecvSave === "function") await erpRecvSave();
+        if (typeof onDone === "function") onDone();
+      } catch (e) { console.warn("бележка за напомняне:", e); }
+    },
+  });
+}
