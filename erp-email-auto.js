@@ -550,15 +550,28 @@ async function erpRecvRemindMail(p, onDone, group) {
   const list = (Array.isArray(group) && group.length > 1) ? group : [p];
   const multi = list.length > 1;
   try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
-  const invFor = r => (r && r.srcInvoiceId && typeof erpInvoices !== "undefined" && erpInvoices)
-    ? erpInvoices.find(o => String(o.id) === String(r.srcInvoiceId))
-    : null;
+  // Фактурата на вземането: по връзката (srcInvoiceId), а старите/импортираните
+  // вземания без връзка — по НОМЕРА на фактурата (водещите нули не пречат).
+  const normNo = x => String(x == null ? "" : x).trim().replace(/^0+/, "");
+  const invFor = r => {
+    if (!r || typeof erpInvoices === "undefined" || !erpInvoices) return null;
+    return (r.srcInvoiceId != null && erpInvoices.find(o => String(o.id) === String(r.srcInvoiceId)))
+      || (normNo(r.invoiceNo) && erpInvoices.find(o => normNo(o.docNo) === normNo(r.invoiceNo)))
+      || null;
+  };
   const inv = invFor(p);
   const clientKey = p.client || "";
   // Имейлът: 1) на който е пратена фактурата; 2) запомненият фактурен на клиента;
   // 3) ролята „получава фактури" от картона; 4) контактът на клиента.
   let to = "";
   for (const r of list) { const i = invFor(r); if (i && i.emailedTo) { to = i.emailedTo; break; } }
+  // Няма ли я точната фактура — имейлът от ПОСЛЕДНАТА изпратена фактура на клиента.
+  if (!to && typeof erpInvoices !== "undefined" && erpInvoices) {
+    const nc = s => String(s || "").toLowerCase().replace(/[^a-zа-я0-9]+/gi, "");
+    const mine = erpInvoices.filter(o => o.emailedTo && nc(o.client && o.client.name) === nc(clientKey))
+      .sort((a, c) => String(c.emailedAt || "").localeCompare(String(a.emailedAt || "")));
+    if (mine[0]) to = mine[0].emailedTo;
+  }
   if (!to) { try { to = await erpMailLastToGet(clientKey); } catch (e) {} }
   if (!to && typeof compInvoiceEmail === "function") { try { const r = await compInvoiceEmail(inv && inv.clientId, clientKey); if (r && r.email) to = r.email; } catch (e) {} }
   if (!to && typeof erpPartnerEmail === "function") { try { const r = await erpPartnerEmail("customer", inv && inv.clientId, clientKey); if (r && r.email) to = r.email; } catch (e) {} }
