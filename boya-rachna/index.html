@@ -11,16 +11,18 @@
     --mono:'IBM Plex Mono',ui-monospace,monospace;--disp:'Space Grotesk',system-ui,sans-serif;--body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}
   *{box-sizing:border-box}
   [hidden]{display:none!important}
+  html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;line-height:1.45}
-  .wrap{max-width:1720px;margin:0 auto;padding:16px}
+  /* Kiosk оформление — всичко се побира на един екран (24") без скрол. */
+  .wrap{max-width:1840px;margin:0 auto;padding:10px 16px 12px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
   /* Горна лента с бутоните за деня */
-  .daybar{display:flex;gap:12px;margin-top:14px}
+  .daybar{display:flex;gap:12px;margin-top:10px;flex:0 0 auto}
   .daybar .daybtn{flex:1;font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.01em;border:1.5px solid var(--line);border-radius:10px;padding:15px 16px;cursor:pointer;background:#F1F4F9;color:var(--ink)}
   .daybar .daybtn:active{transform:translateY(1px)}
   .daybar .daybtn.start{background:#E7F3EC;color:var(--ok);border-color:#BFE0CC}
   .daybar .daybtn.start:hover{background:var(--ok);color:#fff;border-color:var(--ok)}
   .daybar .daybtn.end:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
-  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:4px 2px 14px;border-bottom:2px solid var(--ink)}
+  header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:2px 2px 8px;border-bottom:2px solid var(--ink);flex:0 0 auto}
   header.top h1{font-family:var(--disp);font-weight:700;font-size:21px;margin:0}
   .tag{display:inline-block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--ink-soft);border-radius:5px;padding:2px 7px;margin-left:8px}
   .sub{font-family:var(--mono);font-size:12px;color:var(--muted)}
@@ -30,17 +32,23 @@
   .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 
   /* ---- 3D сцена ---- */
-  #stage{position:relative;margin-top:12px;height:min(62vh,660px);min-height:360px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
-  #stage canvas{display:block;width:100%;height:100%}
+  #stage{position:relative;margin-top:10px;height:34vh;min-height:180px;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ee}
+  #stage canvas{display:block;position:absolute;left:0;top:0;width:100%}
   #stageInfo{position:absolute;top:10px;left:12px;background:rgba(255,255,255,.82);border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;max-width:62%}
   #stageInfo b{font-family:var(--disp)}
   #ralNow{position:absolute;top:10px;right:12px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.9);border-radius:9px;padding:7px 10px;font-size:12px}
   #ralNow i{width:15px;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.2);display:inline-block}
 
   /* ---- операторски панел ---- */
-  .op{display:grid;grid-template-columns:1fr 420px;gap:18px;margin-top:16px}
+  .op{display:grid;grid-template-columns:1fr 400px;gap:16px;margin-top:12px;flex:1 1 0;min-height:0}
   @media(max-width:920px){.op{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-height:0;overflow:auto}
+  /* Левият панел: БОЯДИСВАНЕ винаги долу и видимо; подвески/заредени се
+     скролват вътрешно при по-нисък екран (напр. 24" на 150% мащаб). */
+  .panel.builder{display:flex;flex-direction:column;overflow:hidden}
+  .panel.builder .kolhead,.panel.builder .actions,.panel.builder .note{flex:0 0 auto}
+  .panel.builder .buildscroll{flex:1 1 auto;min-height:0;overflow:auto}
+  .panel.builder .actions{margin-top:12px}
   .panel h2{font-family:var(--disp);font-size:16px;margin:0 0 4px}
   .legendrow{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft);
     padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -121,6 +129,112 @@
   .ralbtn i{width:20px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.2);flex:none}
   .ralbtn b{font-family:var(--mono);font-size:11px;display:block}
   .ralbtn span{color:var(--muted);font-size:11px}
+  /* Табове за версиите на ръчната линия */
+  .vertabs{display:flex;gap:4px;margin-top:10px;flex:0 0 auto;border-bottom:2px solid var(--line)}
+  .vtab{font-family:var(--disp);font-weight:700;font-size:14px;color:var(--muted);background:none;border:none;border-bottom:3px solid transparent;padding:9px 20px;cursor:pointer;margin-bottom:-2px;border-radius:8px 8px 0 0}
+  .vtab:hover{color:var(--ink);background:#F1F4F9}
+  .vtab.active{color:var(--ink);border-bottom-color:var(--ink)}
+  .vpane{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  /* ---- Версия 2: отчитане по снимка ---- */
+  .v2head{flex:0 0 auto;display:flex;align-items:baseline;gap:20px;flex-wrap:wrap;margin-top:12px;padding-bottom:10px;border-bottom:2px solid var(--line)}
+  .v2plan{font-family:var(--disp);font-weight:700;font-size:21px}
+  .v2color{font-family:var(--disp);font-size:16px;color:var(--ink-soft)}
+  .v2color b{font-size:28px;color:var(--ink);letter-spacing:.01em;text-transform:uppercase}
+  .v2today{margin-left:auto;font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .v2today b{color:var(--ok);font-size:15px}
+  .v2grid{flex:1 1 auto;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:14px;margin-top:12px}
+  .v2tile{position:relative;border:1.5px solid var(--line);border-radius:14px;background:var(--panel);cursor:pointer;display:flex;flex-direction:column;overflow:hidden;transition:.12s;min-height:150px;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .v2tile:hover{border-color:var(--ink);box-shadow:0 4px 16px rgba(31,56,100,.14)}
+  .v2tile:active{transform:translateY(1px)}
+  .v2tile .thumb{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;background:#F4F7FB;overflow:hidden}
+  .v2tile .thumb img{width:100%;height:100%;object-fit:contain}
+  .v2tile .thumb .ph{color:var(--muted);font-family:var(--mono);font-size:12px;text-align:center;padding:12px;line-height:1.5}
+  .v2tile .thumb .ph .ic{font-size:34px;display:block;margin-bottom:6px;opacity:.5}
+  .v2tile .cap{flex:0 0 auto;padding:10px 12px;border-top:1px solid var(--line)}
+  .v2tile .cap .lb{font-family:var(--disp);font-weight:700;font-size:15.5px;line-height:1.25}
+  .v2tile .cap .cd{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px}
+  .v2tile .cnt{position:absolute;top:8px;right:8px;font-family:var(--disp);font-weight:700;font-size:13px;color:#fff;background:var(--ok);border-radius:20px;padding:3px 10px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+  /* Подреждане с влачене (като иконите на iPhone): задръж и мести. */
+  @keyframes v2wig{0%{transform:rotate(-1.15deg)}50%{transform:rotate(1.15deg)}100%{transform:rotate(-1.15deg)}}
+  .v2grid.editing{touch-action:none}
+  .v2grid.editing .v2tile{animation:v2wig .3s ease-in-out infinite;cursor:grab;touch-action:none}
+  .v2grid.editing .v2tile:nth-child(2n){animation-delay:-.15s}
+  .v2grid.editing .v2tile:nth-child(3n){animation-delay:-.09s}
+  .v2grid.editing .v2tile:hover{box-shadow:0 4px 16px rgba(31,56,100,.14)}
+  .v2grid.editing .v2tile:active{transform:none}
+  .v2tile.placeholder{opacity:.28;border-style:dashed;animation:none!important;box-shadow:none!important}
+  .v2ghost{position:fixed;z-index:3000;pointer-events:none;margin:0;border-radius:14px;overflow:hidden;box-shadow:0 16px 38px rgba(0,0,0,.32);transform:scale(1.05);transition:none;animation:none;will-change:left,top}
+  .v2editbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2500;display:flex;align-items:center;gap:14px;background:rgba(31,56,100,.96);color:#fff;padding:10px 12px 10px 18px;border-radius:14px;box-shadow:0 8px 26px rgba(0,0,0,.28);font-family:var(--mono);font-size:13px;font-weight:600}
+  .v2editbar b{font-family:var(--disp);font-weight:700}
+  .v2editbar .done{font-family:var(--disp);font-weight:700;font-size:15px;background:var(--ok);color:#fff;border:none;border-radius:10px;padding:9px 18px;cursor:pointer}
+  .v2editbar .done:hover{background:#26643f}
+  /* Прелистване на плочките (макс. 9 на страница) */
+  .v2pager{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:16px;padding:9px 0 2px}
+  .v2pager .pgbtn{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--ink);background:#F1F4F9;border:1.5px solid var(--line);border-radius:10px;padding:9px 20px;cursor:pointer}
+  .v2pager .pgbtn:hover:not(:disabled){background:var(--ink);color:#fff;border-color:var(--ink)}
+  .v2pager .pgbtn:disabled{opacity:.4;cursor:not-allowed}
+  .v2pager .pgnum{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--muted);min-width:120px;text-align:center}
+  /* Цвят на плочката (под кода) */
+  .v2tile .cap .clr{display:inline-block;margin-top:4px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink);background:#EEF2F7;border:1px solid var(--line);border-radius:20px;padding:2px 9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Таб „Изделия за боядисване" */
+  .v3head{display:flex;align-items:baseline;gap:14px;flex:0 0 auto;padding:12px 0 4px}
+  .v3wrap{flex:1 1 auto;min-height:0;overflow:auto;margin-top:8px;padding-bottom:8px}
+  .v3grp{margin-bottom:18px}
+  .v3grph{display:flex;align-items:center;gap:10px;font-family:var(--disp);font-weight:700;font-size:16px;color:var(--ink);margin:0 0 10px}
+  .v3grph .sw{width:16px;height:16px;border-radius:5px;border:1px solid rgba(0,0,0,.25)}
+  .v3grph .n{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--muted)}
+  .v3cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+  .v3card{border:1.5px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden;display:flex;flex-direction:column}
+  .v3card .th{height:120px;display:flex;align-items:center;justify-content:center;background:#F4F7FB;overflow:hidden}
+  .v3card .th img{width:100%;height:100%;object-fit:contain}
+  .v3card .th .ph{color:var(--muted);font-size:26px;opacity:.5}
+  .v3card .bd{padding:9px 11px;border-top:1px solid var(--line)}
+  .v3card .bd .lb{font-family:var(--disp);font-weight:700;font-size:13.5px;line-height:1.25}
+  .v3card .bd .cd{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px}
+  .v2detail{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+  .v2left{border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden;min-height:0}
+  .v2left .big{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;background:#F4F7FB;padding:10px}
+  .v2left .big img{max-width:100%;max-height:100%;object-fit:contain}
+  .v2left .big .ph{color:var(--muted);font-family:var(--mono);text-align:center}
+  .v2left .big .ph .ic{font-size:64px;display:block;opacity:.4}
+  .v2left .meta{flex:0 0 auto;padding:14px 18px;border-top:1px solid var(--line)}
+  .v2left .meta .lb{font-family:var(--disp);font-weight:700;font-size:23px;line-height:1.2}
+  .v2left .meta .cd{font-family:var(--mono);font-size:14px;color:var(--muted);margin-top:4px}
+  .v2right{border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;flex-direction:column;padding:16px;gap:12px;min-height:0}
+  .v2qtywrap{flex:0 0 auto;text-align:center}
+  .v2qtylbl{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .v2qty{font-family:var(--disp);font-weight:800;font-size:60px;line-height:1;color:var(--ink);background:#F8FAFC;border:2px solid var(--line);border-radius:12px;padding:12px;margin-top:5px}
+  .v2pad{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:10px}
+  .v2key{font-family:var(--disp);font-weight:700;font-size:30px;border:1.5px solid var(--line);border-radius:12px;background:#F1F4F9;color:var(--ink);cursor:pointer}
+  .v2key:hover{background:#E7ECF3}
+  .v2key:active{transform:translateY(1px)}
+  .v2key.util{font-size:22px;color:var(--ink-soft)}
+  .v2done{flex:0 0 auto;font-family:var(--disp);font-weight:800;font-size:24px;color:#fff;background:var(--ok);border:1px solid var(--ok);border-radius:12px;padding:20px;cursor:pointer}
+  .v2done:hover:not(:disabled){background:#26643f}
+  .v2done:disabled{opacity:.4;cursor:not-allowed}
+  .v2done:active:not(:disabled){transform:translateY(1px)}
+  .v2back{flex:0 0 auto;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink);background:#F1F4F9;border:1px solid var(--line);border-radius:10px;padding:11px;cursor:pointer}
+  .v2back:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+  @media(max-height:840px){
+    .v2plan{font-size:18px}.v2color b{font-size:24px}
+    .v2qty{font-size:46px;padding:8px}.v2key{font-size:26px}.v2done{padding:15px;font-size:21px}
+    .v2tile{min-height:120px}
+  }
+  /* Ниски екрани (напр. 24" на 150% мащаб ≈ 720px) — компактно, за да се
+     събере всичко (подвески в 1 ред + бройки + БОЯДИСВАНЕ) без скрол.
+     В края на стиловете, за да надвие базовите правила. */
+  @media(max-height:840px){
+    #stage{height:30vh}
+    .vertabs{margin-top:8px}
+    .vtab{padding:7px 16px;font-size:13px}
+    .daybar .daybtn{padding:11px 14px;font-size:14px}
+    .pods{gap:8px;margin-bottom:10px;grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+    .pod{padding:10px 6px;font-size:13.5px}
+    .pod .cap{font-size:8.5px}
+    .panel{padding:12px 14px}
+    .loaded li{padding:6px 9px}
+    .loaded input[type=number]{padding:5px 8px}
+  }
 </style>
 </head>
 <body>
@@ -140,6 +254,14 @@
       <a href="../" class="btn" style="text-decoration:none">← Към системата</a>
     </span></header>
 
+  <!-- ============ Табове: версии на ръчната линия ============ -->
+  <div class="vertabs">
+    <button class="vtab active" id="tab1">Версия 1</button>
+    <button class="vtab" id="tab2">Версия 2</button>
+    <button class="vtab" id="tab3">Изделия за боядисване</button>
+  </div>
+
+  <div id="v1" class="vpane">
   <!-- ============ Бутони за деня (горе) ============ -->
   <div class="daybar">
     <button class="daybtn start" id="startDayBtn">🟢 НАЧАЛО НА ДЕНЯ</button>
@@ -156,7 +278,7 @@
   <!-- ============ Операторски панел ============ -->
   <div class="op">
     <!-- Нареждане на избрания кол -->
-    <div class="panel">
+    <div class="panel builder">
       <div class="kolhead">
         <span class="no" id="kolNo">КОЛ 1</span>
         <span class="badge entry" id="kolBadge">за боядисване</span>
@@ -164,10 +286,11 @@
         <span class="slots">Места: <b id="slotUse">0</b>/2</span>
       </div>
 
-      <div class="pods" id="pods"><!-- бутони за подвески --></div>
-
-      <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
-      <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
+      <div class="buildscroll">
+        <div class="pods" id="pods"><!-- бутони за подвески --></div>
+        <ul class="loaded" id="loaded"><!-- заредени подвески с бройки --></ul>
+        <div class="empty" id="loadedEmpty">Кликни кол на линията или бутон подвеска, за да зареждаш.</div>
+      </div>
 
       <div class="actions">
         <button class="paint" id="paintBtn" disabled>🎨 БОЯДИСВАНЕ</button>
@@ -183,6 +306,42 @@
       <ul class="linecol" id="lineCol"></ul>
     </div>
   </div>
+  </div><!-- /#v1 -->
+
+  <div id="v2" class="vpane" hidden>
+    <div class="v2head">
+      <div class="v2plan">План за деня — <span id="v2date">08.09.2026</span></div>
+      <div class="v2color" id="v2colors">Цвят: <b>ЧЕРЕН ШАГРЕН</b></div>
+      <div class="v2today" id="v2today"></div>
+    </div>
+
+    <!-- Решетка 3×3 със снимките на детайлите (макс. 9 на страница) -->
+    <div class="v2grid" id="v2grid"></div>
+    <div class="v2pager" id="v2pager" hidden></div>
+
+    <!-- Полуекран: детайл вляво, цифрова клавиатура вдясно -->
+    <div class="v2detail" id="v2detail" hidden>
+      <div class="v2left">
+        <div class="big" id="v2big"></div>
+        <div class="meta"><div class="lb" id="v2lb"></div><div class="cd" id="v2cd"></div></div>
+      </div>
+      <div class="v2right">
+        <div class="v2qtywrap"><span class="v2qtylbl">Брой боядисани</span><div class="v2qty" id="v2qty">0</div></div>
+        <div class="v2pad" id="v2pad"></div>
+        <button class="v2done" id="v2done" disabled>✅ БОЯДИСАНИ</button>
+        <button class="v2back" id="v2back">← Назад към снимките</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Таб „Изделия за боядисване" — каталог: код + снимка + цвят -->
+  <div id="v3" class="vpane" hidden>
+    <div class="v3head">
+      <div class="v2plan">Изделия за боядисване</div>
+      <div class="v2color" id="v3count"></div>
+    </div>
+    <div class="v3wrap" id="v3wrap"></div>
+  </div>
 </div>
 
 <!-- Диалог за смяна на цвят -->
@@ -197,7 +356,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=137"></script>
+<script src="../auto-update.js?v=1"></script>
+<script src="../draw-preview.js?v=2"></script>
 <script>
 /* ============================================================
    Ръчна линия за прахово боядисване — логика на оператора.
@@ -559,7 +721,8 @@
 
   // ---- Закачане на бутоните ----
   function wire() {
-    $("paintBtn").onclick = sendToPaint;
+    // 🔍 Контрол на качеството преди отчитане (всяко 3-то с 60 сек.).
+    $("paintBtn").onclick = () => { if (typeof qcGate === "function") qcGate(sendToPaint); else sendToPaint(); };
     $("colorBtn").onclick = openColorDlg;
     $("loadBtn").onclick = loadNext;
     $("startDayBtn").onclick = startDay;
@@ -596,16 +759,27 @@
   scene.background = new THREE.Color(0xeef0ee);
   scene.fog = new THREE.Fog(0xeef0ee, 42, 95);
   function vp() { return { w: stage.clientWidth || 800, h: stage.clientHeight || 400 }; }
-  const camera = new THREE.PerspectiveCamera(42, vp().w / vp().h, 0.1, 500);
   // Фиксиран фронтален изглед — застопорен, без въртене/местене/зум.
   const VIEW_POS = new THREE.Vector3(0, 6.2, 18), VIEW_LOOK = new THREE.Vector3(0, 3.2, 0);
+  // Платното се рендерира по-високо (RENDER_ASPECT) и се измества нагоре
+  // (TOP_CROP), а лентата #stage изрязва празния под — така изгледът е
+  // същият, но напълва тясната лента без празно място.
+  const RENDER_ASPECT = 2.3, TOP_CROP = 0.16;
+  const camera = new THREE.PerspectiveCamera(42, RENDER_ASPECT, 0.1, 500);
   camera.position.copy(VIEW_POS); camera.lookAt(VIEW_LOOK);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.copy(VIEW_LOOK);
   controls.enableRotate = false; controls.enablePan = false; controls.enableZoom = false; controls.autoRotate = false;
-  function resize() { const { w, h } = vp(); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  function resize() {
+    const w = stage.clientWidth || 800;
+    const hRender = Math.round(w / RENDER_ASPECT);
+    renderer.setSize(w, hRender, false);
+    camera.aspect = RENDER_ASPECT; camera.updateProjectionMatrix();
+    canvas.style.height = hRender + "px";
+    canvas.style.top = Math.round(-hRender * TOP_CROP) + "px";
+  }
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb8bcb6, 0.95));
   const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(16, 26, 12); scene.add(sun);
@@ -796,6 +970,343 @@
 })();
 </script>
 
-<script src="sync.js?v=3"></script>
+<script src="../quality.js?v=3"></script>
+<script>
+/* Версия 2 — прахово отчитане по снимка (за 24" тъч екран). */
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var v2 = $("v2"); if (!v2) return;
+
+  // Ден: план (сменяй датата тук в началото на деня). Цветът вече е ПО ИЗДЕЛИЕ.
+  var V2_DAY = { date: "09.09.2026" };
+  // Цветове → мостра (за етикетите и каталога). Ако цвят липсва тук, се показва сив.
+  var V2_COLORS = { "ЧЕРЕН ШАГРЕН": "#1a1a1a", "RAL 9005 - Наше черно": "#0a0a0a" };
+  function colorSwatch(c) { return V2_COLORS[c] || "#9aa4b2"; }
+  // Детайли за боядисване. code = първите 6 цифри (кодът = рецептата за боядисване).
+  // color = с какъв цвят се боядисва това изделие. img = път до снимка.
+  var V2_PARTS = [
+    { code: "103850", label: "Ъгъл 2мм за Дроп Ин", img: "v2/img/103850.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103877", label: "Д3 Д4 Механизъм 1 Дроп Ин", img: "v2/img/103877.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "101771", label: "3Д Планка за сторидж", img: "v2/img/101771.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103808", label: "Д1–Д2 (Панта)", img: "v2/img/103808.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103828", label: "Планка Д6 (×4 в механизъм)", img: "v2/img/103828.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103ХХХ", label: "Дроп Ин без", img: "v2/img/103xxx.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "103ХХ1", label: "Дроп Ин с пишка", img: "v2/img/103xx1.jpg", color: "ЧЕРЕН ШАГРЕН" },
+    { code: "100452", label: "Винкел Сърбия М51", img: "v2/img/100452.jpg", color: "RAL 9005 - Наше черно" },
+    { code: "100485", label: "Бастун малък бял", img: "v2/img/100485.jpg", color: "RAL 9005 - Наше черно" },
+    { code: "100512", label: "късо малък бял", img: "v2/img/100512.jpg", color: "RAL 9005 - Наше черно" }
+  ];
+
+  var grid = $("v2grid"), detail = $("v2detail");
+  var current = null, qty = "";
+  var todayCount = {};   // label -> сбор за сесията (визуална обратна връзка на плочките)
+  var PAGE_SIZE = 9, page = 0;   // макс. 9 плочки на страница (иначе не се виждат ясно)
+
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  $("v2date").textContent = V2_DAY.date;
+  // Заглавие „Цвят(ове)" — динамично от цветовете в плана.
+  function renderColorsHead() {
+    var el = $("v2colors"); if (!el) return;
+    var seen = [], cnt = {};
+    V2_PARTS.forEach(function (p) { var c = p.color || "—"; if (cnt[c] == null) { cnt[c] = 0; seen.push(c); } cnt[c]++; });
+    el.innerHTML = (seen.length > 1 ? "Цветове: " : "Цвят: ") + seen.map(function (c) {
+      return '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">' +
+        '<span style="width:13px;height:13px;border-radius:4px;border:1px solid rgba(0,0,0,.25);background:' + colorSwatch(c) + '"></span>' +
+        '<b>' + esc(c) + '</b></span>';
+    }).join("");
+  }
+  renderColorsHead();
+
+  function thumb(p, big) {
+    if (p.img) return '<img src="' + esc(p.img) + '" alt="">';
+    return '<div class="ph"><span class="ic">🖼</span>' + (big ? "" : "снимка предстои") + '</div>';
+  }
+  // Ако снимката липсва още — показва плочка вместо счупена картинка.
+  function wireImg(container, big) {
+    var im = container.querySelector("img"); if (!im) return;
+    im.onerror = function () { this.onerror = null; this.outerHTML = '<div class="ph"><span class="ic">🖼</span>' + (big ? "" : "снимка предстои") + '</div>'; };
+  }
+  function pageCount() { return Math.max(1, Math.ceil(V2_PARTS.length / PAGE_SIZE)); }
+  function renderGrid() {
+    grid.innerHTML = "";
+    if (page >= pageCount()) page = pageCount() - 1;
+    if (page < 0) page = 0;
+    var start = page * PAGE_SIZE;
+    V2_PARTS.slice(start, start + PAGE_SIZE).forEach(function (p, rel) {
+      var i = start + rel;   // абсолютен индекс в V2_PARTS
+      var cnt = todayCount[p.label] || 0;
+      var t = document.createElement("div");
+      t.className = "v2tile" + (drag && drag.curIndex === i ? " placeholder" : "");
+      t.innerHTML = (cnt ? '<span class="cnt">' + cnt + ' бр.</span>' : "") +
+        '<div class="thumb">' + thumb(p, false) + '</div>' +
+        '<div class="cap"><div class="lb">' + esc(p.label) + '</div>' +
+        '<div class="cd">' + (p.code ? "Код " + esc(p.code) : "код —") + '</div>' +
+        (p.color ? '<span class="clr"><span style="display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:middle;margin-right:5px;border:1px solid rgba(0,0,0,.25);background:' + colorSwatch(p.color) + '"></span>' + esc(p.color) + '</span>' : "") +
+        '</div>';
+      wireTile(t, i);
+      grid.appendChild(t);
+      wireImg(t, false);
+    });
+    var tot = Object.keys(todayCount).reduce(function (s, k) { return s + todayCount[k]; }, 0);
+    $("v2today").innerHTML = tot ? ('Отчетени днес: <b>' + tot + ' бр.</b>') : "";
+    renderPager();
+  }
+  function renderPager() {
+    var pg = $("v2pager"); if (!pg) return;
+    var pages = pageCount();
+    if (pages <= 1) { pg.hidden = true; pg.innerHTML = ""; return; }
+    pg.hidden = false;
+    pg.innerHTML =
+      '<button class="pgbtn" id="pgPrev"' + (page <= 0 ? " disabled" : "") + '>← Назад</button>' +
+      '<span class="pgnum">Страница ' + (page + 1) + " / " + pages + "</span>" +
+      '<button class="pgbtn" id="pgNext"' + (page >= pages - 1 ? " disabled" : "") + '>Напред →</button>';
+    var pv = $("pgPrev"), nx = $("pgNext");
+    if (pv) pv.onclick = function () { if (page > 0) { page--; renderGrid(); } };
+    if (nx) nx.onclick = function () { if (page < pages - 1) { page++; renderGrid(); } };
+  }
+  /* ── Подреждане с влачене (като иконите на iPhone) ──────────────────
+     Задържане (мишка или пръст) върху плочка → режим на подреждане: всички
+     плочки „танцуват", а хванатата се влачи. Пускане → новата подредба се
+     запазва локално (localStorage). Кратко докосване = отваря детайла. */
+  var ORDER_KEY = "rachna_v2_order";
+  var LONG_MS = 420, MOVE_CANCEL = 10;
+  var editMode = false, drag = null, editBar = null;
+
+  function pid(p) { return p.code || p.label; }
+
+  function saveOrder() {
+    try { localStorage.setItem(ORDER_KEY, JSON.stringify(V2_PARTS.map(pid))); } catch (e) {}
+  }
+  function applySavedOrder() {
+    var saved;
+    try { saved = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]"); } catch (e) { saved = []; }
+    if (!Array.isArray(saved) || !saved.length) return;
+    var by = {}; V2_PARTS.forEach(function (p) { by[pid(p)] = p; });
+    var out = [], used = {};
+    saved.forEach(function (k) { if (by[k] && !used[k]) { out.push(by[k]); used[k] = 1; } });
+    V2_PARTS.forEach(function (p) { if (!used[pid(p)]) { out.push(p); used[pid(p)] = 1; } });
+    V2_PARTS.length = 0; Array.prototype.push.apply(V2_PARTS, out);
+  }
+
+  function enterEdit() {
+    if (editMode) return;
+    editMode = true; grid.classList.add("editing");
+    if (!editBar) {
+      editBar = document.createElement("div");
+      editBar.className = "v2editbar";
+      editBar.innerHTML = '<span>Влачи, за да подредиш · <b>пази се</b></span>';
+      var b = document.createElement("button");
+      b.className = "done"; b.textContent = "Готово ✓";
+      b.onclick = function () { exitEdit(); };
+      editBar.appendChild(b);
+      document.body.appendChild(editBar);
+    }
+    editBar.style.display = "flex";
+  }
+  function exitEdit() {
+    if (drag) dragEnd();
+    editMode = false; grid.classList.remove("editing");
+    if (editBar) editBar.style.display = "none";
+  }
+  window.V2_EDIT_EXIT = exitEdit;   // ползва се от табовете при връщане към Версия 1
+
+  function wireTile(t, i) {
+    t.addEventListener("pointerdown", function (e) { onTileDown(e, t, i); });
+    t.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    t.addEventListener("dragstart", function (e) { e.preventDefault(); });
+  }
+
+  function onTileDown(e, tile, index) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    var sx = e.clientX, sy = e.clientY, last = { x: sx, y: sy };
+    var activated = false, canceled = false, timer = null;
+
+    function activate() {
+      if (activated || canceled) return;
+      activated = true;
+      if (!editMode) enterEdit();
+      beginDrag(tile, index, last.x, last.y);
+    }
+    if (editMode) activate();
+    else timer = setTimeout(activate, LONG_MS);
+
+    function onMove(ev) {
+      last.x = ev.clientX; last.y = ev.clientY;
+      if (activated) { dragMove(ev.clientX, ev.clientY); if (ev.cancelable) ev.preventDefault(); return; }
+      if (Math.abs(ev.clientX - sx) > MOVE_CANCEL || Math.abs(ev.clientY - sy) > MOVE_CANCEL) {
+        canceled = true; clearTimeout(timer); cleanup();
+      }
+    }
+    function onUp() {
+      clearTimeout(timer);
+      if (activated) dragEnd();
+      else if (!canceled && !editMode) openPart(index);
+      cleanup();
+    }
+    function cleanup() {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
+    }
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
+  }
+
+  function beginDrag(tile, index, x, y) {
+    var r = tile.getBoundingClientRect();
+    var g = tile.cloneNode(true);
+    g.className = "v2ghost v2tile";
+    g.style.width = r.width + "px"; g.style.height = r.height + "px";
+    g.style.left = r.left + "px"; g.style.top = r.top + "px";
+    document.body.appendChild(g);
+    drag = { fromIndex: index, curIndex: index, ghost: g, offX: x - r.left, offY: y - r.top };
+    tile.classList.add("placeholder");
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+    dragMove(x, y);
+  }
+  function dragMove(x, y) {
+    if (!drag) return;
+    drag.ghost.style.left = (x - drag.offX) + "px";
+    drag.ghost.style.top = (y - drag.offY) + "px";
+    var el = document.elementFromPoint(x, y);
+    var over = el ? el.closest(".v2tile") : null;
+    if (!over || over.classList.contains("v2ghost")) return;
+    var relIndex = Array.prototype.indexOf.call(grid.children, over);
+    if (relIndex < 0) return;
+    var absOver = page * PAGE_SIZE + relIndex;   // абсолютен индекс (подреждане в рамките на страницата)
+    if (absOver === drag.curIndex) return;
+    var item = V2_PARTS.splice(drag.curIndex, 1)[0];
+    V2_PARTS.splice(absOver, 0, item);
+    drag.curIndex = absOver;
+    renderGrid();   // пренарежда; плочката на drag.curIndex получава клас „placeholder"
+  }
+  function dragEnd() {
+    if (!drag) return;
+    if (drag.ghost && drag.ghost.parentNode) drag.ghost.parentNode.removeChild(drag.ghost);
+    var changed = drag.fromIndex !== drag.curIndex;
+    drag = null;
+    renderGrid();
+    if (changed) saveOrder();
+  }
+
+  // Докосване извън плочка и извън лентата „Готово" също излиза от режима.
+  document.addEventListener("pointerdown", function (e) {
+    if (!editMode || drag) return;
+    if (e.target.closest && (e.target.closest(".v2tile") || e.target.closest(".v2editbar"))) return;
+    if (v2.hidden) return;
+    exitEdit();
+  }, true);
+
+  function openPart(i) {
+    current = V2_PARTS[i]; qty = "";
+    $("v2big").innerHTML = thumb(current, true);
+    wireImg($("v2big"), true);
+    $("v2lb").textContent = current.label;
+    $("v2cd").innerHTML = (current.code ? "Код " + esc(current.code) + " · " : "") +
+      '<span style="display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:middle;margin:0 5px -1px 0;border:1px solid rgba(0,0,0,.25);background:' + colorSwatch(current.color) + '"></span>' +
+      '<b>' + esc(current.color || "—") + '</b>';
+    updateQty();
+    grid.hidden = true; detail.hidden = false;
+  }
+  function updateQty() {
+    $("v2qty").textContent = qty === "" ? "0" : qty;
+    $("v2done").disabled = !(parseInt(qty, 10) > 0);
+  }
+  function press(k) {
+    if (k === "C") qty = "";
+    else if (k === "back") qty = qty.slice(0, -1);
+    else if (qty.length < 5 && !(qty === "" && k === "0")) qty = qty + k;
+    updateQty();
+  }
+  async function done() {
+    var n = parseInt(qty, 10);
+    if (!(n > 0) || !current) return;
+    var btn = $("v2done"); btn.disabled = true;
+    var entry = { code: current.code || "", label: current.label, qty: n, color: current.color || "", date: V2_DAY.date };
+    var ok = false;
+    try { if (window.paintJournalAdd) ok = await window.paintJournalAdd(entry); } catch (e) {}
+    todayCount[current.label] = (todayCount[current.label] || 0) + n;
+    toast(ok ? ("✓ Записани " + n + " бр. · " + current.label) : ("Записано локално (" + n + " бр.) — провери връзката"));
+    back();
+  }
+  function back() { detail.hidden = true; grid.hidden = false; renderGrid(); }
+
+  // Цифрова клавиатура (калкулатор)
+  ["7","8","9","4","5","6","1","2","3","C","0","back"].forEach(function (k) {
+    var b = document.createElement("button");
+    b.className = "v2key" + (k === "C" || k === "back" ? " util" : "");
+    b.textContent = k === "back" ? "⌫" : k;
+    b.onclick = function () { press(k); };
+    $("v2pad").appendChild(b);
+  });
+  $("v2done").onclick = done;
+  $("v2back").onclick = back;
+
+  var toastT = null;
+  function toast(msg) {
+    var d = $("v2toast");
+    if (!d) { d = document.createElement("div"); d.id = "v2toast"; d.style.cssText = "position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:rgba(31,56,100,.95);color:#fff;padding:12px 20px;border-radius:10px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;z-index:2000;transition:opacity .3s;box-shadow:0 4px 16px rgba(0,0,0,.25)"; document.body.appendChild(d); }
+    d.textContent = msg; d.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(function () { d.style.opacity = "0"; }, 2200);
+  }
+
+  // ── Таб „Изделия за боядисване" — каталог с всички изделия, групирани по цвят.
+  function renderCatalog() {
+    var wrap = $("v3wrap"); if (!wrap) return;
+    var order = [], byColor = {};
+    V2_PARTS.forEach(function (p) {
+      var c = p.color || "—";
+      if (!byColor[c]) { byColor[c] = []; order.push(c); }
+      byColor[c].push(p);
+    });
+    wrap.innerHTML = order.map(function (c) {
+      var items = byColor[c];
+      return '<div class="v3grp">' +
+        '<div class="v3grph"><span class="sw" style="background:' + colorSwatch(c) + '"></span>' + esc(c) +
+        ' <span class="n">' + items.length + ' изд.</span></div>' +
+        '<div class="v3cards">' + items.map(function (p) {
+          return '<div class="v3card"><div class="th">' + thumb(p, false) + '</div>' +
+            '<div class="bd"><div class="lb">' + esc(p.label) + '</div>' +
+            '<div class="cd">Код ' + esc(p.code || "—") + '</div></div></div>';
+        }).join("") + '</div></div>';
+    }).join("");
+    Array.prototype.forEach.call(wrap.querySelectorAll(".v3card .th"), function (th) { wireImg(th, false); });
+    var cc = $("v3count");
+    if (cc) cc.textContent = V2_PARTS.length + " изделия · " + order.length + (order.length === 1 ? " цвят" : " цвята");
+  }
+  window.V2_RENDER_CATALOG = renderCatalog;
+
+  applySavedOrder();
+  renderGrid();
+  renderColorsHead();
+})();
+</script>
+
+<script>
+/* Табове: Версия 1 (текущата линия) / Версия 2 (нова, за изграждане). */
+(function () {
+  "use strict";
+  var t1 = document.getElementById("tab1"), t2 = document.getElementById("tab2"), t3 = document.getElementById("tab3");
+  var v1 = document.getElementById("v1"), v2 = document.getElementById("v2"), v3 = document.getElementById("v3");
+  if (!t1 || !t2 || !v1 || !v2) return;
+  function show(v) {
+    if (v !== "2" && window.V2_EDIT_EXIT) window.V2_EDIT_EXIT();
+    v1.hidden = v !== "1"; v2.hidden = v !== "2"; if (v3) v3.hidden = v !== "3";
+    t1.classList.toggle("active", v === "1");
+    t2.classList.toggle("active", v === "2");
+    if (t3) t3.classList.toggle("active", v === "3");
+    try { localStorage.setItem("rachna_ver", v); } catch (e) {}
+    if (v === "1") setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 30);
+    if (v === "3" && window.V2_RENDER_CATALOG) window.V2_RENDER_CATALOG();
+  }
+  t1.addEventListener("click", function () { show("1"); });
+  t2.addEventListener("click", function () { show("2"); });
+  if (t3) t3.addEventListener("click", function () { show("3"); });
+  var init = "1"; try { init = localStorage.getItem("rachna_ver") || "1"; } catch (e) {}
+  show(init);
+})();
+</script>
+<script src="sync.js?v=5"></script>
 </body>
 </html>
