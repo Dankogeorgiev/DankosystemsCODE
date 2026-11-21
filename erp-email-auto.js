@@ -544,26 +544,32 @@ async function erpInvMailsView(v, onBack) {
    запомненият на клиента → ролята „получава фактури"). Прикача копие на
    фактурата, когато я намери. След реално изпращане бележи на вземането
    кога и на кого е напомнено. */
-async function erpRecvRemindMail(p, onDone) {
+async function erpRecvRemindMail(p, onDone, group) {
   if (!p || p.paid) return;
+  // Отбелязани с ✓ няколко фактури на клиента → ЕДНО писмо, което описва всичките.
+  const list = (Array.isArray(group) && group.length > 1) ? group : [p];
+  const multi = list.length > 1;
   try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
-  const inv = (p.srcInvoiceId && typeof erpInvoices !== "undefined" && erpInvoices)
-    ? erpInvoices.find(o => String(o.id) === String(p.srcInvoiceId))
+  const invFor = r => (r && r.srcInvoiceId && typeof erpInvoices !== "undefined" && erpInvoices)
+    ? erpInvoices.find(o => String(o.id) === String(r.srcInvoiceId))
     : null;
+  const inv = invFor(p);
   const clientKey = p.client || "";
   // Имейлът: 1) на който е пратена фактурата; 2) запомненият фактурен на клиента;
   // 3) ролята „получава фактури" от картона; 4) контактът на клиента.
-  let to = (inv && inv.emailedTo) || "";
+  let to = "";
+  for (const r of list) { const i = invFor(r); if (i && i.emailedTo) { to = i.emailedTo; break; } }
   if (!to) { try { to = await erpMailLastToGet(clientKey); } catch (e) {} }
   if (!to && typeof compInvoiceEmail === "function") { try { const r = await compInvoiceEmail(inv && inv.clientId, clientKey); if (r && r.email) to = r.email; } catch (e) {} }
   if (!to && typeof erpPartnerEmail === "function") { try { const r = await erpPartnerEmail("customer", inv && inv.clientId, clientKey); if (r && r.email) to = r.email; } catch (e) {} }
   const en = /[A-Za-z]/.test(clientKey) && !/[А-Яа-я]/.test(clientKey);
   const num2 = n => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(en ? "en-GB" : "bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtD = d => (typeof erpDMY === "function") ? erpDMY(d) : (d || "");
-  const paidPart = (p.payments || []).reduce((s, x) => s + (Number(String(x.amount).replace(",", ".")) || 0), 0);
-  const left = Math.round(((Number(String(p.amount).replace(",", ".")) || 0) - paidPart) * 100) / 100;
   const today = new Date().toISOString().slice(0, 10);
-  const overdueDays = p.dueDate && p.dueDate < today ? Math.round((new Date(today) - new Date(p.dueDate)) / 864e5) : 0;
+  const paidOf = r => (r.payments || []).reduce((s, x) => s + (Number(String(x.amount).replace(",", ".")) || 0), 0);
+  const leftOf = r => Math.round(((Number(String(r.amount).replace(",", ".")) || 0) - paidOf(r)) * 100) / 100;
+  const overdueOf = r => r.dueDate && r.dueDate < today ? Math.round((new Date(today) - new Date(r.dueDate)) / 864e5) : 0;
+  const paidPart = paidOf(p), left = leftOf(p), overdueDays = overdueOf(p);
   const s = (typeof ERP_SELLER !== "undefined" && ERP_SELLER) || {};
   const sEn = (en && typeof ERP_SELLER_EN !== "undefined" && ERP_SELLER_EN) || s;
   const bank = (en ? sEn : s).iban ? (en
@@ -575,10 +581,51 @@ async function erpRecvRemindMail(p, onDone) {
   const partTxt = paidPart > 0
     ? (en ? `\nWe have received ${num2(paidPart)} EUR so far; the outstanding balance is ${num2(left)} EUR.` : `\nДо момента по нея са получени ${num2(paidPart)} EUR; остатъкът за плащане е ${num2(left)} EUR.`)
     : "";
+  const nums = list.map(r => r.invoiceNo || "—").join(", ");
+  const total = Math.round(list.reduce((su, r) => su + leftOf(r), 0) * 100) / 100;
   const subject = en
-    ? `Kind payment reminder — invoice No ${p.invoiceNo || ""} — DANKO SYSTEMS Ltd.`
-    : `Любезно напомняне за плащане — фактура № ${p.invoiceNo || ""} — ${s.name || "Данко Системс"}`;
-  const text = en
+    ? `Kind payment reminder — ${multi ? "invoices No " + nums : "invoice No " + (p.invoiceNo || "")} — DANKO SYSTEMS Ltd.`
+    : `Любезно напомняне за плащане — ${multi ? "фактури № " + nums : "фактура № " + (p.invoiceNo || "")} — ${s.name || "Данко Системс"}`;
+  // Ред за всяка фактура при групово напомняне: №, дата, падеж/просрочие, платено, остатък.
+  const lineOf = r => {
+    const od = overdueOf(r), pp = paidOf(r), lf = leftOf(r);
+    const due = en
+      ? (r.dueDate ? (od > 0 ? `due ${fmtD(r.dueDate)} (overdue by ${od} days)` : `due ${fmtD(r.dueDate)}`) : "awaiting payment")
+      : (r.dueDate ? (od > 0 ? `падеж ${fmtD(r.dueDate)} (изтекъл преди ${od} дни)` : `падеж ${fmtD(r.dueDate)}`) : "очаква плащане");
+    const part = pp > 0 ? (en ? `, received so far ${num2(pp)} EUR` : `, получени до момента ${num2(pp)} EUR`) : "";
+    return en
+      ? `• Invoice No ${r.invoiceNo || "—"}${r.docDate ? ` dated ${fmtD(r.docDate)}` : ""} — ${num2(r.amount)} EUR, ${due}${part}; outstanding: ${num2(lf)} EUR`
+      : `• Фактура № ${r.invoiceNo || "—"}${r.docDate ? ` от ${fmtD(r.docDate)}` : ""} — ${num2(r.amount)} EUR, ${due}${part}; остатък: ${num2(lf)} EUR`;
+  };
+  const text = multi ? (en
+    ? `Dear Sir or Madam,
+
+May we kindly remind you of the following invoices awaiting payment:
+
+${list.map(lineOf).join("\n")}
+
+Total outstanding: ${num2(total)} EUR.
+
+We know that our clients value our work and the effort we put into every order, so we are sure this is simply an oversight.
+
+If the payment has already been arranged, please accept our thanks and kindly disregard this message.${bank}
+
+Best regards,
+DANKO SYSTEMS Ltd.`
+    : `Здравейте,
+
+Позволяваме си любезно да Ви напомним за следните фактури, които очакват плащане:
+
+${list.map(lineOf).join("\n")}
+
+Общо за плащане: ${num2(total)} EUR.
+
+Знаем, че нашите клиенти ценят нашия труд и усилията, които влагаме във всяка поръчка, затова сме сигурни, че става въпрос за пропуск.
+
+Ако плащането вече е наредено, моля приемете нашите благодарности и не обръщайте внимание на това писмо.${bank}
+
+Поздрави,
+екип ${s.name || "Данко Системс"}`) : en
     ? `Dear Sir or Madam,
 
 May we kindly remind you that invoice No ${p.invoiceNo || ""}${p.docDate ? ` dated ${fmtD(p.docDate)}` : ""}, amounting to ${num2(p.amount)} EUR, ${dueTxt}.${partTxt}
@@ -601,21 +648,25 @@ DANKO SYSTEMS Ltd.`
 екип ${s.name || "Данко Системс"}`;
   // Копие на фактурата — когато я намерим (не е задължително за напомнянето).
   let attachments = [];
-  if (inv && typeof erpInvPdfBase64 === "function") {
-    try {
-      const b64 = await erpInvPdfBase64(inv);
-      if (b64) attachments = [{ name: (en ? "Invoice" : "Faktura") + "-" + String(inv.docNo || p.invoiceNo || "").replace(/[^\w.-]+/g, "_") + ".pdf", content: b64 }];
-    } catch (e) {}
+  if (typeof erpInvPdfBase64 === "function") {
+    for (const r of list) {
+      const i = invFor(r);
+      if (!i) continue;
+      try {
+        const b64 = await erpInvPdfBase64(i);
+        if (b64) attachments.push({ name: (en ? "Invoice" : "Faktura") + "-" + String(i.docNo || r.invoiceNo || "").replace(/[^\w.-]+/g, "_") + ".pdf", content: b64 });
+      } catch (e) {}
+    }
   }
   const extra = await erpMailExtraGet(clientKey).catch(() => []);
   erpMailComposeDialog({
     clientKey, extra, attachments,
-    title: "✉ Напомняне за плащане — ф. № " + (p.invoiceNo || "—") + " → " + (clientKey || "клиента") + (en ? " (EN)" : ""),
+    title: "✉ Напомняне за плащане — " + (multi ? list.length + " фактури (№ " + nums + ")" : "ф. № " + (p.invoiceNo || "—")) + " → " + (clientKey || "клиента") + (en ? " (EN)" : ""),
     to, subject, text,
     onSent: async toV => {
       try {
-        p.remindedAt = new Date().toISOString();
-        p.remindedTo = toV || "";
+        const when = new Date().toISOString();
+        list.forEach(r => { r.remindedAt = when; r.remindedTo = toV || ""; });
         if (typeof erpRecvSave === "function") await erpRecvSave();
         if (typeof onDone === "function") onDone();
       } catch (e) { console.warn("бележка за напомняне:", e); }

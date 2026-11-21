@@ -159,7 +159,7 @@ async function erpRenderReceivables() {
         <td>${escapeHtml(p.payMethod || "Банка")}</td>
         ${recvFilter === "paid"
           ? `<td>${recvFmt(p.paidDate)} <button class="btn btn-small" data-unpay="${p.id}" title="Върни като неплатена">↩</button></td>`
-          : `<td class="erp-row-actions">${(p.docType || "Фактура") !== "Кредитно" ? `<button class="btn btn-small" data-remind="${p.id}" title="Любезно напомнително писмо за плащане — до същия имейл, на който е пратена фактурата при издаване${p.remindedAt ? `. Последно напомнено: ${new Date(p.remindedAt).toLocaleDateString("bg-BG")}${p.remindedTo ? " на " + p.remindedTo : ""}` : ""}">✉ Напомни${p.remindedAt ? " ✓" : ""}</button>` : ""}<button class="btn btn-small" data-part="${p.id}" title="Впиши частично плащане от клиента">± Частично</button><button class="btn btn-small" data-fix="${p.id}" title="Корекция на сумата/падежа (при грешка от импорта)">✎ Корекция</button><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена изцяло">✓ Платена</button></td>`}
+          : `<td class="erp-row-actions">${(p.docType || "Фактура") !== "Кредитно" ? `<button class="btn btn-small" data-remind="${p.id}" title="Любезно напомнително писмо за плащане — до същия имейл, на който е пратена фактурата при издаване. Отбележи с ✓ няколко фактури на клиента и натисни тук — едно писмо ще опише всичките${p.remindedAt ? `. Последно напомнено: ${new Date(p.remindedAt).toLocaleDateString("bg-BG")}${p.remindedTo ? " на " + p.remindedTo : ""}` : ""}">✉ Напомни${p.remindedAt ? " ✓" : ""}</button>` : ""}<button class="btn btn-small" data-part="${p.id}" title="Впиши частично плащане от клиента">± Частично</button><button class="btn btn-small" data-fix="${p.id}" title="Корекция на сумата/падежа (при грешка от импорта)">✎ Корекция</button><button class="btn btn-small" data-paid1="${p.id}" title="Отбележи тази като платена изцяло">✓ Платена</button></td>`}
       </tr>`;
     }).join("");
     return groupHead + invRows;
@@ -216,8 +216,17 @@ async function erpRenderReceivables() {
   v.querySelectorAll("[data-remind]").forEach(b => b.addEventListener("click", () => {
     const rec = (RECEIVABLES || []).find(x => String(x.id) === String(b.dataset.remind));
     if (!rec) return;
-    if (typeof erpRecvRemindMail === "function") erpRecvRemindMail(rec, () => erpRenderReceivables());
-    else alert("Модулът с имейлите не е зареден — презареди (F5).");
+    if (typeof erpRecvRemindMail !== "function") { alert("Модулът с имейлите не е зареден — презареди (F5)."); return; }
+    // Натиснатият ред е сред отбелязаните с ✓ → едно писмо за ВСИЧКИ отбелязани
+    // неплатени фактури на същия клиент (без кредитните известия).
+    let group = null;
+    if (recvSelected.size && recvSelected.has(Number(rec.id))) {
+      const sel = (RECEIVABLES || []).filter(x => recvSelected.has(Number(x.id)) && !x.paid
+        && normClient(x.client) === normClient(rec.client) && (x.docType || "Фактура") !== "Кредитно");
+      sel.sort((a, c) => String(a.docDate || "").localeCompare(String(c.docDate || "")));
+      if (sel.length > 1) group = sel;
+    }
+    erpRecvRemindMail(rec, () => erpRenderReceivables(), group);
   }));
   v.querySelectorAll("[data-part]").forEach(b => b.addEventListener("click", () => erpRecvPartialDialog(Number(b.dataset.part))));
   v.querySelectorAll("[data-unpay]").forEach(b => b.addEventListener("click", () => erpRecvUnpay(Number(b.dataset.unpay))));
