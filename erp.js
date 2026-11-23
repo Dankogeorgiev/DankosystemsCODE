@@ -565,6 +565,10 @@ function erpDispatchTab(tab) {
       if (typeof csJuliaGuideRender === "function") csJuliaGuideRender(erpView());
       else erpView().innerHTML = `<p class="erp-warn">Упътването (erp-costsheet.js) не е заредено.</p>`;
       break;
+    case "sysguide":
+      if (typeof erpSysGuideRender === "function") erpSysGuideRender(erpView());
+      else erpView().innerHTML = `<p class="erp-warn">Инструкцията (erp-guide.js) не е заредена.</p>`;
+      break;
     case "pucheck":
       if (typeof erpPuCheckRender === "function") erpPuCheckRender(erpView());
       else erpView().innerHTML = `<p class="erp-warn">Модулът Покупки не е зареден.</p>`;
@@ -587,7 +591,7 @@ function erpDispatchTab(tab) {
    Всеки отворен модул стои като таб горе с ✕. Клик върху таб → превключва;
    ✕ → затваря. Всичко в един прозорец, без нови прозорци на браузъра. */
 // Раздели БЕЗ собствен бутон в лентата (отварят се от Себестойности).
-const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки", operations: "🏭 Операции → Цех", juliaguide: "👩 Юлия — упътване", pucheck: "🔎 Проверка (днес)", proformaco: "⚡ Проформа от заявка", oprep: "⚙ Работен доклад", staff: "👥 Служители" };
+const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки", operations: "🏭 Операции → Цех", juliaguide: "👩 Себестойности — упътване", sysguide: "📖 Инструкция", pucheck: "🔎 Проверка (днес)", proformaco: "⚡ Проформа от заявка", oprep: "⚙ Работен доклад", staff: "👥 Служители" };
 function erpTabLabel(tab) {
   const b = document.querySelector('.erp-tab[data-tab="' + tab + '"]');
   return b ? b.textContent.trim() : (ERP_EXTRA_TABS[tab] || tab);

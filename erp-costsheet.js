@@ -405,7 +405,7 @@ function csJuliaGuideRender(v) {
     <div style="flex:0 0 165px;font-weight:700;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:5px 9px;text-align:center;font-size:13.5px">${icon}</div>
     <div style="padding-top:4px">${cap(what)}</div></div>`;
   v.innerHTML = `<div style="max-width:1000px;margin:0 auto;zoom:1.155">
-    <h3>👩 Упътване за Себестойности — за Юлия</h3>
+    <h3>👩 Упътване за Себестойности — за Деси</h3>
     <p class="hint" style="font-size:14px">Нищо тук не се чупи от гледане и разглеждане — всички опасни действия питат с <b style="color:#b91c1c">червено предупреждение</b> преди да запишат. Работи спокойно.</p>
 
     ${S(`1 · Какво прави този екран`)}
@@ -420,7 +420,7 @@ function csJuliaGuideRender(v) {
     ${R(`🧾 Калкулация`, `пълната сметка на ЕДНО изделие: всеки детайл, операция и материал, с време, ставка и цена ред по ред + „Проверки" отдолу.`)}
     ${R(`← Назад към списъка`, `връща от калкулацията към списъка с изделията.`)}
     ${R(`✎ Редакция`, `включва редакцията НАПРАВО в калкулацията: нормовреме и машина на операция, цена на операцията само в тази рецепта, средна цена на материал, продажна цена, „Задай реална цена". Записва се с бутона за запис и се отразява ВЕДНАГА в маржина.`)}
-    ${R(`👩 Юлия`, `това упътване — винаги е тук.`)}
+    ${R(`👩 Упътване`, `това упътване — винаги е тук.`)}
     ${R(`⏱ Отчет Времена`, `отваря отчета с ИЗМЕРЕНИТЕ времена от цеховете (същите, които храни калкулацията) — като отделно табче горе, до Себестойности. Само за гледане/справка.`)}
     ${R(`🏭 Операции → Цех`, `списъкът на операциите с ОБЩИТЕ им ставки (€/бр.) и кой цех ги прави. <b style='color:#b91c1c'>Внимание:</b> смяна на ставка тук важи за ВСИЧКИ рецепти — затова пита с червен прозорец.`)}
     ${R(`💲 Ценови листи`, `ПРОДАЖНИТЕ цени по клиенти (наш код → име при клиента + цена). Оттук калкулацията взима цената за маржина. Смяна тук = нов маржин.`)}
@@ -488,7 +488,7 @@ async function erpRenderCostSheet() {
       <button class="btn btn-small ${CS.view === "sheet" ? "btn-primary" : ""}" id="cs-view-sheet" title="Пълна калкулация на избраното изделие">🧾 Калкулация</button>
       ${CS.view === "sheet" ? `<button class="btn btn-small ${CS.edit ? "btn-primary" : ""}" id="cs-edit" title="Коригирай направо тук: нормовреме и машина на операция, цена на операцията в рецептата, средна цена и количество на материал, продажна цена, ръчна себестойност">✎ Редакция</button>` : ""}
       <span class="spacer"></span>
-      <button class="btn btn-small btn-primary" id="cs-julia" title="Упътване за работа със Себестойности — всяка иконка какво прави и къде се отразява">👩 Юлия</button>
+      <button class="btn btn-small btn-primary" id="cs-julia" title="Упътване за работа със Себестойности — всяка иконка какво прави и къде се отразява">👩 Упътване</button>
       <button class="btn btn-small" id="cs-times" title="Отчетът Времена от Цехове — същите производствени отчети, от които идват времената в тази калкулация">⏱ Отчет Времена</button>
       <button class="btn btn-small" id="cs-ops" title="Операциите с общите им ставки (€/бр.) и кой цех ги изпълнява — смяната на ставка там важи за ВСИЧКИ рецепти">🏭 Операции → Цех</button>
       <button class="btn btn-small" id="cs-pl" title="Продажните цени по клиенти — оттам Калкулацията взима цената за маржина">💲 Ценови листи</button>
@@ -918,22 +918,6 @@ function csHideDraw(now) {
   if (now) f(); else csPopTimer = setTimeout(f, 250);
 }
 
-/* ---------- 👩 Бутонът „Юлия — упътване" на основния екран ----------
-   Вижда се САМО от профила на Юлия (danko.orders@gmail.com) — по Данко,
-   09.10.2026. Отваря Склад/ЕРП направо на раздела с упътването; останалите
-   го достигат при нужда през раздела juliaguide. */
-const JULIA_GUIDE_EMAILS = ["danko.orders@gmail.com"];
-function juliaBtnApply() {
-  const b = document.getElementById("btn-julia");
-  if (!b) return;
-  const e = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase();
-  b.style.display = JULIA_GUIDE_EMAILS.includes(e) ? "" : "none";
-}
-(function juliaBtnInit() {
-  const b = document.getElementById("btn-julia");
-  if (!b) return;
-  b.addEventListener("click", async () => {
-    try { if (typeof openErp === "function") await openErp(); } catch (e) {}
-    if (typeof erpSetTab === "function") erpSetTab("juliaguide");
-  });
-})();
+/* Бутонът „📖 Инструкция" на основния екран (пак id btn-julia) вече се
+   управлява от erp-guide.js (sysGuideBtnApply/Init) — отваря общата
+   инструкция за Системата, а упътването тук остава на раздел juliaguide. */

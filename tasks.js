@@ -3547,7 +3547,7 @@ function adminDirectory() {
     if (arr.length) return arr;
   }
   return [
-    { email: "danko.orders@gmail.com", name: "Юлия" },
+    { email: "danko.orders@gmail.com", name: "Деси" },
     { email: "office@dankosystems.com", name: "Таня Илиева" },
     { email: "dankog@gmail.com", name: "Данко Георгиев" },
   ];

@@ -16,7 +16,7 @@ const TODO_PEOPLE = {
   "dankog@gmail.com":                { cfg: "danko_todo",  name: "Данко",    boss: true },
   "grigor.baykov@dankosystems.com":  { cfg: "todo_grigor", name: "Григор",   boss: true },
   "miroslav.pilev@dankosystems.com": { cfg: "todo_miro",   name: "Миро",     boss: true },
-  "danko.orders@gmail.com":          { cfg: "todo_julia",  name: "Юлия" },
+  "danko.orders@gmail.com":          { cfg: "todo_julia",  name: "Деси" },   // Деси пое акаунта (23.11.2026); конфигът остава същият
   "office@dankosystems.com":         { cfg: "todo_krisi",  name: "Таня", assignTo: ["dankog@gmail.com"] },   // Таня пое офиса (списъкът е същият конфиг)
 };
 function todoMe() {

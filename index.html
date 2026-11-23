@@ -30,7 +30,7 @@
       </label>
       <p id="login-error" class="login-error"></p>
       <button type="submit" id="login-submit" class="btn btn-primary btn-block">Вход</button>
-      <p class="login-version">версия 1069</p>
+      <p class="login-version">версия 1070</p>
     </form>
   </div>
 
@@ -65,7 +65,7 @@
       </div>
       <div class="hz-plans">
         <button id="btn-calendar" class="btn btn-plan" style="display:none" title="Офис календарът: какво се прави по числа в месеца — преводи, осигуровки, кредити. Пиши свободно, той сам подрежда.">📅 Календар</button>
-        <button id="btn-julia" class="btn btn-plan" style="display:none" title="Упътване за работа: Себестойности, Ценови листи, отчетите — стъпка по стъпка">👩 Юлия — упътване</button>
+        <button id="btn-julia" class="btn btn-plan" style="display:none" title="Подробна инструкция как се работи със Системата — раздел по раздел, стъпка по стъпка">📖 Инструкция</button>
       </div>
       <div id="cal-next-strip" hidden></div>
     </div>
@@ -97,6 +97,16 @@
       <span style="font-size:13.5px;line-height:1.55">Радваме се, че си част от екипа на Данко Системс! Твоето работно място тук е бутонът <b>💼 Офис</b> — там са Фактуриране, Продажби, Покупки, Задълженията и Вземанията, а в <b>🚚 Логистика → 📦 Поръчки</b> е всичко за експедицията: какво се товари, палети и тегла, адреси, документи и запитванията до транспортните фирми. Не бой се да цъкаш — системата пази данните и винаги пита, преди да изтрие нещо. Успешен първи ден! 🎉</span>
     </div>
     <button class="btn btn-small" id="tanya-hello-x" title="Скрива поздрава">✕</button>
+  </div>
+
+  <div id="desi-hello" hidden style="margin:10px 14px;padding:14px 18px;border-radius:14px;background:linear-gradient(90deg,#fdf2f8,#f0fdf4);border:1px solid #f9a8d4;display:flex;gap:14px;align-items:flex-start">
+    <span style="font-size:30px">🌷</span>
+    <div style="flex:1">
+      <b style="font-size:16px">Добре дошла, Деси!</b><br>
+      <span style="font-size:13.5px;line-height:1.55">Радваме се, че си част от екипа на Данко Системс! Ти поемаш пощата <b>danko.orders@gmail.com</b> — входящите поръчки от клиентите, а работното ти място е екранът <b>ЕРП</b>: Заявки от клиенти, Фактуриране, Вземания и Задължения. Приготвили сме ти подробна инструкция за всичко — бутонът <b>📖 Инструкция</b> горе, или направо оттук. Не бой се да цъкаш — системата пази данните и винаги пита, преди да промени нещо важно. Успешен първи ден! 🎉</span><br>
+      <button class="btn btn-small btn-primary" id="desi-hello-open" style="margin-top:8px">📖 Отвори инструкцията</button>
+    </div>
+    <button class="btn btn-small" id="desi-hello-x" title="Скрива поздрава">✕</button>
   </div>
 
   <main class="layout app-chrome" hidden>
@@ -725,10 +735,10 @@
   <script src="auto-update.js?v=2"></script>
   <script src="draw-preview.js?v=5"></script>
   <script src="report-export.js?v=1"></script>
-  <script src="app.js?v=267"></script>
-  <script src="activity-log.js?v=4"></script>
+  <script src="app.js?v=268"></script>
+  <script src="activity-log.js?v=5"></script>
   <script src="quality.js?v=3"></script>
-  <script src="tasks.js?v=338"></script>
+  <script src="tasks.js?v=339"></script>
   <script src="laser-fill.js?v=6"></script>
   <script src="master-report.js?v=15"></script>
   <script src="prod-report.js?v=168"></script>
@@ -739,8 +749,8 @@
   <script src="rogosh.js?v=203"></script>
   <script src="nit.js?v=58"></script>
   <script src="contacts-data.js?v=139"></script>
-  <script src="contacts.js?v=153"></script>
-  <script src="erp.js?v=297"></script>
+  <script src="contacts.js?v=154"></script>
+  <script src="erp.js?v=298"></script>
   <script src="erp-import.js?v=162"></script>
   <script src="erp-backup.js?v=1"></script>
   <script src="erp-materials.js?v=257"></script>
@@ -792,16 +802,17 @@
   <script src="erp-payroll.js?v=254"></script>
   <script src="erp-erptable.js?v=179"></script>
   <script src="erp-finance.js?v=184"></script>
-  <script src="erp-costsheet.js?v=19"></script>
+  <script src="erp-costsheet.js?v=20"></script>
+  <script src="erp-guide.js?v=1"></script>
   <script src="erp-leaves.js?v=21"></script>
   <script src="nav-back.js?v=164"></script>
   <script src="ui-guards.js?v=1"></script>
   <script src="assistant.js?v=182"></script>
   <script src="pulse.js?v=239"></script>
   <script src="office-calendar.js?v=3"></script>
-  <script src="info-news.js?v=36"></script>
+  <script src="info-news.js?v=37"></script>
   <script src="erp-qr.js?v=3"></script>
-  <script src="danko-todo.js?v=13"></script>
+  <script src="danko-todo.js?v=14"></script>
   <script src="crm-sales-data.js?v=1"></script>
   <script src="crm-sales-api.js?v=5"></script>
   <script src="crm-sales.js?v=8"></script>

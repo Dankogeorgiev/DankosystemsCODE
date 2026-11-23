@@ -89,7 +89,7 @@ async function loadAccess(email) {
   }
 }
 // Достъп до Финансите (заплати/маржове) — само за изрично изброените имейли.
-const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com", "danko.orders@gmail.com"];   // Данко, Кристина, Григор, Юлия (28.09.2026)
+const FINANCE_EMAILS = ["dankog@gmail.com", "office@dankosystems.com", "grigor.baykov@dankosystems.com", "danko.orders@gmail.com"];   // Данко, Таня, Григор, Деси (пое danko.orders на 23.11.2026)
 // Достъп до Пулс — отделно от Финансите.
 const PULSE_EMAILS = ["dankog@gmail.com", "grigor.baykov@dankosystems.com", "office@dankosystems.com"];   // Данко + Григор + Кристина (29.09.2026)
 // Персонални поздрави при вход (по имейл).
@@ -149,7 +149,7 @@ function applyAccess() {
   if (typeof crmApplyAccess === "function") crmApplyAccess();
   // 📅 Офис календарът — бутон + лентата „⏰ Следва" (office-calendar.js).
   if (typeof calApplyAccess === "function") calApplyAccess();
-  if (typeof juliaBtnApply === "function") juliaBtnApply();
+  if (typeof sysGuideBtnApply === "function") sysGuideBtnApply();
   // 📝 To do списъкът на Данко (danko-todo.js).
   if (typeof todoApplyAccess === "function") todoApplyAccess();
   // 💼 Офис на началния екран — пълните админи (производството не го вижда).
@@ -163,6 +163,20 @@ function applyAccess() {
     th.hidden = !(isTanya && !seen);
     const tx = document.getElementById("tanya-hello-x");
     if (tx && !tx._wired) { tx._wired = true; tx.addEventListener("click", () => { th.hidden = true; try { localStorage.setItem("tanyaHelloClosed", "1"); } catch (e) {} }); }
+  }
+  // 🌷 Поздравът за Деси (danko.orders@) — вижда се до ✕, после се помни в браузъра.
+  const dh = document.getElementById("desi-hello");
+  if (dh) {
+    const isDesi = ((MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "danko.orders@gmail.com";
+    let seenD = false; try { seenD = localStorage.getItem("desiHelloClosed") === "1"; } catch (e) {}
+    dh.hidden = !(isDesi && !seenD);
+    const dx = document.getElementById("desi-hello-x");
+    if (dx && !dx._wired) { dx._wired = true; dx.addEventListener("click", () => { dh.hidden = true; try { localStorage.setItem("desiHelloClosed", "1"); } catch (e) {} }); }
+    const dop = document.getElementById("desi-hello-open");
+    if (dop && !dop._wired) { dop._wired = true; dop.addEventListener("click", async () => {
+      try { if (typeof openErp === "function") await openErp(); } catch (e) {}
+      if (typeof erpSetTab === "function") erpSetTab("sysguide");
+    }); }
   }
   // Отпуски на началния екран — само за изрично изброените (erp-leaves.js),
   // БЕЗ тези с пълен офисен достъп: те ги имат в 💼 Офис (по Данко, 09.10.2026).
