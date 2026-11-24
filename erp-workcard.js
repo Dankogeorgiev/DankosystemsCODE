@@ -158,11 +158,13 @@ function erpRecipeDrawingsHtml(p) {
     const list = c.drawings || [];
     if (!list.length) { if (id !== p.id) noDraw.push(`${c.code || ""} ${c.name || ""}`.trim()); return ""; }
     const imgs = list.filter(f => (f.type || "").startsWith("image/"));
+    // PDF чертежите се разгъват на страници-изображения в самия лист (pdf.js),
+    // за да се печата ВСИЧКО ЗАЕДНО — Данко, 24.11.2026.
     const pdfs = list.filter(f => !(f.type || "").startsWith("image/"));
     return `<div class="node-draw">
       <h3>${id === p.id ? "Чертежи на изделието" : "Възел"} <b>${escapeHtml(c.code || "")}</b> ${escapeHtml(c.name || "")}</h3>
       ${imgs.map(f => `<div class="dimg"><img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}"><div class="dcap">${escapeHtml(f.name)}</div></div>`).join("")}
-      ${pdfs.length ? `<p class="muted">📄 PDF чертежи (печатат се отделно): ${pdfs.map(f => escapeHtml(f.name)).join(" · ")}</p>` : ""}
+      ${pdfs.map(f => `<div class="pdfdraw" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name)}"><p class="muted">⏳ Зареждам PDF чертежа ${escapeHtml(f.name)}…</p></div>`).join("")}
     </div>`;
   }).join("");
 
@@ -190,7 +192,7 @@ function erpRecipeDrawingsHtml(p) {
     .noprint { text-align: center; margin: 14px 0; }
     .btnp { background: #1d4ed8; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
   </style></head><body>
-    <div class="noprint"><button class="btnp" onclick="window.print()">🖨 Печат</button></div>
+    <div class="noprint"><button class="btnp" id="printbtn" onclick="window.print()">🖨 Печат</button> <span id="pdfstat" class="muted"></span></div>
     <div class="head">
       <div><div class="brand">ДАНКО СИСТЕМС</div><h1>РЕЦЕПТА / ТЕХНОЛОГИЯ</h1></div>
       <div class="meta">Дата: <b>${dateStr}</b></div>
@@ -200,6 +202,56 @@ function erpRecipeDrawingsHtml(p) {
     <h2>Приложение — чертежи по възли</h2>
     ${drawSection || `<p class="muted">Няма прикачени чертежи по възлите.</p>`}
     ${noDraw.length ? `<p class="muted">Без чертеж: ${noDraw.map(escapeHtml).join(" · ")}</p>` : ""}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"><\/script>
+    <script>
+    /* PDF чертежите се рендерират като изображения в листа, за да се печатат
+       заедно с всичко останало. Докато вървят, бутонът за печат чака. */
+    (async function () {
+      var boxes = Array.prototype.slice.call(document.querySelectorAll(".pdfdraw"));
+      var stat = document.getElementById("pdfstat"), btn = document.getElementById("printbtn");
+      if (!boxes.length) return;
+      if (typeof pdfjsLib === "undefined") {
+        boxes.forEach(function (b) { b.innerHTML = "<p class=\\"muted\\">⚠ " + b.dataset.name + " — четецът на PDF не се зареди (няма интернет?). Отвори чертежа отделно.</p>"; });
+        return;
+      }
+      btn.disabled = true; stat.textContent = "⏳ Зареждам PDF чертежите — изчакай преди печат…";
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      var bad = 0;
+      for (var k = 0; k < boxes.length; k++) {
+        var box = boxes[k];
+        try {
+          var pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;
+          var n = Math.min(pdf.numPages, 10);
+          box.innerHTML = "";
+          for (var i = 1; i <= n; i++) {
+            var page = await pdf.getPage(i);
+            var vp = page.getViewport({ scale: 2 });
+            var c = document.createElement("canvas");
+            c.width = vp.width; c.height = vp.height;
+            await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+            var d = document.createElement("div"); d.className = "dimg";
+            var img = document.createElement("img"); img.src = c.toDataURL("image/png");
+            var cap = document.createElement("div"); cap.className = "dcap";
+            cap.textContent = box.dataset.name + (pdf.numPages > 1 ? " — стр. " + i + " от " + pdf.numPages : "");
+            d.appendChild(img); d.appendChild(cap); box.appendChild(d);
+          }
+          if (pdf.numPages > n) {
+            var more = document.createElement("p"); more.className = "muted";
+            more.textContent = "… PDF файлът има още " + (pdf.numPages - n) + " страници (печатат се първите " + n + ").";
+            box.appendChild(more);
+          }
+        } catch (e) {
+          bad++;
+          box.innerHTML = "";
+          var warn = document.createElement("p"); warn.className = "muted";
+          warn.textContent = "⚠ " + box.dataset.name + " — не можа да се зареди за печат. Отвори чертежа отделно.";
+          box.appendChild(warn);
+        }
+      }
+      btn.disabled = false;
+      stat.textContent = bad ? "⚠ " + bad + " PDF чертеж(а) не се заредиха — останалото е готово за печат." : "✓ Всички чертежи са на листа — печатай.";
+    })();
+    <\/script>
   </body></html>`;
 }
 
