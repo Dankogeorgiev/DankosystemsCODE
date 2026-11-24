@@ -150,6 +150,20 @@ function erpRecipeDrawingsHtml(p) {
     }).join("");
   })(p.id, 0, new Set([p.id]));
 
+  // Операциите и материалите на един възел — компактна таблица, която застава
+  // ПОД чертежа на същия лист А4 (Данко, 24.11.2026). Чертежът се смалява
+  // според броя редове, за да се събере всичко на страницата.
+  const nodeOps = id => {
+    const rows = (ERP.linesByProduct[id] || []).filter(l => l.material_id || l.operation_id);
+    if (!rows.length) return { html: "", n: 0 };
+    const html = `<table class="opstab"><tbody>${rows.map(l => {
+      if (l.material_id) { const m = ERP.matById[l.material_id] || {}; return `<tr><td><span class="tag" style="background:#dcfce7">мат.</span> ${escapeHtml(m.code || "")} ${escapeHtml(m.name || "")}</td><td class="r">${qn(l.quantity)} ${escapeHtml(l.unit || m.unit || "")}</td></tr>`; }
+      const op = ERP.opById[l.operation_id] || {};
+      return `<tr><td><span class="tag" style="background:#fef9c3">опер.</span> ${escapeHtml(op.code || "")} ${escapeHtml(op.name || "")}</td><td class="r">${qn(l.quantity)} ${escapeHtml(l.unit || "бр.")}</td></tr>`;
+    }).join("")}</tbody></table>`;
+    return { html, n: rows.length };
+  };
+
   // Приложението: чертежите на изделието + на всеки възел (по реда на дървото).
   const nodeIds = erpRecipeNodeIds(p.id);
   const noDraw = [];
@@ -164,10 +178,13 @@ function erpRecipeDrawingsHtml(p) {
     // Името на възела стои ПРИ ВСЕКИ чертеж (удебелено, в същия блок), така че
     // на всеки отпечатан лист да пише чий е чертежът — Данко, 24.11.2026.
     const nodeLabel = `${id === p.id ? "Изделие" : "Възел"} ${(c.code || "")} ${(c.name || "")}`.replace(/\s+/g, " ").trim();
+    const ops = nodeOps(id);
+    // Чертежът се смалява с ~24px на ред операции, за да остане всичко на листа.
+    const maxH = Math.max(380, 700 - (ops.n ? 40 + ops.n * 24 : 0));
     return `<div class="node-draw">
       <h3>${id === p.id ? "Чертежи на изделието" : "Възел"} <b>${escapeHtml(c.code || "")}</b> ${escapeHtml(c.name || "")}</h3>
-      ${imgs.map(f => `<div class="dimg"><div class="dnode">${escapeHtml(nodeLabel)}</div><img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}"><div class="dcap">${escapeHtml(f.name)}</div></div>`).join("")}
-      ${pdfs.map(f => `<div class="pdfdraw" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name)}" data-node="${escapeAttr(nodeLabel)}"><p class="muted">⏳ Зареждам PDF чертежа ${escapeHtml(f.name)}…</p></div>`).join("")}
+      ${imgs.map((f, fi) => `<div class="dimg"><div class="dnode">${escapeHtml(nodeLabel)}</div><img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}" style="max-height:${maxH}px"><div class="dcap">${escapeHtml(f.name)}</div>${fi === 0 ? ops.html : ""}</div>`).join("")}
+      ${pdfs.map((f, fi) => `<div class="pdfdraw" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name)}" data-node="${escapeAttr(nodeLabel)}" data-maxh="${maxH}"><p class="muted">⏳ Зареждам PDF чертежа ${escapeHtml(f.name)}…</p>${(fi === 0 && !imgs.length && ops.html) ? `<div class="opsrc" hidden>${ops.html}</div>` : ""}</div>`).join("")}
     </div>`;
   }).join("");
 
@@ -192,6 +209,9 @@ function erpRecipeDrawingsHtml(p) {
     .dimg img { max-width: 100%; max-height: 700px; border: 1px solid #cbd5e1; border-radius: 6px; }
     .dcap { font-size: 10.5px; color: #666; margin-top: 2px; }
     .dnode { font-size: 16px; font-weight: 800; text-align: left; margin: 8px 0 4px; border-left: 4px solid #1d4ed8; padding-left: 8px; }
+    .opstab { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    .opstab td { border: 1px solid #cbd5e1; padding: 3px 7px; font-size: 11px; text-align: left; }
+    .opstab td.r { text-align: right; white-space: nowrap; width: 90px; }
     @media print { body { margin: 8mm; } .noprint { display: none; } }
     .noprint { text-align: center; margin: 14px 0; }
     .btnp { background: #1d4ed8; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
@@ -226,6 +246,7 @@ function erpRecipeDrawingsHtml(p) {
         try {
           var pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;
           var n = Math.min(pdf.numPages, 10);
+          var opsSrc = box.querySelector(".opsrc");   // операциите на възела — отиват под стр. 1
           box.innerHTML = "";
           for (var i = 1; i <= n; i++) {
             var page = await pdf.getPage(i);
@@ -237,10 +258,13 @@ function erpRecipeDrawingsHtml(p) {
             var nod = document.createElement("div"); nod.className = "dnode";
             nod.textContent = box.dataset.node || "";
             var img = document.createElement("img"); img.src = c.toDataURL("image/png");
+            if (box.dataset.maxh) img.style.maxHeight = box.dataset.maxh + "px";
             var cap = document.createElement("div"); cap.className = "dcap";
             cap.textContent = box.dataset.name + (pdf.numPages > 1 ? " — стр. " + i + " от " + pdf.numPages : "");
             if (nod.textContent) d.appendChild(nod);
-            d.appendChild(img); d.appendChild(cap); box.appendChild(d);
+            d.appendChild(img); d.appendChild(cap);
+            if (i === 1 && opsSrc) { opsSrc.hidden = false; d.appendChild(opsSrc); }
+            box.appendChild(d);
           }
           if (pdf.numPages > n) {
             var more = document.createElement("p"); more.className = "muted";
