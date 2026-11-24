@@ -161,10 +161,13 @@ function erpRecipeDrawingsHtml(p) {
     // PDF чертежите се разгъват на страници-изображения в самия лист (pdf.js),
     // за да се печата ВСИЧКО ЗАЕДНО — Данко, 24.11.2026.
     const pdfs = list.filter(f => !(f.type || "").startsWith("image/"));
+    // Името на възела стои ПРИ ВСЕКИ чертеж (удебелено, в същия блок), така че
+    // на всеки отпечатан лист да пише чий е чертежът — Данко, 24.11.2026.
+    const nodeLabel = `${id === p.id ? "Изделие" : "Възел"} ${(c.code || "")} ${(c.name || "")}`.replace(/\s+/g, " ").trim();
     return `<div class="node-draw">
       <h3>${id === p.id ? "Чертежи на изделието" : "Възел"} <b>${escapeHtml(c.code || "")}</b> ${escapeHtml(c.name || "")}</h3>
-      ${imgs.map(f => `<div class="dimg"><img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}"><div class="dcap">${escapeHtml(f.name)}</div></div>`).join("")}
-      ${pdfs.map(f => `<div class="pdfdraw" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name)}"><p class="muted">⏳ Зареждам PDF чертежа ${escapeHtml(f.name)}…</p></div>`).join("")}
+      ${imgs.map(f => `<div class="dimg"><div class="dnode">${escapeHtml(nodeLabel)}</div><img src="${escapeAttr(f.url)}" alt="${escapeAttr(f.name)}"><div class="dcap">${escapeHtml(f.name)}</div></div>`).join("")}
+      ${pdfs.map(f => `<div class="pdfdraw" data-url="${escapeAttr(f.url)}" data-name="${escapeAttr(f.name)}" data-node="${escapeAttr(nodeLabel)}"><p class="muted">⏳ Зареждам PDF чертежа ${escapeHtml(f.name)}…</p></div>`).join("")}
     </div>`;
   }).join("");
 
@@ -186,8 +189,9 @@ function erpRecipeDrawingsHtml(p) {
     h3 { font-size: 13px; margin: 12px 0 4px; }
     .node-draw { page-break-inside: avoid; margin-bottom: 10px; }
     .dimg { text-align: center; page-break-inside: avoid; margin: 6px 0; }
-    .dimg img { max-width: 100%; max-height: 740px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    .dimg img { max-width: 100%; max-height: 700px; border: 1px solid #cbd5e1; border-radius: 6px; }
     .dcap { font-size: 10.5px; color: #666; margin-top: 2px; }
+    .dnode { font-size: 16px; font-weight: 800; text-align: left; margin: 8px 0 4px; border-left: 4px solid #1d4ed8; padding-left: 8px; }
     @media print { body { margin: 8mm; } .noprint { display: none; } }
     .noprint { text-align: center; margin: 14px 0; }
     .btnp { background: #1d4ed8; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
@@ -230,9 +234,12 @@ function erpRecipeDrawingsHtml(p) {
             c.width = vp.width; c.height = vp.height;
             await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
             var d = document.createElement("div"); d.className = "dimg";
+            var nod = document.createElement("div"); nod.className = "dnode";
+            nod.textContent = box.dataset.node || "";
             var img = document.createElement("img"); img.src = c.toDataURL("image/png");
             var cap = document.createElement("div"); cap.className = "dcap";
             cap.textContent = box.dataset.name + (pdf.numPages > 1 ? " — стр. " + i + " от " + pdf.numPages : "");
+            if (nod.textContent) d.appendChild(nod);
             d.appendChild(img); d.appendChild(cap); box.appendChild(d);
           }
           if (pdf.numPages > n) {
