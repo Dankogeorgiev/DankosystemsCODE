@@ -114,7 +114,9 @@ async function erpRenderMissingMaterials(box) {
       const set = ordersByMat[mid] = ordersByMat[mid] || new Set();
       (src.orders || []).forEach(o => set.add(String(o.id)));
       // Кое ИЗДЕЛИЕ (възелът с рецептата) влага материала — за смяната (24.11.2026).
-      if (d.pid) { const pm = prodsByMat[mid] = prodsByMat[mid] || {}; pm[d.pid] = { code: d.code || "", name: d.product || "" }; }
+      // pid живее в source (src.pid); кодът и името — в source или на горното ниво.
+      const pid = Number(src.pid || d.pid) || 0;
+      if (pid) { const pm = prodsByMat[mid] = prodsByMat[mid] || {}; pm[pid] = { code: src.code || d.code || "", name: src.product || d.product || "" }; }
     });
   });
 
@@ -319,7 +321,8 @@ async function erpMatSwapDialog(mid, pid, onDone) {
     const tk = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
     taskRows = (tk.data || []).filter(r => {
       const d = r.data || {};
-      return Number(d.pid) === Number(pid) && d.source && Array.isArray(d.source.materials)
+      const tp = Number((d.source && d.source.pid) || d.pid) || 0;
+      return tp === Number(pid) && d.source && Array.isArray(d.source.materials)
         && d.source.materials.some(mm => Number(mm.mid) === Number(mid));
     });
   } catch (e) {}
