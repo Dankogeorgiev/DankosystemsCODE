@@ -102,7 +102,7 @@ async function erpRenderMissingMaterials(box) {
 
   // 3) Нужда от материал = сбор на (оставащо за рязане × материал за 1 бр.) по
   //    всички първи операции. Записваме и кои заявки ползват всеки материал.
-  const need = {}, ordersByMat = {};
+  const need = {}, ordersByMat = {}, prodsByMat = {};
   tasks.forEach(d => {
     const src = d.source;
     if (!src || !Array.isArray(src.materials) || !src.materials.length) return;
@@ -113,6 +113,8 @@ async function erpRenderMissingMaterials(box) {
       need[mid] = (need[mid] || 0) + (Number(mm.per) || 0) * remaining;
       const set = ordersByMat[mid] = ordersByMat[mid] || new Set();
       (src.orders || []).forEach(o => set.add(String(o.id)));
+      // Кое ИЗДЕЛИЕ (възелът с рецептата) влага материала — за смяната (24.11.2026).
+      if (d.pid) { const pm = prodsByMat[mid] = prodsByMat[mid] || {}; pm[d.pid] = { code: d.code || "", name: d.product || "" }; }
     });
   });
 
@@ -122,6 +124,7 @@ async function erpRenderMissingMaterials(box) {
     return {
       mid, code: m.code || "", name: m.name || "", unit: m.unit || "",
       stock, min, need: need[mid], missing: Math.max(0, need[mid] - stock), orders: [...(ordersByMat[mid] || [])],
+      prods: Object.entries(prodsByMat[mid] || {}),
     };
   });
   const short = list.filter(r => r.missing > 0).sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name, "bg"));
@@ -129,6 +132,9 @@ async function erpRenderMissingMaterials(box) {
   erpSetMissingBadge(short.length);   // осветяваме таба според недостига
 
   const ordersCell = r => r.orders.map(orderText).map(t => `<span class="mm-order">${escapeHtml(t)}</span>`).join(" ") || "—";
+  // Изделията, в чиято рецепта е материалът — клик = смяна на материала там.
+  const prodCell = r => r.prods.map(([pid, p2]) =>
+    `<button class="btn btn-small mm-prodswap" data-mid="${r.mid}" data-pid="${pid}" title="Материалът е в рецептата на това изделие. Клик — замени го с друг материал (сменя рецептата И пуснатите задачи). Системата помни замените и предлага обичайната.">⇄ <b>${escapeHtml(p2.code || "")}</b> ${escapeHtml((p2.name || "").slice(0, 26))}</button>`).join(" ") || "—";
   // Бързо заприходяване направо от този екран — само за Данко.
   const canIn = ((typeof MY_ACCESS !== "undefined" && MY_ACCESS && MY_ACCESS.email) || "").toLowerCase() === "dankog@gmail.com";
   const inBtn = r => canIn ? `<td class="erp-row-actions"><button class="btn btn-small" data-mm-in="${r.mid}" title="Заприходи в Склад материали — входящо движение с доставна цена (обновява средната)">📥 Заприходи</button></td>` : "";
@@ -163,6 +169,7 @@ async function erpRenderMissingMaterials(box) {
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Ще липсва"><span class="erp-warn">${erpNum(r.missing)} ⚠</span>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.missing, r.unit, r.mid) : ""}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>
+      <td data-label="Изделие">${prodCell(r)}</td>
       <td data-label="Доставчик">${suppSel(r)}</td>
       <td data-label="Планиране">${plan1(r)}</td>
       ${inBtn(r)}
@@ -176,6 +183,7 @@ async function erpRenderMissingMaterials(box) {
       <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
       <td class="num" data-label="Минимум">${erpNum(r.min)}</td>
       <td data-label="Заявки">${ordersCell(r)}</td>
+      <td data-label="Изделие">${prodCell(r)}</td>
       <td data-label="Доставчик">${suppSel(r)}</td>
       <td data-label="Планиране">${plan1(r)}</td>
       ${inBtn(r)}
@@ -192,14 +200,14 @@ async function erpRenderMissingMaterials(box) {
       ${short.length ? `
         <h4 class="erp-group-head">⚠ Няма да стигнат</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th><th>Доставчик</th><th></th>${inTh}</tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Заявки</th><th>Изделие (⇄ смени материала)</th><th>Доставчик</th><th></th>${inTh}</tr></thead>
           <tbody>${short.map(shortRow).join("")}</tbody>
         </table>`
         : `<p class="report-empty">✅ За оставащото рязане по пуснатите заявки има достатъчно материал.</p>`}
       ${low.length ? `
         <h4 class="erp-group-head">🟡 Под минимум (стигат засега, но да се поръчат)</h4>
         <table class="report-table erp-table">
-          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th><th>Доставчик</th><th></th>${inTh}</tr></thead>
+          <thead><tr><th class="pay-chk"></th><th>Материал</th><th>Мярка</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Минимум</th><th>Заявки</th><th>Изделие (⇄ смени материала)</th><th>Доставчик</th><th></th>${inTh}</tr></thead>
           <tbody>${low.map(lowRow).join("")}</tbody>
         </table>` : ""}
       <datalist id="mm-supdl">${[...mmAllSupps].sort((a, b) => a.localeCompare(b, "bg")).map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
@@ -207,6 +215,9 @@ async function erpRenderMissingMaterials(box) {
     `}`;
 
   const rb = v.querySelector("#mm-refresh"); if (rb) rb.addEventListener("click", () => erpRenderMissingMaterials(box));
+  // ⇄ Смяна на материала в рецептата на изделието (и в пуснатите задачи).
+  v.querySelectorAll(".mm-prodswap").forEach(b => b.addEventListener("click", () =>
+    erpMatSwapDialog(Number(b.dataset.mid), Number(b.dataset.pid), () => erpRenderMissingMaterials(box))));
   // 📥 Заприходи (само Данко) — отваря стандартния диалог „Движение" (входящ + цена).
   v.querySelectorAll("[data-mm-in]").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
@@ -272,4 +283,98 @@ async function erpRenderMissingMaterials(box) {
     if (ok) markPlanned(mid);
     else { b.disabled = false; b.textContent = "🗓 Планувай за поръчка"; }
   }));
+}
+
+/* ---------- ⇄ Смяна на материал в рецептата (Данко, 24.11.2026) ----------
+   От „Липсващи материали": материалът се заменя с друг В РЕЦЕПТАТА на
+   изделието И в пуснатите задачи (те носят копие на материалите си), така че
+   липсата изчезва веднага. САМООБУЧЕНИЕ: всяка замяна се помни в app_config
+   mat_swap_memory (стар → нов, брой), и следващия път обичайната замяна се
+   предлага първа, предизбрана. Потвърждението изброява какво ще се промени. */
+
+async function erpMatSwapMemory() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mat_swap_memory").maybeSingle();
+    return (data && data.data) || {};
+  } catch (e) { return {}; }
+}
+async function erpMatSwapRemember(oldMid, newMid) {
+  try {
+    const mem = await erpMatSwapMemory();
+    const k = String(oldMid), nk = String(newMid);
+    mem[k] = mem[k] || {};
+    mem[k][nk] = (Number(mem[k][nk]) || 0) + 1;
+    await sb.from("app_config").upsert({ id: "mat_swap_memory", data: mem, updated_at: new Date().toISOString() });
+  } catch (e) { console.warn("памет за замените:", e); }
+}
+
+async function erpMatSwapDialog(mid, pid, onDone) {
+  const oldM = ERP.matById[mid] || {};
+  const prod = ERP.prodById[pid] || {};
+  const recLines = (ERP.linesByProduct[pid] || []).filter(l => Number(l.material_id) === Number(mid));
+  if (!recLines.length) { alert("В рецептата на " + (prod.code || "изделието") + " няма ред с този материал (възможно е вече да е сменен — обнови екрана)."); return; }
+  // Пуснатите задачи, които носят този материал за това изделие.
+  let taskRows = [];
+  try {
+    const tk = await erpSelectAll("tasks", "id,data", "data->source->>flow", "true");
+    taskRows = (tk.data || []).filter(r => {
+      const d = r.data || {};
+      return Number(d.pid) === Number(pid) && d.source && Array.isArray(d.source.materials)
+        && d.source.materials.some(mm => Number(mm.mid) === Number(mid));
+    });
+  } catch (e) {}
+  // Самообучението: какво сме слагали на мястото на този материал досега.
+  const mem = await erpMatSwapMemory();
+  const sugg = Object.entries(mem[String(mid)] || {})
+    .map(([nmid, n]) => ({ m: ERP.matById[Number(nmid)], nmid: Number(nmid), n: Number(n) || 0 }))
+    .filter(x => x.m && Number(x.nmid) !== Number(mid))
+    .sort((a, b) => b.n - a.n).slice(0, 3);
+  const mats = (ERP.materials || Object.values(ERP.matById || {}))
+    .slice().sort((a, b) => String(a.code || "").localeCompare(String(b.code || ""), "bg", { numeric: true }));
+  const optTxt = m => `${m.code || ""} · ${m.name || ""}`;
+  const { wrap, close } = erpDialog(`
+    <h3>⇄ Смяна на материал — ${escapeHtml(prod.code || "")} ${escapeHtml(prod.name || "")}</h3>
+    <p style="margin:0 0 8px">Сега в рецептата: <b>${escapeHtml(oldM.code || "")} ${escapeHtml(oldM.name || "")}</b>
+      <span class="erp-muted">(наличност: ${erpNum(oldM.stock || 0)} ${escapeHtml(oldM.unit || "")})</span></p>
+    ${sugg.length ? `<p style="margin:0 0 4px">Обичайна замяна (помни се от предишните):</p>
+      <p style="margin:0 0 8px">${sugg.map(s2 => `<button type="button" class="btn btn-small ms-sugg" data-v="${escapeAttr(optTxt(s2.m))}">⇄ ${escapeHtml(optTxt(s2.m))} <span class="erp-muted">· ${s2.n}×</span></button>`).join(" ")}</p>` : ""}
+    <label>Нов материал
+      <input type="text" id="ms-new" list="ms-mats" placeholder="код или име от Склад материали…" value="${sugg.length ? escapeAttr(optTxt(sugg[0].m)) : ""}" autocomplete="off" />
+      <datalist id="ms-mats">${mats.map(m => `<option value="${escapeAttr(optTxt(m))}">${escapeHtml("налично: " + erpNum(m.stock || 0) + " " + (m.unit || ""))}</option>`).join("")}</datalist>
+    </label>
+    <p class="hint" style="margin:6px 0 0">Какво ще се промени: ${recLines.length === 1 ? "1 ред" : recLines.length + " реда"} в рецептата на <b>${escapeHtml(prod.code || "")}</b>${taskRows.length ? ` + <b>${taskRows.length}</b> пуснати задачи (липсата се преизчислява веднага)` : " (няма пуснати задачи за обновяване)"}. Количествата в рецептата остават същите. Бъдещите пускания ползват новия материал.</p>
+    <div id="ms-st" class="erp-muted" style="margin-top:6px"></div>
+    <div class="erp-dialog-actions"><button class="btn" id="ms-cancel">Отказ</button><button class="btn btn-primary" id="ms-go">⇄ Замени</button></div>`);
+  wrap.querySelector("#ms-cancel").addEventListener("click", close);
+  wrap.querySelectorAll(".ms-sugg").forEach(b => b.addEventListener("click", () => { wrap.querySelector("#ms-new").value = b.dataset.v; }));
+  wrap.querySelector("#ms-go").addEventListener("click", async () => {
+    const st = wrap.querySelector("#ms-st");
+    const val = (wrap.querySelector("#ms-new").value || "").trim();
+    const code = val.split("·")[0].trim();
+    const newM = mats.find(m => optTxt(m) === val) || mats.find(m => String(m.code || "").trim() === code);
+    if (!newM) { st.textContent = "⚠ Избери материал от списъка (код · име)."; return; }
+    if (Number(newM.id) === Number(mid)) { st.textContent = "⚠ Това е същият материал."; return; }
+    if (!confirm(`⇄ Заменям в рецептата на ${prod.code || ""} ${prod.name || ""}:\n` +
+      `${oldM.code || ""} ${oldM.name || ""} → ${newM.code || ""} ${newM.name || ""}\n\n` +
+      `• редове в рецептата: ${recLines.length}\n• пуснати задачи за обновяване: ${taskRows.length}\n\nПродължавам?`)) return;
+    const go = wrap.querySelector("#ms-go");
+    go.disabled = true; st.textContent = "Записвам…";
+    // 1) Рецептата.
+    for (const l of recLines) {
+      const { error } = await sb.from("recipe_lines").update({ material_id: newM.id }).eq("id", l.id);
+      if (error) { st.textContent = "⚠ Рецептата: " + error.message; go.disabled = false; return; }
+      l.material_id = newM.id;
+    }
+    // 2) Пуснатите задачи (носят копие на материалите на първата операция).
+    for (const r of taskRows) {
+      const d = r.data;
+      d.source.materials.forEach(mm => { if (Number(mm.mid) === Number(mid)) mm.mid = newM.id; });
+      const { error } = await sb.from("tasks").update({ data: d, updated_at: new Date().toISOString() }).eq("id", r.id);
+      if (error) { st.textContent = "⚠ Задачите: " + error.message + " (рецептата е сменена)"; go.disabled = false; return; }
+    }
+    // 3) Паметта — следващия път тази замяна излиза първа.
+    await erpMatSwapRemember(mid, newM.id);
+    st.textContent = "✓ Готово.";
+    setTimeout(() => { close(); if (typeof onDone === "function") onDone(); }, 500);
+  });
 }
