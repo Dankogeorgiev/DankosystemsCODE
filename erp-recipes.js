@@ -33,6 +33,7 @@ function erpRenderRecipe(productId) {
       <button class="btn btn-small" id="erp-recipe-back">← Назад към продуктите</button>
       <label class="erp-inline">Бройка <input type="number" id="erp-wc-qty" min="1" step="any" value="1" style="width:70px" /></label>
       <button class="btn btn-small" id="erp-wc-print">🖨 Работна карта</button>
+      <button class="btn btn-small" id="erp-rec-drawprint" title="Печат на цялата рецепта (дървото с възли, материали и операции) + чертежите на всеки възел, визуализирани на листа">🖨 Рецепта + чертежи</button>
       <button class="btn btn-small" id="erp-recipe-test" title="Симулира пускането в производство — проверява дали ще върви правилно">🧪 Тест рецепта</button>
       <button class="btn btn-small" id="erp-recipe-stock" title="Дървото на изделието с наличностите: кой възел/материал колко е на склад и колко липсва за желана бройка">📦 Наличности</button>
       <button class="btn btn-small" id="erp-recipe-dl" title="Сваля цялата рецепта (дървото с възли, материали, операции, количества и цени) като Excel файл">⤓ Свали (Excel)</button>
@@ -70,6 +71,8 @@ function erpRenderRecipe(productId) {
   if (costBtn) costBtn.addEventListener("click", () => erpEditManualCost(productId));
   document.getElementById("erp-wc-print").addEventListener("click", () =>
     erpPrintWorkCard(productId, document.getElementById("erp-wc-qty").value));
+  const drawPrint = document.getElementById("erp-rec-drawprint");
+  if (drawPrint) drawPrint.addEventListener("click", () => erpPrintRecipeWithDrawings(productId));
   const testBtn = document.getElementById("erp-recipe-test");
   if (testBtn) testBtn.addEventListener("click", () => {
     if (typeof erpTestRecipe === "function") erpTestRecipe(productId, document.getElementById("erp-wc-qty").value, true);
