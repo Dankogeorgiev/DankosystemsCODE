@@ -527,7 +527,6 @@ function erpDispatchTab(tab) {
     case "products":     erpRenderProducts(); break;
     case "needs":        erpRenderNeeds(); break;
     case "requirements": erpRenderRequirements(); break;
-    case "workrep":      if (typeof erpRenderWorkRep === "function") erpRenderWorkRep(); else erpView().innerHTML = `<p class="erp-warn">Модулът (erp-requirements.js) не е зареден.</p>`; break;
     case "operations":   erpRenderOperations(); break;
     case "customer":     erpRenderCustomerOrders(); break;
     case "archive":      erpRenderArchive(); break;
@@ -592,7 +591,7 @@ function erpDispatchTab(tab) {
    Всеки отворен модул стои като таб горе с ✕. Клик върху таб → превключва;
    ✕ → затваря. Всичко в един прозорец, без нови прозорци на браузъра. */
 // Раздели БЕЗ собствен бутон в лентата (отварят се от Себестойности).
-const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки", operations: "🏭 Операции → Цех", juliaguide: "👩 Себестойности — упътване", sysguide: "📖 Инструкция", pucheck: "🔎 Проверка (днес)", proformaco: "⚡ Проформа от заявка", oprep: "⚙ Работен доклад (заявка)", staff: "👥 Служители", import: "⤓ Импорт (xlsx)" };
+const ERP_EXTRA_TABS = { timesrep: "⏱ Отчет Времена", costrates: "⚙️ Разходи и ставки", operations: "🏭 Операции → Цех", juliaguide: "👩 Себестойности — упътване", sysguide: "📖 Инструкция", pucheck: "🔎 Проверка (днес)", proformaco: "⚡ Проформа от заявка", oprep: "⚙ Работен доклад", staff: "👥 Служители" };
 function erpTabLabel(tab) {
   const b = document.querySelector('.erp-tab[data-tab="' + tab + '"]');
   return b ? b.textContent.trim() : (ERP_EXTRA_TABS[tab] || tab);

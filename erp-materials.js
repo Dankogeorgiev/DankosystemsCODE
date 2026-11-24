@@ -67,7 +67,6 @@ function erpRenderMaterials() {
       <span class="erp-count">${rows.length} материала${belowCount ? ` · <span class="erp-warn">${belowCount} под минимум</span>` : ""}</span>
       <button class="btn btn-small" id="erp-mat-needed" title="Какви материали трябва да купим за пуснатите в производство заявки">🛒 Необходими материали</button>
       <button class="btn btn-small" id="erp-mat-quick" title="Заприходи няколко материала наведнъж (цяла доставка)">⚡ Бърз приход</button>
-      <button class="btn btn-small" id="erp-mat-import" title="Импорт на склада от Excel файл (беше в лентата — премести се тук, когато „Работен доклад“ зае мястото му)">⤓ Импорт (xlsx)</button>
       <button class="btn btn-small btn-primary" id="erp-mat-add">+ Нов материал</button>
     </div>
     <div class="erp-kg-total">⚖ Общо наличност: <strong>${erpNum(totalKg)} кг</strong>${noWeight ? ` <span class="erp-muted">(${noWeight} материала без зададено тегло на мярка — не влизат в сумата)</span>` : ""}</div>
@@ -119,8 +118,6 @@ function erpRenderMaterials() {
   if (needBtn) needBtn.addEventListener("click", erpMatNeededDialog);
   const quickBtn = document.getElementById("erp-mat-quick");
   if (quickBtn) quickBtn.addEventListener("click", erpQuickIntake);
-  const impBtn = document.getElementById("erp-mat-import");
-  if (impBtn) impBtn.addEventListener("click", () => erpSetTab("import"));
   v.querySelectorAll("[data-move]").forEach(b =>
     b.addEventListener("click", () => erpMovementDialog(Number(b.dataset.move))));
   v.querySelectorAll("[data-hist]").forEach(b =>
