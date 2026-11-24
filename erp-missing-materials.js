@@ -21,9 +21,29 @@ function erpSetMissingBadge(n) {
 }
 
 // Брой материали, които няма да стигнат за пуснатите заявки (за индикатора).
+/* Скритите от списъка материали (Данко, 25.11.2026) — „✕ Махни от списъка"
+   ги маха от Липсващите (и от брояча на таба), секцията „Скрити" ги връща.
+   Пазят се в базата (app_config mm_hidden), за да важат за всички. */
+let MM_HIDDEN = null;
+async function mmHiddenLoad() {
+  try {
+    const { data } = await sb.from("app_config").select("data").eq("id", "mm_hidden").maybeSingle();
+    MM_HIDDEN = (data && data.data && data.data.mids) || {};
+  } catch (e) { MM_HIDDEN = MM_HIDDEN || {}; }
+  return MM_HIDDEN;
+}
+async function mmHiddenSave() {
+  try {
+    const { error } = await sb.from("app_config").upsert({ id: "mm_hidden", data: { mids: MM_HIDDEN || {} }, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    return true;
+  } catch (e) { alert("Не успях да запиша скритите: " + (e.message || e)); return false; }
+}
+
 async function erpMissingMatCount() {
   try {
     if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded();
+    const hid = await mmHiddenLoad();
     if (typeof erpRefreshMatStock === "function") await erpRefreshMatStock();
     const tk = await erpSelectAll("tasks", "data", "data->source->>flow", "true");
     const need = {};
@@ -35,7 +55,11 @@ async function erpMissingMatCount() {
       src.materials.forEach(mm => { const mid = Number(mm.mid) || 0; if (!mid) return; need[mid] = (need[mid] || 0) + (Number(mm.per) || 0) * remaining; });
     });
     let short = 0;
-    Object.keys(need).forEach(mid => { const m = ERP.matById[mid] || ERP.matById[Number(mid)] || {}; if (need[mid] - (Number(m.stock) || 0) > 1e-9) short++; });
+    Object.keys(need).forEach(mid => {
+      if (hid[String(Number(mid))]) return;   // скритите не светят на таба
+      const m = ERP.matById[mid] || ERP.matById[Number(mid)] || {};
+      if (need[mid] - (Number(m.stock) || 0) > 1e-9) short++;
+    });
     return short;
   } catch (e) { return 0; }
 }
@@ -129,9 +153,12 @@ async function erpRenderMissingMaterials(box) {
       prods: Object.entries(prodsByMat[mid] || {}),
     };
   });
-  const short = list.filter(r => r.missing > 0).sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name, "bg"));
-  const low = list.filter(r => r.missing <= 0 && r.min > 0 && r.stock < r.min).sort((a, b) => (a.stock - a.min) - (b.stock - b.min));
-  erpSetMissingBadge(short.length);   // осветяваме таба според недостига
+  const hid = await mmHiddenLoad();
+  const isHidden = r => !!hid[String(Number(r.mid))];
+  const hiddenRows = list.filter(isHidden);
+  const short = list.filter(r => !isHidden(r) && r.missing > 0).sort((a, b) => b.missing - a.missing || a.name.localeCompare(b.name, "bg"));
+  const low = list.filter(r => !isHidden(r) && r.missing <= 0 && r.min > 0 && r.stock < r.min).sort((a, b) => (a.stock - a.min) - (b.stock - b.min));
+  erpSetMissingBadge(short.length);   // осветяваме таба според недостига (без скритите)
 
   const ordersCell = r => r.orders.map(orderText).map(t => `<span class="mm-order">${escapeHtml(t)}</span>`).join(" ") || "—";
   // Изделията, в чиято рецепта е материалът — клик = смяна на материала там.
@@ -213,13 +240,33 @@ async function erpRenderMissingMaterials(box) {
           <tbody>${low.map(lowRow).join("")}</tbody>
         </table>` : ""}
       <datalist id="mm-supdl">${[...mmAllSupps].sort((a, b) => a.localeCompare(b, "bg")).map(n => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>
-      <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Отметни материали — долу излиза бутон „🗓 Планувай избраните" (отиват в Заявки за материали → 🗓 Планувани за поръчка).</span></div>
+      <div class="pay-paybar" id="mm-reqbar"><span class="erp-muted">Отметни материали — долу излизат бутоните „🗓 Планувай избраните" и „✕ Махни от списъка".</span></div>
+      ${hiddenRows.length ? `
+        <h4 class="erp-group-head" style="margin-top:16px">🗑 Махнати от списъка (${hiddenRows.length})</h4>
+        <p class="hint" style="margin:2px 0 6px">Тези материали са скрити ръчно — не излизат горе и не светят на таба, докато не ги върнеш.</p>
+        <table class="report-table erp-table">
+          <thead><tr><th>Материал</th><th class="num">Нужен (оставащо)</th><th class="num">Налично</th><th class="num">Ще липсва</th><th>Махнат на</th><th></th></tr></thead>
+          <tbody>${hiddenRows.map(r => `<tr>
+            <td data-label="Материал"><b>${escapeHtml(r.code)}</b> ${escapeHtml(r.name)}</td>
+            <td class="num" data-label="Нужен">${erpNum(r.need)}</td>
+            <td class="num" data-label="Налично">${erpNum(r.stock)}</td>
+            <td class="num" data-label="Ще липсва">${r.missing > 0 ? `<span class="erp-warn">${erpNum(r.missing)}</span>` : "0"}</td>
+            <td data-label="Махнат на">${(hid[String(Number(r.mid))] || "").slice(0, 10).split("-").reverse().join(".")}</td>
+            <td class="erp-row-actions" data-label=""><button class="btn btn-small" data-mm-unhide="${r.mid}" title="Връща материала в списъка горе">↩ Върни в списъка</button></td>
+          </tr>`).join("")}</tbody>
+        </table>` : ""}
     `}`;
 
   const rb = v.querySelector("#mm-refresh"); if (rb) rb.addEventListener("click", () => erpRenderMissingMaterials(box));
   // ⇄ Смяна на материала в рецептата на изделието (и в пуснатите задачи).
   v.querySelectorAll(".mm-prodswap").forEach(b => b.addEventListener("click", () =>
     erpMatSwapDialog(Number(b.dataset.mid), Number(b.dataset.pid), () => erpRenderMissingMaterials(box))));
+  // ↩ Връщане на скрит материал в списъка.
+  v.querySelectorAll("[data-mm-unhide]").forEach(b => b.addEventListener("click", async () => {
+    await mmHiddenLoad();
+    delete MM_HIDDEN[String(Number(b.dataset.mmUnhide))];
+    if (await mmHiddenSave()) erpRenderMissingMaterials(box);
+  }));
   // 📥 Заприходи (само Данко) — отваря стандартния диалог „Движение" (входящ + цена).
   v.querySelectorAll("[data-mm-in]").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
@@ -251,11 +298,23 @@ async function erpRenderMissingMaterials(box) {
   const updBar = () => {
     if (!bar) return;
     const sel = [...v.querySelectorAll(".mm-sel:checked")];
-    if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Отметни материали — долу излиза бутон „🗓 Планувай избраните" (отиват в Заявки за материали → 🗓 Планувани за поръчка).</span>`; return; }
+    if (!sel.length) { bar.innerHTML = `<span class="erp-muted">Отметни материали — долу излизат бутоните „🗓 Планувай избраните" и „✕ Махни от списъка".</span>`; return; }
     bar.innerHTML = `<span class="pay-sel-info">Избрани: <b>${sel.length}</b> материала</span>
       <span class="spacer"></span>
       <span class="erp-muted" id="mm-plan-st"></span>
+      <button class="btn btn-small" id="mm-hidesel" title="Маха избраните материали от списъка (и от брояча на таба). Не пипа нищо друго — връщат се от секцията „Махнати от списъка" най-долу.">✕ Махни от списъка (${sel.length})</button>
       <button class="btn btn-small btn-primary" id="mm-plansel" title="Добавя избраните в Заявки за материали → 🗓 Планувани за поръчка (с количеството и избрания доставчик). Поръчката се прави оттам.">🗓 Планувай избраните (${sel.length})</button>`;
+    const hb = bar.querySelector("#mm-hidesel");
+    hb.addEventListener("click", async () => {
+      const cur = [...v.querySelectorAll(".mm-sel:checked")].map(c => Number(c.dataset.mid));
+      if (!cur.length) return;
+      const names = cur.map(mid => { const m = ERP.matById[mid] || {}; return (m.code || "") + " " + (m.name || ""); });
+      if (!confirm(`✕ Махам от списъка „Липсващи материали":\n• ${names.join("\n• ")}\n\nНе се поръчва и не се трие нищо от склада — само изчезват оттук (и от брояча на таба). Връщат се от секцията „Махнати от списъка" най-долу. Продължавам?`)) return;
+      await mmHiddenLoad();
+      const now = new Date().toISOString();
+      cur.forEach(mid => { MM_HIDDEN[String(mid)] = now; });
+      if (await mmHiddenSave()) erpRenderMissingMaterials(box);
+    });
     const pb = bar.querySelector("#mm-plansel");
     pb.addEventListener("click", async () => {
       const cur = [...v.querySelectorAll(".mm-sel:checked")].map(c => ({ mid: Number(c.dataset.mid), qty: Number(c.dataset.qty) || 0 }));
