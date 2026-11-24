@@ -248,3 +248,45 @@ function erpReqTable(rows) {
     </table>
     ${shortCount ? `<p class="hint">Редовете с недостиг са за поръчка към доставчик.</p>` : `<p class="hint">Складът покрива цялото производство. ✅</p>`}`;
 }
+
+/* ---------- ⚙ Работен доклад — материали за изделие (Данко, 24.11.2026) ----------
+   Собствен таб в лентата (на мястото на Импорт xlsx): пишеш КОД на готово
+   изделие + количество → системата разбива цялата рецепта (с всички възли,
+   през bom_requirements) и показва от всеки материал колко е необходимо,
+   наличното и недостига. Таблицата е същата като в „Разбивка на нуждите“. */
+let wrepQty = 1, wrepLast = "";
+function erpRenderWorkRep() {
+  const v = erpView();
+  const prods = (ERP.products || []).filter(p => (ERP.linesByProduct[p.id] || []).length > 0);
+  v.innerHTML = `
+    <div class="erp-toolbar">
+      <label class="erp-inline">Код на готовото изделие
+        <input type="text" id="wrep-code" list="wrep-prods" placeholder="напр. 102951 — пиши код или име" style="min-width:300px;font-size:16px" autocomplete="off" />
+        <datalist id="wrep-prods">${prods.map(p => `<option value="${escapeAttr((p.code ? p.code + " · " : "") + (p.name || ""))}"></option>`).join("")}</datalist>
+      </label>
+      <label class="erp-inline">Количество <input type="number" id="wrep-qty" min="1" step="any" value="${wrepQty}" style="width:100px;font-size:16px" /></label>
+      <button class="btn btn-primary" id="wrep-go">🧮 Смятай материалите</button>
+    </div>
+    <p class="hint">Пишеш кода на <b>готовото изделие</b> (напр. 102951) и количеството — системата разбива цялата рецепта с всичките ѝ възли и показва от всеки материал <b>колко ще е необходимо</b>, колко има на склад и какво ще липсва. Enter също смята.</p>
+    <div id="wrep-result">${wrepLast}</div>`;
+  const inp = v.querySelector("#wrep-code"), qtyEl = v.querySelector("#wrep-qty");
+  const go = async () => {
+    const val = (inp.value || "").trim();
+    const code = val.split("·")[0].trim().toLowerCase();
+    const p = prods.find(x => String(x.code || "").trim().toLowerCase() === code)
+      || prods.find(x => ((x.code ? x.code + " · " : "") + (x.name || "")) === val)
+      || prods.find(x => (x.name || "").toLowerCase() === val.toLowerCase());
+    const res = v.querySelector("#wrep-result");
+    if (!val) { res.innerHTML = `<p class="erp-warn">Напиши код на изделие.</p>`; return; }
+    if (!p) { res.innerHTML = `<p class="erp-warn">Не намирам изделие с код „${escapeHtml(val)}“ (или то няма рецепта). Пиши кода — напр. 102951 — или избери от подсказките.</p>`; return; }
+    const qty = erpToNum(qtyEl.value) || 1; wrepQty = qty;
+    res.innerHTML = `<p class="erp-loading">Смятам материалите…</p>`;
+    const { data, error } = await sb.rpc("bom_requirements", { p_id: p.id, p_qty: qty });
+    if (error) { res.innerHTML = `<p class="erp-warn">${escapeHtml(error.message)}</p>`; return; }
+    wrepLast = `<p style="margin:6px 0;font-size:16px"><b>${escapeHtml((p.code ? p.code + " · " : "") + (p.name || ""))}</b> × ${erpNum(qty)}</p>` + erpReqTable(data || []);
+    res.innerHTML = wrepLast;
+  };
+  v.querySelector("#wrep-go").addEventListener("click", go);
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  qtyEl.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+}
