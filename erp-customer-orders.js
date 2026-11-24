@@ -670,7 +670,7 @@ function erpRenderCOMobileList(v) {
     });
     const folders = [...by.values()].sort((a, b) => b.last.localeCompare(a.last));
     v.innerHTML = `
-      <div class="erp-toolbar" style="margin:0 0 8px">${menuBtn}<span class="erp-count">📋 Заявки от клиенти</span></div>
+      <div class="erp-toolbar" style="margin:0 0 8px">${menuBtn}<span class="erp-count">📋 Заявки от клиенти</span>${typeof erpCOCalendarView === "function" ? '<button class="btn btn-small" id="co-mob-cal" title="Календар на заявките + отчет за месеца">📅</button>' : ""}</div>
       <div class="erp-toolbar" style="margin:0 0 8px">
         <input type="search" id="co-mob-q" placeholder="търси клиент или №…" value="${escapeAttr(erpCOQuery)}" />
         <label class="erp-inline" style="font-size:13px"><input type="checkbox" id="co-mob-hidedone" ${erpCOHideDone ? "checked" : ""} /> крий завършените</label>
@@ -681,6 +681,8 @@ function erpRenderCOMobileList(v) {
           <div class="co-mob-sub">${f.due ? `най-близък срок <b>${erpDMY(f.due)}</b> · ` : ""}последна ${erpDMY(f.last) || "—"}</div>
         </button>`).join("") || `<p class="report-empty">Няма заявки${q ? " по това търсене" : ""}.</p>`}</div>`;
     wireCommon();
+    const mCal = v.querySelector("#co-mob-cal");
+    if (mCal) mCal.addEventListener("click", () => erpCOCalendarView(v, () => erpRenderCOMobileList(v)));
     v.querySelectorAll(".co-mob-card[data-cl]").forEach(b => b.addEventListener("click", () => {
       ERP_CO_MOB.client = b.dataset.cl; erpRenderCOMobileList(v);
     }));
@@ -883,6 +885,7 @@ async function erpRenderCustomerOrders() {
       <label class="erp-inline" title="Скрива завършените заявки, за да не пълнят списъка"><input type="checkbox" id="erp-co-hidedone" ${erpCOHideDone ? "checked" : ""} /> Скрий завършените${(function () { const n = erpCOList.filter(erpCODoneish).length; return n ? ` (${n})` : ""; })()}</label>
       ${(erpCOStatusFilter || erpCOClientFilter) ? `<button class="btn btn-small" id="erp-co-clearf">✕ Изчисти филтрите</button>` : ""}
       <span class="spacer"></span>
+      ${typeof erpCOCalendarView === "function" ? '<button class="btn btn-small" id="erp-co-cal" title="Календар на заявките: на кой ден коя заявка е дошла + отчет за месеца">📅 Календар</button>' : ""}
       ${typeof erpOrdersInbox === "function" ? '<button class="btn btn-small" id="erp-co-inbox" title="Писмата от danko.orders@gmail.com, които агентът е разчел — чакат одобрение">📥 Входящи</button>' : ""}
       ${typeof erpQuickHome === "function" ? '<button class="btn btn-small" id="erp-co-quick-cat" title="Каталог на бързите изделия по клиентски код — преглед, редакция, чертежи, шаблони">📦</button><button class="btn btn-small" id="erp-co-quick" title="Нова заявка с нестандартни изделия по клиентски код — добавяш ги с „⚡ Ново бързо изделие" направо във формата">+ Нестандартни поръчки</button>' : ""}
       ${typeof erpAIStart === "function" ? '<button class="btn btn-small" id="erp-co-ai" title="Качи сканирана заявка (PDF/снимка) — Claude я разчита, ти потвърждаваш">🤖 Разчети заявка (AI)</button>' : ""}
@@ -924,6 +927,8 @@ async function erpRenderCustomerOrders() {
   if (fClient) fClient.addEventListener("change", e => { erpCOClientFilter = e.target.value; erpCORefreshTable(); });
   const inboxBtn = document.getElementById("erp-co-inbox");
   if (inboxBtn) { inboxBtn.addEventListener("click", () => erpOrdersInbox()); if (typeof inboxBadge === "function") inboxBadge(inboxBtn); }
+  const calBtn = document.getElementById("erp-co-cal");
+  if (calBtn) calBtn.addEventListener("click", () => erpCOCalendarView(erpView(), () => erpRenderCustomerOrders()));
   const cutBtn = document.getElementById("erp-co-cutlist");
   if (cutBtn) cutBtn.addEventListener("click", () => erpCutlistOpen());
   const quickBtn = document.getElementById("erp-co-quick");
