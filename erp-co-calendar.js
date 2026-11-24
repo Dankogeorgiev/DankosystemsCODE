@@ -6,6 +6,8 @@
    Рисува се В ЕКРАНА с „← Назад" (без изскачащи прозорци). */
 
 let COCAL_YM = new Date().toISOString().slice(0, 7);   // показваният месец (ГГГГ-ММ)
+// Скриване на приключилите заявки (Данко, 24.11.2026) — изборът се помни.
+let COCAL_HIDE_DONE = (function () { try { return localStorage.getItem("cocal_hidedone") === "1"; } catch (e) { return false; } })();
 
 function coCalMoney(n) {
   return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,7 +37,9 @@ async function erpCOCalendarView(v, onBack) {
   const monthName = new Date(Y, M - 1, 1).toLocaleDateString("bg-BG", { month: "long", year: "numeric" });
   const today = new Date().toISOString().slice(0, 10);
   // Заявките на месеца, групирани по ден (по датата, на която са ДОШЛИ).
-  const inMonth = (erpCOList || []).filter(o => String(o.date || "").slice(0, 7) === COCAL_YM)
+  const allMonth = (erpCOList || []).filter(o => String(o.date || "").slice(0, 7) === COCAL_YM);
+  const doneN = allMonth.filter(o => erpCODoneish(o)).length;
+  const inMonth = allMonth.filter(o => !(COCAL_HIDE_DONE && erpCODoneish(o)))
     .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.ourNo || "").localeCompare(String(b.ourNo || ""), "bg", { numeric: true }));
   const byDay = {};
   inMonth.forEach(o => { (byDay[o.date] = byDay[o.date] || []).push(o); });
@@ -96,6 +100,7 @@ async function erpCOCalendarView(v, onBack) {
       <b style="min-width:150px;text-align:center">${escapeHtml(monthName)}</b>
       <button class="btn btn-small" id="cocal-next" title="Следващ месец">▶</button>
       <button class="btn btn-small" id="cocal-now" title="Връща на текущия месец">Днес</button>
+      <label class="erp-inline" title="Крие приключилите заявки — и от календара, и от отчета отдолу"><input type="checkbox" id="cocal-hidedone" ${COCAL_HIDE_DONE ? "checked" : ""} /> Скрий приключилите${doneN ? ` (${doneN})` : ""}</label>
     </div>
     <p class="hint" style="margin:4px 0 8px">Всяка заявка стои в деня, в който е <b>дошла</b>. Задръж мишката върху заявка — какво е поръчал клиентът; клик я отваря.${window.innerWidth <= 760 ? " На телефон чертичката = заявка — подробностите са в отчета отдолу." : ""}</p>
     <div class="cocal-grid">
@@ -134,5 +139,10 @@ async function erpCOCalendarView(v, onBack) {
   v.querySelector("#cocal-prev").addEventListener("click", () => { COCAL_YM = new Date(Y, M - 2, 15).toISOString().slice(0, 7); redraw(); });
   v.querySelector("#cocal-next").addEventListener("click", () => { COCAL_YM = new Date(Y, M, 15).toISOString().slice(0, 7); redraw(); });
   v.querySelector("#cocal-now").addEventListener("click", () => { COCAL_YM = new Date().toISOString().slice(0, 7); redraw(); });
+  v.querySelector("#cocal-hidedone").addEventListener("change", e => {
+    COCAL_HIDE_DONE = e.target.checked;
+    try { localStorage.setItem("cocal_hidedone", COCAL_HIDE_DONE ? "1" : "0"); } catch (err) {}
+    redraw();
+  });
   v.querySelectorAll("[data-copen]").forEach(el => el.addEventListener("click", () => { if (typeof erpOpenCO === "function") erpOpenCO(el.dataset.copen); }));
 }
