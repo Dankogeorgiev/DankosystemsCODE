@@ -241,9 +241,9 @@ function erpReqTable(rows) {
         <tr class="${r.shortage > 0 ? "erp-below" : ""}">
           <td data-label="Суровина">${escapeHtml(r.name || "")}</td>
           <td data-label="Мярка">${escapeHtml(r.unit)}</td>
-          <td class="num" data-label="Нужно">${erpNum(r.required)}</td>
+          <td class="num" data-label="Нужно">${erpNum(r.required)}${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.required, r.unit, r.material_id) : ""}</td>
           <td class="num" data-label="Налично">${erpNum(r.available)}</td>
-          <td class="num" data-label="Недостиг">${r.shortage > 0 ? `<span class="erp-warn">${erpNum(r.shortage)} ⚠</span>` : "0"}</td>
+          <td class="num" data-label="Недостиг">${r.shortage > 0 ? `<span class="erp-warn">${erpNum(r.shortage)} ⚠</span>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.shortage, r.unit, r.material_id) : ""}` : "0"}</td>
         </tr>`).join("")}</tbody>
     </table>
     ${shortCount ? `<p class="hint">Редовете с недостиг са за поръчка към доставчик.</p>` : `<p class="hint">Складът покрива цялото производство. ✅</p>`}`;
