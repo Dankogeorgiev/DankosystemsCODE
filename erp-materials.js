@@ -30,7 +30,7 @@ async function erpSaveMatKg() {
 
 function erpRenderMaterials() {
   const v = erpView();
-  // „В производство" / „Свободно": мапът се зарежда тихо (кеш 60 сек) и
+  // „В производство“ / „Свободно“: мапът се зарежда тихо (кеш 60 сек) и
   // екранът се пре-рисува веднъж, щом дойде.
   const inProd = (typeof ERP !== "undefined" && ERP.inProdByMat) || null;
   if (typeof erpMatInProdMap === "function" && !ERP._inProdLoading
