@@ -30,6 +30,15 @@ async function erpSaveMatKg() {
 
 function erpRenderMaterials() {
   const v = erpView();
+  // „В производство" / „Свободно": мапът се зарежда тихо (кеш 60 сек) и
+  // екранът се пре-рисува веднъж, щом дойде.
+  const inProd = (typeof ERP !== "undefined" && ERP.inProdByMat) || null;
+  if (typeof erpMatInProdMap === "function" && !ERP._inProdLoading
+      && !(ERP._inProdAt && Date.now() - ERP._inProdAt < 60000)) {
+    ERP._inProdLoading = true;
+    erpMatInProdMap().then(() => { ERP._inProdLoading = false; if (ERP.tab === "materials") erpRenderMaterials(); })
+      .catch(() => { ERP._inProdLoading = false; });
+  }
   const q = erpMatSearch.trim().toLowerCase();
   let rows = ERP.materials.slice();
   if (q) rows = rows.filter(m =>
@@ -73,7 +82,7 @@ function erpRenderMaterials() {
     <table class="report-table erp-table">
       <thead>
         <tr><th>Код</th><th>Име</th><th>Група</th><th>Вид</th>
-            <th class="num">Наличност</th><th>Мярка</th><th class="num">В кг</th><th class="num">Минимум</th>
+            <th class="num">Наличност</th><th class="num" title="Запазено от пуснатите в производство поръчки — оставащото за рязане по заявките">В произв.</th><th class="num" title="Наличност − в производство: с това количество реално разполагаме за нови поръчки">Свободно</th><th>Мярка</th><th class="num">В кг</th><th class="num">Минимум</th>
             <th class="num cost-cell">Ср. цена</th><th></th></tr>
       </thead>
       <tbody>
@@ -84,6 +93,8 @@ function erpRenderMaterials() {
             <td data-label="Група" class="erp-clickable" data-grp="${escapeAttr((m.group_name || "").trim() || "«без»")}" title="Клик: показва само тази група">${escapeHtml(m.group_name || "")}</td>
             <td data-label="Вид">${m.is_purchased ? "Покупни" : "Метал"}</td>
             <td class="num" data-label="Наличност">${erpNum(m.stock)}${m.below_min ? " ⚠" : ""}</td>
+            <td class="num" data-label="В произв.">${(() => { const ip = inProd ? (Number(inProd[m.id]) || 0) : null; return ip === null ? '<span class="erp-muted">…</span>' : (ip ? erpNum(Math.round(ip * 1000) / 1000) : '<span class="erp-muted">0</span>'); })()}</td>
+            <td class="num" data-label="Свободно">${(() => { if (!inProd) return '<span class="erp-muted">…</span>'; const free = Math.round(((Number(m.stock) || 0) - (Number(inProd[m.id]) || 0)) * 1000) / 1000; return `<b${free < 0 ? ' class="erp-warn"' : ""}>${erpNum(free)}</b>${free < 0 ? " ⚠" : ""}`; })()}</td>
             <td data-label="Мярка">${escapeHtml(m.unit || "")}</td>
             <td class="num erp-kg-cell" data-label="В кг">${kg == null ? `<button class="btn btn-small erp-mat-setkg" data-setkg="${m.id}" title="Задай тегло на 1 мярка, за да се смята в кг">задай тегло</button>` : `<strong>${erpNum(kg)}</strong> кг`}</td>
             <td class="num" data-label="Минимум">${erpNum(m.min_stock)}</td>
@@ -95,8 +106,8 @@ function erpRenderMaterials() {
               <button class="btn btn-small" data-edit="${m.id}">✎</button>
             </td>
           </tr>`; }).join("") ||
-          `<tr><td colspan="10" class="report-empty">Няма материали. Импортирай рецепти или добави ръчно.</td></tr>`}
-        ${capped ? `<tr><td colspan="10" class="report-empty">Показани са първите ${rows.length} от ${totalRows} — пиши в търсачката, за да стесниш.</td></tr>` : ""}
+          `<tr><td colspan="12" class="report-empty">Няма материали. Импортирай рецепти или добави ръчно.</td></tr>`}
+        ${capped ? `<tr><td colspan="12" class="report-empty">Показани са първите ${rows.length} от ${totalRows} — пиши в търсачката, за да стесниш.</td></tr>` : ""}
       </tbody>
     </table>`;
 

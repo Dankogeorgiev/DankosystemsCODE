@@ -1420,12 +1420,13 @@ function matreqRenderBreakdown(box) {
     if (opts.length === 1) { sel.value = opts[0].value; MATREQ_BD.id = opts[0].value; }
   });
   sel.addEventListener("change", () => { MATREQ_BD.id = sel.value || null; });
-  box.querySelector("#mb-go").addEventListener("click", () => {
+  box.querySelector("#mb-go").addEventListener("click", async () => {
     const out = box.querySelector("#mb-out");
     const id = sel.value || MATREQ_BD.id;
     if (!id) { out.innerHTML = `<p class="erp-warn">Първо избери заявка (търси по № или клиент).</p>`; return; }
     const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(id));
     if (!o) { out.innerHTML = `<p class="erp-warn">Заявката не се намери — натисни „↻ Обнови".</p>`; return; }
+    try { if (typeof erpMatInProdMap === "function") await erpMatInProdMap(); } catch (e) {}
     const r = erpReqBuildOrder(o);
     MATREQ_BD.out = r.head + (r.rows.length ? erpReqTable(r.rows) : `<p class="report-empty">Нищо за смятане — заявката няма продуктови редове с рецепти.</p>`);
     out.innerHTML = MATREQ_BD.out;

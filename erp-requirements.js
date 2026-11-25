@@ -105,6 +105,7 @@ async function erpComputeRequirements() {
 
   erpReqBusy = true;
   document.getElementById("erp-req-result").innerHTML = `<p class="erp-loading">Изчисляване…</p>`;
+  try { if (typeof erpMatInProdMap === "function") await erpMatInProdMap(); } catch (e) {}
   const { data, error } = await sb.rpc("bom_requirements", { p_id: erpReqProdId, p_qty: erpReqQty });
   erpReqBusy = false;
   if (error) { document.getElementById("erp-req-result").innerHTML = `<p class="erp-warn">${escapeHtml(error.message)}</p>`; return; }
@@ -170,6 +171,7 @@ async function erpComputeOrderRequirements() {
   erpReqBusy = true;
   out.innerHTML = `<p class="erp-loading">Изчисляване по заявката…</p>`;
   try {
+    if (typeof erpMatInProdMap === "function") { try { await erpMatInProdMap(); } catch (e) {} }
     if (typeof erpLoadCustomerOrders === "function" && (typeof erpCOList === "undefined" || !erpCOList)) await erpLoadCustomerOrders();
     const o = ((typeof erpCOList !== "undefined" && erpCOList) || []).find(x => String(x.id) === String(erpReqOrderId));
     if (!o) { out.innerHTML = `<p class="erp-warn">Заявката не се намери — опресни екрана.</p>`; return; }
@@ -221,12 +223,19 @@ async function erpReqOrderDialog() {
 
 function erpReqTable(rows) {
   if (!rows.length) return `<p class="report-empty">Няма суровини за този продукт (възможно е да няма рецепта).</p>`;
+  // „В производство" = запазеното от ПУСНАТИТЕ поръчки (erpMatInProdMap, кеш 60с).
+  // НЕДОСТИГЪТ се смята от СВОБОДНОТО (наличност − в производство), не от
+  // наличността — Данко, 25.11.2026: материал, който вече се ползва за
+  // производство, не се брои за наличен.
+  const inProd = (typeof ERP !== "undefined" && ERP.inProdByMat) || {};
   const enriched = rows.map(r => {
     const m = ERP.matById[r.material_id] || {};
     const available = Number(m.stock) || 0;
+    const reserved = Math.round((Number(inProd[r.material_id]) || 0) * 1000) / 1000;
+    const free = Math.round((available - reserved) * 1000) / 1000;
     const required = Number(r.required) || 0;
-    const shortage = Math.max(0, required - available);
-    return { ...r, available, required, shortage, unit: r.unit || m.unit || "" };
+    const shortage = Math.max(0, required - Math.max(0, free));
+    return { ...r, available, reserved, free, required, shortage, unit: r.unit || m.unit || "" };
   }).sort((a, b) => b.shortage - a.shortage || (a.name || "").localeCompare(b.name || "", "bg"));
 
   const shortCount = enriched.filter(r => r.shortage > 0).length;
@@ -236,15 +245,17 @@ function erpReqTable(rows) {
       <span class="erp-count">${enriched.length} суровини${shortCount ? ` · <span class="erp-warn">${shortCount} за поръчка</span>` : ""}</span>
     </div>
     <table class="report-table erp-table">
-      <thead><tr><th>Суровина</th><th>Мярка</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num">Недостиг</th></tr></thead>
+      <thead><tr><th>Суровина</th><th>Мярка</th><th class="num">Нужно</th><th class="num">Налично</th><th class="num" title="Запазено от пуснатите в производство поръчки (оставащото за рязане)">В произв.</th><th class="num" title="Наличност − в производство: с това реално разполагаме">Свободно</th><th class="num" title="Нужното срещу СВОБОДНОТО количество">Недостиг</th></tr></thead>
       <tbody>${enriched.map(r => `
         <tr class="${r.shortage > 0 ? "erp-below" : ""}">
           <td data-label="Суровина">${escapeHtml(r.name || "")}</td>
           <td data-label="Мярка">${escapeHtml(r.unit)}</td>
           <td class="num" data-label="Нужно">${erpNum(r.required)}${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.required, r.unit, r.material_id) : ""}</td>
           <td class="num" data-label="Налично">${erpNum(r.available)}</td>
+          <td class="num" data-label="В произв.">${r.reserved ? erpNum(r.reserved) : '<span class="erp-muted">0</span>'}</td>
+          <td class="num" data-label="Свободно"><b${r.free < 0 ? ' class="erp-warn"' : ""}>${erpNum(r.free)}</b></td>
           <td class="num" data-label="Недостиг">${r.shortage > 0 ? `<span class="erp-warn">${erpNum(r.shortage)} ⚠</span>${typeof matreqMetalGuessHtml === "function" ? matreqMetalGuessHtml(r.name, r.shortage, r.unit, r.material_id) : ""}` : "0"}</td>
         </tr>`).join("")}</tbody>
     </table>
-    ${shortCount ? `<p class="hint">Редовете с недостиг са за поръчка към доставчик.</p>` : `<p class="hint">Складът покрива цялото производство. ✅</p>`}`;
+    ${shortCount ? `<p class="hint">Недостигът е спрямо <b>свободното</b> (наличност − запазено от пуснатите в производство) — редовете с недостиг са за поръчка към доставчик.</p>` : `<p class="hint">Свободният склад (след запазеното за производство) покрива всичко. ✅</p>`}`;
 }

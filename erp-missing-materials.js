@@ -40,6 +40,28 @@ async function mmHiddenSave() {
   } catch (e) { alert("Не успях да запиша скритите: " + (e.message || e)); return false; }
 }
 
+/* „В ПРОИЗВОДСТВО" по материал (Данко, 25.11.2026): колко от всеки материал е
+   запазено от ПУСНАТИТЕ в производство поръчки — оставащото за рязане × материал
+   за 1 бр. (същата сметка като Липсващите). СВОБОДНО = наличност − в производство.
+   Кеш 60 сек в ERP.inProdByMat — ползват го Склад материали и Разбивката. */
+async function erpMatInProdMap(force) {
+  const now = Date.now();
+  if (!force && ERP.inProdByMat && ERP._inProdAt && now - ERP._inProdAt < 60000) return ERP.inProdByMat;
+  const map = {};
+  try {
+    const tk = await erpSelectAll("tasks", "data", "data->source->>flow", "true");
+    (tk.data || []).forEach(r => {
+      const src = r.data && r.data.source;
+      if (!src || !Array.isArray(src.materials) || !src.materials.length) return;
+      const remaining = Math.max(0, (Number(r.data.qty) || 0) - (Number(r.data.produced) || 0));
+      if (remaining <= 0) return;
+      src.materials.forEach(mm => { const mid = Number(mm.mid) || 0; if (!mid) return; map[mid] = (map[mid] || 0) + (Number(mm.per) || 0) * remaining; });
+    });
+    ERP.inProdByMat = map; ERP._inProdAt = now;
+  } catch (e) { ERP.inProdByMat = ERP.inProdByMat || {}; }
+  return ERP.inProdByMat;
+}
+
 async function erpMissingMatCount() {
   try {
     if (typeof erpEnsureLoaded === "function") await erpEnsureLoaded();
