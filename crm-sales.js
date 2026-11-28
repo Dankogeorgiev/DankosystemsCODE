@@ -17,7 +17,7 @@ const CRMS = { tab: "home", filters: {}, pollTimer: null, searchMode: "full" };
 const CRM_TABS = [
   ["home", "🏠 Начало"], ["companies", "🏢 Компании"], ["pipeline", "📊 Пайплайн"],
   ["search", "🔍 Ново търсене"], ["outreach", "✉ Outreach"], ["tasks", "⚑ Задачи"],
-  ["reports", "📈 Отчети"], ["settings", "⚙ Настройки"],
+  ["reports", "📈 Отчети"], ["dev", "📊 Development"], ["settings", "⚙ Настройки"],
 ];
 
 const CRM_ST_BG = {
@@ -73,6 +73,7 @@ async function crmRender() {
     else if (CRMS.tab === "outreach") await crmOutreach(v);
     else if (CRMS.tab === "tasks") await crmTasks(v);
     else if (CRMS.tab === "reports") await crmReports(v);
+    else if (CRMS.tab === "dev") await crmDevelopment(v);
     else if (CRMS.tab === "settings") await crmSettings(v);
   } catch (e) {
     v.innerHTML = `<div class="erp-error"><h3>Грешка</h3><p>${escapeHtml(e.message || String(e))}</p>
@@ -558,3 +559,86 @@ function crmInit() {
   if (c) c.addEventListener("click", closeCrm);
 }
 document.addEventListener("DOMContentLoaded", crmInit);
+
+/* ---------- 📊 BUSINESS DEVELOPMENT — тенденции и нови ниши (Данко, 28.11.2026) ----------
+   Преобразяването на агента по идеята на Данко: не „търси клиенти и стреляй
+   с имейли", а ОТКРИВАЙ възможности, АНАЛИЗИРАЙ тенденции, ПРЕДВИЖДАЙ търсене
+   и предлагай нови направления. Етап А: AI анализ (Claude през assistant
+   функцията) върху НАШИТЕ данни от Системата (фактури 24 мес. — държави,
+   клиенти, изделия) + общите му познания. Етап Б (бъдещ): живи сигнали от
+   n8n — обяви, тендери, браншови новини. */
+
+// Нашите продажби за 24 месеца, сгъстени за анализ: държави, клиенти
+// (последни 12 срещу предишни 12 — кой расте, кой гасне), топ изделия.
+async function crmDevData() {
+  try { if (typeof erpInvoices !== "undefined" && !erpInvoices && typeof erpLoadInvoices === "function") await erpLoadInvoices(); } catch (e) {}
+  const num = x => Number(String(x == null ? "" : x).replace(",", ".")) || 0;
+  const all = ((typeof erpInvoices !== "undefined" && erpInvoices) || [])
+    .filter(o => (o.kind || "invoice") === "invoice" && !o.refInvoice);   // без проформи и без кредитни
+  const since = new Date(); since.setMonth(since.getMonth() - 24);
+  const half = new Date(); half.setMonth(half.getMonth() - 12);
+  const sIso = since.toISOString().slice(0, 10), hIso = half.toISOString().slice(0, 10);
+  const tot = o => (o.lines || []).reduce((s, l) => s + num(l.qty) * num(l.unitPrice), 0);
+  const byCountry = {}, byClient = {}, byProd = {};
+  all.forEach(o => {
+    const d = String(o.issueDate || o.taxDate || "");
+    if (d < sIso) return;
+    const v = tot(o); if (!v) return;
+    const c = ((o.client && o.client.country) || "BG").toUpperCase();
+    byCountry[c] = (byCountry[c] || 0) + v;
+    const cl = (o.client && o.client.name) || "—";
+    const r = byClient[cl] = byClient[cl] || { old: 0, recent: 0, country: c };
+    if (d >= hIso) r.recent += v; else r.old += v;
+    (o.lines || []).forEach(l => {
+      const k = String(l.name || l.code || "").trim().slice(0, 44);
+      if (k) byProd[k] = (byProd[k] || 0) + num(l.qty) * num(l.unitPrice);
+    });
+  });
+  const r0 = n => Math.round(n).toLocaleString("bg-BG");
+  const top = (obj, n, f) => Object.entries(obj).sort((a, b) => f(b[1]) - f(a[1])).slice(0, n);
+  return [
+    "НАШИ ДАННИ (фактури, EUR без ДДС, последните 24 месеца):",
+    "• По държави: " + top(byCountry, 12, x => x).map(([c, v]) => `${c} ${r0(v)}`).join(" · "),
+    "• Клиенти (посл. 12 мес. / предишните 12): " + top(byClient, 18, x => x.recent + x.old)
+      .map(([n2, r]) => `${n2} [${r.country}] ${r0(r.recent)}/${r0(r.old)}`).join(" · "),
+    "• Топ изделия: " + top(byProd, 25, x => x).map(([n2, v]) => `${n2} ${r0(v)}`).join(" · "),
+  ].join("\n");
+}
+
+async function crmDevelopment(v) {
+  v.innerHTML = `
+    <h3 style="margin:0 0 4px">📊 Business Development — тенденции и нови ниши</h3>
+    <p class="hint" style="margin:0 0 10px">Другото лице на агента: не „намери клиенти и прати имейли", а
+      <b>открива пазарни възможности</b>, <b>анализира тенденции</b>, търси <b>високодоходни приложения
+      на капацитета</b> (лазер, абкант, заваряване, прахово боядисване), <b>предвижда бъдещо търсене</b>
+      и предлага <b>нови направления</b>. Стъпва на нашите продажби от Системата (24 месеца) +
+      познанията на Claude. Живите сигнали (обяви, тендери, новини) идват на Етап Б през n8n.</p>
+    <div class="erp-toolbar" style="margin:0 0 8px">
+      <button class="btn btn-primary" id="crmdev-go">🧠 Направи анализ</button>
+      <span class="erp-muted" id="crmdev-st"></span>
+    </div>
+    <div id="crmdev-box"></div>`;
+  v.querySelector("#crmdev-go").addEventListener("click", async () => {
+    const st = v.querySelector("#crmdev-st"), box = v.querySelector("#crmdev-box");
+    st.textContent = "Събирам данните от Системата…";
+    let data = "";
+    try { data = await crmDevData(); } catch (e) { st.textContent = "⚠ " + (e.message || e); return; }
+    st.textContent = "";
+    const system = `Ти си BUSINESS DEVELOPMENT анализаторът на „Данко Системс" — българска металообработваща фирма в Пловдив. Машини и процеси: лазерно рязане на ламарина и тръби, огъване (абкант), щанцоване, заваряване (вкл. серийни заварени възли), прахово боядисване, монтаж. Основно производство: механизми за мебели (дивани/легла), метални рамки, конзоли, серийни детайли за европейски производители. Разговаряш с Данко (собственика), НА БЪЛГАРСКИ, без жаргон, конкретно.
+
+ЗАДАЧАТА ТИ НЕ Е да търсиш списъци с клиенти за студени имейли. Твоята работа е:
+1) ОТКРИВАЙ пазарни възможности; 2) АНАЛИЗИРАЙ тенденции в европейската лека металообработка и крайните пазари (мебели, машиностроене, агро, е-мобилност, строителен хардуер…); 3) търси ВИСОКОДОХОДНИ приложения на капацитета ни; 4) ПРЕДВИЖДАЙ бъдещото търсене (12–24 мес.); 5) предлагай НОВИ НАПРАВЛЕНИЯ за развитие. Успехът се мери в качествени бизнес възможности, не в брой leads.
+
+СТРУКТУРА на доклада:
+📌 Какво казват нашите данни — концентрации, зависимости, рискове (с числата);
+📈 Тенденции — 3–5, приложими за нашите процеси, и защо;
+🎯 Нови ниши — 3–5: за всяка: защо СЕГА, какво точно предлагаме с наличните машини, очаквана доходност спрямо сегашното, какво ни липсва (сертификат/машина/умение), първа стъпка;
+🔮 Предвиждане за 12–24 месеца;
+⚠ Какво да НЕ правим;
+✅ Три конкретни първи стъпки за следващия месец.
+
+ЧЕСТНОСТ: стъпваш на данните на фирмата + общите си познания, БЕЗ живо търсене в интернет — когато нещо е предположение, казвай го. После отговаряй на уточненията на Данко и преработвай анализа според тях.`;
+    if (typeof puaChatMount === "function") puaChatMount(box, system, data, 8000);
+    else box.innerHTML = `<p class="erp-warn">AI модулът (erp-pu-analysis.js) не е зареден — презареди (F5).</p>`;
+  });
+}
