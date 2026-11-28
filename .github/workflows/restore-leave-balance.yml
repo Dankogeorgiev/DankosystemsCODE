@@ -1,0 +1,162 @@
+name: Връщане на „Оставащи отпуски" от резервно копие
+
+# ХИРУРГИЧЕСКО възстановяване: връща САМО реда app_config id='leave_balance'
+# (таблицата „Оставащи отпуски" в Служители) от нощното криптирано копие.
+# Нищо друго в базата не се пипа.
+#
+# ЗАЩО Е ТУК: копията са заключени с BACKUP_PASSPHRASE, а паролата живее само
+# в секретите на хранилището (и при Данко). Този workflow дешифрира копието
+# НА МАШИНАТА на GitHub и пише направо в базата — паролата не минава през чат,
+# а в публичния лог излизат само БРОЙКИ и ДАТИ, никакви имена.
+#
+# ПРЕДПАЗИТЕЛ: преди записа текущото (сгрешеното) съдържание се пази в ред
+# app_config id='leave_balance_pre_restore' — връщането може да се отмени.
+#
+# КАК СЕ ПУСКА: Actions → този workflow → Run workflow.
+#   • копие:  'auto' избира най-новото копие, правено ПРЕДИ последната промяна
+#             на реда (т.е. отпреди грешния импорт); или дата ГГГГ-ММ-ДД.
+#   • запис:  без отметка = само ПРОВЕРКА (показва какво би върнал, не пише).
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_date:
+        description: "Кое копие: 'auto' или дата ГГГГ-ММ-ДД"
+        default: "auto"
+      apply:
+        description: "Да ЗАПИША ли наистина в базата? (без отметка = само проверка)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    env:
+      DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DB_PASS: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+      GH_TOKEN: ${{ github.token }}
+      INPUT_DATE: ${{ github.event.inputs.backup_date }}
+      INPUT_APPLY: ${{ github.event.inputs.apply }}
+    steps:
+      - name: Проверка на настройките и връзката
+        run: |
+          set -euo pipefail
+          [ -n "$DB_URL" ] || { echo "::error::Липсва secret SUPABASE_DB_URL."; exit 1; }
+          [ -n "$PASS" ]   || { echo "::error::Липсва secret BACKUP_PASSPHRASE."; exit 1; }
+          URL="$(printf '%s' "$DB_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          rest="${URL#*://}"; userinfo="${rest%%@*}"; hostpart="${rest#*@}"
+          user="${userinfo%%:*}"; hostport="${hostpart%%/*}"
+          host="${hostport%%:*}"; port="${hostport#*:}"
+          if [ "$port" = "$host" ]; then port=5432; fi
+          case "$hostpart" in
+            */*) dbname="${hostpart#*/}"; dbname="${dbname%%\?*}";;
+            *)   dbname="";;
+          esac
+          if [ -z "$dbname" ]; then dbname=postgres; fi
+          echo "Връзка: потребител=$user · хост=$host:$port"
+          { echo "PGHOST_=$host"; echo "PGPORT_=$port"; echo "PGUSER_=$user"; echo "PGDB_=$dbname"; } >> $GITHUB_ENV
+
+      - name: Кога е пипан редът за последно (= кога е станала грешката)
+        run: |
+          set -euo pipefail
+          run_psql() {
+            if [ -n "${DB_PASS:-}" ]; then
+              docker run --rm -v "$PWD:/w" -w /w -e PGPASSWORD="$DB_PASS" postgres:17-alpine \
+                psql -h "$PGHOST_" -p "$PGPORT_" -U "$PGUSER_" -d "$PGDB_" "$@"
+            else
+              URL="$(printf '%s' "$DB_URL" | tr -d '\r\n')"
+              docker run --rm -v "$PWD:/w" -w /w postgres:17-alpine psql "$URL" "$@"
+            fi
+          }
+          # Запазваме функцията за следващите стъпки.
+          declare -f run_psql > psql_fn.sh
+          CUR_EPOCH=$(run_psql -At -c "select coalesce(extract(epoch from updated_at)::bigint, 0) from app_config where id='leave_balance'")
+          CUR_HUMAN=$(run_psql -At -c "select coalesce(to_char(updated_at at time zone 'Europe/Sofia', 'YYYY-MM-DD HH24:MI'), 'няма') from app_config where id='leave_balance'")
+          CUR_CNT=$(run_psql -At -c "select coalesce(jsonb_array_length(data->'list'), 0) from app_config where id='leave_balance'")
+          echo "Сега в базата: $CUR_CNT служители · последна промяна: $CUR_HUMAN (бълг. време)"
+          { echo "CUR_EPOCH=$CUR_EPOCH"; echo "CUR_CNT=$CUR_CNT"; echo "CUR_HUMAN=$CUR_HUMAN"; } >> $GITHUB_ENV
+
+      - name: Избор и сваляне на копието
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" > arts.json
+          if [ "$INPUT_DATE" = "auto" ]; then
+            # Най-новото копие, правено ПРЕДИ последната промяна на реда.
+            pick=$(jq -r --argjson cur "$CUR_EPOCH" '
+              [.artifacts[]
+               | select(.name | startswith("supabase-backup-"))
+               | select(.expired | not)
+               | {id, name, created_at, ep: (.created_at | fromdateiso8601)}
+               | select(.ep < $cur)]
+              | sort_by(.ep) | last
+              | if . == null then "" else "\(.id)\t\(.name)\t\(.created_at)" end' arts.json)
+          else
+            pick=$(jq -r --arg n "supabase-backup-$INPUT_DATE" '
+              [.artifacts[]
+               | select(.name == $n or .name == ($n + "-full"))
+               | select(.expired | not)]
+              | sort_by(.created_at) | last
+              | if . == null then "" else "\(.id)\t\(.name)\t\(.created_at)" end' arts.json)
+          fi
+          [ -n "$pick" ] || { echo "::error::Не намерих подходящо копие (вход: $INPUT_DATE, промяна: $CUR_HUMAN)."; exit 1; }
+          AID=$(printf '%s' "$pick" | cut -f1)
+          ANAME=$(printf '%s' "$pick" | cut -f2)
+          AAT=$(printf '%s' "$pick" | cut -f3)
+          echo "Избрано копие: $ANAME (правено $AAT)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$AID/zip" > art.zip
+          unzip -o art.zip
+          ls -lh supabase-*.tar.gpg
+          echo "ANAME=$ANAME" >> $GITHUB_ENV
+
+      - name: Отключване и изваждане на реда
+        run: |
+          set -euo pipefail
+          GPGF=$(ls supabase-*.tar.gpg | head -1)
+          gpg --batch --yes --passphrase "$PASS" --decrypt --output backup.tar "$GPGF"
+          tar -xf backup.tar
+          DUMP=$(ls supabase-*.dump | head -1)
+          docker run --rm -v "$PWD:/w" -w /w postgres:17-alpine \
+            pg_restore --data-only -t app_config -f /w/appcfg.sql "/w/$DUMP"
+          # Само COPY-блокът на app_config, пренасочен към временна таблица.
+          awk '/^COPY public\.app_config /{f=1} f{print} f && /^\\\.$/{exit}' appcfg.sql > block.sql
+          sed -i 's/^COPY public\.app_config /COPY r /' block.sql
+          grep -q '^COPY r ' block.sql || { echo "::error::В копието няма таблица app_config."; exit 1; }
+          lines=$(wc -l < block.sql)
+          echo "COPY-блок: $lines реда (всички редове на app_config, ще ползваме само leave_balance)"
+          # Личните данни не напускат машината.
+          rm -f backup.tar "$GPGF" appcfg.sql supabase-*.dump supabase-*.sql art.zip
+
+      - name: Проверка / запис
+        run: |
+          set -euo pipefail
+          . psql_fn.sh
+          {
+            echo "\\set ON_ERROR_STOP on"
+            echo "BEGIN;"
+            echo "CREATE TEMP TABLE r (LIKE public.app_config);"
+            echo "\\i block.sql"
+            echo "DO \$\$ BEGIN"
+            echo "  IF NOT EXISTS (SELECT 1 FROM r WHERE id='leave_balance') THEN"
+            echo "    RAISE EXCEPTION 'В копието няма ред leave_balance';"
+            echo "  END IF;"
+            echo "END \$\$;"
+            echo "SELECT 'В копието: ' || jsonb_array_length(data->'list') || ' служители (а сега в базата: ' || '$CUR_CNT' || ')' AS info FROM r WHERE id='leave_balance';"
+            if [ "$INPUT_APPLY" = "true" ]; then
+              echo "INSERT INTO public.app_config (id, data, updated_at)"
+              echo "  SELECT 'leave_balance_pre_restore', data, now() FROM public.app_config WHERE id='leave_balance'"
+              echo "  ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now();"
+              echo "UPDATE public.app_config a SET data = r.data, updated_at = now() FROM r WHERE a.id='leave_balance' AND r.id='leave_balance';"
+              echo "SELECT 'ЗАПИСАНО: върнати ' || jsonb_array_length(data->'list') || ' служители; старото е в leave_balance_pre_restore' AS done FROM public.app_config WHERE id='leave_balance';"
+              echo "COMMIT;"
+            else
+              echo "SELECT 'САМО ПРОВЕРКА - нищо не е записано. Пусни пак с отметката за запис.' AS note;"
+              echo "ROLLBACK;"
+            fi
+          } > run.sql
+          run_psql -f run.sql
+          rm -f block.sql run.sql
